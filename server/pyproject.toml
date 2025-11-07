@@ -1,0 +1,23 @@
+[project]
+name = "mangarr"
+version = "2.0.0"
+description = "Service that automatically discovers, tracks, and manages manga collections."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiosqlite>=0.21.0",
+    "alembic>=1.17.1",
+    "fastapi[standard-no-fastapi-cloud-cli]>=0.121.0",
+    "httpx>=0.28.1",
+    "loguru>=0.7.3",
+    "pydantic>=2.12.4",
+    "pydantic-settings>=2.11.0",
+]
+
+[dependency-groups]
+dev = [
+    "pip-audit>=2.9.0",
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+    "ruff>=0.14.3",
+]
