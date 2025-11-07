@@ -1,0 +1,30 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn app.main:app --host 0.0.0.0 --port 3000 --reload
+    environment:
+      - MANGARR__SERVER__PORT=3000
+    ports:
+      - 3000:3000
+    volumes:
+      - ./server:/app/server
+      - ./config:/app/config
+      - ./data:/app/data
+
+  web:
+    image: node:20-alpine
+    working_dir: /app/web
+    command: >
+      sh -c "corepack enable pnpm && pnpm install && pnpm run dev --host 0.0.0.0 --port 5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:3000
+    ports:
+      - 5173:5173
+    volumes:
+      - ./web:/app/web
+      - ./web/node_modules:/app/web/node_modules
+
+volumes:
+  web_node_modules:

@@ -1,11 +1,15 @@
 SERVER_PORT := $(shell cd server && uv run python -c "from app.config import settings; print(settings.server.port)")
 STATIC_DIR := server/app/static
 
-.PHONY: help install dev-server dev-web dev test lint lint-server lint-web format format-server format-web audit audit-server audit-web clean
+.PHONY: help docker install dev-server dev-web dev test lint lint-server lint-web format format-server format-web audit audit-server audit-web clean
 
 help:  ## Show available commands
 	@echo "Available commands:"
 	@awk 'BEGIN {FS = ":.*## "}; /^[a-zA-Z0-9_-]+:.*## / {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+docker: ## Start production stack with Docker Compose
+	@echo "Starting docker compose stack..."
+	docker compose up --build
 
 install: ## Install development dependencies
 	@echo "Installing development  dependencies..."
