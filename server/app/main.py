@@ -1,16 +1,51 @@
+from contextlib import asynccontextmanager
+from time import time
+
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger as loguru_logger
 
 from app.config import settings
-from app.features.health import health_router
+from app.core.logging import setup_logger
 from app.features.web import web_router
+from app.features.health import health_router
+
+setup_logger()
+logger = loguru_logger.bind(module="fastapi")
 
 
-app = FastAPI(title=settings.app.project_name, version=settings.app.version)
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    logger.info(
+        f"Starting {settings.app.project_name} - Version {settings.app.version}"
+    )
+    yield
+
+
+app = FastAPI(
+    title=settings.app.project_name,
+    version=settings.app.version,
+    lifespan=lifespan,
+)
 
 app.include_router(health_router)
 app.include_router(web_router)
+
+if settings.log.access:
+
+    @app.middleware("http")
+    async def log_requests(request: Request, call_next):
+        start_time = time()
+        response = await call_next(request)
+        host = request.client.host if request.client else "unknown"
+        process_time = (time() - start_time) * 1000
+        logger.bind(access=True).info(
+            f"{host} | {request.method} {request.url.path} "
+            f"→ {response.status_code} ({process_time:.2f}ms)"
+        )
+        return response
+
 
 app.add_middleware(
     CORSMiddleware,

@@ -1,6 +1,6 @@
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from loguru import logger
@@ -28,6 +28,7 @@ class AppConfig(BaseSettings):
     project_name: str = "Mangarr"
     version: str = "2.0.0"
     config_dir: Path = APP_DIR.parent.parent / "config"
+    log_dir: Path = config_dir / "log"
     static_root: Path = APP_DIR / "static"
     cors_allow_origins: list[str] = Field(default_factory=lambda: ["*"])
     cors_allow_origin_regex: str | None = None
@@ -37,6 +38,11 @@ class AppConfig(BaseSettings):
 
     @field_validator("config_dir")
     def ensure_config_dir(cls, v: Path):
+        v.mkdir(parents=True, exist_ok=True)
+        return v
+
+    @field_validator("log_dir")
+    def ensure_log_dir(cls, v: Path):
         v.mkdir(parents=True, exist_ok=True)
         return v
 
@@ -69,8 +75,11 @@ class ServerConfig(BaseSettings):
 class LogConfig(BaseSettings):
     """Logs related configuration"""
 
-    level: str = "INFO"
-    sql: bool = False
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    rotation: str = "10 MB"  # bytes or time to automatically rotate
+    retention: str | None = "14 days"  # optional cleanup policy
+    access: bool = False  # access logs from middleware
+    sql: bool = False  # log SQL queries sent to the database
     model_config: Any = SettingsConfigDict(extra="ignore")
 
 
