@@ -1,55 +1,47 @@
-from collections.abc import Mapping
+import yaml
 from pathlib import Path
 from typing import Any, Literal
-
-import yaml
-from loguru import logger
-from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-def deep_merge(base: Mapping[str, Any], overrides: Mapping[str, Any]) -> dict[str, Any]:
-    """Recursively merge mappings so that values in overrides take precedence."""
-    result = dict(base)
-    for key, value in overrides.items():
-        if isinstance(value, Mapping) and isinstance(result.get(key), Mapping):
-            result[key] = deep_merge(result[key], value)
-        else:
-            result[key] = value
-    return result
+from pydantic import Field
+from pydantic_settings import (
+    BaseSettings,
+    SettingsConfigDict,
+    PydanticBaseSettingsSource,
+)
+from pydantic_settings.sources import (
+    YamlConfigSettingsSource,
+)
 
 
 APP_DIR = Path(__file__).resolve().parent
+CONFIG_DIR = APP_DIR.parents[1] / "config"
 
 
-class AppConfig(BaseSettings):
-    """Constants, that user can't change"""
+# -----------------------------------------------------
+# Shared base for all config models
+# -----------------------------------------------------
+class MangarrBaseSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        extra="ignore",
+        env_nested_delimiter="__",
+        env_prefix="MANGARR__",
+    )
 
+
+# -----------------------------------------------------
+# Submodels
+# -----------------------------------------------------
+class AppConfig(MangarrBaseSettings):
     project_name: str = "Mangarr"
     version: str = "2.0.0"
-    config_dir: Path = APP_DIR.parent.parent / "config"
-    log_dir: Path = config_dir / "log"
+    config_dir: Path = CONFIG_DIR
+    log_dir: Path = CONFIG_DIR / "log"
     static_root: Path = APP_DIR / "static"
+
     cors_allow_origins: list[str] = Field(default_factory=lambda: ["*"])
     cors_allow_origin_regex: str | None = None
     cors_allow_credentials: bool = True
     cors_allow_methods: list[str] = ["*"]
     cors_allow_headers: list[str] = ["*"]
-
-    @field_validator("config_dir")
-    def ensure_config_dir(cls, v: Path):
-        v.mkdir(parents=True, exist_ok=True)
-        return v
-
-    @field_validator("log_dir")
-    def ensure_log_dir(cls, v: Path):
-        v.mkdir(parents=True, exist_ok=True)
-        return v
-
-    @field_validator("static_root")
-    def ensure_static_root(cls, v: Path):
-        v.mkdir(parents=True, exist_ok=True)
-        return v
 
     @property
     def config_path(self) -> Path:
@@ -59,38 +51,31 @@ class AppConfig(BaseSettings):
     def database_url(self) -> str:
         return f"sqlite+aiosqlite:///{self.config_dir}/mangarr.db"
 
-    model_config = SettingsConfigDict(
-        env_prefix="",
-        env_file=None,
-    )
+    model_config = SettingsConfigDict(frozen=True)
 
 
-class ServerConfig(BaseSettings):
-    """Server related configuration"""
-
-    port: int = 3000
-    model_config: Any = SettingsConfigDict(extra="ignore")
+class ServerConfig(MangarrBaseSettings):
+    host: str = "127.0.0.1"
+    port: int = 3737
 
 
-class LogConfig(BaseSettings):
-    """Logs related configuration"""
-
+class LogConfig(MangarrBaseSettings):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     rotation: str = "10 MB"  # bytes or time to automatically rotate
     retention: str | None = "14 days"  # optional cleanup policy
     access: bool = False  # access logs from middleware
     sql: bool = False  # log SQL queries sent to the database
-    model_config: Any = SettingsConfigDict(extra="ignore")
 
 
-class Settings(BaseSettings):
-    """Application configuration loaded from environment"""
-
+# -----------------------------------------------------
+# Main Settings model
+# -----------------------------------------------------
+class Settings(MangarrBaseSettings):
     app: AppConfig = AppConfig()
     server: ServerConfig = ServerConfig()
     log: LogConfig = LogConfig()
 
-    model_config: Any = SettingsConfigDict(
+    model_config = SettingsConfigDict(
         env_file="../.env",
         env_file_encoding="utf-8",
         env_prefix="MANGARR__",
@@ -98,35 +83,50 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-
-def update_config_file(settings: Settings) -> None:
-    """Persist the latest settings values into the config file when they change."""
-    config_path = settings.app.config_path
-    with open(config_path) as f:
-        current = yaml.safe_load(f) or {}
-    updated = deep_merge(current, settings.model_dump(exclude={"app"}))
-    if updated != current:
-        with open(config_path, "w") as f:
-            yaml.safe_dump(updated, f)
-        logger.info(f"Config file {config_path} updated")
-
-
-def load_settings() -> Settings:
-    """Load settings by combining defaults, env overrides, and the YAML config file."""
-    settings = Settings()
-    config_path = settings.app.config_path
-
-    if not config_path.exists():
-        with open(config_path, "w") as f:
-            yaml.safe_dump(settings.model_dump(exclude={"app"}), f)
-        logger.info(f"Created config file: {config_path}")
-    else:
-        update_config_file(settings)
-
-    with open(config_path) as f:
-        file_settings = yaml.safe_load(f) or {}
-
-    return Settings(**deep_merge(file_settings, settings.model_dump()))
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        yaml_source = YamlConfigSettingsSource(
+            settings_cls,
+            yaml_file=CONFIG_DIR / "config.yaml",
+            yaml_file_encoding="utf-8",
+        )
+        return (
+            env_settings,
+            dotenv_settings,
+            yaml_source,
+            init_settings,
+            file_secret_settings,
+        )
 
 
-settings = load_settings()
+def save_settings(settings: Settings) -> None:
+    """Persist settings back to YAML config file."""
+    path = settings.app.config_path
+    data = settings.model_dump(exclude={"app"}, mode="json")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f)
+
+
+def update_settings(settings: Settings, updates: dict[str, Any]) -> Settings:
+    """Update settings with a dictionary of new values."""
+    new_data = settings.model_dump(mode="json")
+    for key, value in updates.items():
+        if key in new_data and isinstance(value, dict):
+            # Merge nested dicts
+            new_data[key] = {**new_data[key], **value}
+        else:
+            new_data[key] = value
+    return Settings(**new_data)
+
+
+settings = Settings()
+save_settings(settings)
