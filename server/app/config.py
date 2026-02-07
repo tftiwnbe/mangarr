@@ -1,16 +1,14 @@
-import yaml
 from pathlib import Path
 from typing import Any, Literal
+
+import yaml
 from pydantic import Field
 from pydantic_settings import (
     BaseSettings,
-    SettingsConfigDict,
     PydanticBaseSettingsSource,
-)
-from pydantic_settings.sources import (
+    SettingsConfigDict,
     YamlConfigSettingsSource,
 )
-
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = APP_DIR.parents[1] / "config"
@@ -21,9 +19,11 @@ CONFIG_DIR = APP_DIR.parents[1] / "config"
 # -----------------------------------------------------
 class MangarrBaseSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        extra="ignore",
-        env_nested_delimiter="__",
+        env_file="../.env",
+        env_file_encoding="utf-8",
         env_prefix="MANGARR__",
+        env_nested_delimiter="__",
+        extra="ignore",
     )
 
 
@@ -59,6 +59,10 @@ class ServerConfig(MangarrBaseSettings):
     port: int = 3737
 
 
+class TachibridgeConfig(MangarrBaseSettings):
+    port: int = 50051
+
+
 class LogConfig(MangarrBaseSettings):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     rotation: str = "10 MB"  # bytes or time to automatically rotate
@@ -73,15 +77,8 @@ class LogConfig(MangarrBaseSettings):
 class Settings(MangarrBaseSettings):
     app: AppConfig = AppConfig()
     server: ServerConfig = ServerConfig()
+    tachibridge: TachibridgeConfig = TachibridgeConfig()
     log: LogConfig = LogConfig()
-
-    model_config = SettingsConfigDict(
-        env_file="../.env",
-        env_file_encoding="utf-8",
-        env_prefix="MANGARR__",
-        env_nested_delimiter="__",
-        extra="ignore",
-    )
 
     @classmethod
     def settings_customise_sources(
@@ -105,28 +102,20 @@ class Settings(MangarrBaseSettings):
             file_secret_settings,
         )
 
+    def save_settings(self) -> None:
+        """Persist settings back to YAML config file."""
+        path = self.app.config_path
+        data = self.model_dump(exclude={"app"}, mode="json")
 
-def save_settings(settings: Settings) -> None:
-    """Persist settings back to YAML config file."""
-    path = settings.app.config_path
-    data = settings.model_dump(exclude={"app"}, mode="json")
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f)
+        with path.open("w", encoding="utf-8") as f:
+            yaml.safe_dump(data, f)
 
 
-def update_settings(settings: Settings, updates: dict[str, Any]) -> Settings:
-    """Update settings with a dictionary of new values."""
-    new_data = settings.model_dump(mode="json")
-    for key, value in updates.items():
-        if key in new_data and isinstance(value, dict):
-            # Merge nested dicts
-            new_data[key] = {**new_data[key], **value}
-        else:
-            new_data[key] = value
-    return Settings(**new_data)
+def get_settings() -> Settings:
+    """Get the current settings instance."""
+    return Settings()
 
 
+# Initialize settings
 settings = Settings()
-save_settings(settings)
+settings.save_settings()

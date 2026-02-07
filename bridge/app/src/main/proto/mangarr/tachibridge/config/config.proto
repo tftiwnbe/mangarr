@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package mangarr.tachibridge.config;
+
+option go_package = ".";
+option java_multiple_files = true;
+option java_package = "mangarr.tachibridge.config";
+
+// Repository configuration
+
+message SetRepoUrlRequest {
+  string url = 1;
+}
+
+message SetRepoUrlResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// FlareSolverr configuration
+
+message FlareSolverrConfig {
+  bool enabled = 1;
+  string url = 2;
+  int32 timeout_seconds = 3;
+  bool response_fallback = 4;
+  optional string session_name = 5;
+  optional int32 session_ttl_minutes = 6;
+}
+
+message GetFlareSolverrConfigRequest {}
+
+message GetFlareSolverrConfigResponse {
+  FlareSolverrConfig config = 1;
+}
+
+message SetFlareSolverrConfigRequest {
+  FlareSolverrConfig config = 1;
+}
+
+message SetFlareSolverrConfigResponse {
+  bool success = 1;
+  string error = 2;
+}

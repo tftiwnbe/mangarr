@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package mangarr.tachibridge;
+
+import "mangarr/tachibridge/config/config.proto";
+import "mangarr/tachibridge/extensions/extensions.proto";
+
+option go_package = ".";
+option java_multiple_files = true;
+option java_package = "mangarr.tachibridge";
+
+service Tachibridge {
+  // Configuration
+  rpc SetRepoUrl(mangarr.tachibridge.config.SetRepoUrlRequest) returns (mangarr.tachibridge.config.SetRepoUrlResponse);
+
+  rpc GetFlareSolverrConfig(mangarr.tachibridge.config.GetFlareSolverrConfigRequest) returns (mangarr.tachibridge.config.GetFlareSolverrConfigResponse);
+
+  rpc SetFlareSolverrConfig(mangarr.tachibridge.config.SetFlareSolverrConfigRequest) returns (mangarr.tachibridge.config.SetFlareSolverrConfigResponse);
+
+  // Extension management
+  rpc InstallExtension(mangarr.tachibridge.extensions.InstallExtensionRequest) returns (mangarr.tachibridge.extensions.InstallExtensionResponse);
+
+  rpc UninstallExtension(mangarr.tachibridge.extensions.UninstallExtensionRequest) returns (mangarr.tachibridge.extensions.UninstallExtensionResponse);
+
+  rpc UpdateExtension(mangarr.tachibridge.extensions.UpdateExtensionRequest) returns (mangarr.tachibridge.extensions.InstallExtensionResponse);
+
+  rpc ListRepoExtensions(mangarr.tachibridge.extensions.ListRepoExtensionsRequest) returns (mangarr.tachibridge.extensions.ListRepoExtensionsResponse);
+
+  // Source operations (all now in extensions.proto package)
+  rpc ListSources(mangarr.tachibridge.extensions.ListSourcesRequest) returns (mangarr.tachibridge.extensions.ListSourcesResponse);
+
+  rpc SearchTitle(mangarr.tachibridge.extensions.SearchTitleRequest) returns (mangarr.tachibridge.extensions.TitlesPageResponse);
+
+  rpc GetPopularTitles(mangarr.tachibridge.extensions.GetPopularTitlesRequest) returns (mangarr.tachibridge.extensions.TitlesPageResponse);
+
+  rpc GetLatestTitles(mangarr.tachibridge.extensions.GetLatestTitlesRequest) returns (mangarr.tachibridge.extensions.TitlesPageResponse);
+
+  rpc GetTitleDetails(mangarr.tachibridge.extensions.GetTitleDetailsRequest) returns (mangarr.tachibridge.extensions.TitleResponse);
+
+  rpc GetChapterList(mangarr.tachibridge.extensions.GetChaptersListRequest) returns (mangarr.tachibridge.extensions.ChaptersListResponse);
+
+  rpc GetPageList(mangarr.tachibridge.extensions.GetPagesListRequest) returns (mangarr.tachibridge.extensions.PagesListResponse);
+
+  rpc GetFilters(mangarr.tachibridge.extensions.GetFiltersRequest) returns (mangarr.tachibridge.extensions.FiltersResponse);
+
+  rpc SetPreference(mangarr.tachibridge.extensions.SetPreferenceRequest) returns (mangarr.tachibridge.extensions.SetPreferenceResponse);
+
+  // Health check
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// Health check messages
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  string status = 1;
+  int32 loaded_sources = 2;
+}

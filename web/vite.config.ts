@@ -4,9 +4,8 @@ import path from 'node:path';
 import { defineConfig, type ProxyOptions, type UserConfig } from 'vite';
 
 const upstream = {
-	target: process.env.WEB_FASTAPI_BACKEND ?? 'http://localhost:3000/',
+	target: process.env.WEB_FASTAPI_BACKEND ?? 'http://localhost:3737/',
 	changeOrigin: true,
-	logLevel: 'info',
 	secure: false,
 	ws: true
 } satisfies ProxyOptions;

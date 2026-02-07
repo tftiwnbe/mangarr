@@ -8,14 +8,16 @@ dependencies = [
     "aiosqlite>=0.21.0",
     "alembic>=1.17.1",
     "fastapi[standard-no-fastapi-cloud-cli]>=0.121.0",
+    "grpcio>=1.76.0",
     "httpx>=0.28.1",
     "loguru>=0.7.3",
-    "pydantic>=2.12.4",
     "pydantic-settings>=2.11.0",
+    "sqlmodel>=0.0.27",
 ]
 
 [dependency-groups]
 dev = [
+    "grpcio-tools>=1.76.0",
     "pip-audit>=2.9.0",
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",

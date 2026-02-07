@@ -1,7 +1,8 @@
 SERVER_PORT := $(shell cd server && uv run python -c "from app.config import settings; print(settings.server.port)")
 STATIC_DIR := server/app/static
+BRIDGE_DIR := bridge
 
-.PHONY: help docker install dev-server dev-web dev test lint lint-server lint-web format format-server format-web audit audit-server audit-web clean
+.PHONY: help docker bridge install generate-stubs generate-types dev-server dev-web dev test lint lint-server lint-web format format-server format-web audit audit-server audit-web clean
 
 help:  ## Show available commands
 	@echo "Available commands:"
@@ -11,10 +12,45 @@ docker: ## Start production stack with Docker Compose
 	@echo "Starting docker compose stack..."
 	docker compose up --build
 
+android-stubs: ## Refresh Android compatibility stubs
+	@echo "Refreshing android-stubs..."
+	./bridge/AndroidCompat/getAndroid.sh
+
+bridge: ## Build tachibridge jar
+	@echo "Building tachibridge jar..."
+	@if [ ! -f "bridge/app/lib/android.jar" ]; then \
+		echo "android.jar not found, fetching..."; \
+		./bridge/AndroidCompat/getAndroid.sh; \
+	fi
+	cd bridge && ./gradlew clean shadowJar
+	@mkdir -p config/bin
+	@mv -f bridge/app/build/*.jar config/bin/
+	@echo "Tachibridge jar built successfully."
+
 install: ## Install development dependencies
-	@echo "Installing development  dependencies..."
+	@echo "Installing development dependencies..."
 	cd ./server && uv sync --group dev
 	cd ./web && pnpm install
+
+generate-stubs: ## Generate Python gRPC Stubs
+	@echo "Generating stubs..."
+	cd server && uv run -m grpc_tools.protoc \
+	--proto_path ../bridge/app/src/main/proto \
+  --python_out=./app/bridge/proto \
+	--pyi_out=./app/bridge/proto \
+  --grpc_python_out=./app/bridge/proto \
+  mangarr/tachibridge/tachibridge.proto \
+	mangarr/tachibridge/extensions/extensions.proto \
+	mangarr/tachibridge/config/config.proto
+
+generate-types: ## Turns OpenAPI schemas into TypeScript types
+	@echo "Checking if backend is running..."
+	@if ! nc -z localhost $(SERVER_PORT); then \
+		echo "Backend not running on port $(SERVER_PORT)"; \
+		exit 1; \
+	fi
+	@echo "Generating types for endpoints..."
+	cd ./web && pnpm run generate:api
 
 dev-server: ## Start fastapi dev server
 	@echo "Starting fastapi in dev mode..."
@@ -23,6 +59,10 @@ dev-server: ## Start fastapi dev server
 dev-web: ## Start vite dev server
 	@echo "Starting vite dev server..."
 	cd ./web && pnpm run dev --open
+
+dev-docker: ## Start container for development
+	@echo "Starting docker compose dev stack..."
+	docker compose -f compose.dev.yaml up --build
 
 run: ## Build web, and start server, check if it works together
 	@echo "Building web..."
@@ -73,6 +113,7 @@ clean:  ## Remove runtime files
 	find . -name ".svelte-kit" -type d -prune -exec rm -rf '{}' +
 	find . -name "coverage" -type d -prune -exec rm -rf '{}' +
 	find . -name ".pnpm-store" -type d -prune -exec rm -rf '{}' +
+	find . -name ".gradle" -type d -prune -exec rm -rf '{}' +
 	@if [ -d "$(STATIC_DIR)" ]; then \
 		echo "Removing generated static files in $(STATIC_DIR)"; \
 		rm -rf $(STATIC_DIR)/*; \
