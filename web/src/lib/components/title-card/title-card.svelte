@@ -1,103 +1,75 @@
 <script lang="ts">
-	import { setContext } from 'svelte';
-	import { tv } from 'tailwind-variants';
 	import { cn } from '$lib/utils';
-	import type { Snippet } from 'svelte';
-	import type { HTMLAttributes } from 'svelte/elements';
+	import { Badge } from '$lib/elements/badge/index.js';
+	import type { Title } from '$lib/mock-data';
 
-	type MangaCardVariant = 'jellyseerr' | 'mangadex' | 'mangalib' | 'compact';
-	type MangaCardSize = 'sm' | 'md' | 'lg';
-
-	const mangaCardVariants = tv({
-		base: 'group/manga-card relative transform-gpu cursor-pointer overflow-hidden bg-gray-800 bg-cover outline-none transition duration-300',
-		variants: {
-			variant: {
-				jellyseerr:
-					'rounded-xl shadow ring-1 ring-gray-700 hover:scale-105 hover:shadow-lg hover:ring-gray-500',
-				mangadex: 'rounded-lg shadow-md hover:shadow-xl',
-				mangalib: 'rounded-lg overflow-hidden hover:shadow-lg',
-				compact: 'rounded-md shadow-sm hover:shadow-md'
-			},
-			size: {
-				sm: 'w-28 sm:w-32',
-				md: 'w-36 sm:w-36 md:w-44',
-				lg: 'w-44 sm:w-48 md:w-56'
-			},
-			interactive: {
-				true: 'cursor-pointer',
-				false: 'cursor-default'
-			}
-		},
-		defaultVariants: {
-			variant: 'jellyseerr',
-			size: 'md',
-			interactive: true
-		}
-	});
-
-	interface Props extends Omit<HTMLAttributes<HTMLDivElement>, 'children'> {
-		ref?: HTMLDivElement | null;
-		variant?: MangaCardVariant;
-		size?: MangaCardSize;
-		interactive?: boolean;
-		href?: string;
-		children?: Snippet;
+	interface Props {
+		item: Title;
+		class?: string;
 	}
 
-	let {
-		ref = $bindable(null),
-		class: className,
-		variant,
-		size,
-		interactive = true,
-		href,
-		children,
-		...restProps
-	}: Props = $props();
+	let { item, class: className }: Props = $props();
 
-	// Share context with child components
-	setContext('manga-card', { variant, size, interactive, href });
-
-	let showDetail = $state(false);
-
-	const isTouch = $derived(typeof window !== 'undefined' && 'ontouchstart' in window);
-
-	const cardProps = $derived({
-		class: cn(mangaCardVariants({ variant, size, interactive }), className),
-		'data-slot': 'manga-card',
-		'data-variant': variant,
-		'data-size': size,
-		'data-interactive': interactive,
-		'data-show-detail': showDetail,
-		style: 'padding-bottom: 150%;',
-		role: interactive ? 'button' : undefined,
-		tabindex: interactive ? 0 : undefined
-	});
+	const statusColors = {
+		ongoing: 'bg-blue-500/90',
+		completed: 'bg-green-500/90',
+		hiatus: 'bg-yellow-500/90'
+	} as const;
 </script>
 
-<div
-	bind:this={ref}
-	class={cn(mangaCardVariants({ size }), 'relative')}
-	data-manga-card-wrapper
-	{...restProps}
+<a
+	href="/title/{item.id}"
+	class={cn(
+		'group relative flex w-32 shrink-0 flex-col gap-2 sm:w-36 md:w-40',
+		className
+	)}
 >
-	<div
-		{...cardProps}
-		onmouseenter={() => {
-			if (!isTouch && interactive) showDetail = true;
-		}}
-		onmouseleave={() => {
-			if (interactive) showDetail = false;
-		}}
-		onclick={() => {
-			if (interactive) showDetail = true;
-		}}
-		onkeydown={(e) => {
-			if (e.key === 'Enter' && interactive) showDetail = true;
-		}}
-	>
-		<div class="absolute inset-0 h-full w-full overflow-hidden">
-			{@render children?.()}
-		</div>
+	<!-- Cover Image -->
+	<div class="relative aspect-[2/3] overflow-hidden rounded-lg bg-muted">
+		<img
+			src={item.cover}
+			alt={item.title}
+			class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+			loading="lazy"
+		/>
+
+		<!-- Gradient Overlay -->
+		<div
+			class="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100"
+		></div>
+
+		<!-- Status Badge -->
+		{#if item.status}
+			<div class="absolute top-2 left-2">
+				<Badge
+					variant="secondary"
+					class={cn('text-xs capitalize text-white', statusColors[item.status])}
+				>
+					{item.status}
+				</Badge>
+			</div>
+		{/if}
+
+		<!-- Chapter Count (on hover) -->
+		{#if item.chapters}
+			<div
+				class="absolute right-2 bottom-2 opacity-0 transition-opacity group-hover:opacity-100"
+			>
+				<Badge variant="secondary" class="bg-black/70 text-xs text-white">
+					{item.chapters} ch
+				</Badge>
+			</div>
+		{/if}
 	</div>
-</div>
+
+	<!-- Title Info -->
+	<div class="flex flex-col gap-0.5">
+		<h3 class="line-clamp-2 text-sm font-medium leading-tight">{item.title}</h3>
+		{#if item.author}
+			<p class="line-clamp-1 text-xs text-muted-foreground">{item.author}</p>
+		{/if}
+		{#if item.lastUpdated}
+			<p class="text-xs text-muted-foreground">{item.lastUpdated}</p>
+		{/if}
+	</div>
+</a>
