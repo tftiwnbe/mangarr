@@ -34,6 +34,7 @@ import xyz.nulldev.androidcompat.AndroidCompatInitializer
 import xyz.nulldev.androidcompat.androidCompatModule
 import xyz.nulldev.androidcompat.webkit.KcefWebViewProvider
 import java.io.File
+import java.nio.file.Files
 import java.security.Security
 import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
@@ -50,7 +51,7 @@ private val logger = KotlinLogging.logger {}
 class BridgeServer(
     private val config: ServerConfig,
 ) {
-    private val dataPath = Path(config.dataDir)
+    private val dataPath = Path(config.dataDir).toAbsolutePath().normalize()
     private val extensionsPath = dataPath.resolve("extensions")
 
     private val extensionsDirectories = ConfigExtensionsDirectories(extensionsPath.toString())
@@ -160,64 +161,104 @@ class BridgeServer(
         logger.info { "Initializing KCEF (Chromium Embedded Framework)..." }
         Security.addProvider(BouncyCastleProvider())
 
-        // val kcefBinDir = dataPath.resolve("bin/kcef")
-        val kcefCacheDir = dataPath.resolve("cache/kcef")
-        // kcefBinDir.createDirectories()
+        val kcefInstallOverride =
+            System.getenv("KCEF_INSTALL_DIR")
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+        val kcefBinDir =
+            (kcefInstallOverride?.let { Path(it) } ?: dataPath.resolve("bin/kcef"))
+                .toAbsolutePath()
+                .normalize()
+        val kcefCacheDir = dataPath.resolve("cache/kcef").toAbsolutePath().normalize()
+        kcefBinDir.createDirectories()
         kcefCacheDir.createDirectories()
 
-        GlobalScope.launch {
-            val kcefLogger = KotlinLogging.logger("KCEF")
+        val kcefLogger = KotlinLogging.logger("KCEF")
+
+        fun logMissingNativeDeps(installDir: java.nio.file.Path) {
+            val osName = System.getProperty("os.name")?.lowercase() ?: ""
+            if (!osName.contains("linux")) return
+
+            val candidateLibs =
+                listOf(
+                    installDir.resolve("libjcef.so"),
+                    installDir.resolve("libcef.so"),
+                )
+
+            val existingLib = candidateLibs.firstOrNull { Files.exists(it) }
+            if (existingLib == null) {
+                kcefLogger.warn { "KCEF library not found under $installDir" }
+                return
+            }
 
             try {
-                KCEF.init(
-                    builder = {
-                        // installDir(kcefBinDir.toFile()) // it not working for some reason
-                        progress {
-                            var lastNum = -1
-                            onDownloading {
-                                val num = it.roundToInt()
-                                if (num != lastNum) {
-                                    lastNum = num
-                                    logger.info { "KCEF download progress: $num" }
-                                }
-                            }
-                            onInitialized {
-                                kcefLogger.info { "KCEF initialized successfully" }
-                            }
-                        }
-                        download { github() }
-                        settings {
-                            windowlessRenderingEnabled = true
-                            cachePath = kcefCacheDir.toString()
-                            logSeverity = LogSeverity.Default
-                        }
-                        appHandler(
-                            KCEF.AppHandler(
-                                arrayOf(
-                                    "--disable-gpu",
-                                    // #1486 needed to be able to render without a window
-                                    "--off-screen-rendering-enabled",
-                                    // #1489 since /dev/shm is restricted in docker (OOM)
-                                    "--disable-dev-shm-usage",
-                                    // #1723 support Widevine (incomplete)
-                                    "--enable-widevine-cdm",
-                                    // #1736 JCEF does implement stack guards properly
-                                    "--change-stack-guard-on-fork=disable",
-                                ),
-                            ),
-                        )
-                    },
-                    onError = { error ->
-                        kcefLogger.error { "KCEF initialization error: ${error?.message}" }
-                        error?.printStackTrace()
-                    },
-                    onRestartRequired = {
-                        kcefLogger.warn { "KCEF restart required" }
-                    },
-                )
+                val process =
+                    ProcessBuilder("ldd", existingLib.toString())
+                        .redirectErrorStream(true)
+                        .start()
+                val output = process.inputStream.bufferedReader().readText()
+                process.waitFor()
+                val missing = output.lineSequence().filter { it.contains("not found") }.toList()
+                if (missing.isNotEmpty()) {
+                    kcefLogger.warn { "KCEF missing native deps:\n${missing.joinToString("\n")}" }
+                } else {
+                    kcefLogger.info { "KCEF native deps OK for ${existingLib.fileName}" }
+                }
             } catch (e: Exception) {
-                kcefLogger.error(e) { "Failed to initialize KCEF" }
+                kcefLogger.debug(e) { "Skipping ldd dependency check" }
             }
+        }
+
+        try {
+            KCEF.initBlocking(
+                builder = {
+                    progress {
+                        var lastNum = -1
+                        onDownloading {
+                            val num = it.roundToInt()
+                            if (num != lastNum) {
+                                lastNum = num
+                                logger.info { "KCEF download progress: $num" }
+                            }
+                        }
+                        onInitialized {
+                            kcefLogger.info { "KCEF initialized successfully" }
+                            logMissingNativeDeps(kcefBinDir)
+                        }
+                    }
+                    download { github() }
+                    settings {
+                        windowlessRenderingEnabled = true
+                        cachePath = kcefCacheDir.toString()
+                        logSeverity = LogSeverity.Default
+                    }
+                    appHandler(
+                        KCEF.AppHandler(
+                            arrayOf(
+                                "--disable-gpu",
+                                // #1486 needed to be able to render without a window
+                                "--off-screen-rendering-enabled",
+                                // #1489 since /dev/shm is restricted in docker (OOM)
+                                "--disable-dev-shm-usage",
+                                // #1723 support Widevine (incomplete)
+                                "--enable-widevine-cdm",
+                                // #1736 JCEF does implement stack guards properly
+                                "--change-stack-guard-on-fork=disable",
+                            ),
+                        ),
+                    )
+                    installDir(kcefBinDir.toFile())
+                },
+                onError = { error ->
+                    kcefLogger.error(error) { "KCEF initialization error" }
+                },
+                onRestartRequired = {
+                    kcefLogger.warn { "KCEF restart required" }
+                },
+            )
+        } catch (e: Exception) {
+            kcefLogger.error(e) { "Failed to initialize KCEF" }
+            throw e
         }
 
         // Add shutdown hook for KCEF
@@ -234,7 +275,9 @@ class BridgeServer(
             },
         )
 
-        logger.info { "KCEF initialization started (async download if needed)" }
+        logger.info { "KCEF initialization complete" }
+        logger.info { "KCEF install dir: $kcefBinDir" }
+        logger.info { "KCEF cache dir: $kcefCacheDir" }
     }
 
     @kotlinx.coroutines.DelicateCoroutinesApi

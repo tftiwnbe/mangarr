@@ -44,7 +44,7 @@ protoc-gen-grpc-java = { module = "io.grpc:protoc-gen-grpc-java", version = "1.7
 protoc-gen-grpc-kotlin = { module = "io.grpc:protoc-gen-grpc-kotlin", version = "1.4.3" }
 
 injekt = { module = "com.github.mihonapp:injekt", version = "91edab2317" }
-kcef = { module = "dev.datlag:kcef", version = "2025.03.23"}
+kcef = { module = "dev.datlag:kcef", version = "2024.04.20.4" }
 bouncycastle = "org.bouncycastle:bcprov-jdk18on:1.82"
 rxjava = { module = "io.reactivex:rxjava", version = "1.3.8" }
 jsoup = { module = "org.jsoup:jsoup", version = "1.21.2" }

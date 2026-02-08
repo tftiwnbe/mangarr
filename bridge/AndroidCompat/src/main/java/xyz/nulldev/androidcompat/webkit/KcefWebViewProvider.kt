@@ -108,6 +108,9 @@ class KcefWebViewProvider(
     private var browser: KCEFBrowser? = null
 
     private val handler = Handler(view.webViewLooper)
+    private var navigationCounter: Long = 0
+    private var loadFinishedForNavigation = true
+    private var syntheticFinishRunnable: Runnable? = null
 
     companion object {
         const val TAG = "KcefWebViewProvider"
@@ -119,6 +122,39 @@ class KcefWebViewProvider(
 
     interface InitBrowserHandler {
         fun init(provider: KcefWebViewProvider): Unit
+    }
+
+    private fun isPrimaryFrame(
+        browser: CefBrowser,
+        frame: CefFrame,
+    ): Boolean {
+        if (frame.isMain) return true
+        val frameUrl = frame.url ?: ""
+        val browserUrl = browser.url ?: ""
+        return frameUrl.isNotBlank() && frameUrl == browserUrl
+    }
+
+    private fun markNavigationStarted(expectedUrl: String?) {
+        navigationCounter += 1
+        loadFinishedForNavigation = false
+        syntheticFinishRunnable?.let { handler.removeCallbacks(it) }
+        val currentNav = navigationCounter
+        val fallbackUrl = expectedUrl ?: ""
+        syntheticFinishRunnable =
+            Runnable {
+                if (navigationCounter != currentNav || loadFinishedForNavigation) return@Runnable
+                val resolvedUrl = browser?.url ?: fallbackUrl
+                Log.w(TAG, "No primary onLoadEnd observed, firing synthetic onPageFinished for $resolvedUrl")
+                viewClient.onPageFinished(view, resolvedUrl)
+                chromeClient.onProgressChanged(view, 100)
+            }
+        handler.postDelayed(syntheticFinishRunnable!!, 3_000)
+    }
+
+    private fun markNavigationFinished() {
+        loadFinishedForNavigation = true
+        syntheticFinishRunnable?.let { handler.removeCallbacks(it) }
+        syntheticFinishRunnable = null
     }
 
     private data class InitialRequestData(
@@ -228,8 +264,11 @@ class KcefWebViewProvider(
             frame: CefFrame,
             httpStatusCode: Int,
         ) {
+            if (!isPrimaryFrame(browser, frame)) return
+            markNavigationFinished()
+
             val url = frame.url ?: ""
-            Log.v(TAG, "Load end $url")
+            Log.d(TAG, "Load end $url (status=$httpStatusCode)")
             handler.post {
                 if (httpStatusCode == 404) {
                     viewClient.onReceivedError(
@@ -263,6 +302,9 @@ class KcefWebViewProvider(
             errorText: String,
             failedUrl: String,
         ) {
+            if (!isPrimaryFrame(browser, frame)) return
+            markNavigationFinished()
+
             Log.w(TAG, "Load error ($failedUrl) [$errorCode]: $errorText")
             // TODO: translate correctly
             handler.post {
@@ -275,7 +317,9 @@ class KcefWebViewProvider(
             frame: CefFrame,
             transitionType: CefRequest.TransitionType,
         ) {
-            Log.v(TAG, "Load start, pushing mappings")
+            if (!isPrimaryFrame(browser, frame)) return
+
+            Log.d(TAG, "Load start ${frame.url}, pushing mappings")
             mappings.forEach {
                 val js =
                     """
@@ -579,6 +623,8 @@ class KcefWebViewProvider(
     ): Array<String> = throw RuntimeException("Stub!")
 
     override fun destroy() {
+        syntheticFinishRunnable?.let { handler.removeCallbacks(it) }
+        syntheticFinishRunnable = null
         browser?.close(true)
         browser?.dispose()
         browser = null
@@ -606,6 +652,7 @@ class KcefWebViewProvider(
         loadUrl: String,
         additionalHttpHeaders: Map<String, String>,
     ) {
+        markNavigationStarted(loadUrl)
         browser?.close(true)
         browser?.dispose()
         chromeClient.onProgressChanged(view, 0)
@@ -614,7 +661,7 @@ class KcefWebViewProvider(
             kcefClient!!
                 .createBrowser(
                     loadUrl,
-                    CefRendering.OFFSCREEN,
+                    CefRendering.DEFAULT,
                 ).apply {
                     // NOTE: Without this, we don't seem to be receiving any events
                     createImmediately()
@@ -630,6 +677,7 @@ class KcefWebViewProvider(
         url: String,
         postData: ByteArray,
     ) {
+        markNavigationStarted(url)
         browser?.close(true)
         browser?.dispose()
         chromeClient.onProgressChanged(view, 0)
@@ -638,7 +686,7 @@ class KcefWebViewProvider(
             kcefClient!!
                 .createBrowser(
                     url,
-                    CefRendering.OFFSCREEN,
+                    CefRendering.DEFAULT,
                 ).apply {
                     // NOTE: Without this, we don't seem to be receiving any events
                     createImmediately()
@@ -661,6 +709,7 @@ class KcefWebViewProvider(
         encoding: String,
         historyUrl: String?,
     ) {
+        markNavigationStarted(baseUrl ?: KCEFBrowser.BLANK_URI)
         browser?.close(true)
         browser?.dispose()
         chromeClient.onProgressChanged(view, 0)
@@ -671,14 +720,14 @@ class KcefWebViewProvider(
                     urlHttpMapping.put(url.trimEnd('/'), data)
                     kcefClient!!.createBrowser(
                         url,
-                        CefRendering.OFFSCREEN,
+                        CefRendering.DEFAULT,
                     )
                 }
                     ?: run {
                         kcefClient!!.createBrowserWithHtml(
                             data,
                             KCEFBrowser.BLANK_URI,
-                            CefRendering.OFFSCREEN,
+                            CefRendering.DEFAULT,
                         )
                     }
             ).apply {
@@ -692,13 +741,41 @@ class KcefWebViewProvider(
         script: String,
         resultCallback: ValueCallback<String>,
     ) {
-        browser!!.evaluateJavaScript(
-            script.removePrefix("javascript:"),
-            {
-                Log.v(TAG, "JS returned: $it")
-                it?.let { handler.post { resultCallback.onReceiveValue(it) } }
-            },
-        )
+        val normalizedScript = script.removePrefix("javascript:")
+
+        fun shouldRetry(
+            js: String,
+            value: String?,
+        ): Boolean {
+            if (!js.contains("localStorage", ignoreCase = true)) return false
+            val normalizedValue = value?.trim() ?: "null"
+            return normalizedValue == "null" || normalizedValue == "\"\""
+        }
+
+        fun evaluateWithRetry(remainingRetries: Int) {
+            val activeBrowser = browser
+            if (activeBrowser == null) {
+                handler.post { resultCallback.onReceiveValue("null") }
+                return
+            }
+
+            activeBrowser.evaluateJavaScript(
+                normalizedScript,
+            ) { result ->
+                if (remainingRetries > 0 && shouldRetry(normalizedScript, result)) {
+                    Log.d(TAG, "JS returned empty value; retrying (${remainingRetries - 1} retries left)")
+                    handler.postDelayed({ evaluateWithRetry(remainingRetries - 1) }, 1_000)
+                } else {
+                    Log.v(TAG, "JS returned: $result")
+                    handler.post { resultCallback.onReceiveValue(result ?: "null") }
+                }
+            }
+        }
+
+        // HentaiLib stores auth in localStorage and may populate it asynchronously.
+        // Retry briefly to avoid returning a transient null too early.
+        val retries = if (normalizedScript.contains("localStorage", ignoreCase = true)) 15 else 0
+        evaluateWithRetry(retries)
     }
 
     override fun saveWebArchive(filename: String): Unit = throw RuntimeException("Stub!")
