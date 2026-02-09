@@ -8,6 +8,7 @@ dependencies = [
     "aiosqlite>=0.21.0",
     "alembic>=1.17.1",
     "fastapi[standard-no-fastapi-cloud-cli]>=0.121.0",
+    "greenlet>=3.2.4",
     "grpcio>=1.76.0",
     "httpx>=0.28.1",
     "loguru>=0.7.3",

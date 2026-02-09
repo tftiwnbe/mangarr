@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.deps import DBSessionDep
 from app.features.extensions.service import ExtensionService
-from app.models import SourcePreference
+from app.models import SourcePreferenceUpdate
 from app.models.extensions import (
     ExtensionResource,
     RepoExtensionResource,
@@ -92,11 +92,15 @@ async def toggle_source(
     await service.toggle_source(source_id, enabled)
 
 
-@router.put("/source/{source_id}/preferences", status_code=204)
+@router.put(
+    "/source/{source_id}/preferences",
+    response_model=SourcePreferencesResource,
+    status_code=200,
+)
 async def update_source_preferences(
     source_id: str,
-    preferences: list[SourcePreference],
+    preferences: list[SourcePreferenceUpdate],
     service: ExtensionService = Depends(get_service),
 ):
     """Update source preferences"""
-    await service.update_source_preferences(source_id, preferences)
+    return await service.update_source_preferences(source_id, preferences)

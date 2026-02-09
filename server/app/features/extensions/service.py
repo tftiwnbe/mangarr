@@ -2,13 +2,13 @@ from sqlmodel import delete, func, select, asc
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.bridge import tachibridge
-from app.config import settings
+from app.core.errors import BridgeAPIError
 from app.models import (
     Extension,
     ExtensionResource,
     RepoExtension,
     Source,
-    SourcePreference,
+    SourcePreferenceUpdate,
     SourcePreferencesResource,
     UpdateExtension,
     UpdateSource,
@@ -114,6 +114,10 @@ class ExtensionService:
     # Public API methods
 
     async def change_extensions_repo(self, repo_index_url: str) -> list[Extension]:
+        success = await tachibridge.set_repository_url(repo_index_url)
+        if not success:
+            raise BridgeAPIError(502, "Failed to update repository URL in bridge")
+
         repo_extensions = await tachibridge.fetch_repository_extensions()
         return await self._replace_all_extensions(repo_index_url, repo_extensions)
 
@@ -148,16 +152,12 @@ class ExtensionService:
             sources_has_prefs=extension.sources_has_prefs,
         )
         extension = await self._update_extension(extension_pkg, extension_update)
-
-        settings.save_installed_extension(extension_pkg)
-
         return ExtensionResource(**extension.model_dump(), sources=updated_sources)
 
     async def uninstall_extension(self, extension_pkg: str) -> Extension:
         await tachibridge.uninstall_extension(extension_pkg)
         extension_update = UpdateExtension(installed=False)
         extension = await self._update_extension(extension_pkg, extension_update)
-        settings.remove_installed_extension(extension_pkg)
         return extension
 
     async def update_extensions_priority(
@@ -179,14 +179,29 @@ class ExtensionService:
     async def list_enabled_sources(
         self, supports_latest: bool | None = None
     ) -> list[tuple[Extension, Source]]:
-        extensions = await self._list_extensions(installed=True)
-        result = [
-            (ext, s)
-            for ext in extensions
-            for s in await self._list_extension_sources(
-                ext.pkg, enabled=True, supports_latest=supports_latest
+        return await self.list_sources(
+            installed=True,
+            enabled=True,
+            supports_latest=supports_latest,
+        )
+
+    async def list_sources(
+        self,
+        installed: bool | None = True,
+        enabled: bool | None = None,
+        supports_latest: bool | None = None,
+    ) -> list[tuple[Extension, Source]]:
+        extensions = await self._list_extensions(installed=installed)
+        result: list[tuple[Extension, Source]] = []
+
+        for extension in extensions:
+            sources = await self._list_extension_sources(
+                extension.pkg,
+                enabled=enabled,
+                supports_latest=supports_latest,
             )
-        ]
+            result.extend((extension, source) for source in sources)
+
         return result
 
     async def toggle_source(self, source_id: str, enabled: bool) -> Source:
@@ -199,9 +214,8 @@ class ExtensionService:
         return await tachibridge.fetch_source_preferences(source_id)
 
     async def update_source_preferences(
-        self, source_id: str, preferences: list[SourcePreference]
+        self, source_id: str, preferences: list[SourcePreferenceUpdate]
     ) -> SourcePreferencesResource:
-        preferences_dict = {pref.key: pref.current_value for pref in preferences}
-        settings.save_source_preferences(source_id, preferences_dict)
-        await tachibridge.reload_config()
+        preferences_dict = {pref.key: pref.value for pref in preferences}
+        await tachibridge.set_source_preferences(source_id, preferences_dict)
         return await tachibridge.fetch_source_preferences(source_id)

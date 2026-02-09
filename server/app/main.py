@@ -4,16 +4,20 @@ from time import time
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from loguru import logger as loguru_logger
 
 from app.bridge import tachibridge
 from app.config import settings
 from app.core.database import sessionmanager
+from app.core.errors import BridgeAPIError
 from app.core.logging import setup_logger
 from app.core.scheduler import scheduler
 from app.features.discover import discover_router
+from app.features.downloads import downloads_router
 from app.features.extensions import extensions_router
 from app.features.health import health_router
+from app.features.library import library_router
 from app.features.web import web_router
 
 setup_logger()
@@ -46,8 +50,15 @@ app = FastAPI(
 
 app.include_router(extensions_router)
 app.include_router(discover_router)
+app.include_router(downloads_router)
 app.include_router(health_router)
+app.include_router(library_router)
 app.include_router(web_router)
+
+
+@app.exception_handler(BridgeAPIError)
+async def handle_bridge_api_error(_: Request, exc: BridgeAPIError) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
 if settings.log.access:
 

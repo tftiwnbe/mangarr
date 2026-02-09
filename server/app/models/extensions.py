@@ -1,12 +1,8 @@
 from enum import Enum
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import Any, ClassVar
 
 from pydantic import HttpUrl, model_validator
 from sqlmodel import Field, Relationship, SQLModel
-
-if TYPE_CHECKING:
-    from app.models.titles import SourceTitle
-
 
 class PreferenceType(str, Enum):
     list = "list"
@@ -44,6 +40,11 @@ class SourcePreference(SQLModel):
         return values
 
 
+class SourcePreferenceUpdate(SQLModel):
+    key: str
+    value: Any | None = None
+
+
 class RepoSource(SQLModel):
     id: str = Field(primary_key=True)
     name: str
@@ -74,7 +75,7 @@ class Extension(ExtensionBase, table=True):
     __tablename__: ClassVar[Any] = "extensions"
 
     icon: str
-    priority: int | None = Field(default=False)
+    priority: int | None = Field(default=None)
     installed: bool = Field(default=False)
     use_proxy: bool = Field(default=False)
 
@@ -84,17 +85,16 @@ class Extension(ExtensionBase, table=True):
 class Source(RepoSource, table=True):
     __tablename__: ClassVar[Any] = "sources"
 
-    extension_pkg: str = Field(primary_key=True, foreign_key="extensions.pkg")
+    extension_pkg: str = Field(foreign_key="extensions.pkg")
     enabled: bool = Field(default=False)
 
     extension: Extension = Relationship(back_populates="sources")
-    titles: list["SourceTitle"] = Relationship(back_populates="source")
 
 
 class SourcePreferencesResource(SQLModel):
     source_id: str
-    name: str
-    lang: str
+    name: str | None = None
+    lang: str | None = None
     preferences: list[SourcePreference]
 
 

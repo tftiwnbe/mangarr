@@ -1,5 +1,15 @@
 package mangarr.tachibridge.extensions
 
+import android.app.Application
+import androidx.preference.CheckBoxPreference
+import androidx.preference.DialogPreference
+import androidx.preference.EditTextPreference
+import androidx.preference.ListPreference
+import androidx.preference.MultiSelectListPreference
+import androidx.preference.Preference
+import androidx.preference.PreferenceScreen
+import androidx.preference.SwitchPreferenceCompat
+import androidx.preference.TwoStatePreference
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.source.CatalogueSource
@@ -10,6 +20,18 @@ import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import mangarr.tachibridge.config.BridgeConfig
 import mangarr.tachibridge.config.ConfigManager
 import mangarr.tachibridge.config.PreferenceValue
@@ -17,6 +39,8 @@ import mangarr.tachibridge.config.findExtension
 import mangarr.tachibridge.config.sourcePreferencesFor
 import mangarr.tachibridge.loader.ExtensionLoader
 import mangarr.tachibridge.repo.ExtensionRepoService
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -334,22 +358,39 @@ class ExtensionManager(
 
     suspend fun getFilters(sourceId: Long): FiltersResponse {
         val source =
-            sourceMap[sourceId] as? CatalogueSource
+            sourceMap[sourceId] as? ConfigurableSource
                 ?: return FiltersResponse.getDefaultInstance()
 
-        val filters = source.getFilterList()
-        return FiltersResponse
-            .newBuilder()
-            .addAllFilters(
-                filters.map { filter ->
+        applyPreferences(source)
+
+        val screen = PreferenceScreen(Injekt.get<Application>())
+        screen.setSharedPreferences(source.getSourcePreferences())
+        source.setupPreferenceScreen(screen)
+
+        val filters =
+            screen.preferences.mapNotNull { preference ->
+                runCatching {
+                    val type = preferenceType(preference)
+                    val data = encodePreference(preference, type)
+
                     Filter
                         .newBuilder()
-                        .setName(filter.name)
-                        .setType(filter::class.simpleName ?: "Unknown")
-                        .setData("{}")
+                        .setName(preference.title?.toString() ?: preference.key ?: "Preference")
+                        .setType(type)
+                        .setData(data)
                         .build()
-                },
-            ).build()
+                }.getOrElse {
+                    logger.warn(it) {
+                        "Failed to serialize preference for source $sourceId: ${preference.key}"
+                    }
+                    null
+                }
+            }
+
+        return FiltersResponse
+            .newBuilder()
+            .addAllFilters(filters)
+            .build()
     }
 
     suspend fun setPreference(
@@ -357,17 +398,22 @@ class ExtensionManager(
         key: String,
         value: String,
     ) {
-        val prefValue = PreferenceValue.StringValue(value)
+        val prefValue = parsePreferenceValue(value)
         ConfigManager.setSourcePreference(sourceId, key, prefValue)
 
         // Apply immediately
         val source = sourceMap[sourceId]
         if (source is ConfigurableSource) {
-            source
-                .getSourcePreferences()
-                .edit()
-                .putString(key, value)
-                .apply()
+            val editor = source.getSourcePreferences().edit()
+            when (prefValue) {
+                is PreferenceValue.BooleanValue -> editor.putBoolean(key, prefValue.value)
+                is PreferenceValue.IntValue -> editor.putInt(key, prefValue.value)
+                is PreferenceValue.LongValue -> editor.putLong(key, prefValue.value)
+                is PreferenceValue.FloatValue -> editor.putFloat(key, prefValue.value)
+                is PreferenceValue.StringSetValue -> editor.putStringSet(key, prefValue.value)
+                is PreferenceValue.StringValue -> editor.putString(key, prefValue.value)
+            }
+            editor.apply()
         }
 
         logger.debug { "Set preference: source=$sourceId key=$key" }
@@ -451,6 +497,160 @@ class ExtensionManager(
             }
         }
         editor.apply()
+    }
+
+    private fun preferenceType(preference: Preference): String =
+        when (preference) {
+            is ListPreference -> "list"
+            is MultiSelectListPreference -> "multi_select"
+            is SwitchPreferenceCompat, is CheckBoxPreference, is TwoStatePreference -> "toggle"
+            is EditTextPreference -> "text"
+            else -> "text"
+        }
+
+    private fun encodePreference(
+        preference: Preference,
+        type: String,
+    ): String {
+        val defaultValue = runCatching { preference.defaultValue }.getOrNull()
+        val currentValue = runCatching { preference.currentValue }.getOrNull()
+
+        val payload =
+            buildJsonObject {
+                put("key", preference.key ?: "")
+                put("title", preference.title?.toString() ?: preference.key ?: "Preference")
+                put("summary", preference.summary?.toString() ?: "")
+                put("type", type)
+                put("enabled", preference.isEnabled)
+                put("visible", preference.visible)
+                put("default_value", toJsonElement(defaultValue))
+                put("current_value", toJsonElement(currentValue))
+
+                if (preference is ListPreference) {
+                    putJsonArray("entries") {
+                        preference.entries?.forEach { add(JsonPrimitive(it.toString())) }
+                    }
+                    putJsonArray("entry_values") {
+                        preference.entryValues?.forEach { add(JsonPrimitive(it.toString())) }
+                    }
+                }
+
+                if (preference is MultiSelectListPreference) {
+                    putJsonArray("entries") {
+                        preference.entries?.forEach { add(JsonPrimitive(it.toString())) }
+                    }
+                    putJsonArray("entry_values") {
+                        preference.entryValues?.forEach { add(JsonPrimitive(it.toString())) }
+                    }
+                }
+
+                if (preference is DialogPreference) {
+                    put("dialog_title", preference.dialogTitle?.toString() ?: "")
+                    put("dialog_message", preference.dialogMessage?.toString() ?: "")
+                }
+            }
+
+        return Json.encodeToString(JsonElement.serializer(), payload)
+    }
+
+    private fun toJsonElement(value: Any?): JsonElement =
+        when (value) {
+            null -> {
+                JsonNull
+            }
+
+            is String -> {
+                JsonPrimitive(value)
+            }
+
+            is Boolean -> {
+                JsonPrimitive(value)
+            }
+
+            is Number -> {
+                JsonPrimitive(value)
+            }
+
+            is Set<*> -> {
+                val entries = value.map { it.toString() }
+                JsonArray(entries.map { JsonPrimitive(it) })
+            }
+
+            is Collection<*> -> {
+                JsonArray(value.map { toJsonElement(it) })
+            }
+
+            is Array<*> -> {
+                JsonArray(value.map { toJsonElement(it) })
+            }
+
+            else -> {
+                JsonPrimitive(value.toString())
+            }
+        }
+
+    private fun parsePreferenceValue(raw: String): PreferenceValue {
+        val parsed =
+            runCatching { Json.parseToJsonElement(raw) }.getOrNull()
+                ?: return parsePrimitiveFallback(raw)
+
+        return when (parsed) {
+            is JsonArray -> {
+                PreferenceValue.StringSetValue(
+                    parsed
+                        .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                        .toSet(),
+                )
+            }
+
+            is JsonPrimitive -> {
+                val content = parsed.contentOrNull ?: raw
+                val boolValue = parsed.booleanOrNull
+                val longValue = parsed.longOrNull
+                val doubleValue = parsed.doubleOrNull
+                when {
+                    parsed.isString -> {
+                        PreferenceValue.StringValue(content)
+                    }
+
+                    boolValue != null -> {
+                        PreferenceValue.BooleanValue(boolValue)
+                    }
+
+                    longValue != null && longValue in Int.MIN_VALUE..Int.MAX_VALUE -> {
+                        PreferenceValue.IntValue(longValue.toInt())
+                    }
+
+                    longValue != null -> {
+                        PreferenceValue.LongValue(longValue)
+                    }
+
+                    doubleValue != null -> {
+                        PreferenceValue.FloatValue(doubleValue.toFloat())
+                    }
+
+                    else -> {
+                        PreferenceValue.StringValue(content)
+                    }
+                }
+            }
+
+            else -> {
+                PreferenceValue.StringValue(raw)
+            }
+        }
+    }
+
+    private fun parsePrimitiveFallback(raw: String): PreferenceValue {
+        val value = raw.trim()
+        return when {
+            value.equals("true", ignoreCase = true) -> PreferenceValue.BooleanValue(true)
+            value.equals("false", ignoreCase = true) -> PreferenceValue.BooleanValue(false)
+            value.toIntOrNull() != null -> PreferenceValue.IntValue(value.toInt())
+            value.toLongOrNull() != null -> PreferenceValue.LongValue(value.toLong())
+            value.toFloatOrNull() != null -> PreferenceValue.FloatValue(value.toFloat())
+            else -> PreferenceValue.StringValue(raw)
+        }
     }
 
     private suspend fun buildDownloadUrl(

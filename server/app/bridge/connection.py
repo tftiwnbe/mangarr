@@ -10,7 +10,6 @@ class TachibridgeConnection:
     """Manages gRPC channel and stub lifecycle."""
 
     def __init__(self, port: int):
-        self._port = port
         self._address = f"127.0.0.1:{port}"
 
         self._channel: grpc.aio.Channel | None = None
@@ -18,6 +17,10 @@ class TachibridgeConnection:
         self._lock = asyncio.Lock()
 
         self._logger = logger.bind(module="bridge.connection")
+
+    @property
+    def address(self) -> str:
+        return self._address
 
     async def get_stub(self) -> tachibridge_pb2_grpc.TachibridgeStub:
         """Get or create the gRPC stub with automatic reconnection."""
@@ -53,27 +56,6 @@ class TachibridgeConnection:
         except Exception as e:
             self._logger.debug(f"Health check failed: {e}")
             return False
-
-    async def wait_until_ready(
-        self,
-        timeout: float = 30.0,
-        interval: float = 0.5,
-    ) -> None:
-        """Wait until the bridge responds to health checks."""
-        deadline = asyncio.get_running_loop().time() + timeout
-
-        while True:
-            if await self.check_health():
-                self._logger.info(f"Bridge ready at {self._address}")
-                return
-
-            now = asyncio.get_running_loop().time()
-            if now >= deadline:
-                raise RuntimeError(
-                    f"Timed out waiting for bridge at {self._address} after {timeout}s"
-                )
-
-            await asyncio.sleep(interval)
 
     def _needs_reconnect(self) -> bool:
         """Check if the channel needs to be reconnected."""

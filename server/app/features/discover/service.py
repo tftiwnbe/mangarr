@@ -1,308 +1,477 @@
-import json
+import asyncio
+import re
 from datetime import datetime, timedelta, timezone
-from typing import Literal, Optional
+from typing import Literal
 
-from loguru import logger as service_logger
-from sqlmodel import select, and_, desc
+from sqlmodel import delete, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.bridge import tachibridge
 from app.features.extensions import ExtensionService
-from app.models import CanonicalTitle, SourceTitle, FetchedSectionPage
+from app.models import (
+    DiscoverCacheItem,
+    DiscoverCachePage,
+    DiscoverCategory,
+    DiscoverFeed,
+    DiscoverItem,
+    DiscoverSourceLink,
+    LibraryTitleVariant,
+    SourceSummary,
+)
 
-logger = service_logger.bind(module="service.discover")
+_NORMALIZE_RE = re.compile(r"[^a-z0-9]+")
+CACHE_TTL_SECONDS = 15 * 60
+MAX_CATEGORY_ITEMS = 250
+
+
+def _normalize(value: str | None) -> str:
+    if not value:
+        return ""
+    lowered = value.strip().lower()
+    return _NORMALIZE_RE.sub(" ", lowered).strip()
+
+
+def _dedupe_key(title: str, author: str | None = None) -> str:
+    title_key = _normalize(title)
+    author_key = _normalize(author)
+    return f"{title_key}|{author_key}" if author_key else title_key
+
+
+def _ensure_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _status_value(value: object) -> int:
+    raw = getattr(value, "value", value)
+    return int(raw)
 
 
 class DiscoverService:
+    _refresh_lock = asyncio.Lock()
+
     def __init__(self, session: AsyncSession):
         self.session = session
         self.extension_service = ExtensionService(session)
 
-    # Database operations (inlined from storage)
-
-    async def _list_canonical_titles(
-        self, section: str, cursor: int = 0, limit: int = 20
-    ) -> tuple[list[CanonicalTitle], int, bool]:
-        """Get canonical titles with cursor-based pagination."""
-        stmt = (
-            select(CanonicalTitle)
-            .where(CanonicalTitle.id > cursor)
-            .order_by(CanonicalTitle.id)
-            .limit(limit + 1)
+    async def list_sources(
+        self,
+        enabled: bool = True,
+        supports_latest: bool | None = None,
+    ) -> list[SourceSummary]:
+        rows = await self.extension_service.list_sources(
+            installed=True,
+            enabled=enabled,
+            supports_latest=supports_latest,
         )
+        return [SourceSummary.from_models(extension, source) for extension, source in rows]
 
-        result = await self.session.exec(stmt)
-        titles = list(result.all())
-
-        has_more = len(titles) > limit
-        if has_more:
-            titles = titles[:limit]
-
-        next_cursor = int(titles[-1].id) if titles else cursor
-        return titles, next_cursor, has_more
-
-    async def _get_last_fetched_page(self, source_id: str, section: str) -> int:
-        """Get the highest page number we've fetched from this source."""
-        stmt = (
-            select(FetchedSectionPage.page)
-            .where(
-                and_(
-                    FetchedSectionPage.source_id == source_id,
-                    FetchedSectionPage.section == section,
+    async def list_categories(self, limit: int = 30) -> list[DiscoverCategory]:
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=CACHE_TTL_SECONDS)
+        items = (
+            await self.session.exec(
+                select(DiscoverCacheItem.genre).where(
+                    DiscoverCacheItem.section.in_(["popular", "latest"]),
+                    DiscoverCacheItem.fetched_at >= cutoff,
                 )
             )
-            .order_by(desc(FetchedSectionPage.page))
-            .limit(1)
+        ).all()
+
+        bucket: dict[str, int] = {}
+        for genre in items:
+            if not genre:
+                continue
+            for raw in genre.split(","):
+                name = raw.strip()
+                if not name:
+                    continue
+                bucket[name] = bucket.get(name, 0) + 1
+
+        ranked = sorted(bucket.items(), key=lambda item: item[1], reverse=True)[:limit]
+        return [DiscoverCategory(name=name, count=count) for name, count in ranked]
+
+    async def popular(
+        self, page: int, limit: int, source_id: str | None = None
+    ) -> DiscoverFeed:
+        return await self._cached_feed(
+            section="popular",
+            page=page,
+            limit=limit,
+            source_id=source_id,
         )
 
-        result = await self.session.exec(stmt)
-        page = result.first()
-        return page if page else 0
-
-    async def _get_next_page_to_fetch(
-        self, source_id: str, section: str
-    ) -> Optional[int]:
-        """Get the next page number we should fetch."""
-        last_page = await self._get_last_fetched_page(source_id, section)
-
-        if last_page == 0:
-            return 1
-
-        last_fetched = await self.session.get(
-            FetchedSectionPage,
-            {"source_id": source_id, "section": section, "page": last_page},
+    async def latest(
+        self, page: int, limit: int, source_id: str | None = None
+    ) -> DiscoverFeed:
+        return await self._cached_feed(
+            section="latest",
+            page=page,
+            limit=limit,
+            source_id=source_id,
         )
 
-        if last_fetched and last_fetched.has_next_page:
-            return last_page + 1
-
-        return None
-
-    async def _mark_page_fetched(
+    async def search(
         self,
-        source_id: str,
-        section: str,
+        query: str,
         page: int,
-        title_count: int,
-        has_next_page: bool,
-    ):
-        """Mark a page as fetched."""
-        existing = await self.session.get(
-            FetchedSectionPage,
-            {"source_id": source_id, "section": section, "page": page},
+        limit: int,
+        source_id: str | None = None,
+    ) -> DiscoverFeed:
+        return await self._live_feed(
+            section="search",
+            page=page,
+            limit=limit,
+            source_id=source_id,
+            query=query,
         )
 
-        if existing:
-            existing.fetched_at = datetime.now(timezone.utc)
-            existing.title_count = title_count
-            existing.has_next_page = has_next_page
-            self.session.add(existing)
-        else:
-            fetched = FetchedSectionPage(
-                source_id=source_id,
+    async def category(
+        self,
+        name: str,
+        page: int,
+        limit: int,
+        source_id: str | None = None,
+    ) -> DiscoverFeed:
+        # Simple, scalable default: category query delegates to source search.
+        return await self._live_feed(
+            section="category",
+            page=page,
+            limit=limit,
+            source_id=source_id,
+            query=name,
+            category=name,
+        )
+
+    async def refresh_enabled_sources_cache(self, max_pages: int = 2) -> None:
+        async with self._refresh_lock:
+            sources = await self.list_sources(enabled=True)
+            latest_sources = [source for source in sources if source.supports_latest]
+
+            for page in range(1, max_pages + 1):
+                for source in sources:
+                    await self._refresh_source_page(
+                        section="popular",
+                        source_id=source.id,
+                        page=page,
+                        force=True,
+                    )
+
+                for source in latest_sources:
+                    await self._refresh_source_page(
+                        section="latest",
+                        source_id=source.id,
+                        page=page,
+                        force=True,
+                    )
+
+    async def _cached_feed(
+        self,
+        section: Literal["popular", "latest"],
+        page: int,
+        limit: int,
+        source_id: str | None = None,
+    ) -> DiscoverFeed:
+        sources = await self.list_sources(
+            enabled=True,
+            supports_latest=True if section == "latest" else None,
+        )
+        if source_id:
+            sources = [source for source in sources if source.id == source_id]
+
+        if not sources:
+            return DiscoverFeed(
                 section=section,
                 page=page,
-                title_count=title_count,
-                has_next_page=has_next_page,
-                fetched_at=datetime.now(timezone.utc),
+                limit=limit,
+                has_next_page=False,
+                items=[],
             )
-            self.session.add(fetched)
 
-        await self.session.commit()
+        for source in sources:
+            if await self._needs_refresh(section=section, source_id=source.id, page=page):
+                await self._refresh_source_page(
+                    section=section,
+                    source_id=source.id,
+                    page=page,
+                    force=True,
+                )
 
-    async def _link_or_create(self, source_title: SourceTitle) -> CanonicalTitle:
-        """Link a SourceTitle to existing CanonicalTitle or create new one."""
-        # Check if this SourceTitle already exists
-        existing_source = (
-            await self.session.exec(
-                select(SourceTitle).where(
-                    and_(
-                        SourceTitle.url == source_title.url,
-                        SourceTitle.source_id == source_title.source_id,
+        source_items: dict[str, list[DiscoverCacheItem]] = {}
+        has_next_page = False
+
+        for source in sources:
+            rows = (
+                await self.session.exec(
+                    select(DiscoverCacheItem)
+                    .where(
+                        DiscoverCacheItem.section == section,
+                        DiscoverCacheItem.source_id == source.id,
+                        DiscoverCacheItem.page == page,
                     )
+                    .order_by(DiscoverCacheItem.rank)
                 )
-            )
-        ).first()
+            ).all()
+            source_items[source.id] = list(rows)
 
-        if existing_source and existing_source.canonical_title_id:
-            canonical = await self.session.get(
-                CanonicalTitle, existing_source.canonical_title_id
+            page_meta = await self.session.get(
+                DiscoverCachePage,
+                {
+                    "section": section,
+                    "source_id": source.id,
+                    "page": page,
+                },
             )
-            if canonical:
-                return canonical
+            if page_meta and page_meta.has_next_page:
+                has_next_page = True
 
-        # Try to find existing CanonicalTitle by matching title
-        conditions = [
-            CanonicalTitle.sources_titles.any(
-                SourceTitle.title.ilike(source_title.title)
+        merged = self._merge_cached_items(sources, source_items)
+        await self._attach_imported_library_ids(merged)
+
+        return DiscoverFeed(
+            section=section,
+            page=page,
+            limit=limit,
+            has_next_page=has_next_page or len(merged) > limit,
+            items=merged[:limit],
+        )
+
+    async def _live_feed(
+        self,
+        section: Literal["search", "category"],
+        page: int,
+        limit: int,
+        source_id: str | None = None,
+        query: str | None = None,
+        category: str | None = None,
+    ) -> DiscoverFeed:
+        sources = await self.list_sources(enabled=True)
+        if source_id:
+            sources = [source for source in sources if source.id == source_id]
+
+        if not sources:
+            return DiscoverFeed(
+                section=section,
+                page=page,
+                limit=limit,
+                query=query,
+                category=category,
+                has_next_page=False,
+                items=[],
             )
-        ]
-        if source_title.artist:
-            conditions.append(
-                CanonicalTitle.sources_titles.any(
-                    SourceTitle.artist == source_title.artist
+
+        source_items: dict[str, list[DiscoverCacheItem]] = {}
+        has_next_page = False
+        now = datetime.now(timezone.utc)
+
+        for source in sources:
+            titles, source_has_next = await tachibridge.search_titles(
+                source_id=source.id,
+                query=query or "",
+                page=page,
+            )
+            has_next_page = has_next_page or source_has_next
+
+            source_items[source.id] = [
+                DiscoverCacheItem(
+                    section=section,
+                    source_id=source.id,
+                    page=page,
+                    rank=rank,
+                    dedupe_key=_dedupe_key(title.title, title.author),
+                    title_url=title.url,
+                    title=title.title,
+                    thumbnail_url=title.thumbnail_url or "",
+                    artist=title.artist,
+                    author=title.author,
+                    description=title.description,
+                    genre=title.genre,
+                    status=_status_value(title.status),
+                    fetched_at=now,
                 )
-            )
-        if source_title.author:
-            conditions.append(
-                CanonicalTitle.sources_titles.any(
-                    SourceTitle.author == source_title.author
-                )
-            )
+                for rank, title in enumerate(titles, start=1)
+            ]
 
-        stmt = select(CanonicalTitle).where(and_(*conditions))
-        canonical_title = (await self.session.exec(stmt)).first()
+        merged = self._merge_cached_items(sources, source_items)
+        await self._attach_imported_library_ids(merged)
 
-        if not canonical_title:
-            canonical_title = CanonicalTitle(title=source_title.title)
-            self.session.add(canonical_title)
-            await self.session.flush()
-            await self.session.refresh(canonical_title)
+        return DiscoverFeed(
+            section=section,
+            page=page,
+            limit=limit,
+            query=query,
+            category=category,
+            has_next_page=has_next_page or len(merged) > limit,
+            items=merged[:limit],
+        )
 
-        source_title.canonical_title_id = canonical_title.id
-        self.session.add(source_title)
-        await self.session.commit()
+    async def _needs_refresh(self, section: str, source_id: str, page: int) -> bool:
+        row = await self.session.get(
+            DiscoverCachePage,
+            {"section": section, "source_id": source_id, "page": page},
+        )
+        if row is None:
+            return True
+        fetched_at = _ensure_utc(row.fetched_at)
+        return fetched_at + timedelta(seconds=CACHE_TTL_SECONDS) < datetime.now(
+            timezone.utc
+        )
 
-        await self.session.refresh(canonical_title)
-        return canonical_title
+    async def _refresh_source_page(
+        self,
+        section: Literal["popular", "latest"],
+        source_id: str,
+        page: int,
+        force: bool = False,
+    ) -> None:
+        if not force and not await self._needs_refresh(section, source_id, page):
+            return
 
-    async def _link_or_create_bulk(
-        self, source_titles: list[SourceTitle]
-    ) -> list[CanonicalTitle]:
-        """Link multiple SourceTitles to canonical titles."""
-        linked_canonical_titles = []
-
-        for source_title in source_titles:
-            try:
-                canonical = await self._link_or_create(source_title)
-                linked_canonical_titles.append(canonical)
-            except Exception as e:
-                logger.error(f"Error linking title {source_title.title}: {e}")
-                await self.session.rollback()
-                continue
-
-        return linked_canonical_titles
-
-    # Service methods
-
-    async def _fetch_page_from_source(
-        self, source_id: str, section: Literal["popular", "latest"], page: int
-    ) -> tuple[list[CanonicalTitle], bool]:
-        """Fetch a single page from a source and store in database."""
         fetch_fn = (
             tachibridge.fetch_popular_titles
             if section == "popular"
             else tachibridge.fetch_latest_titles
         )
+        titles, has_next_page = await fetch_fn(source_id=source_id, page=page)
+        now = datetime.now(timezone.utc)
 
-        titles_list, has_next_page = await fetch_fn(source_id=source_id, page=page)
+        await self.session.exec(
+            delete(DiscoverCacheItem).where(
+                DiscoverCacheItem.section == section,
+                DiscoverCacheItem.source_id == source_id,
+                DiscoverCacheItem.page == page,
+            )
+        )
 
-        if not titles_list:
-            await self._mark_page_fetched(
-                source_id=source_id,
+        items = [
+            DiscoverCacheItem(
                 section=section,
+                source_id=source_id,
                 page=page,
-                title_count=0,
-                has_next_page=False,
+                rank=rank,
+                dedupe_key=_dedupe_key(title.title, title.author),
+                title_url=title.url,
+                title=title.title,
+                thumbnail_url=title.thumbnail_url or "",
+                artist=title.artist,
+                author=title.author,
+                description=title.description,
+                genre=title.genre,
+                status=_status_value(title.status),
+                fetched_at=now,
             )
-            return [], False
-
-        source_titles = [
-            SourceTitle(**t.model_dump(), source_id=source_id) for t in titles_list
+            for rank, title in enumerate(titles, start=1)
         ]
+        if items:
+            self.session.add_all(items)
 
-        canonical_titles = await self._link_or_create_bulk(source_titles)
-
-        await self._mark_page_fetched(
-            source_id=source_id,
-            section=section,
-            page=page,
-            title_count=len(canonical_titles),
-            has_next_page=has_next_page,
+        page_meta = await self.session.get(
+            DiscoverCachePage,
+            {"section": section, "source_id": source_id, "page": page},
         )
-
-        return canonical_titles, has_next_page
-
-    async def _fetch_next_batch(
-        self, section: Literal["popular", "latest"], limit: int, seen_ids: set[int]
-    ) -> list[CanonicalTitle]:
-        """Fetch next batch of titles from sources."""
-        sources = await self.extension_service.list_enabled_sources(
-            True if section == "latest" else None
-        )
-
-        new_titles = []
-
-        for extension, source in sources:
-            logger.debug(source)
-            if len(new_titles) >= limit:
-                break
-
-            next_page = await self._get_next_page_to_fetch(
-                source_id=source.id, section=section
+        if page_meta is None:
+            page_meta = DiscoverCachePage(
+                section=section,
+                source_id=source_id,
+                page=page,
+                fetched_at=now,
+                has_next_page=has_next_page,
+                item_count=len(items),
             )
+        else:
+            page_meta.fetched_at = now
+            page_meta.has_next_page = has_next_page
+            page_meta.item_count = len(items)
+        self.session.add(page_meta)
+        await self.session.commit()
 
-            if next_page is None:
-                continue
+    async def _attach_imported_library_ids(self, items: list[DiscoverItem]) -> None:
+        source_ids = {link.source.id for item in items for link in item.links}
+        title_urls = {link.title_url for item in items for link in item.links}
+        if not source_ids or not title_urls:
+            return
 
-            try:
-                canonical_titles, has_next = await self._fetch_page_from_source(
-                    source_id=source.id, section=section, page=next_page
+        rows = (
+            await self.session.exec(
+                select(
+                    LibraryTitleVariant.source_id,
+                    LibraryTitleVariant.title_url,
+                    LibraryTitleVariant.library_title_id,
+                )
+                .where(
+                    LibraryTitleVariant.source_id.in_(source_ids),
+                    LibraryTitleVariant.title_url.in_(title_urls),
+                )
+            )
+        ).all()
+        lookup = {(source_id, title_url): int(library_id) for source_id, title_url, library_id in rows}
+
+        for item in items:
+            imported_id: int | None = None
+            for link in item.links:
+                imported_id = lookup.get((link.source.id, link.title_url))
+                if imported_id is not None:
+                    break
+            item.imported_library_id = imported_id
+
+    @staticmethod
+    def _merge_cached_items(
+        sources: list[SourceSummary],
+        source_items: dict[str, list[DiscoverCacheItem]],
+    ) -> list[DiscoverItem]:
+        source_by_id = {source.id: source for source in sources}
+        source_order = {source.id: idx for idx, source in enumerate(sources)}
+        merged: dict[str, DiscoverItem] = {}
+        ordering: list[str] = []
+
+        for source in sources:
+            for item in source_items.get(source.id, []):
+                key = item.dedupe_key or _dedupe_key(item.title, item.author)
+                source_link = DiscoverSourceLink(
+                    source=source,
+                    title_url=item.title_url,
                 )
 
-                for title in canonical_titles:
-                    if title.id not in seen_ids and len(new_titles) < limit:
-                        seen_ids.add(int(title.id))
-                        new_titles.append(title)
+                existing = merged.get(key)
+                if existing is None:
+                    merged[key] = DiscoverItem(
+                        dedupe_key=key,
+                        title=item.title,
+                        thumbnail_url=item.thumbnail_url or "",
+                        artist=item.artist,
+                        author=item.author,
+                        description=item.description,
+                        genre=item.genre,
+                        status=item.status,
+                        links=[source_link],
+                    )
+                    ordering.append(key)
+                    continue
 
-            except Exception as e:
-                logger.error(f"Error fetching from source {source.id}: {e}")
-                continue
+                if not any(link.source.id == source.id for link in existing.links):
+                    existing.links.append(source_link)
 
-        return new_titles
+                if not existing.description and item.description:
+                    existing.description = item.description
+                if not existing.thumbnail_url and item.thumbnail_url:
+                    existing.thumbnail_url = item.thumbnail_url
+                if not existing.author and item.author:
+                    existing.author = item.author
+                if not existing.artist and item.artist:
+                    existing.artist = item.artist
+                if not existing.genre and item.genre:
+                    existing.genre = item.genre
 
-    async def stream_titles(
-        self, section: Literal["popular", "latest"], cursor: int = 0, limit: int = 20
-    ):
-        """Stream titles for a given section."""
-        seen_ids = set()
-        titles_to_send = []
+        deduped = [merged[key] for key in ordering]
 
-        db_titles, next_cursor, has_more = await self._list_canonical_titles(
-            section=section, cursor=cursor, limit=limit
-        )
-
-        for title in db_titles:
-            if title.id not in seen_ids:
-                seen_ids.add(title.id)
-                titles_to_send.append(title)
-
-        yield f"data: {json.dumps({'type': 'status', 'message': f'Loaded {len(titles_to_send)} titles from cache'})}\n\n"
-
-        if len(titles_to_send) < limit:
-            needed = limit - len(titles_to_send)
-
-            yield f"data: {json.dumps({'type': 'status', 'message': f'Fetching {needed} more titles from sources...'})}\n\n"
-
-            new_titles = await self._fetch_next_batch(
-                section=section, limit=needed, seen_ids=seen_ids
+        for item in deduped:
+            item.links.sort(
+                key=lambda link: (
+                    source_order.get(link.source.id, len(sources)),
+                    link.title_url,
+                )
             )
+            # Ensure link sources are still valid.
+            item.links = [link for link in item.links if link.source.id in source_by_id]
 
-            titles_to_send.extend(new_titles)
-
-        for idx, title in enumerate(titles_to_send):
-            yield f"data: {json.dumps({'type': 'title', 'id': title.id, 'title': title.title, 'progress': {'current': idx + 1, 'total': len(titles_to_send)}})}\n\n"
-
-        final_cursor = titles_to_send[-1].id if titles_to_send else cursor
-
-        yield f"data: {json.dumps({'type': 'complete', 'cursor': final_cursor, 'has_more': len(titles_to_send) == limit, 'count': len(titles_to_send)})}\n\n"
-
-    async def stream_popular_titles(self, cursor: int = 0, limit: int = 20):
-        """Stream popular titles with cursor-based pagination."""
-        async for event in self.stream_titles("popular", cursor, limit):
-            yield event
-
-    async def stream_latest_titles(self, cursor: int = 0, limit: int = 20):
-        """Stream latest titles with cursor-based pagination."""
-        async for event in self.stream_titles("latest", cursor, limit):
-            yield event
+        return deduped[:MAX_CATEGORY_ITEMS]

@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 import yaml
 from pydantic import Field
@@ -63,6 +63,16 @@ class TachibridgeConfig(MangarrBaseSettings):
     port: int = 50051
 
 
+class DownloadsConfig(MangarrBaseSettings):
+    root_dir: Path = CONFIG_DIR / "downloads"
+    monitor_interval_seconds: int = 300
+    worker_interval_seconds: int = 10
+    worker_batch_size: int = 2
+    max_attempts: int = 4
+    request_timeout_seconds: float = 30.0
+    page_retry_count: int = 2
+
+
 class LogConfig(MangarrBaseSettings):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     rotation: str = "10 MB"  # bytes or time to automatically rotate
@@ -78,6 +88,7 @@ class Settings(MangarrBaseSettings):
     app: AppConfig = AppConfig()
     server: ServerConfig = ServerConfig()
     tachibridge: TachibridgeConfig = TachibridgeConfig()
+    downloads: DownloadsConfig = DownloadsConfig()
     log: LogConfig = LogConfig()
 
     @classmethod

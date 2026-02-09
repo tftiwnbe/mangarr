@@ -9,6 +9,7 @@ from app.config import settings
 def setup_logger():
     logger.remove()
     log_dir = settings.app.log_dir
+    log_dir.mkdir(parents=True, exist_ok=True)
     log_level = settings.log.level
     log_rotation = settings.log.rotation
     log_retention = settings.log.retention

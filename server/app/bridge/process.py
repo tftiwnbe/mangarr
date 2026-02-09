@@ -21,7 +21,6 @@ class TachibridgeProcess:
         self._stdout_task: asyncio.Task[None] | None = None
         self._stderr_task: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
-        self._kcef_restart_attempted = False
 
         self._logger = logger.bind(module="bridge")
         self._process_logger = logger.bind(module="bridge.process")
@@ -38,7 +37,15 @@ class TachibridgeProcess:
 
             self._cleanup_kcef_singleton(config_dir)
 
-            command = ["java", "-jar", str(jar_path), "--data-dir", str(config_dir)]
+            command = [
+                "java",
+                "-jar",
+                str(jar_path),
+                "--data-dir",
+                str(config_dir),
+                "--port",
+                str(settings.tachibridge.port),
+            ]
             if shutil.which("xvfb-run"):
                 command = ["xvfb-run", "--auto-servernum"] + command
 
@@ -121,7 +128,9 @@ class TachibridgeProcess:
                         bridge_logger=bridge_logger, bridge_thread=thread
                     ).log(level, message)
                     if "Could not load 'jcef' library" in message:
-                        self._schedule_kcef_restart()
+                        self._logger.warning(
+                            "KCEF library failed to load. Continuing without JCEF restart."
+                        )
                 else:
                     self._process_logger.bind(
                         bridge_raw=text, bridge_stream=stream_name
@@ -145,16 +154,19 @@ class TachibridgeProcess:
     @staticmethod
     def _default_jar() -> Path:
         """Return the default path to the Tachibridge JAR file."""
-        jar_path = (
-            settings.app.config_dir / "bin" / f"tachibridge-{settings.app.version}.jar"
+        bin_dir = settings.app.config_dir / "bin"
+        jar_path = bin_dir / f"tachibridge-{settings.app.version}.jar"
+
+        if jar_path.exists():
+            return jar_path
+
+        jar_candidates = sorted(bin_dir.glob("*.jar"), key=lambda p: p.stat().st_mtime)
+        if jar_candidates:
+            return jar_candidates[-1]
+
+        raise RuntimeError(
+            f"Tachibridge JAR not found in {bin_dir}. Run 'make bridge' to build it."
         )
-
-        if not jar_path.exists():
-            raise RuntimeError(
-                f"Tachibridge JAR not found at {jar_path}. Run 'make bridge' to build it."
-            )
-
-        return jar_path
 
     def _build_env(self, config_dir: Path) -> dict[str, str] | None:
         libcef_path = self._kcef_libcef_path(config_dir)
@@ -190,20 +202,3 @@ class TachibridgeProcess:
                 self._logger.debug("Removed stale KCEF lock: {}", path)
             except Exception as exc:
                 self._logger.warning("Failed to remove KCEF lock {}: {}", path, exc)
-
-    def _schedule_kcef_restart(self) -> None:
-        if self._kcef_restart_attempted:
-            return
-        self._kcef_restart_attempted = True
-        self._logger.warning(
-            "KCEF failed to load; restarting bridge to apply LD_PRELOAD"
-        )
-        asyncio.create_task(self._restart_bridge())
-
-    async def _restart_bridge(self) -> None:
-        try:
-            await self.stop()
-            await asyncio.sleep(1.0)
-            await self.start()
-        except Exception as exc:
-            self._logger.error("Failed to restart bridge: {}", exc)

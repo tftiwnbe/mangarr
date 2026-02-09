@@ -1,3 +1,6 @@
+import asyncio
+import json
+from datetime import UTC, datetime
 from typing import Any, NoReturn
 
 import grpc
@@ -8,11 +11,13 @@ from app.config import settings
 from app.core.errors import BridgeAPIError
 from app.models import (
     ExtensionSourceTitle,
+    Page,
+    PreferenceType,
     RepoExtension,
     RepoSource,
+    SourcePreference,
     SourceChapter,
     SourcePreferencesResource,
-    SourceTitle,
 )
 from .proto.mangarr.tachibridge.extensions import extensions_pb2
 from .proto.mangarr.tachibridge.config import config_pb2
@@ -43,13 +48,19 @@ class TachibridgeService:
             self._logger.debug("Bridge already running")
             return
 
+        port = settings.tachibridge.port
         await self._process.start()
 
         try:
-            await self._connection.wait_until_ready()
-        except Exception:
+            await self._wait_until_ready_or_exit()
+            await self._ensure_process_stable()
+        except Exception as exc:
+            self._logger.exception("Bridge startup failed on port {}", port)
             await self._process.stop()
-            raise
+            raise RuntimeError(
+                f"Bridge failed to start on port {port}. "
+                "Ensure the port is free or reconfigure MANGARR__TACHIBRIDGE__PORT."
+            ) from exc
 
     async def stop(self) -> None:
         """Stop the bridge process and close connections."""
@@ -58,7 +69,45 @@ class TachibridgeService:
 
     async def is_healthy(self) -> bool:
         """Check if the bridge is healthy."""
+        if not self._process.is_running():
+            return False
         return await self._connection.check_health()
+
+    async def _ensure_process_stable(self, grace_period: float = 2.0) -> None:
+        """Ensure the launched process survives initial startup window."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + grace_period
+        while loop.time() < deadline:
+            if not self._process.is_running():
+                raise RuntimeError(
+                    "Bridge process exited during startup. "
+                    "Check bridge logs for bind/runtime errors."
+                )
+            await asyncio.sleep(0.1)
+
+    async def _wait_until_ready_or_exit(
+        self, timeout: float = 8.0, interval: float = 0.3
+    ) -> None:
+        """Wait for bridge readiness, aborting early if process exits."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+
+        while loop.time() < deadline:
+            if not self._process.is_running():
+                raise RuntimeError(
+                    "Bridge process exited during startup. "
+                    "Check bridge logs for bind/runtime errors."
+                )
+
+            if await self._connection.check_health(timeout=1.0):
+                self._logger.info("Bridge ready at {}", self._connection.address)
+                return
+
+            await asyncio.sleep(interval)
+
+        raise RuntimeError(
+            f"Timed out waiting for bridge readiness after {timeout:.1f}s"
+        )
 
     # Extension Management
 
@@ -156,9 +205,40 @@ class TachibridgeService:
             request = extensions_pb2.GetFiltersRequest(source_id=int(source_id))
             response = await stub.GetFilters(request, timeout=10.0)
 
-            return self._proto_to_preferences(source_id, response)
+            source_meta = await self._source_metadata(source_id)
+            return self._proto_to_preferences(source_id, source_meta, response)
         except AioRpcError as e:
             self._handle_grpc_error(e, "fetch_source_preferences")
+
+    async def set_source_preference(
+        self,
+        source_id: str,
+        key: str,
+        value: Any,
+    ) -> None:
+        """Set one source preference value."""
+        try:
+            stub = await self._connection.get_stub()
+            request = extensions_pb2.SetPreferenceRequest(
+                source_id=int(source_id),
+                key=key,
+                value=json.dumps(value),
+            )
+            response = await stub.SetPreference(request, timeout=10.0)
+
+            if not response.success:
+                raise BridgeAPIError(500, response.error or "Failed to set preference")
+        except AioRpcError as e:
+            self._handle_grpc_error(e, "set_source_preference")
+
+    async def set_source_preferences(
+        self,
+        source_id: str,
+        preferences: dict[str, Any],
+    ) -> None:
+        """Set multiple source preferences sequentially."""
+        for key, value in preferences.items():
+            await self.set_source_preference(source_id=source_id, key=key, value=value)
 
     # Title Discovery
 
@@ -228,30 +308,30 @@ class TachibridgeService:
     async def fetch_title_details(
         self,
         source_id: str,
-        title: SourceTitle,
-    ) -> SourceTitle:
+        title_url: str,
+    ) -> ExtensionSourceTitle:
         """Return a title with details populated."""
         try:
             stub = await self._connection.get_stub()
             request = extensions_pb2.GetTitleDetailsRequest(
-                source_id=int(source_id), title_url=title.url
+                source_id=int(source_id), title_url=title_url
             )
             response = await stub.GetTitleDetails(request, timeout=30.0)
 
-            return self._proto_to_source_title(response.title)
+            return self._proto_to_extension_title(response.title)
         except AioRpcError as e:
             self._handle_grpc_error(e, "fetch_title_details")
 
     async def fetch_title_chapters(
         self,
         source_id: str,
-        title: dict[str, Any],
+        title_url: str,
     ) -> list[SourceChapter]:
         """Return all chapters for a given title."""
         try:
             stub = await self._connection.get_stub()
             request = extensions_pb2.GetChaptersListRequest(
-                source_id=int(source_id), title_url=title.get("url")
+                source_id=int(source_id), title_url=title_url
             )
             response = await stub.GetChapterList(request, timeout=30.0)
 
@@ -262,13 +342,13 @@ class TachibridgeService:
     async def fetch_chapter_pages(
         self,
         source_id: str,
-        chapter: dict[str, Any],
-    ) -> list[dict[str, Any]]:
+        chapter_url: str,
+    ) -> list[Page]:
         """Return all pages for a given chapter."""
         try:
             stub = await self._connection.get_stub()
             request = extensions_pb2.GetPagesListRequest(
-                source_id=int(source_id), chapter_url=chapter.get("url")
+                source_id=int(source_id), chapter_url=chapter_url
             )
             response = await stub.GetPageList(request, timeout=30.0)
 
@@ -338,48 +418,92 @@ class TachibridgeService:
             status=title.status,
         )
 
-    def _proto_to_source_title(self, title: extensions_pb2.Title) -> SourceTitle:
-        """Convert protobuf Title to SourceTitle model."""
-        return SourceTitle(
-            url=title.url,
-            title=title.title,
-            thumbnail_url=title.thumbnail_url,
-            artist=title.artist,
-            author=title.author,
-            description=title.description,
-            genre=title.genre,
-            status=title.status,
-        )
-
     def _proto_to_chapter(self, chapter: extensions_pb2.Chapter) -> SourceChapter:
         """Convert protobuf Chapter to SourceChapter model."""
         return SourceChapter(
             url=chapter.url,
             name=chapter.name,
-            date_upload=chapter.date_upload,
+            date_upload=self._epoch_to_datetime(chapter.date_upload),
             chapter_number=chapter.chapter_number,
             scanlator=chapter.scanlator,
         )
 
-    def _proto_to_page(self, page: extensions_pb2.Page) -> dict[str, Any]:
-        """Convert protobuf Page to dict."""
-        return {
-            "index": page.index,
-            "url": page.url,
-            "image_url": page.image_url,
-        }
+    def _proto_to_page(self, page: extensions_pb2.Page) -> Page:
+        """Convert protobuf Page to model."""
+        return Page(index=page.index, url=page.url, image_url=page.image_url)
 
     def _proto_to_preferences(
-        self, source_id: str, filters: extensions_pb2.FiltersResponse
+        self,
+        source_id: str,
+        source_meta: RepoSource | None,
+        filters: extensions_pb2.FiltersResponse,
     ) -> SourcePreferencesResource:
         """Convert protobuf filters to preferences."""
         return SourcePreferencesResource(
             source_id=source_id,
-            filters=[
-                {"name": f.name, "type": f.type, "data": f.data}
-                for f in filters.filters
-            ],
+            name=source_meta.name if source_meta else None,
+            lang=source_meta.lang if source_meta else None,
+            preferences=[self._proto_to_source_preference(f) for f in filters.filters],
         )
+
+    async def _source_metadata(self, source_id: str) -> RepoSource | None:
+        sources = await self.fetch_installed_sources()
+        return next((source for source in sources if source.id == source_id), None)
+
+    def _proto_to_source_preference(
+        self, filter_item: extensions_pb2.Filter
+    ) -> SourcePreference:
+        payload = self._parse_filter_payload(filter_item.data)
+
+        pref_type = str(payload.get("type") or filter_item.type or "text").lower()
+        if pref_type not in {"list", "toggle", "multi_select", "text"}:
+            pref_type = "text"
+
+        return SourcePreference(
+            key=str(payload.get("key") or filter_item.name),
+            title=str(payload.get("title") or filter_item.name),
+            summary=self._optional_text(payload.get("summary")),
+            type=PreferenceType(pref_type),
+            enabled=bool(payload.get("enabled", True)),
+            visible=bool(payload.get("visible", True)),
+            default_value=payload.get("default_value"),
+            current_value=payload.get("current_value"),
+            entries=self._string_list(payload.get("entries")),
+            entry_values=self._string_list(payload.get("entry_values")),
+            dialog_title=self._optional_text(payload.get("dialog_title")),
+            dialog_message=self._optional_text(payload.get("dialog_message")),
+        )
+
+    @staticmethod
+    def _parse_filter_payload(raw: str) -> dict[str, Any]:
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            return {}
+
+        if isinstance(parsed, dict):
+            return parsed
+        return {}
+
+    @staticmethod
+    def _optional_text(value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @staticmethod
+    def _string_list(value: Any) -> list[str] | None:
+        if not isinstance(value, list):
+            return None
+        return [str(item) for item in value]
+
+    @staticmethod
+    def _epoch_to_datetime(value: int) -> datetime:
+        if value <= 0:
+            return datetime.fromtimestamp(0, tz=UTC)
+        seconds = value / 1000 if value > 10_000_000_000 else value
+        return datetime.fromtimestamp(seconds, tz=UTC)
 
 
 # Factory function for easy initialization
