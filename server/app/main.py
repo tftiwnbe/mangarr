@@ -13,6 +13,7 @@ from app.core.database import sessionmanager
 from app.core.errors import BridgeAPIError
 from app.core.logging import setup_logger
 from app.core.scheduler import scheduler
+from app.features.auth import auth_router
 from app.features.discover import discover_router
 from app.features.downloads import downloads_router
 from app.features.extensions import extensions_router
@@ -48,6 +49,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.include_router(auth_router)
 app.include_router(extensions_router)
 app.include_router(discover_router)
 app.include_router(downloads_router)

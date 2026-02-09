@@ -1,11 +1,15 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 
 from app.core.database import sessionmanager
-from app.core.deps import DBSessionDep
+from app.core.deps import DBSessionDep, require_authenticated_user
 from app.features.discover.service import DiscoverService
 from app.models import DiscoverCategory, DiscoverFeed, SourceSummary
 
-router = APIRouter(prefix="/api/v2/discover", tags=["discover"])
+router = APIRouter(
+    prefix="/api/v2/discover",
+    tags=["discover"],
+    dependencies=[Depends(require_authenticated_user)],
+)
 
 
 async def get_service(db: DBSessionDep) -> DiscoverService:

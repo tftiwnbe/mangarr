@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 
-from app.core.deps import DBSessionDep
+from app.core.deps import DBSessionDep, require_authenticated_user
 from app.features.downloads.service import DownloadService
 from app.models import (
     DownloadDashboardResource,
@@ -15,7 +15,11 @@ from app.models import (
     WorkerRunResponse,
 )
 
-router = APIRouter(prefix="/api/v2/downloads", tags=["downloads"])
+router = APIRouter(
+    prefix="/api/v2/downloads",
+    tags=["downloads"],
+    dependencies=[Depends(require_authenticated_user)],
+)
 
 
 async def get_service(db: DBSessionDep) -> DownloadService:

@@ -60,6 +60,14 @@ from app.models.titles import (
     SourceChapter,
     Status,
 )
+from app.models.users import (
+    ChangePasswordRequest,
+    RegisterFirstUserRequest,
+    RegisterFirstUserResponse,
+    RotateApiKeyResponse,
+    User,
+    UserProfileResource,
+)
 
 __all__ = [
     "DiscoverCacheItem",
@@ -111,7 +119,13 @@ __all__ = [
     "SourcePreferencesResource",
     "SourceSummary",
     "MonitorRunResponse",
+    "ChangePasswordRequest",
+    "RegisterFirstUserRequest",
+    "RegisterFirstUserResponse",
+    "RotateApiKeyResponse",
     "Status",
+    "User",
+    "UserProfileResource",
     "UpdateExtension",
     "UpdateSource",
     "WorkerRunResponse",

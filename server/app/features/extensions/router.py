@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from app.core.deps import DBSessionDep
+from app.core.deps import DBSessionDep, require_authenticated_user
 from app.features.extensions.service import ExtensionService
 from app.models import SourcePreferenceUpdate
 from app.models.extensions import (
@@ -10,7 +10,10 @@ from app.models.extensions import (
     SourcePreferencesResource,
 )
 
-router = APIRouter(prefix="/api/v2/extensions")
+router = APIRouter(
+    prefix="/api/v2/extensions",
+    dependencies=[Depends(require_authenticated_user)],
+)
 
 
 async def get_service(db: DBSessionDep) -> ExtensionService:

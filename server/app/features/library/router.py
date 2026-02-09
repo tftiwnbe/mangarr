@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from app.config import settings
-from app.core.deps import DBSessionDep
+from app.core.deps import DBSessionDep, require_authenticated_user
 from app.features.library.service import LibraryService
 from app.models import (
     LibraryChapterPageResource,
@@ -14,7 +14,11 @@ from app.models import (
     LibraryTitleSummary,
 )
 
-router = APIRouter(prefix="/api/v2/library", tags=["library"])
+router = APIRouter(
+    prefix="/api/v2/library",
+    tags=["library"],
+    dependencies=[Depends(require_authenticated_user)],
+)
 
 
 async def get_service(db: DBSessionDep) -> LibraryService:
