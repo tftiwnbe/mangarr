@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { signOut } from '$lib/api/auth';
 	import { Button } from '$lib/elements/button/index.js';
 	import { Separator } from '$lib/elements/separator/index.js';
 
@@ -9,6 +11,11 @@
 
 	const version = '2.0.0';
 	const buildDate = '2024-02-07';
+
+	async function handleSignOut(): Promise<void> {
+		signOut();
+		await goto('/login', { replaceState: true });
+	}
 </script>
 
 <div class="flex flex-col gap-8">
@@ -38,6 +45,15 @@
 					<RefreshCwIcon class="size-4" />
 					Check
 				</Button>
+			</div>
+		</div>
+		<div class="flex flex-col gap-2 rounded-lg border p-4">
+			<div class="flex items-center justify-between">
+				<div>
+					<p class="font-medium">Session</p>
+					<p class="text-sm text-muted-foreground">Sign out and clear local token</p>
+				</div>
+				<Button variant="outline" size="sm" onclick={handleSignOut}>Sign Out</Button>
 			</div>
 		</div>
 	</section>

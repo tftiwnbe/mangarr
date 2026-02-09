@@ -62,6 +62,8 @@ from app.models.titles import (
 )
 from app.models.users import (
     ChangePasswordRequest,
+    LoginRequest,
+    LoginResponse,
     RegisterFirstUserRequest,
     RegisterFirstUserResponse,
     RotateApiKeyResponse,
@@ -120,6 +122,8 @@ __all__ = [
     "SourceSummary",
     "MonitorRunResponse",
     "ChangePasswordRequest",
+    "LoginRequest",
+    "LoginResponse",
     "RegisterFirstUserRequest",
     "RegisterFirstUserResponse",
     "RotateApiKeyResponse",

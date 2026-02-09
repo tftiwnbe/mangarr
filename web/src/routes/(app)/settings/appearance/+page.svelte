@@ -61,21 +61,21 @@
 		</div>
 
 		<div class="flex flex-wrap gap-3">
-			{#each accentColors as color (color.value)}
-				<button
-					onclick={() => (accentColor = color.value)}
-					class={cn(
-						'size-10 rounded-full transition-transform',
+				{#each accentColors as color (color.value)}
+					<button
+						onclick={() => (accentColor = color.value)}
+						class={cn(
+							'size-10 rounded-full transition-transform',
 						color.color,
 						accentColor === color.value
 							? 'ring-2 ring-offset-2 ring-offset-background ring-primary scale-110'
 							: 'hover:scale-105'
-					)}
-					aria-label={color.value}
-				/>
-			{/each}
-		</div>
-	</section>
+						)}
+						aria-label={color.value}
+					></button>
+				{/each}
+			</div>
+		</section>
 
 	<section class="flex flex-col gap-4">
 		<div>

@@ -5,13 +5,26 @@
 	import SourcePreferencesDialog from '$dialogs/source-preferences-dialog.svelte';
 	import Badge from '$elements/badge/badge.svelte';
 	import { Button } from '$elements/button/index';
-	import client from '$lib/api';
+	import {
+		getSourcePreferences as getSourcePreferencesApi,
+		installExtension as installExtensionApi,
+		listAvailableExtensions,
+		listInstalledExtensions,
+		toggleExtensionProxy as toggleExtensionProxyApi,
+		toggleSourceEnabled,
+		uninstallExtension,
+		updateExtensionsPriority as updateExtensionsPriorityApi,
+		updateSourcePreferences as updateSourcePreferencesApi,
+		type ExtensionResource,
+		type RepoExtensionResource,
+		type SourcePreferenceUpdate,
+		type SourcePreferencesResolved
+	} from '$lib/api/extensions';
 	import type { components } from '$lib/api/v2';
 	import ExtensionInstalled from '$lib/components/extension/extension-installed.svelte';
 	import { RefreshCwIcon, SettingsIcon } from '@lucide/svelte/icons';
 	import { onMount } from 'svelte';
 
-	type ExtensionResource = components['schemas']['ExtensionResource'];
 	type SourcePreference = components['schemas']['SourcePreference'];
 
 	let installedExtensions: ExtensionResource[] = $state([]);
@@ -23,112 +36,51 @@
 	// Fetch data
 	// -----------------------------------------------------
 	async function fetchInstalledExtensions() {
-		const { data, error } = await client.GET('/api/v2/extensions/installed', {});
-		if (error) {
-			const errorMessage = 'Failed to fetch installed extensions.';
-			console.error(errorMessage, error);
-			throw new Error(errorMessage);
-		}
-		if (data) {
-			installedExtensions = data;
-		}
+		installedExtensions = await listInstalledExtensions();
 	}
-	async function fetchAvailableExtensions() {
-		const { data, error } = await client.GET('/api/v2/extensions/available', {});
-		if (error) {
-			const errorMessage = 'Failed to fetch available extensions.';
-			console.error(errorMessage, error);
-			throw new Error(errorMessage);
-		}
-		return data;
+	async function fetchAvailableExtensions(): Promise<RepoExtensionResource[]> {
+		return listAvailableExtensions();
 	}
-	async function fetchSourcePreferences(source_id: string) {
-		const { data, error } = await client.GET('/api/v2/extensions/source/{source_id}/preferences', {
-			params: { path: { source_id } }
-		});
-		if (error) {
-			const errorMessage = 'Failed to fetch source preferences.';
-			console.error(errorMessage, error);
-			throw new Error(errorMessage);
-		}
-		return data;
+	async function fetchSourcePreferences(source_id: string): Promise<SourcePreferencesResolved> {
+		return getSourcePreferencesApi(source_id);
 	}
 
 	// -----------------------------------------------------
 	// Chage data
 	// -----------------------------------------------------
 	async function installExtension(extension_pkg: string): Promise<boolean> {
-		const { data, error } = await client.POST('/api/v2/extensions/install/{extension_pkg}', {
-			params: { path: { extension_pkg } }
-		});
-		if (error) {
-			const errorMessage = 'Failed to install extension.';
-			console.error(errorMessage, error);
-			throw new Error(errorMessage);
-		}
-		if (data) {
-			installedExtensions = [...installedExtensions, data];
+		const installedExtension = await installExtensionApi(extension_pkg);
+		if (!installedExtensions.some((item) => item.pkg === installedExtension.pkg)) {
+			installedExtensions = [...installedExtensions, installedExtension];
 		}
 		return true;
 	}
 	async function deleteExtension(extension_pkg: string): Promise<boolean> {
-		const { error } = await client.DELETE('/api/v2/extensions/uninstall/{extension_pkg}', {
-			params: { path: { extension_pkg } }
-		});
-		if (error) {
-			const errorMessage = 'Failed to delete extension.';
-			console.error(errorMessage, error);
-			throw new Error(errorMessage);
-		}
+		await uninstallExtension(extension_pkg);
 		installedExtensions = installedExtensions.filter((ext) => ext.pkg !== extension_pkg);
 		return true;
 	}
 	async function updateExtensionsPriority(extensions_by_priority: string[]): Promise<boolean> {
-		const { error } = await client.PUT('/api/v2/extensions/priority', {
-			body: extensions_by_priority
-		});
-		if (error) {
-			const errorMessage = 'Failed to update extension priority.';
-			console.error(errorMessage, error);
-			throw new Error(errorMessage);
-		}
+		await updateExtensionsPriorityApi(extensions_by_priority);
 		return true;
 	}
 	async function toggleExtensionProxy(extension_pkg: string, use_proxy: boolean): Promise<boolean> {
-		const { error } = await client.PUT('/api/v2/extensions/{extension_pkg}/proxy', {
-			params: { path: { extension_pkg }, query: { use_proxy } }
-		});
-		if (error) {
-			const errorMessage = 'Failed to toggle extension proxy.';
-			console.error(errorMessage, error);
-			throw new Error(errorMessage);
-		}
+		await toggleExtensionProxyApi(extension_pkg, use_proxy);
 		return use_proxy;
 	}
 	async function toggleSource(source_id: string, enabled: boolean): Promise<boolean> {
-		const { error } = await client.PUT('/api/v2/extensions/source/{source_id}/enabled', {
-			params: { path: { source_id }, query: { enabled } }
-		});
-		if (error) {
-			const errorMessage = 'Failed to toggle source.';
-			console.error(errorMessage, error);
-			throw new Error(errorMessage);
-		}
+		await toggleSourceEnabled(source_id, enabled);
 		return true;
 	}
 	async function updateSourcePreferences(
 		source_id: string,
 		preferences: SourcePreference[]
 	): Promise<boolean> {
-		const { error } = await client.PUT('/api/v2/extensions/source/{source_id}/preferences', {
-			params: { path: { source_id } },
-			body: preferences
-		});
-		if (error) {
-			const errorMessage = 'Failed to update preferences.';
-			console.error(errorMessage, error);
-			throw new Error(errorMessage);
-		}
+		const updates: SourcePreferenceUpdate[] = preferences.map((preference) => ({
+			key: preference.key,
+			value: preference.current_value
+		}));
+		await updateSourcePreferencesApi(source_id, updates);
 		return true;
 	}
 
@@ -136,7 +88,17 @@
 		await fetchInstalledExtensions();
 	});
 
-	const historyExample = [
+	type HistoryEntry = {
+		status: string;
+		commit_day: string;
+		name: string;
+		lang: string;
+		version: string;
+		new_version?: string;
+		renamed_to?: string;
+	};
+
+	const historyExample: HistoryEntry[] = [
 		{
 			status: 'updated',
 			commit_day: 'today',

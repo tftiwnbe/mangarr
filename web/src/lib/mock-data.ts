@@ -24,7 +24,7 @@ export interface Chapter {
 	isDownloaded?: boolean;
 }
 
-export interface TitleDetail extends Title {
+export interface TitleDetail extends Omit<Title, 'chapters'> {
 	alternativeTitles?: string[];
 	chapters: Chapter[];
 }

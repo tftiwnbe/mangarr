@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { cn } from '$lib/utils';
 	import TitleCard from '$lib/components/title-card/title-card.svelte';
-	import type { Title } from '$lib/mock-data';
+	import type { TitleCardItem } from '$lib/models/title';
 	import type { Snippet } from 'svelte';
 
 	interface Props {
-		titles: Title[];
+		titles: TitleCardItem[];
 		emptyState?: Snippet;
 		class?: string;
 	}

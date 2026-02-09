@@ -23,6 +23,11 @@ class RegisterFirstUserRequest(SQLModel):
     password: str
 
 
+class LoginRequest(SQLModel):
+    username: str
+    password: str
+
+
 class UserProfileResource(SQLModel):
     id: int
     username: str
@@ -34,6 +39,12 @@ class UserProfileResource(SQLModel):
 class RegisterFirstUserResponse(SQLModel):
     user: UserProfileResource
     api_key: str
+
+
+class LoginResponse(SQLModel):
+    user: UserProfileResource
+    api_key: str
+    issued_at: datetime
 
 
 class RotateApiKeyResponse(SQLModel):

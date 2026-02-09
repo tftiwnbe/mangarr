@@ -3,14 +3,14 @@
 	import TitleCard from '$lib/components/title-card/title-card.svelte';
 	import { Button } from '$lib/elements/button/index.js';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
-	import type { Title } from '$lib/mock-data';
+	import type { TitleCardItem } from '$lib/models/title';
 	import type { Component } from 'svelte';
 
 	interface Props {
 		title: string;
 		icon?: Component;
 		href?: string;
-		titles: Title[];
+		titles: TitleCardItem[];
 		class?: string;
 	}
 

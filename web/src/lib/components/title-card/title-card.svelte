@@ -1,14 +1,16 @@
 <script lang="ts">
 	import { cn } from '$lib/utils';
 	import { Badge } from '$lib/elements/badge/index.js';
-	import type { Title } from '$lib/mock-data';
+	import type { TitleCardItem } from '$lib/models/title';
 
 	interface Props {
-		item: Title;
+		item: TitleCardItem;
 		class?: string;
 	}
 
 	let { item, class: className }: Props = $props();
+	const href = $derived(item.href ?? `/title/${encodeURIComponent(item.id)}`);
+	const openExternally = $derived(item.external ?? /^https?:\/\//i.test(href));
 
 	const statusColors = {
 		ongoing: 'bg-blue-500/90',
@@ -18,7 +20,9 @@
 </script>
 
 <a
-	href="/title/{item.id}"
+	href={href}
+	target={openExternally ? '_blank' : undefined}
+	rel={openExternally ? 'noopener noreferrer' : undefined}
 	class={cn(
 		'group relative flex w-32 shrink-0 flex-col gap-2 sm:w-36 md:w-40',
 		className

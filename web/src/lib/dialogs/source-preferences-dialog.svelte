@@ -131,13 +131,18 @@
 									/>
 								</Field.Field>
 							{/if}
-							{#if pref.type === 'list' && pref.entries && pref.entry_values}
-								<Field.Field>
-									<Field.Label for={pref.key}>{pref.title}</Field.Label>
-									<Select.Root type="single" bind:value={pref.current_value}>
-										<Select.Trigger class="overflow-hidden">
-											{pref.entries[pref.entry_values.indexOf(pref.current_value)]}
-										</Select.Trigger>
+								{#if pref.type === 'list' && pref.entries && pref.entry_values}
+									{@const selectedValue = String(pref.current_value ?? '')}
+									<Field.Field>
+										<Field.Label for={pref.key}>{pref.title}</Field.Label>
+										<Select.Root
+											type="single"
+											value={selectedValue}
+											onValueChange={(value) => updatePreference(pref.key, value)}
+										>
+											<Select.Trigger class="overflow-hidden">
+												{pref.entries[pref.entry_values.indexOf(selectedValue)]}
+											</Select.Trigger>
 
 										<Select.Content class="max-h-[40vh]">
 											{#each pref.entries as entry, i (entry)}
@@ -156,39 +161,40 @@
 									{/if}
 								</Field.Field>
 							{/if}
-							{#if pref.type === 'text'}
-								<Field.Field>
-									<Field.Label for={pref.key}>{pref.title}</Field.Label>
-									<Input
-										value={pref.current_value || ''}
-										oninput={(e) => updatePreference(pref.key, e.currentTarget.value)}
-										disabled={!pref.enabled}
-										placeholder={pref.default_value || ''}
-									/>
+								{#if pref.type === 'text'}
+									<Field.Field>
+										<Field.Label for={pref.key}>{pref.title}</Field.Label>
+										<Input
+											value={String(pref.current_value ?? '')}
+											oninput={(e) => updatePreference(pref.key, e.currentTarget.value)}
+											disabled={!pref.enabled}
+											placeholder={String(pref.default_value ?? '')}
+										/>
 									{#if pref.summary}
 										<Field.Description>{pref.summary}</Field.Description>
 									{/if}
 								</Field.Field>
 							{/if}
-							{#if pref.type === 'multi_select' && pref.entries && pref.entry_values}
-								<Field.Set>
+								{#if pref.type === 'multi_select' && pref.entries && pref.entry_values}
+									{@const entryValues = pref.entry_values}
+									<Field.Set>
 									<Field.Legend variant="label">{pref.title}</Field.Legend>
 									{#if pref.summary}
 										<Field.Description>{pref.summary}</Field.Description>
 									{/if}
 									<Field.Group class="gap-3">
-										{#each pref.entries as entry, i (i)}
-											<Field.Field orientation="horizontal">
-												<Checkbox
-													id={`${pref.key}-${pref.entry_values[i]}`}
-													checked={isMultiSelectChecked(pref.key, pref.entry_values[i])}
-													onCheckedChange={() => toggleMultiSelect(pref.key, pref.entry_values[i])}
-													disabled={!pref.enabled}
-												/>
-												<Field.Label
-													for={`${pref.key}-${pref.entry_values[i]}`}
-													class="font-normal"
-												>
+											{#each pref.entries as entry, i (i)}
+												<Field.Field orientation="horizontal">
+													<Checkbox
+														id={`${pref.key}-${entryValues[i]}`}
+														checked={isMultiSelectChecked(pref.key, entryValues[i])}
+														onCheckedChange={() => toggleMultiSelect(pref.key, entryValues[i])}
+														disabled={!pref.enabled}
+													/>
+													<Field.Label
+														for={`${pref.key}-${entryValues[i]}`}
+														class="font-normal"
+													>
 													{entry}
 												</Field.Label>
 											</Field.Field>

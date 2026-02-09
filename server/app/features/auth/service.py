@@ -13,6 +13,8 @@ from app.core.security import (
     verify_password,
 )
 from app.models import (
+    LoginRequest,
+    LoginResponse,
     RegisterFirstUserRequest,
     RegisterFirstUserResponse,
     RotateApiKeyResponse,
@@ -55,6 +57,35 @@ class AuthService:
         return RegisterFirstUserResponse(
             user=self.to_user_profile(user),
             api_key=api_key,
+        )
+
+    async def login(self, request: LoginRequest) -> LoginResponse:
+        normalized_username = validate_username(request.username)
+        now = datetime.now(timezone.utc)
+
+        user = (
+            await self.session.exec(
+                select(User).where(User.username == normalized_username)
+            )
+        ).first()
+        if user is None or not verify_password(request.password, user.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password",
+            )
+
+        api_key = generate_api_key()
+        user.api_key_hash = hash_api_key(api_key)
+        user.updated_at = now
+        user.last_login_at = now
+        user.last_api_key_rotated_at = now
+        self.session.add(user)
+        await self.session.commit()
+
+        return LoginResponse(
+            user=self.to_user_profile(user),
+            api_key=api_key,
+            issued_at=now,
         )
 
     async def rotate_api_key(self, user: User) -> RotateApiKeyResponse:

@@ -4,6 +4,7 @@ from time import time
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger as loguru_logger
 
@@ -84,6 +85,7 @@ app.add_middleware(
     allow_headers=settings.app.cors_allow_headers,
     allow_credentials=settings.app.cors_allow_credentials,
 )
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
 if __name__ == "__main__":

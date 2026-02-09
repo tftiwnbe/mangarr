@@ -4,6 +4,8 @@ from app.core.deps import CurrentUserDep, DBSessionDep
 from app.features.auth.service import AuthService
 from app.models import (
     ChangePasswordRequest,
+    LoginRequest,
+    LoginResponse,
     RegisterFirstUserRequest,
     RegisterFirstUserResponse,
     RotateApiKeyResponse,
@@ -27,6 +29,14 @@ async def register_first_user(
     service: AuthService = Depends(get_service),
 ):
     return await service.register_first_user(payload)
+
+
+@router.post("/login", response_model=LoginResponse)
+async def login(
+    payload: LoginRequest,
+    service: AuthService = Depends(get_service),
+):
+    return await service.login(payload)
 
 
 @router.get("/me", response_model=UserProfileResource)

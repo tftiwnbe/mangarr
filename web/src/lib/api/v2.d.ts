@@ -4,762 +4,2727 @@
  */
 
 export interface paths {
-    "/api/v2/extensions/replace": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Replace Extensions */
-        get: operations["replace_extensions_api_v2_extensions_replace_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/extensions/available": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Available
-         * @description Get all available extensions from the configured repository.
-         */
-        get: operations["get_available_api_v2_extensions_available_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/extensions/installed": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Installed
-         * @description Get all currently installed extensions.
-         */
-        get: operations["get_installed_api_v2_extensions_installed_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/extensions/repository": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Update Repository
-         * @description Update the extension repository URL.
-         *
-         *     Returns the list of available extensions from the new repository.
-         */
-        put: operations["update_repository_api_v2_extensions_repository_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/extensions/install/{extension_pkg}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Install Extension
-         * @description Install an extension by package name.
-         */
-        post: operations["install_extension_api_v2_extensions_install__extension_pkg__post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/extensions/uninstall/{extension_pkg}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Uninstall Extension
-         * @description Uninstall an extension by package name.
-         */
-        delete: operations["uninstall_extension_api_v2_extensions_uninstall__extension_pkg__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/extensions/priority": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Update Extensions Priority
-         * @description Update an extension's priority.
-         */
-        put: operations["update_extensions_priority_api_v2_extensions_priority_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/extensions/{extension_pkg}/proxy": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Toggle Extension Proxy
-         * @description Enable or disable proxy mode for an extension.
-         */
-        put: operations["toggle_extension_proxy_api_v2_extensions__extension_pkg__proxy_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/extensions/source/{source_id}/preferences": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Source Preferences
-         * @description Get available preferences for source.
-         */
-        get: operations["get_source_preferences_api_v2_extensions_source__source_id__preferences_get"];
-        /**
-         * Update Source Preferences
-         * @description Update source preferences
-         */
-        put: operations["update_source_preferences_api_v2_extensions_source__source_id__preferences_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/extensions/source/{source_id}/enabled": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Toggle Source
-         * @description Enable or disable a source.
-         */
-        put: operations["toggle_source_api_v2_extensions_source__source_id__enabled_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/discover/latest": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Latest Titles */
-        get: operations["list_latest_titles_api_v2_discover_latest_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/health": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Health check
-         * @description Simple health check endpoint suitable for readiness probes.
-         */
-        get: operations["health_check_api_v2_health_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
+	'/api/v2/auth/me': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Get Me */
+		get: operations['get_me_api_v2_auth_me_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/auth/me/api-key/roll': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Roll Api Key */
+		post: operations['roll_api_key_api_v2_auth_me_api_key_roll_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/auth/me/password': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Change Password */
+		post: operations['change_password_api_v2_auth_me_password_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/auth/register-first-user': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Register First User */
+		post: operations['register_first_user_api_v2_auth_register_first_user_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/auth/login': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Login */
+		post: operations['login_api_v2_auth_login_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/discover/categories': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Discover Categories */
+		get: operations['discover_categories_api_v2_discover_categories_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/discover/category': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Discover Category */
+		get: operations['discover_category_api_v2_discover_category_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/discover/latest': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Discover Latest */
+		get: operations['discover_latest_api_v2_discover_latest_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/discover/popular': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Discover Popular */
+		get: operations['discover_popular_api_v2_discover_popular_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/discover/refresh': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Refresh Discover Cache */
+		post: operations['refresh_discover_cache_api_v2_discover_refresh_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/discover/search': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Discover Search */
+		get: operations['discover_search_api_v2_discover_search_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/discover/sources': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Discover Sources */
+		get: operations['discover_sources_api_v2_discover_sources_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/downloads/chapters/{chapter_id}/enqueue': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Enqueue Chapter */
+		post: operations['enqueue_chapter_api_v2_downloads_chapters__chapter_id__enqueue_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/downloads/dashboard': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Get Dashboard */
+		get: operations['get_dashboard_api_v2_downloads_dashboard_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/downloads/overview': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Get Overview */
+		get: operations['get_overview_api_v2_downloads_overview_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/downloads/profiles': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** List Profiles */
+		get: operations['list_profiles_api_v2_downloads_profiles_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/downloads/profiles/{title_id}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Get Profile */
+		get: operations['get_profile_api_v2_downloads_profiles__title_id__get'];
+		/** Update Profile */
+		put: operations['update_profile_api_v2_downloads_profiles__title_id__put'];
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/downloads/run-monitor': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Run Monitor */
+		post: operations['run_monitor_api_v2_downloads_run_monitor_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/downloads/run-worker': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Run Worker */
+		post: operations['run_worker_api_v2_downloads_run_worker_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/downloads/tasks': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** List Tasks */
+		get: operations['list_tasks_api_v2_downloads_tasks_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/downloads/tasks/{task_id}/cancel': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Cancel Task */
+		post: operations['cancel_task_api_v2_downloads_tasks__task_id__cancel_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/downloads/tasks/{task_id}/retry': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Retry Task */
+		post: operations['retry_task_api_v2_downloads_tasks__task_id__retry_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/downloads/titles/{title_id}/enqueue-missing': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Enqueue Title Missing */
+		post: operations['enqueue_title_missing_api_v2_downloads_titles__title_id__enqueue_missing_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/extensions/available': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Available
+		 * @description Get all available extensions from the configured repository.
+		 */
+		get: operations['get_available_api_v2_extensions_available_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/extensions/install/{extension_pkg}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Install Extension
+		 * @description Install an extension by package name.
+		 */
+		post: operations['install_extension_api_v2_extensions_install__extension_pkg__post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/extensions/installed': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Installed
+		 * @description Get all currently installed extensions.
+		 */
+		get: operations['get_installed_api_v2_extensions_installed_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/extensions/priority': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		/**
+		 * Update Extensions Priority
+		 * @description Update an extension's priority.
+		 */
+		put: operations['update_extensions_priority_api_v2_extensions_priority_put'];
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/extensions/repository': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		/**
+		 * Change Repository
+		 * @description Delete existing extensions/sources and use new repository URL.
+		 */
+		put: operations['change_repository_api_v2_extensions_repository_put'];
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/extensions/source/{source_id}/enabled': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		/**
+		 * Toggle Source
+		 * @description Enable or disable a source.
+		 */
+		put: operations['toggle_source_api_v2_extensions_source__source_id__enabled_put'];
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/extensions/source/{source_id}/preferences': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Source Preferences
+		 * @description Get available preferences for source.
+		 */
+		get: operations['get_source_preferences_api_v2_extensions_source__source_id__preferences_get'];
+		/**
+		 * Update Source Preferences
+		 * @description Update source preferences
+		 */
+		put: operations['update_source_preferences_api_v2_extensions_source__source_id__preferences_put'];
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/extensions/uninstall/{extension_pkg}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		post?: never;
+		/**
+		 * Uninstall Extension
+		 * @description Uninstall an extension by package name.
+		 */
+		delete: operations['uninstall_extension_api_v2_extensions_uninstall__extension_pkg__delete'];
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/extensions/{extension_pkg}/proxy': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		/**
+		 * Toggle Extension Proxy
+		 * @description Enable or disable proxy mode for an extension.
+		 */
+		put: operations['toggle_extension_proxy_api_v2_extensions__extension_pkg__proxy_put'];
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/health': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Health check
+		 * @description Simple health check endpoint suitable for readiness probes.
+		 */
+		get: operations['health_check_api_v2_health_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/library/chapters/{chapter_id}/pages': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Get Library Chapter Pages */
+		get: operations['get_library_chapter_pages_api_v2_library_chapters__chapter_id__pages_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/library/chapters/{chapter_id}/reader': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Get Library Chapter Reader */
+		get: operations['get_library_chapter_reader_api_v2_library_chapters__chapter_id__reader_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/library/import': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Import Library Title */
+		post: operations['import_library_title_api_v2_library_import_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/library/titles': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** List Library Titles */
+		get: operations['list_library_titles_api_v2_library_titles_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/library/titles/{title_id}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Get Library Title */
+		get: operations['get_library_title_api_v2_library_titles__title_id__get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/library/titles/{title_id}/chapters': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** List Library Title Chapters */
+		get: operations['list_library_title_chapters_api_v2_library_titles__title_id__chapters_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 }
 export type webhooks = Record<string, never>;
 export interface components {
-    schemas: {
-        /** ExtensionResource */
-        ExtensionResource: {
-            /** Pkg */
-            pkg: string;
-            /** Name */
-            name: string;
-            /** Lang */
-            lang: string;
-            /** Version */
-            version: string;
-            /** Nsfw */
-            nsfw: boolean;
-            /** Sources Has Prefs */
-            sources_has_prefs: boolean;
-            /** Icon */
-            icon: string;
-            /** Priority */
-            priority: number;
-            /** Installed */
-            installed: boolean;
-            /** Use Proxy */
-            use_proxy: boolean;
-            /** Sources */
-            sources: components["schemas"]["Source"][];
-        };
-        /** HTTPValidationError */
-        HTTPValidationError: {
-            /** Detail */
-            detail?: components["schemas"]["ValidationError"][];
-        };
-        /**
-         * PreferenceType
-         * @enum {string}
-         */
-        PreferenceType: "list" | "toggle" | "multi_select" | "text";
-        /** RepoExtensionResource */
-        RepoExtensionResource: {
-            /** Pkg */
-            pkg: string;
-            /** Name */
-            name: string;
-            /** Lang */
-            lang: string;
-            /** Version */
-            version: string;
-            /** Nsfw */
-            nsfw: boolean;
-            /** Sources Has Prefs */
-            sources_has_prefs: boolean;
-            /** Icon */
-            icon: string;
-            /** Installed */
-            installed: boolean;
-        };
-        /** RepositoryUpdate */
-        RepositoryUpdate: {
-            /**
-             * Url
-             * Format: uri
-             */
-            url: string;
-        };
-        /** Source */
-        Source: {
-            /** Id */
-            id: string;
-            /** Name */
-            name: string;
-            /** Lang */
-            lang: string;
-            /** Base Url */
-            base_url?: string | null;
-            /** Supports Latest */
-            supports_latest: boolean | null;
-            /** Extension Pkg */
-            extension_pkg: string;
-            /**
-             * Enabled
-             * @default false
-             */
-            enabled: boolean;
-        };
-        /** SourcePreference */
-        SourcePreference: {
-            /** Key */
-            key: string;
-            /** Title */
-            title: string;
-            /** Summary */
-            summary: string | null;
-            type: components["schemas"]["PreferenceType"];
-            /** Enabled */
-            enabled: boolean;
-            /** Visible */
-            visible: boolean;
-            /** Default Value */
-            default_value?: unknown | null;
-            /** Current Value */
-            current_value?: unknown | null;
-            /** Entries */
-            entries?: string[] | null;
-            /** Entry Values */
-            entry_values?: string[] | null;
-            /** Dialog Title */
-            dialog_title?: string | null;
-            /** Dialog Message */
-            dialog_message?: string | null;
-        };
-        /** SourcePreferencesResource */
-        SourcePreferencesResource: {
-            /** Source Id */
-            source_id: string;
-            /** Name */
-            name: string;
-            /** Lang */
-            lang: string;
-            /** Preferences */
-            preferences: components["schemas"]["SourcePreference"][];
-        };
-        /** SourceTitle */
-        SourceTitle: {
-            /** Url */
-            url: string;
-            /** Title */
-            title: string;
-            status: components["schemas"]["Status"];
-            /** Thumbnail Url */
-            thumbnail_url: string;
-            /** Artist */
-            artist: string | null;
-            /** Author */
-            author: string | null;
-            /** Description */
-            description: string | null;
-            /** Genre */
-            genre: string | null;
-            /** Source Id */
-            source_id: number;
-        };
-        /**
-         * Status
-         * @enum {integer}
-         */
-        Status: 0 | 1 | 2 | 3 | 4 | 5 | 6;
-        /** ValidationError */
-        ValidationError: {
-            /** Location */
-            loc: (string | number)[];
-            /** Message */
-            msg: string;
-            /** Error Type */
-            type: string;
-        };
-    };
-    responses: never;
-    parameters: never;
-    requestBodies: never;
-    headers: never;
-    pathItems: never;
+	schemas: {
+		/** ChangePasswordRequest */
+		ChangePasswordRequest: {
+			/** Current Password */
+			current_password: string;
+			/** New Password */
+			new_password: string;
+		};
+		/** DiscoverCategory */
+		DiscoverCategory: {
+			/** Count */
+			count: number;
+			/** Name */
+			name: string;
+		};
+		/** DiscoverFeed */
+		DiscoverFeed: {
+			/** Category */
+			category?: string | null;
+			/** Has Next Page */
+			has_next_page: boolean;
+			/** Items */
+			items: components['schemas']['DiscoverItem'][];
+			/** Limit */
+			limit: number;
+			/** Page */
+			page: number;
+			/** Query */
+			query?: string | null;
+			/**
+			 * Section
+			 * @enum {string}
+			 */
+			section: 'popular' | 'latest' | 'search' | 'category';
+		};
+		/** DiscoverItem */
+		DiscoverItem: {
+			/** Artist */
+			artist?: string | null;
+			/** Author */
+			author?: string | null;
+			/** Dedupe Key */
+			dedupe_key: string;
+			/** Description */
+			description?: string | null;
+			/** Genre */
+			genre?: string | null;
+			/** Imported Library Id */
+			imported_library_id?: number | null;
+			/** Links */
+			links: components['schemas']['DiscoverSourceLink'][];
+			/**
+			 * Status
+			 * @default 0
+			 */
+			status: number;
+			/**
+			 * Thumbnail Url
+			 * @default
+			 */
+			thumbnail_url: string;
+			/** Title */
+			title: string;
+		};
+		/** DiscoverSourceLink */
+		DiscoverSourceLink: {
+			source: components['schemas']['SourceSummary'];
+			/** Title Url */
+			title_url: string;
+		};
+		/** DownloadDashboardResource */
+		DownloadDashboardResource: {
+			/** Active Tasks */
+			active_tasks: components['schemas']['DownloadTaskResource'][];
+			/**
+			 * Generated At
+			 * Format: date-time
+			 */
+			generated_at: string;
+			/** Monitored Titles */
+			monitored_titles: components['schemas']['DownloadMonitoredTitleResource'][];
+			overview: components['schemas']['DownloadOverviewResource'];
+			/** Recent Tasks */
+			recent_tasks: components['schemas']['DownloadTaskResource'][];
+		};
+		/** DownloadMonitoredTitleResource */
+		DownloadMonitoredTitleResource: {
+			/** Auto Download */
+			auto_download: boolean;
+			/** Downloaded Chapters */
+			downloaded_chapters: number;
+			/** Enabled */
+			enabled: boolean;
+			/** Failed Tasks */
+			failed_tasks: number;
+			/** Last Checked At */
+			last_checked_at: string | null;
+			/** Last Error */
+			last_error: string | null;
+			/** Last Success At */
+			last_success_at: string | null;
+			/** Library Title Id */
+			library_title_id: number;
+			/** Preferred Variant Id */
+			preferred_variant_id: number | null;
+			/** Queued Tasks */
+			queued_tasks: number;
+			/** Start From */
+			start_from: string | null;
+			strategy: components['schemas']['DownloadStrategy'];
+			/**
+			 * Thumbnail Url
+			 * @default
+			 */
+			thumbnail_url: string;
+			/** Title */
+			title: string;
+			/** Total Chapters */
+			total_chapters: number;
+		};
+		/** DownloadOverviewResource */
+		DownloadOverviewResource: {
+			/** Cancelled */
+			cancelled: number;
+			/** Completed */
+			completed: number;
+			/** Downloading */
+			downloading: number;
+			/** Failed */
+			failed: number;
+			/** Monitored Titles */
+			monitored_titles: number;
+			/** Queued */
+			queued: number;
+		};
+		/** DownloadProfileResource */
+		DownloadProfileResource: {
+			/** Auto Download */
+			auto_download: boolean;
+			/** Enabled */
+			enabled: boolean;
+			/** Id */
+			id: number;
+			/** Last Checked At */
+			last_checked_at: string | null;
+			/** Last Error */
+			last_error: string | null;
+			/** Last Success At */
+			last_success_at: string | null;
+			/** Library Title Id */
+			library_title_id: number;
+			/** Preferred Variant Id */
+			preferred_variant_id: number | null;
+			/** Start From */
+			start_from: string | null;
+			strategy: components['schemas']['DownloadStrategy'];
+		};
+		/** DownloadProfileUpdate */
+		DownloadProfileUpdate: {
+			/** Auto Download */
+			auto_download?: boolean | null;
+			/** Enabled */
+			enabled?: boolean | null;
+			/** Preferred Variant Id */
+			preferred_variant_id?: number | null;
+			/** Start From */
+			start_from?: string | null;
+			strategy?: components['schemas']['DownloadStrategy'] | null;
+		};
+		/**
+		 * DownloadStrategy
+		 * @enum {string}
+		 */
+		DownloadStrategy: 'new_only' | 'all_unread';
+		/** DownloadTaskResource */
+		DownloadTaskResource: {
+			/** Attempts */
+			attempts: number;
+			/**
+			 * Available At
+			 * Format: date-time
+			 */
+			available_at: string;
+			/** Chapter Id */
+			chapter_id: number;
+			/** Chapter Name */
+			chapter_name: string;
+			/** Chapter Url */
+			chapter_url: string;
+			/**
+			 * Created At
+			 * Format: date-time
+			 */
+			created_at: string;
+			/** Downloaded Pages */
+			downloaded_pages: number;
+			/** Error */
+			error: string | null;
+			/** Finished At */
+			finished_at: string | null;
+			/** Id */
+			id: number;
+			/** Library Title Id */
+			library_title_id: number;
+			/** Max Attempts */
+			max_attempts: number;
+			/** Output Dir */
+			output_dir: string | null;
+			/** Priority */
+			priority: number;
+			/** Source Id */
+			source_id: string;
+			/** Started At */
+			started_at: string | null;
+			status: components['schemas']['DownloadTaskStatus'];
+			/** Title Name */
+			title_name: string;
+			/** Total Pages */
+			total_pages: number;
+			trigger: components['schemas']['DownloadTrigger'];
+			/**
+			 * Updated At
+			 * Format: date-time
+			 */
+			updated_at: string;
+			/** Variant Id */
+			variant_id: number | null;
+		};
+		/**
+		 * DownloadTaskStatus
+		 * @enum {string}
+		 */
+		DownloadTaskStatus: 'queued' | 'downloading' | 'completed' | 'failed' | 'cancelled';
+		/**
+		 * DownloadTrigger
+		 * @enum {string}
+		 */
+		DownloadTrigger: 'monitor' | 'manual';
+		/** EnqueueChapterResponse */
+		EnqueueChapterResponse: {
+			status: components['schemas']['DownloadTaskStatus'];
+			/** Task Id */
+			task_id: number;
+		};
+		/** EnqueueTitleResponse */
+		EnqueueTitleResponse: {
+			/** Queued */
+			queued: number;
+		};
+		/** ExtensionResource */
+		ExtensionResource: {
+			/** Icon */
+			icon: string;
+			/** Installed */
+			installed: boolean;
+			/** Lang */
+			lang: string;
+			/** Name */
+			name: string;
+			/** Nsfw */
+			nsfw: boolean;
+			/** Pkg */
+			pkg: string;
+			/** Priority */
+			priority: number;
+			/** Sources */
+			sources: components['schemas']['Source'][];
+			/** Sources Has Prefs */
+			sources_has_prefs: boolean;
+			/** Use Proxy */
+			use_proxy: boolean;
+			/** Version */
+			version: string;
+		};
+		/** HTTPValidationError */
+		HTTPValidationError: {
+			/** Detail */
+			detail?: components['schemas']['ValidationError'][];
+		};
+		/** LibraryChapterPageResource */
+		LibraryChapterPageResource: {
+			/** Id */
+			id: number;
+			/** Image Url */
+			image_url: string;
+			/** Local Path */
+			local_path: string | null;
+			/** Local Size */
+			local_size: number | null;
+			/** Page Index */
+			page_index: number;
+			/** Url */
+			url: string;
+		};
+		/** LibraryChapterResource */
+		LibraryChapterResource: {
+			/** Chapter Number */
+			chapter_number: number;
+			/** Chapter Url */
+			chapter_url: string;
+			/**
+			 * Date Upload
+			 * Format: date-time
+			 */
+			date_upload: string;
+			/** Download Error */
+			download_error: string | null;
+			/** Download Path */
+			download_path: string | null;
+			/** Downloaded At */
+			downloaded_at: string | null;
+			/** Id */
+			id: number;
+			/** Is Downloaded */
+			is_downloaded: boolean;
+			/** Is Read */
+			is_read: boolean;
+			/** Name */
+			name: string;
+			/** Scanlator */
+			scanlator: string | null;
+			/** Variant Id */
+			variant_id: number;
+		};
+		/** LibraryImportRequest */
+		LibraryImportRequest: {
+			/** Source Id */
+			source_id: string;
+			/** Title Url */
+			title_url: string;
+		};
+		/** LibraryImportResponse */
+		LibraryImportResponse: {
+			/** Created */
+			created: boolean;
+			/** Library Title Id */
+			library_title_id: number;
+		};
+		/** LibraryReaderChapterResource */
+		LibraryReaderChapterResource: {
+			/** Chapter Id */
+			chapter_id: number;
+			/** Is Downloaded */
+			is_downloaded: boolean;
+			/** Library Title Id */
+			library_title_id: number;
+			/** Next Chapter Id */
+			next_chapter_id: number | null;
+			/** Pages */
+			pages: components['schemas']['ReaderPageResource'][];
+			/** Prev Chapter Id */
+			prev_chapter_id: number | null;
+			/** Variant Id */
+			variant_id: number;
+		};
+		/** LibraryTitleResource */
+		LibraryTitleResource: {
+			/** Artist */
+			artist?: string | null;
+			/** Author */
+			author?: string | null;
+			/** Canonical Key */
+			canonical_key: string;
+			/** Description */
+			description?: string | null;
+			/** Genre */
+			genre?: string | null;
+			/** Id */
+			id: number;
+			/**
+			 * Status
+			 * @default 0
+			 */
+			status: number;
+			/**
+			 * Thumbnail Url
+			 * @default
+			 */
+			thumbnail_url: string;
+			/** Title */
+			title: string;
+			/** Variants */
+			variants: components['schemas']['LibraryTitleVariantResource'][];
+		};
+		/** LibraryTitleSummary */
+		LibraryTitleSummary: {
+			/**
+			 * Chapters Count
+			 * @default 0
+			 */
+			chapters_count: number;
+			/** Id */
+			id: number;
+			/**
+			 * Status
+			 * @default 0
+			 */
+			status: number;
+			/**
+			 * Thumbnail Url
+			 * @default
+			 */
+			thumbnail_url: string;
+			/** Title */
+			title: string;
+			/**
+			 * Variants Count
+			 * @default 0
+			 */
+			variants_count: number;
+		};
+		/** LibraryTitleVariantResource */
+		LibraryTitleVariantResource: {
+			/** Id */
+			id: number;
+			/** Source Id */
+			source_id: string;
+			/** Source Lang */
+			source_lang?: string | null;
+			/** Source Name */
+			source_name?: string | null;
+			/**
+			 * Thumbnail Url
+			 * @default
+			 */
+			thumbnail_url: string;
+			/** Title */
+			title: string;
+			/** Title Url */
+			title_url: string;
+		};
+		/** MonitorRunResponse */
+		MonitorRunResponse: {
+			/** Checked Titles */
+			checked_titles: number;
+			/** Enqueued Tasks */
+			enqueued_tasks: number;
+		};
+		/**
+		 * PreferenceType
+		 * @enum {string}
+		 */
+		PreferenceType: 'list' | 'toggle' | 'multi_select' | 'text';
+		/** ReaderPageResource */
+		ReaderPageResource: {
+			/** Id */
+			id: number;
+			/** Is Local */
+			is_local: boolean;
+			/** Local Path */
+			local_path: string | null;
+			/** Local Size */
+			local_size: number | null;
+			/** Page Index */
+			page_index: number;
+			/** Remote Url */
+			remote_url: string;
+			/** Src */
+			src: string;
+		};
+		/** LoginRequest */
+		LoginRequest: {
+			/** Password */
+			password: string;
+			/** Username */
+			username: string;
+		};
+		/** LoginResponse */
+		LoginResponse: {
+			/** Api Key */
+			api_key: string;
+			/**
+			 * Issued At
+			 * Format: date-time
+			 */
+			issued_at: string;
+			user: components['schemas']['UserProfileResource'];
+		};
+		/** RegisterFirstUserRequest */
+		RegisterFirstUserRequest: {
+			/** Password */
+			password: string;
+			/** Username */
+			username: string;
+		};
+		/** RegisterFirstUserResponse */
+		RegisterFirstUserResponse: {
+			/** Api Key */
+			api_key: string;
+			user: components['schemas']['UserProfileResource'];
+		};
+		/** RepoExtensionResource */
+		RepoExtensionResource: {
+			/** Icon */
+			icon: string;
+			/** Installed */
+			installed: boolean;
+			/** Lang */
+			lang: string;
+			/** Name */
+			name: string;
+			/** Nsfw */
+			nsfw: boolean;
+			/** Pkg */
+			pkg: string;
+			/** Sources Has Prefs */
+			sources_has_prefs: boolean;
+			/** Version */
+			version: string;
+		};
+		/** RepositoryUpdate */
+		RepositoryUpdate: {
+			/**
+			 * Url
+			 * Format: uri
+			 */
+			url: string;
+		};
+		/** RotateApiKeyResponse */
+		RotateApiKeyResponse: {
+			/** Api Key */
+			api_key: string;
+			/**
+			 * Rotated At
+			 * Format: date-time
+			 */
+			rotated_at: string;
+		};
+		/** Source */
+		Source: {
+			/** Base Url */
+			base_url?: string | null;
+			/**
+			 * Enabled
+			 * @default false
+			 */
+			enabled: boolean;
+			/** Extension Pkg */
+			extension_pkg: string;
+			/** Id */
+			id: string;
+			/** Lang */
+			lang: string;
+			/** Name */
+			name: string;
+			/** Supports Latest */
+			supports_latest: boolean | null;
+		};
+		/** SourcePreference */
+		SourcePreference: {
+			/** Current Value */
+			current_value?: unknown | null;
+			/** Default Value */
+			default_value?: unknown | null;
+			/** Dialog Message */
+			dialog_message?: string | null;
+			/** Dialog Title */
+			dialog_title?: string | null;
+			/** Enabled */
+			enabled: boolean;
+			/** Entries */
+			entries?: string[] | null;
+			/** Entry Values */
+			entry_values?: string[] | null;
+			/** Key */
+			key: string;
+			/** Summary */
+			summary: string | null;
+			/** Title */
+			title: string;
+			type: components['schemas']['PreferenceType'];
+			/** Visible */
+			visible: boolean;
+		};
+		/** SourcePreferenceUpdate */
+		SourcePreferenceUpdate: {
+			/** Key */
+			key: string;
+			/** Value */
+			value?: unknown | null;
+		};
+		/** SourcePreferencesResource */
+		SourcePreferencesResource: {
+			/** Lang */
+			lang?: string | null;
+			/** Name */
+			name?: string | null;
+			/** Preferences */
+			preferences: components['schemas']['SourcePreference'][];
+			/** Source Id */
+			source_id: string;
+		};
+		/** SourceSummary */
+		SourceSummary: {
+			/** Extension Name */
+			extension_name: string;
+			/** Extension Pkg */
+			extension_pkg: string;
+			/** Id */
+			id: string;
+			/** Lang */
+			lang: string;
+			/** Name */
+			name: string;
+			/** Supports Latest */
+			supports_latest: boolean | null;
+		};
+		/** UserProfileResource */
+		UserProfileResource: {
+			/**
+			 * Created At
+			 * Format: date-time
+			 */
+			created_at: string;
+			/** Id */
+			id: number;
+			/** Is Admin */
+			is_admin: boolean;
+			/** Last Api Key Rotated At */
+			last_api_key_rotated_at?: string | null;
+			/** Username */
+			username: string;
+		};
+		/** ValidationError */
+		ValidationError: {
+			/** Location */
+			loc: (string | number)[];
+			/** Message */
+			msg: string;
+			/** Error Type */
+			type: string;
+		};
+		/** WorkerRunResponse */
+		WorkerRunResponse: {
+			/** Processed Tasks */
+			processed_tasks: number;
+		};
+	};
+	responses: never;
+	parameters: never;
+	requestBodies: never;
+	headers: never;
+	pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    replace_extensions_api_v2_extensions_replace_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RepoExtensionResource"][];
-                };
-            };
-        };
-    };
-    get_available_api_v2_extensions_available_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RepoExtensionResource"][];
-                };
-            };
-        };
-    };
-    get_installed_api_v2_extensions_installed_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExtensionResource"][];
-                };
-            };
-        };
-    };
-    update_repository_api_v2_extensions_repository_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RepositoryUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RepoExtensionResource"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    install_extension_api_v2_extensions_install__extension_pkg__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                extension_pkg: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExtensionResource"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    uninstall_extension_api_v2_extensions_uninstall__extension_pkg__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                extension_pkg: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_extensions_priority_api_v2_extensions_priority_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": string[];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    toggle_extension_proxy_api_v2_extensions__extension_pkg__proxy_put: {
-        parameters: {
-            query: {
-                use_proxy: boolean;
-            };
-            header?: never;
-            path: {
-                extension_pkg: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_source_preferences_api_v2_extensions_source__source_id__preferences_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                source_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourcePreferencesResource"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_source_preferences_api_v2_extensions_source__source_id__preferences_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                source_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SourcePreference"][];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    toggle_source_api_v2_extensions_source__source_id__enabled_put: {
-        parameters: {
-            query: {
-                enabled: boolean;
-            };
-            header?: never;
-            path: {
-                source_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_latest_titles_api_v2_discover_latest_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SourceTitle"][];
-                };
-            };
-        };
-    };
-    health_check_api_v2_health_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
-                };
-            };
-        };
-    };
+	login_api_v2_auth_login_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['LoginRequest'];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['LoginResponse'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	get_me_api_v2_auth_me_get: {
+		parameters: {
+			query?: never;
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['UserProfileResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	roll_api_key_api_v2_auth_me_api_key_roll_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['RotateApiKeyResponse'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	change_password_api_v2_auth_me_password_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['ChangePasswordRequest'];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	register_first_user_api_v2_auth_register_first_user_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['RegisterFirstUserRequest'];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			201: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['RegisterFirstUserResponse'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	discover_categories_api_v2_discover_categories_get: {
+		parameters: {
+			query?: {
+				limit?: number;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['DiscoverCategory'][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	discover_category_api_v2_discover_category_get: {
+		parameters: {
+			query: {
+				name: string;
+				page?: number;
+				limit?: number;
+				source_id?: string | null;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['DiscoverFeed'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	discover_latest_api_v2_discover_latest_get: {
+		parameters: {
+			query?: {
+				page?: number;
+				limit?: number;
+				source_id?: string | null;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['DiscoverFeed'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	discover_popular_api_v2_discover_popular_get: {
+		parameters: {
+			query?: {
+				page?: number;
+				limit?: number;
+				source_id?: string | null;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['DiscoverFeed'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	refresh_discover_cache_api_v2_discover_refresh_post: {
+		parameters: {
+			query?: {
+				pages?: number;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			202: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': unknown;
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	discover_search_api_v2_discover_search_get: {
+		parameters: {
+			query: {
+				query: string;
+				page?: number;
+				limit?: number;
+				source_id?: string | null;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['DiscoverFeed'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	discover_sources_api_v2_discover_sources_get: {
+		parameters: {
+			query?: {
+				/** @description Return only enabled sources */
+				enabled?: boolean;
+				/** @description Filter by latest-updates support */
+				supports_latest?: boolean | null;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['SourceSummary'][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	enqueue_chapter_api_v2_downloads_chapters__chapter_id__enqueue_post: {
+		parameters: {
+			query?: {
+				priority?: number;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path: {
+				chapter_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['EnqueueChapterResponse'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	get_dashboard_api_v2_downloads_dashboard_get: {
+		parameters: {
+			query?: {
+				monitored_limit?: number;
+				active_limit?: number;
+				recent_limit?: number;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['DownloadDashboardResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	get_overview_api_v2_downloads_overview_get: {
+		parameters: {
+			query?: never;
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['DownloadOverviewResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	list_profiles_api_v2_downloads_profiles_get: {
+		parameters: {
+			query?: {
+				enabled?: boolean | null;
+				title_id?: number | null;
+				offset?: number;
+				limit?: number;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['DownloadProfileResource'][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	get_profile_api_v2_downloads_profiles__title_id__get: {
+		parameters: {
+			query?: never;
+			header?: {
+				Authorization?: string | null;
+			};
+			path: {
+				title_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['DownloadProfileResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	update_profile_api_v2_downloads_profiles__title_id__put: {
+		parameters: {
+			query?: never;
+			header?: {
+				Authorization?: string | null;
+			};
+			path: {
+				title_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['DownloadProfileUpdate'];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['DownloadProfileResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	run_monitor_api_v2_downloads_run_monitor_post: {
+		parameters: {
+			query?: {
+				limit?: number;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['MonitorRunResponse'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	run_worker_api_v2_downloads_run_worker_post: {
+		parameters: {
+			query?: {
+				batch_size?: number | null;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['WorkerRunResponse'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	list_tasks_api_v2_downloads_tasks_get: {
+		parameters: {
+			query?: {
+				status?: components['schemas']['DownloadTaskStatus'] | null;
+				title_id?: number | null;
+				offset?: number;
+				limit?: number;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['DownloadTaskResource'][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	cancel_task_api_v2_downloads_tasks__task_id__cancel_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				Authorization?: string | null;
+			};
+			path: {
+				task_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['DownloadTaskResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	retry_task_api_v2_downloads_tasks__task_id__retry_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				Authorization?: string | null;
+			};
+			path: {
+				task_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['DownloadTaskResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	enqueue_title_missing_api_v2_downloads_titles__title_id__enqueue_missing_post: {
+		parameters: {
+			query?: {
+				variant_id?: number | null;
+				unread_only?: boolean;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path: {
+				title_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['EnqueueTitleResponse'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	get_available_api_v2_extensions_available_get: {
+		parameters: {
+			query?: never;
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['RepoExtensionResource'][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	install_extension_api_v2_extensions_install__extension_pkg__post: {
+		parameters: {
+			query?: never;
+			header?: {
+				Authorization?: string | null;
+			};
+			path: {
+				extension_pkg: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ExtensionResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	get_installed_api_v2_extensions_installed_get: {
+		parameters: {
+			query?: never;
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ExtensionResource'][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	update_extensions_priority_api_v2_extensions_priority_put: {
+		parameters: {
+			query?: never;
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': string[];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	change_repository_api_v2_extensions_repository_put: {
+		parameters: {
+			query?: never;
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['RepositoryUpdate'];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['RepoExtensionResource'][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	toggle_source_api_v2_extensions_source__source_id__enabled_put: {
+		parameters: {
+			query: {
+				enabled: boolean;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path: {
+				source_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	get_source_preferences_api_v2_extensions_source__source_id__preferences_get: {
+		parameters: {
+			query?: never;
+			header?: {
+				Authorization?: string | null;
+			};
+			path: {
+				source_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['SourcePreferencesResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	update_source_preferences_api_v2_extensions_source__source_id__preferences_put: {
+		parameters: {
+			query?: never;
+			header?: {
+				Authorization?: string | null;
+			};
+			path: {
+				source_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['SourcePreferenceUpdate'][];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['SourcePreferencesResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	uninstall_extension_api_v2_extensions_uninstall__extension_pkg__delete: {
+		parameters: {
+			query?: never;
+			header?: {
+				Authorization?: string | null;
+			};
+			path: {
+				extension_pkg: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	toggle_extension_proxy_api_v2_extensions__extension_pkg__proxy_put: {
+		parameters: {
+			query: {
+				use_proxy: boolean;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path: {
+				extension_pkg: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	health_check_api_v2_health_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': {
+						[key: string]: string | number;
+					};
+				};
+			};
+		};
+	};
+	get_library_chapter_pages_api_v2_library_chapters__chapter_id__pages_get: {
+		parameters: {
+			query?: {
+				refresh?: boolean;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path: {
+				chapter_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['LibraryChapterPageResource'][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	get_library_chapter_reader_api_v2_library_chapters__chapter_id__reader_get: {
+		parameters: {
+			query?: {
+				refresh?: boolean;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path: {
+				chapter_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['LibraryReaderChapterResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	import_library_title_api_v2_library_import_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['LibraryImportRequest'];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			201: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['LibraryImportResponse'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	list_library_titles_api_v2_library_titles_get: {
+		parameters: {
+			query?: {
+				offset?: number;
+				limit?: number;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['LibraryTitleSummary'][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	get_library_title_api_v2_library_titles__title_id__get: {
+		parameters: {
+			query?: never;
+			header?: {
+				Authorization?: string | null;
+			};
+			path: {
+				title_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['LibraryTitleResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	list_library_title_chapters_api_v2_library_titles__title_id__chapters_get: {
+		parameters: {
+			query?: {
+				variant_id?: number | null;
+				refresh?: boolean;
+			};
+			header?: {
+				Authorization?: string | null;
+			};
+			path: {
+				title_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['LibraryChapterResource'][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
 }
