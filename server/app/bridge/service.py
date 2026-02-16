@@ -86,18 +86,36 @@ class TachibridgeService:
             await asyncio.sleep(0.1)
 
     async def _wait_until_ready_or_exit(
-        self, timeout: float = 8.0, interval: float = 0.3
+        self,
+        timeout: float = 15.0,
+        kcef_download_timeout: float = 300.0,
+        interval: float = 0.3,
     ) -> None:
-        """Wait for bridge readiness, aborting early if process exits."""
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout
+        """Wait for bridge readiness, aborting early if process exits.
 
-        while loop.time() < deadline:
+        Extends timeout automatically when KCEF download is detected.
+        """
+        loop = asyncio.get_running_loop()
+        start_time = loop.time()
+        current_timeout = timeout
+        kcef_download_logged = False
+
+        while (loop.time() - start_time) < current_timeout:
             if not self._process.is_running():
                 raise RuntimeError(
                     "Bridge process exited during startup. "
                     "Check bridge logs for bind/runtime errors."
                 )
+
+            # Extend timeout if KCEF is downloading
+            if self._process.is_kcef_downloading():
+                if not kcef_download_logged:
+                    self._logger.info(
+                        "KCEF download in progress, extending startup timeout to {}s",
+                        kcef_download_timeout,
+                    )
+                    kcef_download_logged = True
+                current_timeout = kcef_download_timeout
 
             if await self._connection.check_health(timeout=1.0):
                 self._logger.info("Bridge ready at {}", self._connection.address)
@@ -106,7 +124,7 @@ class TachibridgeService:
             await asyncio.sleep(interval)
 
         raise RuntimeError(
-            f"Timed out waiting for bridge readiness after {timeout:.1f}s"
+            f"Timed out waiting for bridge readiness after {current_timeout:.1f}s"
         )
 
     # Extension Management

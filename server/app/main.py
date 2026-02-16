@@ -10,7 +10,7 @@ from loguru import logger as loguru_logger
 
 from app.bridge import tachibridge
 from app.config import settings
-from app.core.database import sessionmanager
+from app.core.database import run_migrations, sessionmanager
 from app.core.errors import BridgeAPIError
 from app.core.logging import setup_logger
 from app.core.scheduler import scheduler
@@ -32,6 +32,9 @@ async def lifespan(_app: FastAPI):
         f"Starting {settings.app.project_name} - Version {settings.app.version}"
     )
     try:
+        logger.info("Running database migrations...")
+        await run_migrations()
+        logger.info("Database migrations complete")
         await tachibridge.start()
         await scheduler.start()
         yield

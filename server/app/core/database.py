@@ -1,7 +1,10 @@
 import contextlib
 from collections.abc import AsyncIterator, Mapping
+from pathlib import Path
 from typing import Any
 
+from alembic import command
+from alembic.config import Config
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncEngine,
@@ -76,3 +79,24 @@ async def get_database_session():
     """FastAPI dependency that yields a managed AsyncSession."""
     async with sessionmanager.session() as session:
         yield session
+
+
+async def run_migrations() -> None:
+    """Run Alembic migrations to head."""
+    from app import models  # noqa: F401
+
+    if sessionmanager.engine is None:
+        raise Exception("DatabaseSessionManager is not initialized")
+
+    server_dir = Path(__file__).resolve().parent.parent.parent
+    alembic_cfg = Config(str(server_dir / "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", str(server_dir / "alembic"))
+    alembic_cfg.set_main_option("sqlalchemy.url", settings.app.database_url)
+
+    def do_upgrade(sync_connection) -> None:
+        alembic_cfg.attributes["connection"] = sync_connection
+        command.upgrade(alembic_cfg, "head")
+
+    async with sessionmanager.engine.connect() as connection:
+        await connection.run_sync(do_upgrade)
+        await connection.commit()

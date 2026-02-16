@@ -25,6 +25,10 @@ class TachibridgeProcess:
         self._logger = logger.bind(module="bridge")
         self._process_logger = logger.bind(module="bridge.process")
 
+        # KCEF download tracking
+        self._kcef_downloading = False
+        self._kcef_last_progress_time: float = 0.0
+
     async def start(self) -> None:
         """Launch the bridge process via `java -jar`."""
         async with self._lock:
@@ -114,9 +118,21 @@ class TachibridgeProcess:
     def returncode(self) -> int | None:
         return self._process.returncode if self._process else None
 
+    def is_kcef_downloading(self, stale_threshold: float = 10.0) -> bool:
+        """Check if KCEF download is currently in progress.
+
+        Returns True if we've seen download progress recently (within stale_threshold seconds).
+        """
+        if not self._kcef_downloading:
+            return False
+        import time
+        return (time.monotonic() - self._kcef_last_progress_time) < stale_threshold
+
     async def _consume_stream(
         self, stream: asyncio.StreamReader | None, stream_name: str
     ) -> None:
+        import time
+
         if stream is None:
             return
         try:
@@ -127,6 +143,14 @@ class TachibridgeProcess:
                     self._process_logger.bind(
                         bridge_logger=bridge_logger, bridge_thread=thread
                     ).log(level, message)
+
+                    # Track KCEF download progress
+                    if "KCEF download progress" in message:
+                        self._kcef_downloading = True
+                        self._kcef_last_progress_time = time.monotonic()
+                    elif "KCEF initialized" in message or "KCEF already installed" in message:
+                        self._kcef_downloading = False
+
                     if "Could not load 'jcef' library" in message:
                         self._logger.warning(
                             "KCEF library failed to load. Continuing without JCEF restart."
@@ -154,18 +178,29 @@ class TachibridgeProcess:
     @staticmethod
     def _default_jar() -> Path:
         """Return the default path to the Tachibridge JAR file."""
-        bin_dir = settings.app.config_dir / "bin"
-        jar_path = bin_dir / f"tachibridge-{settings.app.version}.jar"
+        version = settings.app.version
+        jar_name = f"tachibridge-{version}.jar"
 
-        if jar_path.exists():
-            return jar_path
+        # Check /app/bin first (Docker), then config/bin (local dev)
+        search_dirs = [Path("/app/bin"), settings.app.config_dir / "bin"]
 
-        jar_candidates = sorted(bin_dir.glob("*.jar"), key=lambda p: p.stat().st_mtime)
-        if jar_candidates:
-            return jar_candidates[-1]
+        for bin_dir in search_dirs:
+            if not bin_dir.exists():
+                continue
+
+            jar_path = bin_dir / jar_name
+            if jar_path.exists():
+                return jar_path
+
+            # Fallback: use most recent JAR in directory
+            jar_candidates = sorted(
+                bin_dir.glob("*.jar"), key=lambda p: p.stat().st_mtime
+            )
+            if jar_candidates:
+                return jar_candidates[-1]
 
         raise RuntimeError(
-            f"Tachibridge JAR not found in {bin_dir}. Run 'make bridge' to build it."
+            "Tachibridge JAR not found. Run 'make bridge' to build it."
         )
 
     def _build_env(self, config_dir: Path) -> dict[str, str] | None:

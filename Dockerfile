@@ -18,7 +18,8 @@ WORKDIR /app/bridge
 
 COPY bridge ./
 
-RUN ./gradlew --no-daemon shadowJar
+RUN ./gradlew --no-daemon shadowJar && \
+    echo "JAR files built:" && ls -la /app/bridge/app/build/*.jar
 
 
 FROM python:3.13-slim AS runtime
@@ -28,7 +29,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN mkdir -p /app/config/bin
+RUN mkdir -p /app/config/bin /app/bin
 RUN mkdir -p /opt/kcef/jcef
 
 RUN apt-get update && \
@@ -61,7 +62,9 @@ RUN uv sync --frozen --no-dev
 
 COPY server /app/server
 COPY --from=frontend-build /app/server/app/static /app/server/app/static
-COPY --from=bridge-build /app/bridge/app/build/*.jar /app/config/bin/
+COPY --from=bridge-build /app/bridge/app/build/tachibridge-*.jar /app/bin/
+
+RUN echo "Verifying JAR file:" && ls -la /app/bin/*.jar
 
 EXPOSE 3737
 
