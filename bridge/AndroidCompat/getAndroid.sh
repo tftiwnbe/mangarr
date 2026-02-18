@@ -94,7 +94,7 @@ dedup AndroidCompat/src/main/java
 dedup app/src/main/kotlin
 
 echo "Copying Android.jar to library folder..."
-mkdir app/lib/ && rm app/lib/android.jar
+mkdir -p app/lib/ && rm -f app/lib/android.jar
 mv tmp/android.jar app/lib/
 
 echo "Cleaning up..."

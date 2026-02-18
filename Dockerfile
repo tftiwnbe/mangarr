@@ -16,9 +16,26 @@ RUN pnpm build
 FROM eclipse-temurin:21-jdk AS bridge-build
 WORKDIR /app/bridge
 
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl zip ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY bridge/gradlew /app/bridge/gradlew
+COPY bridge/gradle /app/bridge/gradle
+
+RUN chmod +x ./gradlew
+
+RUN --mount=type=cache,id=mangarr-gradle-wrapper,target=/root/.gradle/wrapper,sharing=locked \
+    ./gradlew --no-daemon --version
+
 COPY bridge ./
 
-RUN ./gradlew --no-daemon shadowJar && \
+RUN bash ./AndroidCompat/getAndroid.sh
+
+RUN --mount=type=cache,id=mangarr-gradle-wrapper,target=/root/.gradle/wrapper,sharing=locked \
+    --mount=type=cache,id=mangarr-gradle-caches,target=/root/.gradle/caches,sharing=locked \
+    --mount=type=cache,id=mangarr-gradle-project,target=/app/bridge/.gradle,sharing=locked \
+    ./gradlew --no-daemon shadowJar && \
     echo "JAR files built:" && ls -la /app/bridge/app/build/*.jar
 
 

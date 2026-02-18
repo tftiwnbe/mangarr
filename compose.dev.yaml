@@ -3,13 +3,17 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: uv run fastapi dev --host 0.0.0.0 --port 3000
+    command: >
+      sh -c "uv sync --frozen --no-dev && uv run --no-sync fastapi dev --host 0.0.0.0 --port 3737"
     environment:
-      - MANGARR__SERVER__PORT=3000
+      - MANGARR__SERVER__HOST=0.0.0.0
+      - MANGARR__SERVER__PORT=3737
     ports:
-      - 3000:3000
+      - 3737:3737
     volumes:
-      - ./server:/app/server
+      - ./server/app:/app/server/app
+      - ./server/alembic:/app/server/alembic
+      - ./server/alembic.ini:/app/server/alembic.ini
       - ./config:/app/config
       - ./data:/app/data
 
@@ -17,14 +21,18 @@ services:
     image: node:20-alpine
     working_dir: /app/web
     command: >
-      sh -c "corepack enable pnpm && pnpm install && pnpm run dev --host 0.0.0.0 --port 5173"
+      sh -c "corepack enable pnpm && pnpm install && pnpm run dev --host 0.0.0.0 --port 3000"
     environment:
-      - VITE_API_BASE_URL=http://localhost:3000
+      - WEB_FASTAPI_BACKEND=http://server:3737
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+    depends_on:
+      - server
     ports:
-      - 5173:5173
+      - 3000:3000
     volumes:
       - ./web:/app/web
-      - ./web/node_modules:/app/web/node_modules
+      - web_node_modules:/app/web/node_modules
 
 volumes:
   web_node_modules:
