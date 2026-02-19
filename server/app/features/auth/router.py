@@ -4,11 +4,15 @@ from app.core.deps import CurrentUserDep, DBSessionDep
 from app.features.auth.service import AuthService
 from app.models import (
     ChangePasswordRequest,
+    CreateIntegrationApiKeyRequest,
+    CreateIntegrationApiKeyResponse,
+    IntegrationApiKeyResource,
     LoginRequest,
     LoginResponse,
     RegisterFirstUserRequest,
     RegisterFirstUserResponse,
     RotateApiKeyResponse,
+    SetupStatusResponse,
     UserProfileResource,
 )
 
@@ -29,6 +33,13 @@ async def register_first_user(
     service: AuthService = Depends(get_service),
 ):
     return await service.register_first_user(payload)
+
+
+@router.get("/setup-status", response_model=SetupStatusResponse)
+async def setup_status(
+    service: AuthService = Depends(get_service),
+):
+    return await service.get_setup_status()
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -53,6 +64,36 @@ async def roll_api_key(
     service: AuthService = Depends(get_service),
 ):
     return await service.rotate_api_key(current_user)
+
+
+@router.get("/me/api-keys", response_model=list[IntegrationApiKeyResource])
+async def list_api_keys(
+    current_user: CurrentUserDep,
+    service: AuthService = Depends(get_service),
+):
+    return await service.list_integration_api_keys(current_user)
+
+
+@router.post(
+    "/me/api-keys",
+    response_model=CreateIntegrationApiKeyResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_api_key(
+    payload: CreateIntegrationApiKeyRequest,
+    current_user: CurrentUserDep,
+    service: AuthService = Depends(get_service),
+):
+    return await service.create_integration_api_key(current_user, payload.name)
+
+
+@router.delete("/me/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_api_key(
+    key_id: int,
+    current_user: CurrentUserDep,
+    service: AuthService = Depends(get_service),
+):
+    await service.revoke_integration_api_key(current_user, key_id)
 
 
 @router.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)

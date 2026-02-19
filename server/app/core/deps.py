@@ -1,12 +1,14 @@
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, status
+from sqlalchemy import or_
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.database import get_database_session
 from app.core.security import hash_api_key
-from app.models import User
+from app.models import AuthSession, IntegrationApiKey, User
 
 DBSessionDep = Annotated[AsyncSession, Depends(get_database_session)]
 ApiKeyHeaderDep = Annotated[str | None, Header(alias="X-API-Key")]
@@ -36,18 +38,43 @@ async def get_current_user(
     if not api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing API key",
+            detail="Missing API key or session token",
         )
 
-    user = (
-        await db.exec(select(User).where(User.api_key_hash == hash_api_key(api_key)))
-    ).first()
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key",
+    hashed_credential = hash_api_key(api_key)
+    now = datetime.now(timezone.utc)
+
+    auth_session = (
+        await db.exec(
+            select(AuthSession).where(
+                AuthSession.token_hash == hashed_credential,
+                AuthSession.revoked_at.is_(None),
+                or_(AuthSession.expires_at.is_(None), AuthSession.expires_at > now),
+            )
         )
-    return user
+    ).first()
+    if auth_session is not None:
+        user = (await db.exec(select(User).where(User.id == auth_session.user_id))).first()
+        if user is not None:
+            return user
+
+    integration_key = (
+        await db.exec(
+            select(IntegrationApiKey).where(
+                IntegrationApiKey.key_hash == hashed_credential,
+                IntegrationApiKey.revoked_at.is_(None),
+            )
+        )
+    ).first()
+    if integration_key is not None:
+        user = (await db.exec(select(User).where(User.id == integration_key.user_id))).first()
+        if user is not None:
+            return user
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid API key or session token",
+    )
 
 
 async def require_authenticated_user(_: Annotated[User, Depends(get_current_user)]) -> None:

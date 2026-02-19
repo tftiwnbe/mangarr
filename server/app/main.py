@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger as loguru_logger
+from sqlmodel import func, select
 
 from app.bridge import tachibridge
 from app.config import settings
@@ -14,16 +15,27 @@ from app.core.database import run_migrations, sessionmanager
 from app.core.errors import BridgeAPIError
 from app.core.logging import setup_logger
 from app.core.scheduler import scheduler
-from app.features.auth import auth_router
+from app.features.auth import AuthService, auth_router
 from app.features.discover import discover_router
 from app.features.downloads import downloads_router
 from app.features.extensions import extensions_router
 from app.features.health import health_router
 from app.features.library import library_router
 from app.features.web import web_router
+from app.models import User
 
 setup_logger()
 logger = loguru_logger.bind(module="fastapi")
+
+
+async def backfill_initialized_state() -> None:
+    if settings.public.initialized:
+        return
+    async with sessionmanager.session() as db:
+        users_count = int(await db.scalar(select(func.count(User.id))) or 0)
+    if users_count > 0:
+        AuthService.mark_initialized()
+        logger.info("Detected existing users; marked setup as initialized")
 
 
 @asynccontextmanager
@@ -35,6 +47,7 @@ async def lifespan(_app: FastAPI):
         logger.info("Running database migrations...")
         await run_migrations()
         logger.info("Database migrations complete")
+        await backfill_initialized_state()
         await tachibridge.start()
         await scheduler.start()
         yield

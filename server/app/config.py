@@ -81,6 +81,10 @@ class LogConfig(MangarrBaseSettings):
     sql: bool = False  # log SQL queries sent to the database
 
 
+class PublicConfig(MangarrBaseSettings):
+    initialized: bool = False
+
+
 # -----------------------------------------------------
 # Main Settings model
 # -----------------------------------------------------
@@ -90,6 +94,7 @@ class Settings(MangarrBaseSettings):
     tachibridge: TachibridgeConfig = TachibridgeConfig()
     downloads: DownloadsConfig = DownloadsConfig()
     log: LogConfig = LogConfig()
+    public: PublicConfig = PublicConfig()
 
     @classmethod
     def settings_customise_sources(

@@ -18,6 +18,31 @@ class User(SQLModel, table=True):
     last_api_key_rotated_at: datetime | None = None
 
 
+class AuthSession(SQLModel, table=True):
+    __tablename__: ClassVar[Any] = "auth_sessions"
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    token_hash: str = Field(index=True, unique=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_used_at: datetime | None = None
+    revoked_at: datetime | None = None
+    expires_at: datetime | None = None
+
+
+class IntegrationApiKey(SQLModel, table=True):
+    __tablename__: ClassVar[Any] = "integration_api_keys"
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    name: str
+    key_hash: str = Field(index=True, unique=True)
+    key_prefix: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_used_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+
 class RegisterFirstUserRequest(SQLModel):
     username: str
     password: str
@@ -55,3 +80,25 @@ class RotateApiKeyResponse(SQLModel):
 class ChangePasswordRequest(SQLModel):
     current_password: str
     new_password: str
+
+
+class IntegrationApiKeyResource(SQLModel):
+    id: int
+    name: str
+    key_prefix: str
+    created_at: datetime
+    last_used_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+
+class CreateIntegrationApiKeyRequest(SQLModel):
+    name: str
+
+
+class CreateIntegrationApiKeyResponse(SQLModel):
+    key: IntegrationApiKeyResource
+    api_key: str
+
+
+class SetupStatusResponse(SQLModel):
+    needs_setup: bool
