@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import suppress
 from contextlib import asynccontextmanager
 from time import time
 
@@ -16,16 +18,26 @@ from app.core.errors import BridgeAPIError
 from app.core.logging import setup_logger
 from app.core.scheduler import scheduler
 from app.features.auth import AuthService, auth_router
-from app.features.discover import discover_router
+from app.features.covers import covers_router
+from app.features.explore import explore_router
 from app.features.downloads import downloads_router
 from app.features.extensions import extensions_router
 from app.features.health import health_router
 from app.features.library import library_router
+from app.features.settings import settings_router
 from app.features.web import web_router
 from app.models import User
 
 setup_logger()
 logger = loguru_logger.bind(module="fastapi")
+_bridge_start_task: asyncio.Task[None] | None = None
+
+
+async def _start_bridge_in_background() -> None:
+    try:
+        await tachibridge.start()
+    except Exception:
+        logger.exception("Bridge startup failed in background")
 
 
 async def backfill_initialized_state() -> None:
@@ -40,6 +52,7 @@ async def backfill_initialized_state() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    global _bridge_start_task
     logger.info(
         f"Starting {settings.app.project_name} - Version {settings.app.version}"
     )
@@ -48,11 +61,17 @@ async def lifespan(_app: FastAPI):
         await run_migrations()
         logger.info("Database migrations complete")
         await backfill_initialized_state()
-        await tachibridge.start()
+        # Keep API startup responsive even when bridge/KCEF init is slow.
+        _bridge_start_task = asyncio.create_task(_start_bridge_in_background())
         await scheduler.start()
         yield
     finally:
         await scheduler.stop()
+        if _bridge_start_task is not None and not _bridge_start_task.done():
+            _bridge_start_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await _bridge_start_task
+        _bridge_start_task = None
         try:
             await tachibridge.stop()
         finally:
@@ -67,17 +86,27 @@ app = FastAPI(
 )
 
 app.include_router(auth_router)
+app.include_router(covers_router)
 app.include_router(extensions_router)
-app.include_router(discover_router)
+app.include_router(explore_router)
 app.include_router(downloads_router)
 app.include_router(health_router)
 app.include_router(library_router)
+app.include_router(settings_router)
 app.include_router(web_router)
 
 
 @app.exception_handler(BridgeAPIError)
 async def handle_bridge_api_error(_: Request, exc: BridgeAPIError) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@app.exception_handler(Exception)
+async def handle_unexpected_error(_: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled application error")
+    detail = str(exc).strip() or exc.__class__.__name__
+    return JSONResponse(status_code=500, content={"detail": detail})
+
 
 if settings.log.access:
 

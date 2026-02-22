@@ -228,6 +228,18 @@ class TachibridgeService:
         except AioRpcError as e:
             self._handle_grpc_error(e, "fetch_source_preferences")
 
+    async def fetch_search_filters(self, source_id: str) -> SourcePreferencesResource:
+        """Return source search filters for catalogue search."""
+        try:
+            stub = await self._connection.get_stub()
+            request = extensions_pb2.GetFiltersRequest(source_id=int(source_id))
+            response = await stub.GetSearchFilters(request, timeout=10.0)
+
+            source_meta = await self._source_metadata(source_id)
+            return self._proto_to_preferences(source_id, source_meta, response)
+        except AioRpcError as e:
+            self._handle_grpc_error(e, "fetch_search_filters")
+
     async def set_source_preference(
         self,
         source_id: str,
@@ -258,7 +270,7 @@ class TachibridgeService:
         for key, value in preferences.items():
             await self.set_source_preference(source_id=source_id, key=key, value=value)
 
-    # Title Discovery
+    # Title Explore
 
     async def fetch_popular_titles(
         self,
@@ -305,12 +317,23 @@ class TachibridgeService:
         source_id: str,
         query: str,
         page: int | None = None,
+        search_filters: dict[str, Any] | None = None,
     ) -> tuple[list[ExtensionSourceTitle], bool]:
         """Search titles within a source."""
         try:
             stub = await self._connection.get_stub()
+            filters = [
+                extensions_pb2.SearchFilter(
+                    key=key,
+                    value=json.dumps(value),
+                )
+                for key, value in (search_filters or {}).items()
+            ]
             request = extensions_pb2.SearchTitleRequest(
-                source_id=int(source_id), query=query, page=page or 1
+                source_id=int(source_id),
+                query=query,
+                page=page or 1,
+                filters=filters,
             )
             response = await stub.SearchTitle(request, timeout=30.0)
 

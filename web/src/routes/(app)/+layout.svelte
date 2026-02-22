@@ -5,14 +5,25 @@
 
 	import { getMe } from '$lib/api/auth';
 	import { clearAuthSession, getStoredApiKey } from '$lib/api/session';
-	import AppSidebar from '$lib/components/app-sidebar/app-sidebar.svelte';
-	import * as Sidebar from '$lib/elements/sidebar/index.js';
+	import { Icon } from '$lib/elements/icon';
+	import { StarField } from '$lib/elements/starfield';
+	import { _ } from '$lib/i18n';
 
 	let { children } = $props();
 	let isCheckingAuth = $state(true);
 	let isAuthenticated = $state(false);
 
 	const redirectTarget = $derived(page.url.pathname + page.url.search);
+
+	const navItems = [
+		{ href: '/library', icon: 'book', label: 'library' },
+		{ href: '/explore', icon: 'compass', label: 'explore' },
+		{ href: '/downloads', icon: 'download', label: 'downloads' },
+		{ href: '/extensions', icon: 'puzzle', label: 'extensions' },
+		{ href: '/settings', icon: 'settings', label: 'settings' }
+	] as const;
+
+	const currentPath = $derived(page.url.pathname);
 
 	async function navigateToLogin(): Promise<void> {
 		const target = encodeURIComponent(redirectTarget);
@@ -42,23 +53,96 @@
 	});
 </script>
 
-<Sidebar.Provider>
-	{#if isAuthenticated}
-		<AppSidebar />
-	{/if}
-	<Sidebar.Inset
-		class="min-h-svh bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_35%)]"
-	>
-		{#if isCheckingAuth}
-			<div class="mx-auto flex w-full max-w-screen-2xl flex-1 items-center justify-center px-4">
-				<div class="rounded-lg border bg-card/70 px-4 py-3 text-sm text-muted-foreground">
-					Checking authentication...
-				</div>
+<div class="relative min-h-svh bg-[var(--void-0)]">
+	<!-- Space background -->
+	<div class="pointer-events-none fixed inset-0">
+		<!-- Subtle grid -->
+		<div
+			class="absolute inset-0 opacity-[0.02]"
+			style="
+				background-image:
+					linear-gradient(rgba(200, 200, 220, 0.6) 1px, transparent 1px),
+					linear-gradient(90deg, rgba(200, 200, 220, 0.6) 1px, transparent 1px);
+				background-size: 50px 50px;
+			"
+		></div>
+
+		<!-- Sparse stars -->
+		<StarField count={25} />
+
+		<!-- Orbital ring -->
+		<div
+			class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-[1400px] w-[1400px] animate-spin-slow"
+			style="animation-duration: 200s;"
+		>
+			<svg viewBox="0 0 200 200" class="h-full w-full">
+				<ellipse
+					cx="100"
+					cy="100"
+					rx="95"
+					ry="28"
+					fill="none"
+					stroke="rgba(140, 140, 160, 0.08)"
+					stroke-width="0.5"
+				/>
+			</svg>
+		</div>
+	</div>
+
+	{#if isCheckingAuth}
+		<div class="flex min-h-svh items-center justify-center">
+			<div class="flex flex-col items-center gap-4">
+				<Icon name="loader" size={24} class="text-[var(--text-muted)] animate-spin" />
+				<p class="text-sm text-[var(--text-ghost)]">{$_('auth.checkingSession')}</p>
 			</div>
-		{:else if isAuthenticated}
-			<div class="mx-auto flex w-full max-w-screen-2xl flex-1 flex-col">
+		</div>
+	{:else if isAuthenticated}
+		<!-- Main content -->
+		<main class="relative z-10 pb-20 md:pb-6">
+			<div class="mx-auto w-full max-w-5xl px-4 py-6 md:px-6 md:py-8">
 				{@render children()}
 			</div>
-		{/if}
-	</Sidebar.Inset>
-</Sidebar.Provider>
+		</main>
+
+		<!-- Bottom navigation (mobile) -->
+		<nav class="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--line)] bg-[var(--void-1)]/95 backdrop-blur-sm md:hidden">
+			<div class="flex items-center justify-around">
+				{#each navItems as item}
+					{@const isActive = currentPath.startsWith(item.href)}
+					<a
+						href={item.href}
+						class="flex flex-1 flex-col items-center gap-1 py-3 text-xs transition-colors {isActive
+							? 'text-[var(--text)]'
+							: 'text-[var(--text-ghost)]'}"
+					>
+						<Icon name={item.icon} size={20} />
+						<span>{$_(`nav.${item.label}`)}</span>
+					</a>
+				{/each}
+			</div>
+		</nav>
+
+		<!-- Desktop sidebar -->
+		<aside class="fixed inset-y-0 left-0 z-40 hidden w-16 flex-col border-r border-[var(--line)] bg-[var(--void-1)] md:flex">
+			<div class="flex flex-1 flex-col items-center gap-1 py-4">
+				{#each navItems as item}
+					{@const isActive = currentPath.startsWith(item.href)}
+					<a
+						href={item.href}
+						class="flex h-10 w-10 items-center justify-center transition-all {isActive
+							? 'text-[var(--text)] bg-[var(--void-4)] shadow-[0_0_12px_rgba(255,255,255,0.12)]'
+							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)] hover:bg-[var(--void-3)] hover:shadow-[0_0_10px_rgba(255,255,255,0.08)]'}"
+						title={$_(`nav.${item.label}`)}
+					>
+						<Icon name={item.icon} size={20} />
+					</a>
+				{/each}
+			</div>
+		</aside>
+
+		<!-- Desktop content offset -->
+		<div class="hidden md:block md:pl-16">
+			<!-- Content is already rendered above, this is just for layout -->
+		</div>
+	{/if}
+</div>

@@ -42,6 +42,7 @@ service Tachibridge {
   rpc GetPageList(mangarr.tachibridge.extensions.GetPagesListRequest) returns (mangarr.tachibridge.extensions.PagesListResponse);
 
   rpc GetFilters(mangarr.tachibridge.extensions.GetFiltersRequest) returns (mangarr.tachibridge.extensions.FiltersResponse);
+  rpc GetSearchFilters(mangarr.tachibridge.extensions.GetFiltersRequest) returns (mangarr.tachibridge.extensions.FiltersResponse);
 
   rpc SetPreference(mangarr.tachibridge.extensions.SetPreferenceRequest) returns (mangarr.tachibridge.extensions.SetPreferenceResponse);
 

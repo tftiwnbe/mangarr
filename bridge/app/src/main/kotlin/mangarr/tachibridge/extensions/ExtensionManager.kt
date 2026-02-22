@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.source.CatalogueSource
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.Source
+import eu.kanade.tachiyomi.source.model.Filter as SourceFilter
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.SChapter
@@ -29,6 +30,8 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
@@ -285,9 +288,12 @@ class ExtensionManager(
         sourceId: Long,
         query: String,
         page: Int,
+        searchFilters: Map<String, String> = emptyMap(),
     ): TitlesPageResponse =
         withSource<CatalogueSource, TitlesPageResponse>(sourceId) { source ->
-            val result = source.getSearchManga(page, query, FilterList())
+            val filterList = source.getFilterList()
+            applySearchFilters(filterList, searchFilters)
+            val result = source.getSearchManga(page, query, filterList)
             convertTitlesPage(result)
         }
 
@@ -392,6 +398,24 @@ class ExtensionManager(
             .addAllFilters(filters)
             .build()
     }
+
+    suspend fun getSearchFilters(sourceId: Long): FiltersResponse =
+        withSource<CatalogueSource, FiltersResponse>(sourceId) { source ->
+            val filters =
+                source
+                    .getFilterList()
+                    .mapIndexedNotNull { index, filter ->
+                        runCatching { encodeSearchFilter(index, filter) }.getOrElse {
+                            logger.warn(it) { "Failed to serialize search filter $index for source $sourceId" }
+                            null
+                        }
+                    }
+
+            FiltersResponse
+                .newBuilder()
+                .addAllFilters(filters)
+                .build()
+        }
 
     suspend fun setPreference(
         sourceId: Long,
@@ -498,6 +522,205 @@ class ExtensionManager(
         }
         editor.apply()
     }
+
+    private fun applySearchFilters(
+        filterList: FilterList,
+        searchFilters: Map<String, String>,
+    ) {
+        if (searchFilters.isEmpty()) return
+
+        filterList.forEachIndexed { index, filter ->
+            val key = "search_$index"
+            val raw = searchFilters[key] ?: return@forEachIndexed
+            val parsed = runCatching { Json.parseToJsonElement(raw) }.getOrNull() ?: return@forEachIndexed
+
+            when (filter) {
+                is SourceFilter.Text -> {
+                    val text = (parsed as? JsonPrimitive)?.contentOrNull ?: return@forEachIndexed
+                    filter.state = text
+                }
+
+                is SourceFilter.CheckBox -> {
+                    val bool = (parsed as? JsonPrimitive)?.booleanOrNull ?: return@forEachIndexed
+                    filter.state = bool
+                }
+
+                is SourceFilter.TriState -> {
+                    val value = parseIntValue(parsed) ?: return@forEachIndexed
+                    filter.state = value.coerceIn(
+                        SourceFilter.TriState.STATE_IGNORE,
+                        SourceFilter.TriState.STATE_EXCLUDE,
+                    )
+                }
+
+                is SourceFilter.Select<*> -> {
+                    val value = parseIntValue(parsed) ?: return@forEachIndexed
+                    val maxIndex = (filter.values.size - 1).coerceAtLeast(0)
+                    filter.state = value.coerceIn(0, maxIndex)
+                }
+
+                is SourceFilter.Sort -> {
+                    val token = (parsed as? JsonPrimitive)?.contentOrNull ?: return@forEachIndexed
+                    val parts = token.split(":")
+                    val selectedIndex = parts.getOrNull(0)?.toIntOrNull() ?: return@forEachIndexed
+                    val ascending = parts.getOrNull(1) != "desc"
+                    if (selectedIndex in filter.values.indices) {
+                        filter.state = SourceFilter.Sort.Selection(selectedIndex, ascending)
+                    }
+                }
+
+                is SourceFilter.Group<*> -> {
+                    val selected =
+                        (parsed as? JsonArray)
+                            ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.toIntOrNull() }
+                            ?.toSet()
+                            ?: return@forEachIndexed
+
+                    @Suppress("UNCHECKED_CAST")
+                    val groupItems = filter.state as? List<Any> ?: return@forEachIndexed
+                    groupItems.forEachIndexed { itemIndex, item ->
+                        if (item is SourceFilter.CheckBox) {
+                            item.state = selected.contains(itemIndex)
+                        }
+                    }
+                }
+
+                else -> Unit
+            }
+        }
+    }
+
+    private fun encodeSearchFilter(
+        index: Int,
+        filter: SourceFilter<*>,
+    ): Filter {
+        val key = "search_$index"
+        val payload =
+            buildJsonObject {
+                put("key", key)
+                put("title", filter.name)
+                put("enabled", true)
+                put("visible", true)
+
+                when (filter) {
+                    is SourceFilter.Text -> {
+                        put("type", "text")
+                        put("default_value", JsonPrimitive(""))
+                        put("current_value", JsonPrimitive(filter.state))
+                    }
+
+                    is SourceFilter.CheckBox -> {
+                        put("type", "toggle")
+                        put("default_value", JsonPrimitive(false))
+                        put("current_value", JsonPrimitive(filter.state))
+                    }
+
+                    is SourceFilter.TriState -> {
+                        put("type", "list")
+                        putJsonArray("entries") {
+                            add(JsonPrimitive("Ignore"))
+                            add(JsonPrimitive("Include"))
+                            add(JsonPrimitive("Exclude"))
+                        }
+                        putJsonArray("entry_values") {
+                            add(JsonPrimitive("0"))
+                            add(JsonPrimitive("1"))
+                            add(JsonPrimitive("2"))
+                        }
+                        put("default_value", JsonPrimitive("0"))
+                        put("current_value", JsonPrimitive(filter.state.toString()))
+                    }
+
+                    is SourceFilter.Select<*> -> {
+                        put("type", "list")
+                        putJsonArray("entries") {
+                            filter.values.forEach { add(JsonPrimitive(it.toString())) }
+                        }
+                        putJsonArray("entry_values") {
+                            filter.values.indices.forEach { add(JsonPrimitive(it.toString())) }
+                        }
+                        put("default_value", JsonPrimitive("0"))
+                        put("current_value", JsonPrimitive(filter.state.toString()))
+                    }
+
+                    is SourceFilter.Sort -> {
+                        put("type", "list")
+                        putJsonArray("entries") {
+                            filter.values.forEach { value ->
+                                add(JsonPrimitive("${value} (Asc)"))
+                                add(JsonPrimitive("${value} (Desc)"))
+                            }
+                        }
+                        putJsonArray("entry_values") {
+                            filter.values.indices.forEach { idx ->
+                                add(JsonPrimitive("$idx:asc"))
+                                add(JsonPrimitive("$idx:desc"))
+                            }
+                        }
+                        val current =
+                            filter.state?.let { "${it.index}:${if (it.ascending) "asc" else "desc"}" } ?: "0:asc"
+                        put("default_value", JsonPrimitive("0:asc"))
+                        put("current_value", JsonPrimitive(current))
+                    }
+
+                    is SourceFilter.Group<*> -> {
+                        @Suppress("UNCHECKED_CAST")
+                        val groupItems = filter.state as? List<Any> ?: emptyList()
+                        put("type", "multi_select")
+                        putJsonArray("entries") {
+                            groupItems.forEach { item ->
+                                val label =
+                                    when (item) {
+                                        is SourceFilter<*> -> item.name
+                                        else -> item.toString()
+                                    }
+                                add(JsonPrimitive(label))
+                            }
+                        }
+                        putJsonArray("entry_values") {
+                            groupItems.indices.forEach { add(JsonPrimitive(it.toString())) }
+                        }
+                        val selected =
+                            groupItems.mapIndexedNotNull { itemIndex, item ->
+                                if (item is SourceFilter.CheckBox && item.state) {
+                                    itemIndex.toString()
+                                } else {
+                                    null
+                                }
+                            }
+                        put("default_value", JsonArray(emptyList()))
+                        put("current_value", JsonArray(selected.map { JsonPrimitive(it) }))
+                    }
+
+                    is SourceFilter.Header, is SourceFilter.Separator -> {
+                        put("type", "text")
+                        put("enabled", false)
+                        put("visible", false)
+                        put("default_value", JsonPrimitive(""))
+                        put("current_value", JsonPrimitive(""))
+                    }
+
+                    else -> {
+                        put("type", "text")
+                        put("default_value", JsonPrimitive(""))
+                        put("current_value", JsonPrimitive(filter.state?.toString() ?: ""))
+                    }
+                }
+            }
+
+        return Filter
+            .newBuilder()
+            .setName(filter.name)
+            .setType(payload["type"]?.jsonPrimitive?.content ?: "text")
+            .setData(Json.encodeToString(JsonElement.serializer(), payload))
+            .build()
+    }
+
+    private fun parseIntValue(value: JsonElement): Int? =
+        when (value) {
+            is JsonPrimitive -> value.intOrNull ?: value.contentOrNull?.toIntOrNull()
+            else -> null
+        }
 
     private fun preferenceType(preference: Preference): String =
         when (preference) {

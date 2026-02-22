@@ -1,82 +1,116 @@
-<script lang="ts" module>
-	import { cn, type WithElementRef } from '$lib/utils.js';
-	import type { HTMLAnchorAttributes, HTMLButtonAttributes } from 'svelte/elements';
-	import { type VariantProps, tv } from 'tailwind-variants';
-
-	export const buttonVariants = tv({
-		base: "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium outline-none transition-all focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
-		variants: {
-			variant: {
-				default: 'bg-primary text-primary-foreground shadow-xs hover:bg-primary/90',
-				destructive:
-					'bg-destructive shadow-xs hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60 text-white',
-				outline:
-					'bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 border',
-				secondary: 'bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80',
-				ghost: 'hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50',
-				link: 'text-primary underline-offset-4 hover:underline'
-			},
-			size: {
-				default: 'h-9 px-4 py-2 has-[>svg]:px-3',
-				sm: 'h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5',
-				lg: 'h-10 rounded-md px-6 has-[>svg]:px-4',
-				icon: 'size-9',
-				'icon-sm': 'size-8',
-				'icon-lg': 'size-10'
-			}
-		},
-		defaultVariants: {
-			variant: 'default',
-			size: 'default'
-		}
-	});
-
-	export type ButtonVariant = VariantProps<typeof buttonVariants>['variant'];
-	export type ButtonSize = VariantProps<typeof buttonVariants>['size'];
-
-	export type ButtonProps = WithElementRef<HTMLButtonAttributes> &
-		WithElementRef<HTMLAnchorAttributes> & {
-			variant?: ButtonVariant;
-			size?: ButtonSize;
-		};
-</script>
-
 <script lang="ts">
+	import type { Snippet } from 'svelte';
+	import type { HTMLButtonAttributes } from 'svelte/elements';
+
+	type Variant = 'solid' | 'default' | 'ghost' | 'outline';
+	type Size = 'sm' | 'md' | 'lg' | 'icon-sm' | 'icon';
+
+	interface Props extends HTMLButtonAttributes {
+		variant?: Variant;
+		size?: Size;
+		loading?: boolean;
+		children: Snippet;
+		class?: string;
+		href?: string;
+	}
+
 	let {
-		class: className,
-		variant = 'default',
-		size = 'default',
-		ref = $bindable(null),
-		href = undefined,
-		type = 'button',
-		disabled,
+		variant = 'solid',
+		size = 'md',
+		loading = false,
+		disabled = false,
 		children,
+		class: className = '',
+		href,
 		...restProps
-	}: ButtonProps = $props();
+	}: Props = $props();
+
+	const baseStyles = `
+		relative inline-flex items-center justify-center gap-2
+		font-medium transition-all
+		disabled:pointer-events-none disabled:opacity-40
+		focus-visible:outline-none
+	`;
+
+	// Glow effect on hover for solid buttons
+	const glowStyle = `
+		hover:shadow-[0_0_12px_rgba(255,255,255,0.15),0_0_24px_rgba(180,180,200,0.1)]
+		active:shadow-[0_0_16px_rgba(255,255,255,0.2),0_0_32px_rgba(180,180,200,0.15)]
+	`;
+
+	const solidStyle = `
+		bg-[var(--void-5)] text-[var(--text)]
+		border border-[var(--void-6)]
+		hover:bg-[var(--void-6)] hover:border-[var(--void-7)]
+		active:bg-[var(--void-4)]
+		focus-visible:border-[var(--void-7)]
+		${glowStyle}
+	`;
+
+	const variants: Record<Variant, string> = {
+		solid: solidStyle,
+		default: solidStyle,
+		ghost: `
+			text-[var(--text-soft)]
+			hover:text-[var(--text)] hover:bg-[var(--void-3)]
+			active:bg-[var(--void-4)]
+		`,
+		outline: `
+			text-[var(--text-soft)]
+			border border-[var(--line)]
+			hover:text-[var(--text)] hover:border-[var(--void-6)] hover:bg-[var(--void-2)]
+			active:bg-[var(--void-3)]
+		`
+	};
+
+	const sizes: Record<Size, string> = {
+		sm: 'h-8 px-3 text-xs',
+		md: 'h-10 px-4 text-sm',
+		lg: 'h-12 px-6 text-base',
+		'icon-sm': 'h-8 w-8 p-0',
+		icon: 'h-10 w-10 p-0'
+	};
 </script>
 
 {#if href}
 	<a
-		bind:this={ref}
-		data-slot="button"
-		class={cn(buttonVariants({ variant, size }), className)}
-		href={disabled ? undefined : href}
-		aria-disabled={disabled}
-		role={disabled ? 'link' : undefined}
-		tabindex={disabled ? -1 : undefined}
-		{...restProps}
+		{href}
+		class="{baseStyles} {variants[variant]} {sizes[size]} {className}"
+		class:pointer-events-none={disabled || loading}
+		class:opacity-40={disabled || loading}
 	>
-		{@render children?.()}
+		{#if loading}
+			<svg
+				class="h-4 w-4 animate-spin"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+			>
+				<circle cx="12" cy="12" r="10" stroke-opacity="0.2" />
+				<path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round" />
+			</svg>
+		{/if}
+		{@render children()}
 	</a>
 {:else}
 	<button
-		bind:this={ref}
-		data-slot="button"
-		class={cn(buttonVariants({ variant, size }), className)}
-		{type}
-		{disabled}
+		class="{baseStyles} {variants[variant]} {sizes[size]} {className}"
+		disabled={disabled || loading}
 		{...restProps}
 	>
-		{@render children?.()}
+		{#if loading}
+			<svg
+				class="h-4 w-4 animate-spin"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+			>
+				<circle cx="12" cy="12" r="10" stroke-opacity="0.2" />
+				<path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round" />
+			</svg>
+		{/if}
+		{@render children()}
 	</button>
 {/if}

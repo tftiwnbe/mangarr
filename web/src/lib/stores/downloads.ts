@@ -1,5 +1,5 @@
 import * as downloadsApi from '$lib/api/downloads';
-import type { DownloadDashboardViewModel } from '$lib/models/downloads';
+import type { DownloadDashboardViewModel } from '$lib/utils/download-mappers';
 import { emptyDownloadDashboard, mapDownloadDashboard } from '$lib/utils/download-mappers';
 
 import { createAsyncResourceStore } from './async-resource';
@@ -35,5 +35,16 @@ export async function runDownloadWorker(batchSize?: number): Promise<void> {
 
 export async function runDownloadMonitor(limit = 25): Promise<void> {
 	await downloadsApi.runDownloadMonitor(limit);
+	await downloadsDashboardStore.refresh();
+}
+
+export async function runDownloadCycle(
+	options?: {
+		monitorLimit?: number;
+		workerBatchSize?: number;
+	}
+): Promise<void> {
+	await downloadsApi.runDownloadMonitor(options?.monitorLimit ?? 25);
+	await downloadsApi.runDownloadWorker(options?.workerBatchSize);
 	await downloadsDashboardStore.refresh();
 }

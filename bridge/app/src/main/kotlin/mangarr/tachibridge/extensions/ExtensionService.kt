@@ -113,6 +113,7 @@ class ExtensionBridgeService(
                 request.sourceId,
                 request.query,
                 request.page,
+                request.filtersList.associate { it.key to it.value },
             )
         } catch (e: Exception) {
             logger.error(e) { "Search failed" }
@@ -164,6 +165,14 @@ class ExtensionBridgeService(
             extensionManager.getFilters(request.sourceId)
         } catch (e: Exception) {
             logger.error(e) { "Get filters failed" }
+            throw e
+        }
+
+    override suspend fun getSearchFilters(request: GetFiltersRequest): FiltersResponse =
+        try {
+            extensionManager.getSearchFilters(request.sourceId)
+        } catch (e: Exception) {
+            logger.error(e) { "Get search filters failed" }
             throw e
         }
 

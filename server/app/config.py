@@ -12,6 +12,7 @@ from pydantic_settings import (
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_DIR = APP_DIR.parents[1] / "config"
+DATA_DIR = APP_DIR.parents[1] / "data"
 
 
 # -----------------------------------------------------
@@ -34,6 +35,7 @@ class AppConfig(MangarrBaseSettings):
     project_name: str = "Mangarr"
     version: str = "2.0.0"
     config_dir: Path = CONFIG_DIR
+    data_dir: Path = DATA_DIR
     log_dir: Path = CONFIG_DIR / "log"
     static_root: Path = APP_DIR / "static"
 
@@ -64,13 +66,21 @@ class TachibridgeConfig(MangarrBaseSettings):
 
 
 class DownloadsConfig(MangarrBaseSettings):
-    root_dir: Path = CONFIG_DIR / "downloads"
+    root_dir: Path = DATA_DIR / "downloads"
     monitor_interval_seconds: int = 300
     worker_interval_seconds: int = 10
     worker_batch_size: int = 2
+    parallel_downloads: int = 2
     max_attempts: int = 4
     request_timeout_seconds: float = 30.0
     page_retry_count: int = 2
+
+
+class JobsConfig(MangarrBaseSettings):
+    cleanup_unassigned_enabled: bool = True
+    cleanup_unassigned_interval_days: int = 30
+    cleanup_unassigned_older_than_days: int = 30
+    cleanup_unassigned_batch_limit: int = 200
 
 
 class LogConfig(MangarrBaseSettings):
@@ -93,6 +103,7 @@ class Settings(MangarrBaseSettings):
     server: ServerConfig = ServerConfig()
     tachibridge: TachibridgeConfig = TachibridgeConfig()
     downloads: DownloadsConfig = DownloadsConfig()
+    jobs: JobsConfig = JobsConfig()
     log: LogConfig = LogConfig()
     public: PublicConfig = PublicConfig()
 

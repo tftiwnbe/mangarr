@@ -19,6 +19,9 @@ class LibraryTitle(SQLModel, table=True):
     author: str | None = None
     genre: str | None = None
     status: int = 0
+    preferred_variant_id: int | None = Field(default=None, index=True)
+    user_status_id: int | None = Field(default=None, index=True)
+    user_rating: float | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_refreshed_at: datetime | None = None
@@ -119,6 +122,9 @@ class LibraryTitleSummary(SQLModel):
     title: str
     thumbnail_url: str = ""
     status: int = 0
+    user_status: "LibraryUserStatusResource | None" = None
+    user_rating: float | None = None
+    collections: list["LibraryCollectionSummary"] = []
     variants_count: int = 0
     chapters_count: int = 0
 
@@ -131,6 +137,11 @@ class LibraryTitleVariantResource(SQLModel):
     title_url: str
     title: str
     thumbnail_url: str = ""
+    description: str | None = None
+    artist: str | None = None
+    author: str | None = None
+    genre: str | None = None
+    status: int = 0
 
 
 class LibraryTitleResource(SQLModel):
@@ -143,6 +154,12 @@ class LibraryTitleResource(SQLModel):
     author: str | None = None
     genre: str | None = None
     status: int = 0
+    preferred_variant_id: int | None = None
+    user_status: "LibraryUserStatusResource | None" = None
+    user_rating: float | None = None
+    collections: list["LibraryCollectionSummary"] = []
+    monitoring_enabled: bool = False
+    monitoring_variant_ids: list[int] = []
     variants: list[LibraryTitleVariantResource]
 
 
@@ -198,3 +215,137 @@ class LibraryImportRequest(SQLModel):
 class LibraryImportResponse(SQLModel):
     library_title_id: int
     created: bool
+
+
+class LibrarySourceMatchResource(SQLModel):
+    source_id: str
+    source_name: str
+    source_lang: str | None = None
+    title_url: str
+    title: str
+    thumbnail_url: str = ""
+    artist: str | None = None
+    author: str | None = None
+    score: float = 0.0
+    already_linked: bool = False
+    linked_library_title_id: int | None = None
+
+
+class LibraryLinkVariantRequest(SQLModel):
+    source_id: str
+    title_url: str
+
+
+class LibraryLinkVariantResponse(SQLModel):
+    library_title_id: int
+    variant: LibraryTitleVariantResource
+    created: bool
+
+
+class LibraryMergeTitlesRequest(SQLModel):
+    source_title_id: int
+
+
+class LibraryMergeTitlesResponse(SQLModel):
+    library_title_id: int
+    merged_title_id: int
+    moved_variants: int = 0
+    moved_chapters: int = 0
+
+
+class LibraryUserStatus(SQLModel, table=True):
+    __tablename__: ClassVar[Any] = "library_user_statuses"
+
+    id: int | None = Field(default=None, primary_key=True)
+    key: str = Field(index=True, unique=True)
+    label: str
+    color: str = "#71717a"
+    position: int = 0
+    is_default: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class LibraryUserStatusResource(SQLModel):
+    id: int
+    key: str
+    label: str
+    color: str
+    position: int
+    is_default: bool
+
+
+class LibraryUserStatusCreate(SQLModel):
+    label: str
+    key: str | None = None
+    color: str = "#71717a"
+    position: int | None = None
+
+
+class LibraryUserStatusUpdate(SQLModel):
+    label: str | None = None
+    key: str | None = None
+    color: str | None = None
+    position: int | None = None
+
+
+class LibraryCollection(SQLModel, table=True):
+    __tablename__: ClassVar[Any] = "library_collections"
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(index=True, unique=True)
+    description: str | None = None
+    color: str = "#6366f1"
+    position: int = 0
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class LibraryCollectionTitle(SQLModel, table=True):
+    __tablename__: ClassVar[Any] = "library_collection_titles"
+    __table_args__ = (
+        UniqueConstraint("collection_id", "library_title_id", name="uq_collection_title"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    collection_id: int = Field(foreign_key="library_collections.id", index=True)
+    library_title_id: int = Field(foreign_key="library_titles.id", index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class LibraryCollectionSummary(SQLModel):
+    id: int
+    name: str
+    color: str
+
+
+class LibraryCollectionResource(SQLModel):
+    id: int
+    name: str
+    description: str | None = None
+    color: str
+    position: int
+    titles_count: int = 0
+
+
+class LibraryCollectionCreate(SQLModel):
+    name: str
+    description: str | None = None
+    color: str = "#6366f1"
+    position: int | None = None
+
+
+class LibraryCollectionUpdate(SQLModel):
+    name: str | None = None
+    description: str | None = None
+    color: str | None = None
+    position: int | None = None
+
+
+class LibraryTitlePreferencesUpdate(SQLModel):
+    preferred_variant_id: int | None = None
+    user_status_id: int | None = None
+    user_rating: float | None = Field(default=None, ge=0, le=5)
+    monitoring_enabled: bool | None = None
+    monitoring_variant_ids: list[int] | None = None
+    collection_ids: list[int] | None = None

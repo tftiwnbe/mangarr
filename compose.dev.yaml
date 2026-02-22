@@ -10,6 +10,17 @@ services:
       - MANGARR__SERVER__PORT=3737
     ports:
       - 3737:3737
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:3737/api/v2/health', timeout=2).read()\"",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
     volumes:
       - ./server/app:/app/server/app
       - ./server/alembic:/app/server/alembic
@@ -27,7 +38,9 @@ services:
       - CHOKIDAR_USEPOLLING=true
       - WATCHPACK_POLLING=true
     depends_on:
-      - server
+      server:
+        condition: service_healthy
+    restart: unless-stopped
     ports:
       - 3000:3000
     volumes:

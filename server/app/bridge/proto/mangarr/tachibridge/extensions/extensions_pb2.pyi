@@ -103,14 +103,24 @@ class ListSourcesResponse(_message.Message):
     def __init__(self, sources: _Optional[_Iterable[_Union[SourceInfo, _Mapping]]] = ...) -> None: ...
 
 class SearchTitleRequest(_message.Message):
-    __slots__ = ("source_id", "query", "page")
+    __slots__ = ("source_id", "query", "page", "filters")
     SOURCE_ID_FIELD_NUMBER: _ClassVar[int]
     QUERY_FIELD_NUMBER: _ClassVar[int]
     PAGE_FIELD_NUMBER: _ClassVar[int]
+    FILTERS_FIELD_NUMBER: _ClassVar[int]
     source_id: int
     query: str
     page: int
-    def __init__(self, source_id: _Optional[int] = ..., query: _Optional[str] = ..., page: _Optional[int] = ...) -> None: ...
+    filters: _containers.RepeatedCompositeFieldContainer[SearchFilter]
+    def __init__(self, source_id: _Optional[int] = ..., query: _Optional[str] = ..., page: _Optional[int] = ..., filters: _Optional[_Iterable[_Union[SearchFilter, _Mapping]]] = ...) -> None: ...
+
+class SearchFilter(_message.Message):
+    __slots__ = ("key", "value")
+    KEY_FIELD_NUMBER: _ClassVar[int]
+    VALUE_FIELD_NUMBER: _ClassVar[int]
+    key: str
+    value: str
+    def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
 
 class TitlesPageResponse(_message.Message):
     __slots__ = ("titles", "has_next_page")

@@ -1,14 +1,102 @@
-import type { LibraryChapterResource, LibraryTitleResource, LibraryTitleSummary } from '$lib/api/library';
+import type {
+	LibraryChapterResource,
+	LibraryTitleResource,
+	LibraryTitleSummary
+} from '$lib/api/library';
+import { getCachedCoverUrl } from '$lib/api/covers';
 import type { components } from '$lib/api/v2';
-import type { TitleCardItem, TitleChapterItem, TitleDetailItem, TitleStatus, TitleVariantItem } from '$lib/models/title';
+import { buildTitlePath, inferChapterNumber } from '$lib/utils/routes';
 
-type DiscoverItem = components['schemas']['DiscoverItem'];
+export type TitleStatus = 'ongoing' | 'completed' | 'hiatus';
 
-const FALLBACK_COVER = '/favicon.ico';
+export interface TitleCardItem {
+	id: string;
+	title: string;
+	cover: string;
+	author?: string;
+	artist?: string;
+	description?: string;
+	genres?: string[];
+	status?: TitleStatus;
+	chapters?: number;
+	href?: string;
+	external?: boolean;
+	userRating?: number;
+	userStatusLabel?: string;
+	userStatusColor?: string;
+}
+
+interface TitleDetailBase {
+	id: string;
+	title: string;
+	cover: string;
+	author?: string;
+	artist?: string;
+	description?: string;
+	genres?: string[];
+	status?: TitleStatus;
+	href?: string;
+	external?: boolean;
+}
+
+interface TitleVariantItem {
+	id: number;
+	sourceId: string;
+	sourceName?: string;
+	sourceLang?: string;
+	titleUrl: string;
+	title: string;
+	description?: string;
+	artist?: string;
+	author?: string;
+	genre?: string;
+	status?: TitleStatus;
+	cover?: string;
+}
+
+export interface TitleCollectionItem {
+	id: number;
+	name: string;
+	color: string;
+}
+
+export interface TitleUserStatusItem {
+	id: number;
+	key: string;
+	label: string;
+	color: string;
+	position: number;
+	isDefault: boolean;
+}
+
+export interface TitleChapterItem {
+	id: number;
+	chapterUrl: string;
+	number: number | null;
+	title: string;
+	uploadDate: string;
+	scanlator?: string;
+	isRead: boolean;
+	isDownloaded: boolean;
+	downloadError?: string;
+}
+
+export interface TitleDetailItem extends TitleDetailBase {
+	libraryId: number;
+	variants: TitleVariantItem[];
+	preferredVariantId?: number;
+	chapters: TitleChapterItem[];
+	userStatus?: TitleUserStatusItem;
+	userRating?: number;
+	collections: TitleCollectionItem[];
+	monitoringEnabled: boolean;
+	monitoringVariantIds: number[];
+}
+
+type ExploreItem = components['schemas']['ExploreItem'];
 
 function normalizeCover(url: string | null | undefined): string {
-	const trimmed = (url ?? '').trim();
-	return trimmed.length > 0 ? trimmed : FALLBACK_COVER;
+	return getCachedCoverUrl(url);
 }
 
 function normalizeStatus(status: number): TitleStatus | undefined {
@@ -35,10 +123,10 @@ function splitGenres(genre: string | null | undefined): string[] {
 		.filter((entry) => entry.length > 0);
 }
 
-function discoverHref(item: DiscoverItem): { href?: string; external?: boolean } {
+function exploreHref(item: ExploreItem): { href?: string; external?: boolean } {
 	if (item.imported_library_id) {
 		return {
-			href: `/title/${item.imported_library_id}`,
+			href: buildTitlePath(item.imported_library_id, item.title),
 			external: false
 		};
 	}
@@ -52,8 +140,8 @@ function discoverHref(item: DiscoverItem): { href?: string; external?: boolean }
 	};
 }
 
-export function mapDiscoverItemToTitleCard(item: DiscoverItem): TitleCardItem {
-	const { href, external } = discoverHref(item);
+export function mapExploreItemToTitleCard(item: ExploreItem): TitleCardItem {
+	const { href, external } = exploreHref(item);
 	return {
 		id: item.imported_library_id ? String(item.imported_library_id) : item.dedupe_key,
 		title: item.title,
@@ -74,8 +162,11 @@ export function mapLibrarySummaryToTitleCard(item: LibraryTitleSummary): TitleCa
 		title: item.title,
 		cover: normalizeCover(item.thumbnail_url),
 		status: normalizeStatus(item.status),
+		userRating: item.user_rating ?? undefined,
+		userStatusLabel: item.user_status?.label ?? undefined,
+		userStatusColor: item.user_status?.color ?? undefined,
 		chapters: item.chapters_count,
-		href: `/title/${item.id}`
+		href: buildTitlePath(item.id, item.title)
 	};
 }
 
@@ -86,22 +177,34 @@ function mapVariant(variant: LibraryTitleResource['variants'][number]): TitleVar
 		sourceName: variant.source_name ?? undefined,
 		sourceLang: variant.source_lang ?? undefined,
 		titleUrl: variant.title_url,
-		title: variant.title
+		title: variant.title,
+		description: variant.description ?? undefined,
+		artist: variant.artist ?? undefined,
+		author: variant.author ?? undefined,
+		genre: variant.genre ?? undefined,
+		status: normalizeStatus(variant.status),
+		cover: normalizeCover(variant.thumbnail_url)
 	};
 }
 
-function chapterDisplayNumber(chapterNumber: number): number {
-	if (Number.isInteger(chapterNumber)) {
-		return chapterNumber;
+function chapterDisplayNumber(chapterNumber: number, chapterName: string): number | null {
+	if (Number.isFinite(chapterNumber) && chapterNumber > 0) {
+		if (Number.isInteger(chapterNumber)) {
+			return chapterNumber;
+		}
+		return Number(chapterNumber.toFixed(1));
 	}
-	return Number(chapterNumber.toFixed(1));
+	return inferChapterNumber(chapterName);
 }
 
-function mapChapter(chapter: LibraryChapterResource): TitleChapterItem {
+function mapChapter(
+	chapter: LibraryChapterResource,
+	displayNumber: number | null
+): TitleChapterItem {
 	return {
 		id: chapter.id,
 		chapterUrl: chapter.chapter_url,
-		number: chapterDisplayNumber(chapter.chapter_number),
+		number: displayNumber,
 		title: chapter.name,
 		uploadDate: chapter.date_upload,
 		scanlator: chapter.scanlator ?? undefined,
@@ -111,17 +214,58 @@ function mapChapter(chapter: LibraryChapterResource): TitleChapterItem {
 	};
 }
 
+export function mapLibraryChapterResources(chapters: LibraryChapterResource[]): TitleChapterItem[] {
+	const mappedChapters = chapters.map((chapter) => ({
+		chapter,
+		displayNumber: chapterDisplayNumber(chapter.chapter_number, chapter.name)
+	}));
+
+	mappedChapters.sort((left, right) => {
+		if (left.displayNumber !== null && right.displayNumber !== null) {
+			if (left.displayNumber !== right.displayNumber) {
+				return right.displayNumber - left.displayNumber;
+			}
+		} else if (left.displayNumber !== null) {
+			return -1;
+		} else if (right.displayNumber !== null) {
+			return 1;
+		}
+		return right.chapter.date_upload.localeCompare(left.chapter.date_upload);
+	});
+
+	return mappedChapters.map(({ chapter, displayNumber }) => mapChapter(chapter, displayNumber));
+}
+
+function mapUserStatus(
+	status: LibraryTitleResource['user_status'] | null | undefined
+): TitleUserStatusItem | undefined {
+	if (!status) {
+		return undefined;
+	}
+	return {
+		id: status.id,
+		key: status.key,
+		label: status.label,
+		color: status.color,
+		position: status.position,
+		isDefault: status.is_default
+	};
+}
+
+function mapCollection(
+	collection: LibraryTitleResource['collections'][number]
+): TitleCollectionItem {
+	return {
+		id: collection.id,
+		name: collection.name,
+		color: collection.color
+	};
+}
+
 export function mapLibraryTitleToDetail(
 	title: LibraryTitleResource,
 	chapters: LibraryChapterResource[]
 ): TitleDetailItem {
-	const sortedChapters = [...chapters].sort((left, right) => {
-		if (left.chapter_number !== right.chapter_number) {
-			return right.chapter_number - left.chapter_number;
-		}
-		return right.date_upload.localeCompare(left.date_upload);
-	});
-
 	return {
 		id: String(title.id),
 		libraryId: title.id,
@@ -132,8 +276,14 @@ export function mapLibraryTitleToDetail(
 		description: title.description ?? undefined,
 		genres: splitGenres(title.genre),
 		status: normalizeStatus(title.status),
-		href: `/title/${title.id}`,
+		href: buildTitlePath(title.id, title.title),
 		variants: title.variants.map(mapVariant),
-		chapters: sortedChapters.map(mapChapter)
+		preferredVariantId: title.preferred_variant_id ?? undefined,
+		chapters: mapLibraryChapterResources(chapters),
+		userStatus: mapUserStatus(title.user_status),
+		userRating: title.user_rating ?? undefined,
+		collections: title.collections.map(mapCollection),
+		monitoringEnabled: title.monitoring_enabled,
+		monitoringVariantIds: title.monitoring_variant_ids ?? []
 	};
 }

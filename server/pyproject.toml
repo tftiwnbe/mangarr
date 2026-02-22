@@ -25,3 +25,10 @@ dev = [
     "pytest-asyncio>=1.2.0",
     "ruff>=0.14.3",
 ]
+
+[tool.ruff]
+extend-exclude = [
+    "app/bridge/proto/**/*_pb2.py",
+    "app/bridge/proto/**/*_pb2.pyi",
+    "app/bridge/proto/**/*_pb2_grpc.py",
+]

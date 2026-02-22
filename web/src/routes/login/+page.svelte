@@ -3,49 +3,61 @@
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 
-	import { login, registerFirstUser, getMe } from '$lib/api/auth';
+	import { login, registerFirstUser, getMe, getSetupStatus } from '$lib/api/auth';
+	import { listInstalledExtensions } from '$lib/api/extensions';
 	import { ApiError } from '$lib/api/errors';
 	import { clearAuthSession, getStoredApiKey, type ApiKeyPersistence } from '$lib/api/session';
-	import { Button } from '$lib/elements/button/index.js';
-	import { Input } from '$lib/elements/input/index.js';
-	import { Badge } from '$lib/elements/badge/index.js';
+	import { Button } from '$lib/elements/button';
+	import { Input } from '$lib/elements/input';
+	import { Icon } from '$lib/elements/icon';
+	import { _ } from '$lib/i18n';
 
-	import KeyRoundIcon from '@lucide/svelte/icons/key-round';
-	import LogInIcon from '@lucide/svelte/icons/log-in';
-	import UserPlusIcon from '@lucide/svelte/icons/user-plus';
-
-	type Mode = 'login' | 'register';
-
-	let mode = $state<Mode>('login');
+	// State
 	let username = $state('');
 	let password = $state('');
+	let showPassword = $state(false);
 	let rememberSession = $state(true);
 	let loading = $state(false);
 	let checkingSession = $state(true);
 	let error = $state<string | null>(null);
-	let info = $state<string | null>(null);
+	let mounted = $state(false);
+	let needsSetup = $state(false);
 
 	const redirectTarget = $derived.by(() => {
-		const candidate = page.url.searchParams.get('redirect') ?? '/';
+		const candidate = page.url.searchParams.get('redirect') ?? '/library';
 		if (candidate.startsWith('/') && !candidate.startsWith('//')) {
 			return candidate;
 		}
-		return '/';
+		return '/library';
 	});
 
 	const persistence = $derived<ApiKeyPersistence>(rememberSession ? 'local' : 'session');
-	const title = $derived(mode === 'login' ? 'Sign In' : 'Create First Admin');
-	const description = $derived(
-		mode === 'login'
-			? 'Use your Mangarr account credentials to issue a new bearer token.'
-			: 'Bootstrap your first admin account for this server.'
-	);
 
 	async function redirectToApp(): Promise<void> {
+		try {
+			const extensions = await listInstalledExtensions();
+			if (extensions.length === 0) {
+				await goto('/setup', { replaceState: true });
+				return;
+			}
+		} catch {
+			// Continue to app if we can't check extensions
+		}
 		await goto(redirectTarget, { replaceState: true });
 	}
 
 	onMount(async () => {
+		mounted = true;
+
+		// Check setup status first (no auth required)
+		try {
+			const status = await getSetupStatus();
+			needsSetup = status.needs_setup;
+		} catch {
+			// If we can't check, assume setup is done
+			needsSetup = false;
+		}
+
 		const apiKey = getStoredApiKey();
 		if (!apiKey) {
 			checkingSession = false;
@@ -64,160 +76,216 @@
 
 	async function handleSubmit(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
-		if (loading) {
-			return;
-		}
+		if (loading) return;
 
 		error = null;
-		info = null;
 		loading = true;
-		try {
-			if (mode === 'login') {
-				await login(
-					{
-						username,
-						password
-					},
-					{ persistence }
-				);
-				await redirectToApp();
-				return;
-			}
 
-			await registerFirstUser(
-				{
-					username,
-					password
-				},
-				{ persistence }
-			);
+		try {
+			if (needsSetup) {
+				// First user registration
+				await registerFirstUser({ username, password }, { persistence });
+			} else {
+				// Normal login
+				await login({ username, password }, { persistence });
+			}
 			await redirectToApp();
 		} catch (cause: unknown) {
 			if (cause instanceof ApiError) {
 				error = cause.message;
-				if (cause.status === 409 && mode === 'register') {
-					info = 'Admin account already exists. Switch to sign in mode.';
-				}
 			} else if (cause instanceof Error) {
 				error = cause.message;
 			} else {
-				error = 'Authentication failed';
+				error = $_('auth.authFailed');
 			}
 		} finally {
 			loading = false;
 		}
 	}
+
 </script>
 
-<main class="flex min-h-svh items-center justify-center px-4 py-10">
-	<div class="w-full max-w-md rounded-2xl border bg-card/80 p-6 shadow-sm sm:p-8">
-		<div class="mb-6 flex items-start justify-between gap-4">
-			<div>
-				<p class="text-xs tracking-wide text-muted-foreground uppercase">Mangarr Auth</p>
-				<h1 class="text-2xl font-semibold">{title}</h1>
-				<p class="mt-1 text-sm text-muted-foreground">{description}</p>
-			</div>
-			<div class="flex size-10 items-center justify-center rounded-xl bg-primary/10">
-				<KeyRoundIcon class="size-5 text-primary" />
-			</div>
-		</div>
+<svelte:head>
+	<title>{needsSetup ? $_('auth.createFirstAdmin') : $_('auth.signIn')} | {$_('app.name')}</title>
+</svelte:head>
 
-		<div class="mb-4 flex gap-2">
-			<Button
-				variant={mode === 'login' ? 'default' : 'outline'}
-				size="sm"
-				class="flex-1"
-				onclick={() => {
-					mode = 'login';
-					error = null;
-					info = null;
-				}}
-			>
-				<LogInIcon class="size-4" />
-				Sign In
-			</Button>
-			<Button
-				variant={mode === 'register' ? 'default' : 'outline'}
-				size="sm"
-				class="flex-1"
-				onclick={() => {
-					mode = 'register';
-					error = null;
-					info = null;
-				}}
-			>
-				<UserPlusIcon class="size-4" />
-				First Admin
-			</Button>
-		</div>
+<main class="relative flex min-h-svh flex-col items-center justify-center overflow-hidden p-4">
+	<!-- Space background -->
+	<div class="pointer-events-none fixed inset-0">
+		<!-- Grid overlay -->
+		<div
+			class="absolute inset-0 opacity-[0.04]"
+			style="
+				background-image:
+					linear-gradient(rgba(200, 200, 220, 0.6) 1px, transparent 1px),
+					linear-gradient(90deg, rgba(200, 200, 220, 0.6) 1px, transparent 1px);
+				background-size: 50px 50px;
+				mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, black, transparent);
+			"
+		></div>
 
+		<!-- Stars -->
+		{#each Array(50) as _, i}
+			<div
+				class="absolute rounded-full bg-white animate-pulse-glow"
+				style="
+					width: {1 + Math.random() * 2}px;
+					height: {1 + Math.random() * 2}px;
+					left: {Math.random() * 100}%;
+					top: {Math.random() * 100}%;
+					opacity: {0.2 + Math.random() * 0.4};
+					animation-delay: {Math.random() * 4}s;
+					animation-duration: {2 + Math.random() * 3}s;
+				"
+			></div>
+		{/each}
+
+		<!-- Orbital rings -->
+		<div
+			class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-[900px] w-[900px] animate-spin-slow opacity-[0.03]"
+		>
+			<svg viewBox="0 0 200 200" class="h-full w-full">
+				<ellipse
+					cx="100"
+					cy="100"
+					rx="95"
+					ry="35"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="0.4"
+				/>
+				<ellipse
+					cx="100"
+					cy="100"
+					rx="70"
+					ry="25"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="0.3"
+					transform="rotate(60 100 100)"
+				/>
+			</svg>
+		</div>
+	</div>
+
+	<!-- Main content -->
+	<div
+		class="relative z-10 w-full max-w-sm {mounted ? 'animate-slide-up' : 'opacity-0'}"
+		style="animation-fill-mode: backwards; animation-delay: 100ms"
+	>
 		{#if checkingSession}
-			<div class="rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-				Checking existing session...
+			<!-- Checking session state -->
+			<div class="flex flex-col items-center gap-6">
+				<div class="relative h-6 w-6">
+					<Icon name="loader" size={24} class="text-[var(--text-muted)]" />
+				</div>
+				<p class="text-sm text-[var(--text-ghost)]">{$_('auth.checkingSession')}</p>
 			</div>
 		{:else}
-			<form class="flex flex-col gap-4" onsubmit={handleSubmit}>
-				<div class="flex flex-col gap-2">
-					<label for="username" class="text-sm font-medium">Username</label>
-					<Input
-						id="username"
-						type="text"
-						placeholder="admin"
-						autocomplete="username"
-						required
-						bind:value={username}
-					/>
+			<!-- Logo / Brand -->
+			<div class="mb-10 text-center">
+				<h1 class="text-display text-2xl text-[var(--text)]">
+					{$_('app.name').toLowerCase()}
+				</h1>
+				<p class="mt-2 text-sm text-[var(--text-muted)]">
+					{needsSetup ? $_('auth.firstAdminDescription').toLowerCase() : $_('auth.welcomeBack').toLowerCase()}
+				</p>
+			</div>
+
+			<!-- Card container with flowing border -->
+			<div class="border-flow">
+				<div class="border border-[var(--line)] bg-[var(--surface)] p-6 glow-subtle">
+					<form class="flex flex-col gap-5" onsubmit={handleSubmit}>
+						<Input
+							type="text"
+							label={$_('auth.username')}
+							placeholder="admin"
+							autocomplete="username"
+							required
+							bind:value={username}
+						/>
+
+						<div class="relative">
+							<Input
+								type={showPassword ? 'text' : 'password'}
+								label={$_('auth.password')}
+								placeholder="••••••••"
+								autocomplete={needsSetup ? 'new-password' : 'current-password'}
+								required
+								bind:value={password}
+							/>
+							<button
+								type="button"
+								class="absolute right-3 top-[30px] p-1 text-[var(--text-ghost)] transition-colors hover:text-[var(--text-soft)]"
+								onclick={() => (showPassword = !showPassword)}
+								tabindex={-1}
+								aria-label={showPassword ? 'Hide password' : 'Show password'}
+							>
+								<Icon name={showPassword ? 'eye-off' : 'eye'} size={16} />
+							</button>
+						</div>
+
+						<!-- Remember session (only for login, not registration) -->
+						{#if !needsSetup}
+							<label class="flex cursor-pointer items-center gap-3">
+								<div class="relative">
+									<input
+										type="checkbox"
+										bind:checked={rememberSession}
+										class="peer sr-only"
+									/>
+									<div
+										class="h-4 w-4 border border-[var(--line)] bg-[var(--void-2)] transition-all peer-checked:border-[var(--void-6)] peer-checked:bg-[var(--void-5)] peer-focus-visible:ring-1 peer-focus-visible:ring-[var(--accent-line)]"
+									></div>
+									<Icon
+										name="check"
+										size={10}
+										class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-[var(--text)] opacity-0 transition-opacity peer-checked:opacity-100"
+									/>
+								</div>
+								<span class="text-sm text-[var(--text-ghost)]">{$_('auth.rememberMe')}</span>
+							</label>
+						{/if}
+
+						<!-- Error message -->
+						{#if error}
+							<div
+								class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)] animate-fade-in"
+							>
+								{error}
+							</div>
+						{/if}
+
+						<Button
+							type="submit"
+							size="lg"
+							disabled={loading || username.trim().length === 0 || password.length === 0}
+							loading={loading}
+							class="mt-2 w-full justify-center"
+						>
+							{#if loading}
+								{$_('auth.pleaseWait')}
+							{:else if needsSetup}
+								{$_('auth.createFirstAdmin').toLowerCase()}
+							{:else}
+								{$_('auth.signIn').toLowerCase()}
+							{/if}
+						</Button>
+					</form>
 				</div>
+			</div>
 
-				<div class="flex flex-col gap-2">
-					<label for="password" class="text-sm font-medium">Password</label>
-					<Input
-						id="password"
-						type="password"
-						placeholder="Enter password"
-						autocomplete={mode === 'login' ? 'current-password' : 'new-password'}
-						required
-						bind:value={password}
-					/>
-					{#if mode === 'register'}
-						<p class="text-xs text-muted-foreground">
-							Password must be at least 10 chars with upper, lower, and number.
-						</p>
-					{/if}
-				</div>
-
-				<label class="flex items-center gap-2 text-sm text-muted-foreground">
-					<input type="checkbox" bind:checked={rememberSession} class="size-4 rounded border" />
-					Keep me signed in on this device
-					{#if rememberSession}
-						<Badge variant="outline" class="ml-auto">Persistent</Badge>
-					{:else}
-						<Badge variant="outline" class="ml-auto">Session</Badge>
-					{/if}
-				</label>
-
-				{#if info}
-					<div class="rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm text-blue-200">
-						{info}
-					</div>
-				{/if}
-
-				{#if error}
-					<div class="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
-						{error}
-					</div>
-				{/if}
-
-				<Button type="submit" disabled={loading || username.trim().length === 0 || password.length === 0}>
-					{#if loading}
-						Please wait...
-					{:else if mode === 'login'}
-						Sign In
-					{:else}
-						Create Admin and Sign In
-					{/if}
-				</Button>
-			</form>
+			<!-- Footer hint -->
+			{#if needsSetup}
+				<p class="mt-6 text-center text-xs text-[var(--text-ghost)]">
+					{$_('auth.passwordRequirements')}
+				</p>
+			{/if}
 		{/if}
+	</div>
+
+	<!-- Domain watermark -->
+	<div class="absolute bottom-4 left-1/2 -translate-x-1/2 text-[10px] font-mono text-[var(--void-6)] tracking-wider">
+		hmphin.space
 	</div>
 </main>

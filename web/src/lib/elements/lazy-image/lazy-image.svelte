@@ -1,0 +1,89 @@
+<script lang="ts">
+	import { onMount } from 'svelte';
+
+	interface Props {
+		src?: string;
+		alt?: string;
+		class?: string;
+		imgClass?: string;
+		loading?: 'lazy' | 'eager';
+		decoding?: 'async' | 'auto' | 'sync';
+	}
+
+	let {
+		src = '',
+		alt = '',
+		class: className = '',
+		imgClass = '',
+		loading = 'lazy',
+		decoding = 'async'
+	}: Props = $props();
+
+	let container: HTMLDivElement | null = null;
+	let shouldLoad = $state(loading === 'eager');
+	let isLoaded = $state(false);
+	let hasError = $state(false);
+
+	$effect(() => {
+		isLoaded = false;
+		hasError = false;
+		if (!src.trim()) {
+			shouldLoad = false;
+			return;
+		}
+		if (loading === 'eager') {
+			shouldLoad = true;
+		}
+	});
+
+	onMount(() => {
+		if (loading === 'eager' || shouldLoad) {
+			return;
+		}
+		if (typeof IntersectionObserver === 'undefined') {
+			shouldLoad = true;
+			return;
+		}
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((entry) => entry.isIntersecting)) {
+					shouldLoad = true;
+					observer.disconnect();
+				}
+			},
+			{ rootMargin: '320px 0px' }
+		);
+		if (container) {
+			observer.observe(container);
+		}
+		return () => observer.disconnect();
+	});
+</script>
+
+<div bind:this={container} class="relative overflow-hidden {className}">
+	{#if !isLoaded}
+		<div class="absolute inset-0 animate-pulse bg-[var(--void-3)]"></div>
+	{/if}
+	{#if shouldLoad && src.trim()}
+		<img
+			src={src}
+			{alt}
+			{loading}
+			{decoding}
+			class="h-full w-full object-cover transition-opacity duration-200 {isLoaded && !hasError ? 'opacity-100' : 'opacity-0'} {imgClass}"
+			onload={() => {
+				isLoaded = true;
+				hasError = false;
+			}}
+			onerror={() => {
+				isLoaded = true;
+				hasError = true;
+			}}
+		/>
+	{/if}
+	{#if hasError}
+		<div class="absolute inset-0 flex items-center justify-center text-[var(--text-ghost)] text-xs">
+			{alt || 'image'}
+		</div>
+	{/if}
+</div>

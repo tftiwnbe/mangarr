@@ -34,9 +34,11 @@ class DownloadProfile(SQLModel, table=True):
     library_title_id: int = Field(index=True)
 
     enabled: bool = Field(default=False, index=True)
+    paused: bool = Field(default=False, index=True)
     auto_download: bool = True
     strategy: DownloadStrategy = DownloadStrategy.NEW_ONLY
     preferred_variant_id: int | None = Field(default=None, index=True)
+    variant_ids_json: str | None = None
 
     # When set, monitor/download only chapters uploaded after this timestamp.
     start_from: datetime | None = None
@@ -87,9 +89,11 @@ class DownloadProfileResource(SQLModel):
     id: int
     library_title_id: int
     enabled: bool
+    paused: bool
     auto_download: bool
     strategy: DownloadStrategy
     preferred_variant_id: int | None
+    variant_ids: list[int] = []
     start_from: datetime | None
     last_checked_at: datetime | None
     last_success_at: datetime | None
@@ -98,9 +102,11 @@ class DownloadProfileResource(SQLModel):
 
 class DownloadProfileUpdate(SQLModel):
     enabled: bool | None = None
+    paused: bool | None = None
     auto_download: bool | None = None
     strategy: DownloadStrategy | None = None
     preferred_variant_id: int | None = None
+    variant_ids: list[int] | None = None
     start_from: datetime | None = None
 
 
@@ -110,6 +116,7 @@ class DownloadTaskResource(SQLModel):
     variant_id: int | None
     chapter_id: int
     source_id: str
+    is_paused: bool = False
     chapter_url: str
     title_name: str
     chapter_name: str
@@ -136,6 +143,11 @@ class DownloadOverviewResource(SQLModel):
     completed: int
     failed: int
     cancelled: int
+    downloaded_chapters: int = 0
+    total_downloaded_bytes: int = 0
+    avg_chapter_size_bytes: int = 0
+    free_disk_bytes: int = 0
+    estimated_chapters_fit: int = 0
 
 
 class DownloadMonitoredTitleResource(SQLModel):
@@ -143,9 +155,12 @@ class DownloadMonitoredTitleResource(SQLModel):
     title: str
     thumbnail_url: str = ""
     enabled: bool
+    paused: bool = False
     auto_download: bool
     strategy: DownloadStrategy
     preferred_variant_id: int | None
+    variant_ids: list[int] = []
+    variant_sources: list[str] = []
     start_from: datetime | None
     last_checked_at: datetime | None
     last_success_at: datetime | None
@@ -154,6 +169,8 @@ class DownloadMonitoredTitleResource(SQLModel):
     downloaded_chapters: int
     queued_tasks: int
     failed_tasks: int
+    downloaded_bytes: int = 0
+    avg_chapter_size_bytes: int = 0
 
 
 class DownloadDashboardResource(SQLModel):
@@ -180,3 +197,38 @@ class MonitorRunResponse(SQLModel):
 
 class WorkerRunResponse(SQLModel):
     processed_tasks: int
+
+
+class DownloadExternalTitleResource(SQLModel):
+    key: str
+    source_id: str | None = None
+    source_name: str
+    source_lang: str | None = None
+    title: str
+    title_url: str | None = None
+    path: str
+    chapters_count: int
+    in_library: bool
+    importable: bool
+    reason: str | None = None
+
+
+class DownloadReconcileResource(SQLModel):
+    scanned_at: datetime
+    reconciled_missing_chapters: int
+    external_titles: list[DownloadExternalTitleResource]
+
+
+class DownloadExternalImportRequest(SQLModel):
+    source_id: str | None = None
+    title: str
+    title_url: str | None = None
+    path: str | None = None
+
+
+class DownloadExternalImportResponse(SQLModel):
+    library_title_id: int
+    created: bool
+    source_id: str
+    title_url: str
+    linked_downloaded_chapters: int = 0

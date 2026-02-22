@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Query, status
 from sqlalchemy import or_
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -13,14 +13,21 @@ from app.models import AuthSession, IntegrationApiKey, User
 DBSessionDep = Annotated[AsyncSession, Depends(get_database_session)]
 ApiKeyHeaderDep = Annotated[str | None, Header(alias="X-API-Key")]
 AuthorizationHeaderDep = Annotated[str | None, Header(alias="Authorization")]
+ApiKeyQueryDep = Annotated[
+    str | None,
+    Query(alias="api_key", include_in_schema=False),
+]
 
 
 def _extract_api_key(
     x_api_key: str | None,
     authorization: str | None,
+    query_api_key: str | None,
 ) -> str | None:
     if x_api_key:
         return x_api_key.strip()
+    if query_api_key:
+        return query_api_key.strip()
     if not authorization:
         return None
     scheme, _, token = authorization.partition(" ")
@@ -33,8 +40,13 @@ async def get_current_user(
     db: DBSessionDep,
     x_api_key: ApiKeyHeaderDep = None,
     authorization: AuthorizationHeaderDep = None,
+    query_api_key: ApiKeyQueryDep = None,
 ) -> User:
-    api_key = _extract_api_key(x_api_key=x_api_key, authorization=authorization)
+    api_key = _extract_api_key(
+        x_api_key=x_api_key,
+        authorization=authorization,
+        query_api_key=query_api_key,
+    )
     if not api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

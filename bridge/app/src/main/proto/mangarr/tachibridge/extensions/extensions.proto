@@ -71,6 +71,12 @@ message SearchTitleRequest {
   int64 source_id = 1;
   string query = 2;
   int32 page = 3;
+  repeated SearchFilter filters = 4;
+}
+
+message SearchFilter {
+  string key = 1;
+  string value = 2;
 }
 
 message TitlesPageResponse {

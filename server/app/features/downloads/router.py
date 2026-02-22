@@ -4,9 +4,12 @@ from app.core.deps import DBSessionDep, require_authenticated_user
 from app.features.downloads.service import DownloadService
 from app.models import (
     DownloadDashboardResource,
+    DownloadExternalImportRequest,
+    DownloadExternalImportResponse,
     DownloadOverviewResource,
     DownloadProfileResource,
     DownloadProfileUpdate,
+    DownloadReconcileResource,
     DownloadTaskResource,
     DownloadTaskStatus,
     EnqueueChapterResponse,
@@ -136,9 +139,10 @@ async def cancel_task(
 @router.post("/run-monitor", response_model=MonitorRunResponse)
 async def run_monitor(
     limit: int = Query(25, ge=1, le=200),
+    seed_existing: bool = Query(True),
     service: DownloadService = Depends(get_service),
 ):
-    return await service.run_monitor_once(limit=limit)
+    return await service.run_monitor_once(limit=limit, seed_existing=seed_existing)
 
 
 @router.post("/run-worker", response_model=WorkerRunResponse)
@@ -147,3 +151,23 @@ async def run_worker(
     service: DownloadService = Depends(get_service),
 ):
     return await service.run_worker_once(batch_size=batch_size)
+
+
+@router.post("/reconcile", response_model=DownloadReconcileResource)
+async def reconcile_downloads(
+    query: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    service: DownloadService = Depends(get_service),
+):
+    return await service.reconcile_downloads(query=query, limit=limit)
+
+
+@router.post(
+    "/external-titles/import",
+    response_model=DownloadExternalImportResponse,
+)
+async def import_external_download_title(
+    payload: DownloadExternalImportRequest,
+    service: DownloadService = Depends(get_service),
+):
+    return await service.import_external_download_title(payload)

@@ -141,8 +141,12 @@ class ExtensionService:
         updated_sources: list[Source] = []
 
         for installed_source in sources:
-            source_update = UpdateSource(supports_latest=installed_source.supports_latest)
-            updated_source = await self._update_source(installed_source.id, source_update)
+            source_update = UpdateSource(
+                supports_latest=installed_source.supports_latest
+            )
+            updated_source = await self._update_source(
+                installed_source.id, source_update
+            )
             updated_sources.append(updated_source)
 
         max_priority = await self._get_max_extension_priority()
@@ -212,6 +216,11 @@ class ExtensionService:
         self, source_id: str
     ) -> SourcePreferencesResource:
         return await tachibridge.fetch_source_preferences(source_id)
+
+    async def list_source_search_filters(
+        self, source_id: str
+    ) -> SourcePreferencesResource:
+        return await tachibridge.fetch_search_filters(source_id)
 
     async def update_source_preferences(
         self, source_id: str, preferences: list[SourcePreferenceUpdate]

@@ -1,0 +1,131 @@
+import shutil
+from pathlib import Path
+
+from app.config import settings
+from app.core.errors import BridgeAPIError
+from app.features.library.jobs import get_last_cleanup_run_at, run_unassigned_cleanup
+from app.models import (
+    DownloadSettingsResource,
+    DownloadSettingsUpdate,
+    JobsCleanupRunResource,
+    JobsSettingsResource,
+    JobsSettingsUpdate,
+    User,
+)
+
+
+class SettingsService:
+    @staticmethod
+    def _resolve_download_root() -> Path:
+        configured = settings.downloads.root_dir.expanduser()
+        fallback = settings.app.data_dir / "downloads"
+        legacy_fallback = settings.app.config_dir / "downloads"
+
+        for candidate in [configured, fallback, legacy_fallback]:
+            resolved = candidate.resolve()
+            try:
+                resolved.mkdir(parents=True, exist_ok=True)
+                shutil.disk_usage(resolved)
+                return resolved
+            except OSError:
+                continue
+
+        raise BridgeAPIError(
+            500,
+            "No writable download root found "
+            f"(configured: {configured}, fallback: {fallback}, legacy: {legacy_fallback})",
+        )
+
+    @staticmethod
+    def get_download_settings() -> DownloadSettingsResource:
+        root = SettingsService._resolve_download_root()
+        usage = shutil.disk_usage(root)
+        return DownloadSettingsResource(
+            root_dir=str(root),
+            parallel_downloads=settings.downloads.parallel_downloads,
+            total_bytes=int(usage.total),
+            used_bytes=int(usage.used),
+            free_bytes=int(usage.free),
+        )
+
+    @staticmethod
+    def update_download_settings(
+        payload: DownloadSettingsUpdate,
+        current_user: User,
+    ) -> DownloadSettingsResource:
+        if not current_user.is_admin:
+            raise BridgeAPIError(403, "Only admins can update download settings")
+
+        if payload.root_dir is None and payload.parallel_downloads is None:
+            raise BridgeAPIError(400, "No download settings changes provided")
+
+        if payload.root_dir is not None:
+            candidate = Path(payload.root_dir).expanduser()
+            if not candidate.is_absolute():
+                candidate = (settings.app.config_dir / candidate).resolve()
+            else:
+                candidate = candidate.resolve()
+            candidate.mkdir(parents=True, exist_ok=True)
+            settings.downloads.root_dir = candidate
+
+        if payload.parallel_downloads is not None:
+            settings.downloads.parallel_downloads = int(payload.parallel_downloads)
+
+        settings.save_settings()
+        return SettingsService.get_download_settings()
+
+    @staticmethod
+    async def get_jobs_settings() -> JobsSettingsResource:
+        last_cleanup_at = await get_last_cleanup_run_at()
+        return JobsSettingsResource(
+            cleanup_unassigned_enabled=settings.jobs.cleanup_unassigned_enabled,
+            cleanup_unassigned_interval_days=settings.jobs.cleanup_unassigned_interval_days,
+            cleanup_unassigned_older_than_days=settings.jobs.cleanup_unassigned_older_than_days,
+            cleanup_unassigned_batch_limit=settings.jobs.cleanup_unassigned_batch_limit,
+            last_cleanup_at=last_cleanup_at.isoformat() if last_cleanup_at else None,
+        )
+
+    @staticmethod
+    async def update_jobs_settings(
+        payload: JobsSettingsUpdate,
+        current_user: User,
+    ) -> JobsSettingsResource:
+        if not current_user.is_admin:
+            raise BridgeAPIError(403, "Only admins can update job settings")
+
+        updates = payload.model_dump(exclude_unset=True)
+        if not updates:
+            raise BridgeAPIError(400, "No job settings changes provided")
+
+        if "cleanup_unassigned_enabled" in updates:
+            settings.jobs.cleanup_unassigned_enabled = bool(
+                updates["cleanup_unassigned_enabled"]
+            )
+        if "cleanup_unassigned_interval_days" in updates:
+            settings.jobs.cleanup_unassigned_interval_days = int(
+                updates["cleanup_unassigned_interval_days"]
+            )
+        if "cleanup_unassigned_older_than_days" in updates:
+            settings.jobs.cleanup_unassigned_older_than_days = int(
+                updates["cleanup_unassigned_older_than_days"]
+            )
+        if "cleanup_unassigned_batch_limit" in updates:
+            settings.jobs.cleanup_unassigned_batch_limit = int(
+                updates["cleanup_unassigned_batch_limit"]
+            )
+
+        settings.save_settings()
+        return await SettingsService.get_jobs_settings()
+
+    @staticmethod
+    async def run_jobs_cleanup_now(current_user: User) -> JobsCleanupRunResource:
+        if not current_user.is_admin:
+            raise BridgeAPIError(403, "Only admins can run cleanup jobs")
+
+        executed, deleted_titles, ran_at = await run_unassigned_cleanup(force=True)
+        return JobsCleanupRunResource(
+            executed=executed,
+            deleted_titles=deleted_titles,
+            ran_at=ran_at.isoformat() if ran_at else None,
+            reason=None if executed else "not_due",
+        )

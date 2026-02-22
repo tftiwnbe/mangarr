@@ -12,6 +12,10 @@ export type EnqueueChapterResponse = components['schemas']['EnqueueChapterRespon
 export type EnqueueTitleResponse = components['schemas']['EnqueueTitleResponse'];
 export type MonitorRunResponse = components['schemas']['MonitorRunResponse'];
 export type WorkerRunResponse = components['schemas']['WorkerRunResponse'];
+export type DownloadExternalTitleResource = components['schemas']['DownloadExternalTitleResource'];
+export type DownloadReconcileResource = components['schemas']['DownloadReconcileResource'];
+export type DownloadExternalImportRequest = components['schemas']['DownloadExternalImportRequest'];
+export type DownloadExternalImportResponse = components['schemas']['DownloadExternalImportResponse'];
 
 export async function getDownloadOverview(): Promise<DownloadOverviewResource> {
 	return expectData(
@@ -128,9 +132,11 @@ export async function cancelDownloadTask(taskId: number): Promise<DownloadTaskRe
 	);
 }
 
-export async function runDownloadMonitor(limit = 25): Promise<MonitorRunResponse> {
+export async function runDownloadMonitor(limit = 25, seedExisting = true): Promise<MonitorRunResponse> {
 	return expectData(
-		await httpClient.POST('/api/v2/downloads/run-monitor', { params: { query: { limit } } }),
+		await httpClient.POST('/api/v2/downloads/run-monitor', {
+			params: { query: { limit, seed_existing: seedExisting } }
+		}),
 		'Unable to run download monitor'
 	);
 }
@@ -141,5 +147,24 @@ export async function runDownloadWorker(batchSize?: number): Promise<WorkerRunRe
 			params: { query: { batch_size: batchSize ?? null } }
 		}),
 		'Unable to run download worker'
+	);
+}
+
+export async function reconcileDownloads(query?: {
+	query?: string | null;
+	limit?: number;
+}): Promise<DownloadReconcileResource> {
+	return expectData(
+		await httpClient.POST('/api/v2/downloads/reconcile', { params: { query } }),
+		'Unable to reconcile downloads'
+	);
+}
+
+export async function importExternalDownloadTitle(
+	payload: DownloadExternalImportRequest
+): Promise<DownloadExternalImportResponse> {
+	return expectData(
+		await httpClient.POST('/api/v2/downloads/external-titles/import', { body: payload }),
+		'Unable to import external download title'
 	);
 }

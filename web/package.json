@@ -10,13 +10,14 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"generate:api": "openapi-typescript ../server/openapi/v2.json -o src/lib/api/v2.d.ts && prettier --write src/lib/api/v2.d.ts",
+		"generate:api": "openapi-typescript http://localhost:3737/openapi.json -o src/lib/api/v2.d.ts && prettier --write src/lib/api/v2.d.ts",
 		"format": "prettier --write .",
 		"lint": "prettier --check . && eslint ."
 	},
 	"devDependencies": {
 		"@eslint/compat": "^1.4.0",
 		"@eslint/js": "^9.38.0",
+		"@iconify/svelte": "^5.2.1",
 		"@internationalized/date": "^3.10.0",
 		"@lucide/svelte": "^0.561.0",
 		"@sveltejs/adapter-static": "^3.0.2",
@@ -48,6 +49,10 @@
 		"vite": "^7.1.10"
 	},
 	"dependencies": {
+		"@fontsource-variable/inter": "^5.2.8",
+		"@fontsource-variable/jetbrains-mono": "^5.2.8",
+		"@fontsource-variable/plus-jakarta-sans": "^5.2.8",
+		"@fontsource/space-mono": "^5.2.9",
 		"openapi-fetch": "^0.15.0",
 		"svelte-i18n": "^4.0.1"
 	}
