@@ -86,6 +86,9 @@ class LibraryChapter(SQLModel, table=True):
     downloaded_at: datetime | None = None
     download_path: str | None = None
     download_error: str | None = None
+    reader_page_index: int | None = Field(default=None, index=True)
+    reader_comment: str | None = None
+    reader_updated_at: datetime | None = None
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -94,6 +97,7 @@ class LibraryChapter(SQLModel, table=True):
     library_title: LibraryTitle = Relationship(back_populates="chapters")
     variant: LibraryTitleVariant = Relationship(back_populates="chapters")
     pages: list["LibraryChapterPage"] = Relationship(back_populates="chapter")
+    comments: list["LibraryChapterComment"] = Relationship(back_populates="chapter")
 
 
 class LibraryChapterPage(SQLModel, table=True):
@@ -115,6 +119,19 @@ class LibraryChapterPage(SQLModel, table=True):
     fetched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     chapter: LibraryChapter = Relationship(back_populates="pages")
+
+
+class LibraryChapterComment(SQLModel, table=True):
+    __tablename__: ClassVar[Any] = "library_chapter_comments"
+
+    id: int | None = Field(default=None, primary_key=True)
+    chapter_id: int = Field(foreign_key="library_chapters.id", index=True)
+    page_index: int = Field(default=0, ge=0)
+    message: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    chapter: LibraryChapter = Relationship(back_populates="comments")
 
 
 class LibraryTitleSummary(SQLModel):
@@ -176,6 +193,8 @@ class LibraryChapterResource(SQLModel):
     downloaded_at: datetime | None
     download_path: str | None
     download_error: str | None
+    reader_page_index: int | None = None
+    reader_updated_at: datetime | None = None
 
 
 class LibraryChapterPageResource(SQLModel):
@@ -204,7 +223,45 @@ class LibraryReaderChapterResource(SQLModel):
     is_downloaded: bool
     prev_chapter_id: int | None
     next_chapter_id: int | None
+    reader_page_index: int | None = None
+    reader_comment: str | None = None
+    reader_updated_at: datetime | None = None
     pages: list[ReaderPageResource]
+
+
+class LibraryChapterProgressResource(SQLModel):
+    chapter_id: int
+    page_index: int | None = None
+    comment: str | None = None
+    updated_at: datetime | None = None
+
+
+class LibraryChapterProgressUpdate(SQLModel):
+    page_index: int | None = Field(default=None, ge=0)
+    comment: str | None = None
+
+
+class LibraryChapterCommentResource(SQLModel):
+    id: int
+    chapter_id: int
+    library_title_id: int
+    variant_id: int
+    chapter_name: str
+    chapter_number: float
+    page_index: int
+    message: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class LibraryChapterCommentCreate(SQLModel):
+    page_index: int = Field(default=0, ge=0)
+    message: str
+
+
+class LibraryChapterCommentUpdate(SQLModel):
+    page_index: int | None = Field(default=None, ge=0)
+    message: str | None = None
 
 
 class LibraryImportRequest(SQLModel):

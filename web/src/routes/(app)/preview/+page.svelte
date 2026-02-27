@@ -108,7 +108,7 @@
 			});
 			// Clear preview store and navigate to title
 			previewItemStore.set(null);
-			await goto(buildTitlePath(result.library_title_id, item.title));
+			await goto(`${buildTitlePath(result.library_title_id, item.title)}?from=explore`);
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to import title';
 		} finally {

@@ -716,7 +716,7 @@
 		// If already in library, go to title page
 		if (item.imported_library_id != null) {
 			persistExploreState();
-			goto(buildTitlePath(item.imported_library_id, item.title));
+			goto(`${buildTitlePath(item.imported_library_id, item.title)}?from=explore`);
 			return;
 		}
 
@@ -736,7 +736,7 @@
 			patchImportedLibraryId(item.dedupe_key, imported.library_title_id);
 			previewItemStore.set(null);
 			persistExploreState();
-			await goto(buildTitlePath(imported.library_title_id, item.title));
+			await goto(`${buildTitlePath(imported.library_title_id, item.title)}?from=explore`);
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Unable to open title';
 		} finally {
@@ -887,13 +887,13 @@
 	</div>
 
 	<!-- Tabs -->
-	<div class="flex gap-1 border-b border-[var(--line)]">
+	<div class="flex gap-1">
 		{#each tabs as tab (tab)}
 			<button
 				type="button"
-				class="px-4 py-2 text-sm transition-colors {activeTab === tab
-					? 'border-b-2 border-[var(--text)] text-[var(--text)]'
-					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+				class="px-3 py-1.5 text-xs font-medium transition-colors {activeTab === tab
+					? 'bg-[var(--void-4)] text-[var(--text)]'
+					: 'text-[var(--text-ghost)] hover:bg-[var(--void-3)] hover:text-[var(--text-muted)]'}"
 				onclick={() => setTab(tab)}
 			>
 				{tabLabel(tab)}
@@ -974,28 +974,27 @@
 							{/each}
 						</div>
 					</div>
-					{#if selectedSource}
-						<div class="flex items-center gap-2">
-							<Button
-								variant="outline"
-								size="sm"
-								onclick={() => openSearchFilters(selectedSource.id)}
-								class="shrink-0"
+					<div class="flex items-center gap-2">
+						<Button
+							variant="outline"
+							size="sm"
+							onclick={() => selectedSource && openSearchFilters(selectedSource.id)}
+							disabled={!hasSourceFilterSelected}
+							class="shrink-0"
+						>
+							<Icon name="filter" size={14} />
+							{$_('explore.advancedFilters')}
+						</Button>
+						{#if hasAppliedSearchFilters}
+							<button
+								type="button"
+								class="text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
+								onclick={clearAppliedSearchFilters}
 							>
-								<Icon name="filter" size={14} />
-								{$_('explore.advancedFilters')}
-							</Button>
-							{#if hasAppliedSearchFilters}
-								<button
-									type="button"
-									class="text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
-									onclick={clearAppliedSearchFilters}
-								>
-									{$_('common.clear')} ({appliedSearchFilterCount})
-								</button>
-							{/if}
-						</div>
-					{/if}
+								{$_('common.clear')} ({appliedSearchFilterCount})
+							</button>
+						{/if}
+					</div>
 				</div>
 			{/if}
 		</div>
@@ -1118,12 +1117,28 @@
 
 	<!-- Grid -->
 	{#if loading && !feed}
-		<div class="flex flex-col items-center gap-4 py-16">
-			<Icon name="loader" size={24} class="animate-spin text-[var(--text-muted)]" />
-			<p class="text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
+		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+			{#each Array(18) as _, i}
+				<div class="flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)]">
+					<div
+						class="aspect-[2/3] animate-pulse bg-[var(--void-4)]"
+						style="animation-delay: {i * 40}ms"
+					></div>
+					<div class="flex flex-col gap-1.5 p-2">
+						<div
+							class="h-2 w-full animate-pulse bg-[var(--void-4)]"
+							style="animation-delay: {i * 40}ms"
+						></div>
+						<div
+							class="h-2 w-3/5 animate-pulse bg-[var(--void-5)]"
+							style="animation-delay: {i * 40 + 20}ms"
+						></div>
+					</div>
+				</div>
+			{/each}
 		</div>
 	{:else if feed && feed.items.length > 0}
-		<div class="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
 			{#each feed.items as item (item.dedupe_key)}
 				{@const importedLibraryId = item.imported_library_id ?? null}
 				{@const isInLibrary = importedLibraryId !== null && assignedLibraryTitleIds.has(importedLibraryId)}
@@ -1255,108 +1270,106 @@
 				<p class="text-sm text-[var(--text-ghost)]">{$_('common.empty')}</p>
 			</div>
 		{:else}
-			<div class="flex flex-col gap-4">
-				{#each searchFiltersData.preferences.filter((pref) => pref.visible) as pref (pref.key)}
-					<div class="border border-[var(--line)] bg-[var(--void-2)] p-4">
-						<div class="flex items-start justify-between gap-3">
-							<div class="flex-1">
-								<p class="text-sm text-[var(--text)]">{pref.title}</p>
-								{#if pref.summary}
-									<p class="mt-0.5 text-xs text-[var(--text-ghost)]">{pref.summary}</p>
+			<div class="flex flex-col">
+				<div class="divide-y divide-[var(--line)] border border-[var(--line)]">
+					{#each searchFiltersData.preferences.filter((pref) => pref.visible) as pref (pref.key)}
+						<div class="px-4 py-3">
+							<div class="flex items-start justify-between gap-3">
+								<div class="min-w-0 flex-1">
+									<p class="text-sm text-[var(--text)]">{pref.title}</p>
+									{#if pref.summary}
+										<p class="mt-0.5 text-xs text-[var(--text-ghost)]">{pref.summary}</p>
+									{/if}
+								</div>
+								{#if pref.type === 'toggle'}
+									{@const val = getCurrentSearchFilterValue(pref) as boolean}
+									<button
+										type="button"
+										class="flex h-6 w-10 shrink-0 items-center px-0.5 transition-colors {val
+											? 'justify-end bg-[var(--success)]/20'
+											: 'justify-start bg-[var(--void-4)]'}"
+										onclick={() => handleSearchFilterChange(pref.key, !val)}
+										disabled={!pref.enabled}
+										aria-label={pref.title}
+									>
+										<div class="h-5 w-5 {val ? 'bg-[var(--success)]' : 'bg-[var(--void-6)]'}"></div>
+									</button>
 								{/if}
 							</div>
-							{#if pref.type === 'toggle'}
-								{@const val = getCurrentSearchFilterValue(pref) as boolean}
-								<button
-									type="button"
-									class="flex h-6 w-10 shrink-0 items-center px-0.5 transition-colors {val
-										? 'justify-end bg-[var(--success)]/20'
-										: 'justify-start bg-[var(--void-4)]'}"
-									onclick={() => handleSearchFilterChange(pref.key, !val)}
-									disabled={!pref.enabled}
-									aria-label={pref.title}
-								>
-									<div class="h-5 w-5 {val ? 'bg-[var(--success)]' : 'bg-[var(--void-6)]'}"></div>
-								</button>
+
+							{#if pref.type === 'list' && pref.entries && pref.entry_values}
+								{@const val = getCurrentSearchFilterValue(pref) as string}
+								<div class="mt-2 flex flex-col">
+									{#each pref.entries as entry, i (`${pref.key}:${i}`)}
+										{@const entryVal = pref.entry_values?.[i] ?? entry}
+										<button
+											type="button"
+											class="flex items-center gap-2 py-1.5 text-sm transition-colors {val ===
+											entryVal
+												? 'text-[var(--text)]'
+												: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+											onclick={() => handleSearchFilterChange(pref.key, entryVal)}
+											disabled={!pref.enabled}
+										>
+											<div
+												class="h-3 w-3 shrink-0 border border-[var(--line)] {val === entryVal
+													? 'bg-[var(--text)]'
+													: ''}"
+											></div>
+											{entry}
+										</button>
+									{/each}
+								</div>
 							{/if}
-						</div>
 
-						{#if pref.type === 'list' && pref.entries && pref.entry_values}
-							{@const val = getCurrentSearchFilterValue(pref) as string}
-							<div class="mt-3 flex flex-col gap-1">
-								{#each pref.entries as entry, i (`${pref.key}:${i}`)}
-									{@const entryVal = pref.entry_values?.[i] ?? entry}
-									<button
-										type="button"
-										class="flex items-center gap-2 px-3 py-2 text-sm transition-colors {val ===
-										entryVal
-											? 'bg-[var(--void-4)] text-[var(--text)]'
-											: 'text-[var(--text-muted)] hover:bg-[var(--void-3)]'}"
-										onclick={() => handleSearchFilterChange(pref.key, entryVal)}
-										disabled={!pref.enabled}
-									>
-										<div
-											class="h-3 w-3 border border-[var(--line)] {val === entryVal
-												? 'bg-[var(--text)]'
-												: ''}"
-										></div>
-										{entry}
-									</button>
-								{/each}
-							</div>
-						{/if}
-
-						{#if pref.type === 'multi_select' && pref.entries && pref.entry_values}
-							{@const val = (getCurrentSearchFilterValue(pref) as string[]) ?? []}
-							<div class="mt-3 flex flex-col gap-1">
-								{#each pref.entries as entry, i (`${pref.key}:${i}`)}
-									{@const entryVal = pref.entry_values?.[i] ?? entry}
-									{@const isSelected = val.includes(entryVal)}
-									<button
-										type="button"
-										class="flex items-center gap-2 px-3 py-2 text-sm transition-colors {isSelected
-											? 'bg-[var(--void-4)] text-[var(--text)]'
-											: 'text-[var(--text-muted)] hover:bg-[var(--void-3)]'}"
-										onclick={() => {
-											const newVal = isSelected
-												? val.filter((v) => v !== entryVal)
-												: [...val, entryVal];
-											handleSearchFilterChange(pref.key, newVal);
-										}}
-										disabled={!pref.enabled}
-									>
-										<div
-											class="flex h-4 w-4 items-center justify-center border border-[var(--line)] {isSelected
-												? 'bg-[var(--text)]'
-												: ''}"
+							{#if pref.type === 'multi_select' && pref.entries && pref.entry_values}
+								{@const val = (getCurrentSearchFilterValue(pref) as string[]) ?? []}
+								<div class="mt-2 flex flex-wrap gap-1.5">
+									{#each pref.entries as entry, i (`${pref.key}:${i}`)}
+										{@const entryVal = pref.entry_values?.[i] ?? entry}
+										{@const isSelected = val.includes(entryVal)}
+										<button
+											type="button"
+											class="inline-flex items-center gap-1.5 border px-2 py-1 text-xs transition-colors {isSelected
+												? 'border-[var(--text)] bg-[var(--void-4)] text-[var(--text)]'
+												: 'border-[var(--line)] text-[var(--text-ghost)] hover:border-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+											onclick={() => {
+												const newVal = isSelected
+													? val.filter((v) => v !== entryVal)
+													: [...val, entryVal];
+												handleSearchFilterChange(pref.key, newVal);
+											}}
+											disabled={!pref.enabled}
 										>
 											{#if isSelected}
-												<Icon name="check" size={10} class="text-[var(--void-0)]" />
+												<Icon name="check" size={10} />
 											{/if}
-										</div>
-										{entry}
-									</button>
-								{/each}
-							</div>
-						{/if}
+											{entry}
+										</button>
+									{/each}
+								</div>
+							{/if}
 
-						{#if pref.type === 'text'}
-							{@const val = (getCurrentSearchFilterValue(pref) as string) ?? ''}
-							<div class="mt-3">
-								<Input
-									type="text"
-									value={val}
-									oninput={(e) => handleSearchFilterChange(pref.key, e.currentTarget.value)}
-									disabled={!pref.enabled}
-								/>
-							</div>
-						{/if}
-					</div>
-				{/each}
+							{#if pref.type === 'text'}
+								{@const val = (getCurrentSearchFilterValue(pref) as string) ?? ''}
+								<div class="mt-2">
+									<Input
+										type="text"
+										value={val}
+										oninput={(e) => handleSearchFilterChange(pref.key, e.currentTarget.value)}
+										disabled={!pref.enabled}
+									/>
+								</div>
+							{/if}
+						</div>
+					{/each}
+				</div>
 
-				<Button variant="solid" size="md" onclick={applySearchFilters} class="sticky bottom-0">
-					{$_('common.apply')}
-				</Button>
+				<div class="sticky bottom-0 pt-4">
+					<Button variant="solid" size="md" onclick={applySearchFilters} class="w-full">
+						{$_('common.apply')}
+					</Button>
+				</div>
 			</div>
 		{/if}
 	{/if}

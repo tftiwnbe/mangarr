@@ -9,6 +9,11 @@ from app.models import (
     LibraryCollectionResource,
     LibraryCollectionUpdate,
     LibraryChapterPageResource,
+    LibraryChapterCommentCreate,
+    LibraryChapterCommentResource,
+    LibraryChapterCommentUpdate,
+    LibraryChapterProgressResource,
+    LibraryChapterProgressUpdate,
     LibraryChapterResource,
     LibraryImportRequest,
     LibraryImportResponse,
@@ -248,6 +253,103 @@ async def get_library_chapter_reader(
     service: LibraryService = Depends(get_service),
 ):
     return await service.get_chapter_reader(chapter_id=chapter_id, refresh=refresh)
+
+
+@router.get(
+    "/titles/{title_id}/chapter-progress",
+    response_model=list[LibraryChapterProgressResource],
+)
+async def list_library_title_chapter_progress(
+    title_id: int,
+    variant_id: int | None = Query(None),
+    service: LibraryService = Depends(get_service),
+):
+    return await service.list_title_chapter_progress(title_id=title_id, variant_id=variant_id)
+
+
+@router.get(
+    "/chapters/{chapter_id}/progress",
+    response_model=LibraryChapterProgressResource,
+)
+async def get_library_chapter_progress(
+    chapter_id: int,
+    service: LibraryService = Depends(get_service),
+):
+    return await service.get_chapter_progress(chapter_id=chapter_id)
+
+
+@router.patch(
+    "/chapters/{chapter_id}/progress",
+    response_model=LibraryChapterProgressResource,
+)
+async def update_library_chapter_progress(
+    chapter_id: int,
+    payload: LibraryChapterProgressUpdate,
+    service: LibraryService = Depends(get_service),
+):
+    return await service.update_chapter_progress(chapter_id=chapter_id, payload=payload)
+
+
+@router.get(
+    "/titles/{title_id}/comments",
+    response_model=list[LibraryChapterCommentResource],
+)
+async def list_library_title_comments(
+    title_id: int,
+    variant_id: int | None = Query(None),
+    newest_first: bool = Query(True),
+    service: LibraryService = Depends(get_service),
+):
+    return await service.list_title_comments(
+        title_id=title_id,
+        variant_id=variant_id,
+        newest_first=newest_first,
+    )
+
+
+@router.get(
+    "/chapters/{chapter_id}/comments",
+    response_model=list[LibraryChapterCommentResource],
+)
+async def list_library_chapter_comments(
+    chapter_id: int,
+    newest_first: bool = Query(True),
+    service: LibraryService = Depends(get_service),
+):
+    return await service.list_chapter_comments(chapter_id=chapter_id, newest_first=newest_first)
+
+
+@router.post(
+    "/chapters/{chapter_id}/comments",
+    response_model=LibraryChapterCommentResource,
+    status_code=201,
+)
+async def create_library_chapter_comment(
+    chapter_id: int,
+    payload: LibraryChapterCommentCreate,
+    service: LibraryService = Depends(get_service),
+):
+    return await service.create_chapter_comment(chapter_id=chapter_id, payload=payload)
+
+
+@router.put(
+    "/chapter-comments/{comment_id}",
+    response_model=LibraryChapterCommentResource,
+)
+async def update_library_chapter_comment(
+    comment_id: int,
+    payload: LibraryChapterCommentUpdate,
+    service: LibraryService = Depends(get_service),
+):
+    return await service.update_chapter_comment(comment_id=comment_id, payload=payload)
+
+
+@router.delete("/chapter-comments/{comment_id}", status_code=204)
+async def delete_library_chapter_comment(
+    comment_id: int,
+    service: LibraryService = Depends(get_service),
+):
+    await service.delete_chapter_comment(comment_id=comment_id)
 
 
 @router.get("/files/{file_path:path}", include_in_schema=False)

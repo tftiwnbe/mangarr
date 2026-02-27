@@ -15,6 +15,7 @@
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { _ } from '$lib/i18n';
 	import { buildTitlePath } from '$lib/utils/routes';
+	import { DebouncedValue } from '$lib/hooks/use-debounced-value.svelte';
 
 	let titles = $state<LibraryTitleSummary[]>([]);
 	let collections = $state<LibraryCollectionResource[]>([]);
@@ -23,18 +24,16 @@
 	let searchQuery = $state('');
 	let selectedCollectionId = $state<number | null>(null);
 
+	const debouncedSearch = new DebouncedValue(() => searchQuery, 150);
+
 	const filteredTitles = $derived.by(() => {
-		const query = searchQuery.trim().toLowerCase();
+		const query = (debouncedSearch.value ?? '').trim().toLowerCase();
 		return titles.filter((title) => {
 			if (selectedCollectionId !== null) {
 				const inCollection = title.collections?.some((collection) => collection.id === selectedCollectionId);
-				if (!inCollection) {
-					return false;
-				}
+				if (!inCollection) return false;
 			}
-			if (!query) {
-				return true;
-			}
+			if (!query) return true;
 			return title.title.toLowerCase().includes(query);
 		});
 	});
@@ -71,25 +70,17 @@
 
 	function getStatusText(status: number): string {
 		switch (status) {
-			case 1:
-				return $_('status.ongoing');
+			case 1: return $_('status.ongoing');
 			case 2:
-			case 4:
-				return $_('status.completed');
-			case 6:
-				return $_('status.hiatus');
-			default:
-				return '';
+			case 4: return $_('status.completed');
+			case 6: return $_('status.hiatus');
+			default: return '';
 		}
 	}
 
 	function getDisplayStatus(title: LibraryTitleSummary): string | null {
-		if (title.user_status) {
-			return title.user_status.label;
-		}
-		if (!title.status) {
-			return null;
-		}
+		if (title.user_status) return title.user_status.label;
+		if (!title.status) return null;
 		return getStatusText(title.status);
 	}
 
@@ -98,61 +89,102 @@
 			title.collections?.some((collection) => collection.id === collectionId)
 		).length;
 	}
-
 </script>
 
 <svelte:head>
 	<title>{$_('nav.library')} | {$_('app.name')}</title>
 </svelte:head>
 
-<div class="flex flex-col gap-6">
-	<div class="flex items-center justify-between">
-		<h1 class="text-display text-xl text-[var(--text)]">{$_('nav.library').toLowerCase()}</h1>
+<div class="flex flex-col gap-3">
+	<!-- Header row -->
+	<div class="flex items-center gap-3">
+		<h1 class="text-display text-xl text-[var(--text)] flex-1">{$_('nav.library').toLowerCase()}</h1>
+		{#if !loading}
+			<span class="text-label text-[var(--text-ghost)]">{titles.length}</span>
+		{/if}
 	</div>
 
+	<!-- Search -->
 	<div class="relative">
 		<Icon
 			name="search"
-			size={16}
+			size={14}
 			class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-ghost)]"
 		/>
-		<Input type="search" placeholder={$_('library.searchPlaceholder')} bind:value={searchQuery} class="pl-10" />
-	</div>
-
-	<div class="flex items-center gap-1 overflow-x-auto border-b border-[var(--line)] pb-1">
-		<button
-			type="button"
-			class="shrink-0 px-3 py-1.5 text-sm transition-colors {selectedCollectionId === null
-				? 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text)]'
-				: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-			onclick={() => (selectedCollectionId = null)}
-		>
-			{$_('common.all')} ({titles.length})
-		</button>
-		{#each collections as collection (collection.id)}
+		<Input
+			type="search"
+			placeholder={$_('library.searchPlaceholder')}
+			bind:value={searchQuery}
+			class="pl-9 h-9 text-sm"
+		/>
+		{#if searchQuery}
 			<button
 				type="button"
-				class="shrink-0 px-3 py-1.5 text-sm transition-colors {selectedCollectionId === collection.id
-					? 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text)]'
-					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-				onclick={() => (selectedCollectionId = collection.id)}
+				class="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-ghost)] hover:text-[var(--text-muted)] transition-colors"
+				onclick={() => (searchQuery = '')}
 			>
-				{collection.name} ({collectionCount(collection.id)})
+				<Icon name="x" size={14} />
 			</button>
-		{/each}
+		{/if}
 	</div>
 
+	<!-- Collection filters — only shown when collections exist -->
+	{#if collections.length > 0}
+		<div class="flex items-center gap-1 overflow-x-auto pb-0.5 no-scrollbar">
+			<button
+				type="button"
+				class="shrink-0 px-2.5 py-1 text-xs transition-colors {selectedCollectionId === null
+					? 'bg-[var(--void-3)] border border-[var(--line)] text-[var(--text)]'
+					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+				onclick={() => (selectedCollectionId = null)}
+			>
+				{$_('common.all')} · {titles.length}
+			</button>
+			{#each collections as collection (collection.id)}
+				<button
+					type="button"
+					class="shrink-0 px-2.5 py-1 text-xs transition-colors {selectedCollectionId === collection.id
+						? 'bg-[var(--void-3)] border border-[var(--line)] text-[var(--text)]'
+						: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+					onclick={() => (selectedCollectionId = collection.id)}
+				>
+					{collection.name} · {collectionCount(collection.id)}
+				</button>
+			{/each}
+		</div>
+	{/if}
+
+	<!-- Error -->
 	{#if error}
 		<div class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]">
 			{error}
 		</div>
 	{/if}
 
+	<!-- Skeleton grid -->
 	{#if loading}
-		<div class="flex flex-col items-center gap-4 py-16">
-			<Icon name="loader" size={24} class="animate-spin text-[var(--text-muted)]" />
-			<p class="text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
+		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+			{#each Array(18) as _, i}
+				<div class="flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)]">
+					<div
+						class="aspect-[2/3] animate-pulse bg-[var(--void-4)]"
+						style="animation-delay: {i * 40}ms"
+					></div>
+					<div class="flex flex-col gap-1.5 p-2">
+						<div
+							class="h-2 w-full animate-pulse bg-[var(--void-4)]"
+							style="animation-delay: {i * 40}ms"
+						></div>
+						<div
+							class="h-2 w-3/5 animate-pulse bg-[var(--void-5)]"
+							style="animation-delay: {i * 40 + 20}ms"
+						></div>
+					</div>
+				</div>
+			{/each}
 		</div>
+
+	<!-- Empty state -->
 	{:else if isEmpty}
 		<div class="flex flex-col items-center gap-4 py-16 text-center">
 			<div class="flex h-16 w-16 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]">
@@ -166,12 +198,14 @@
 				{$_('library.addFirst')}
 			</Button>
 		</div>
+
+	<!-- Title grid -->
 	{:else}
-		<div class="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
 			{#each filteredTitles as title (title.id)}
 				{@const displayStatus = getDisplayStatus(title)}
 				<a
-					href={buildTitlePath(title.id, title.title)}
+					href={`${buildTitlePath(title.id, title.title)}?from=library`}
 					class="group card-glow relative flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)]"
 				>
 					<div class="relative aspect-[2/3] overflow-hidden bg-[var(--void-3)]">
@@ -196,7 +230,7 @@
 					</div>
 
 					<div class="flex flex-1 flex-col gap-1 p-2">
-						<p class="line-clamp-2 text-xs text-[var(--text)]">{title.title}</p>
+						<p class="line-clamp-2 text-xs leading-tight text-[var(--text)]">{title.title}</p>
 						{#if displayStatus}
 							<p class="text-[10px] text-[var(--text-muted)]">{displayStatus}</p>
 						{/if}
@@ -208,9 +242,9 @@
 			{/each}
 		</div>
 
-		{#if filteredTitles.length === 0}
+		{#if filteredTitles.length === 0 && !loading}
 			<div class="flex flex-col items-center gap-2 py-8 text-center">
-				<p class="text-[var(--text-muted)]">{$_('common.noResults')}</p>
+				<p class="text-[var(--text-muted)] text-sm">{$_('common.noResults')}</p>
 			</div>
 		{/if}
 	{/if}

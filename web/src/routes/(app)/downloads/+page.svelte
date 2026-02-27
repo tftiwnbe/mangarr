@@ -31,57 +31,95 @@
 	let availableSources = $state<SourceSummary[]>([]);
 	let sourcesLoading = $state(false);
 	let sourceByExternalKey = $state<Record<string, string>>({});
+	let actionsExpanded = $state(false);
 
 	const dashboard = $derived($downloadsDashboardStore.data);
 	const isLoading = $derived($downloadsDashboardStore.isLoading);
+	const isRefreshing = $derived($downloadsDashboardStore.isRefreshing);
 	const numberFormatter = new Intl.NumberFormat();
+	const sourceNameById = $derived.by(() => {
+		const map = new Map<string, string>();
+		for (const source of availableSources) {
+			const key = source.id?.trim();
+			if (!key) continue;
+			const label = `${source.name}${source.lang ? ` [${source.lang}]` : ''}`.trim() || key;
+			map.set(key, label);
+		}
+		return map;
+	});
+	const monitoredByTitleId = $derived.by(() => {
+		const map = new Map<number, (typeof dashboard.monitoredTitles)[number]>();
+		for (const item of dashboard.monitoredTitles) {
+			map.set(item.titleId, item);
+		}
+		return map;
+	});
+
 	const filteredExternalTitles = $derived.by<DownloadExternalTitleResource[]>(() => {
 		const all = reconcileResult?.external_titles ?? [];
 		const query = externalSearch.trim().toLowerCase();
 		if (!query) return all;
-		return all.filter((item) => {
-			return (
+		return all.filter(
+			(item) =>
 				item.title.toLowerCase().includes(query) ||
 				item.source_name.toLowerCase().includes(query) ||
 				(item.source_lang ?? '').toLowerCase().includes(query)
-			);
-		});
+		);
 	});
-	const activeQueueProgress = $derived.by(() => {
-		if (dashboard.activeTasks.length === 0) {
-			return null;
-		}
 
-		let scheduledChapters = 0;
+	const activeQueueProgress = $derived.by(() => {
+		const activeTitleIds = new Set(dashboard.activeTasks.map((task) => task.titleId));
+		const relevantMonitored = dashboard.monitoredTitles.filter(
+			(item) => item.queuedTasks > 0 || activeTitleIds.has(item.titleId)
+		);
+		if (relevantMonitored.length === 0 && dashboard.activeTasks.length === 0) return null;
+
+		let plannedTotal = 0;
+		let plannedDownloaded = 0;
 		let queuedChapters = 0;
-		let downloadingChapters = 0;
 		let failedChapters = 0;
-		let completedChapters = 0;
+		let downloadingChapters = 0;
 		let downloadedPages = 0;
 		let totalPages = 0;
 
+		for (const item of relevantMonitored) {
+			const total = Math.max(0, item.totalChapters);
+			const downloaded = Math.max(0, Math.min(total, item.downloadedChapters));
+			plannedTotal += total;
+			plannedDownloaded += downloaded;
+			queuedChapters += Math.max(0, item.queuedTasks);
+			failedChapters += Math.max(0, item.failedTasks);
+		}
+
 		for (const task of dashboard.activeTasks) {
-			scheduledChapters += Math.max(0, task.chaptersTotal);
-			queuedChapters += Math.max(0, task.chaptersQueued);
 			downloadingChapters += Math.max(0, task.chaptersDownloading);
-			failedChapters += Math.max(0, task.chaptersFailed);
-			completedChapters += Math.max(0, task.chaptersCompleted + task.chaptersCancelled);
 			if (task.totalPages > 0) {
 				totalPages += task.totalPages;
 				downloadedPages += Math.min(task.totalPages, Math.max(0, task.downloadedPages));
 			}
 		}
 
-		const percent =
-			totalPages > 0
-				? Math.round((downloadedPages / totalPages) * 100)
-				: scheduledChapters > 0
-					? Math.round((completedChapters / scheduledChapters) * 100)
-					: 0;
+		const fallbackScheduled = dashboard.activeTasks.reduce(
+			(total, task) => total + Math.max(0, task.chaptersTotal),
+			0
+		);
+		const fallbackCompleted = dashboard.activeTasks.reduce(
+			(total, task) => total + Math.max(0, task.chaptersCompleted + task.chaptersCancelled),
+			0
+		);
 
+		const percent =
+			plannedTotal > 0
+				? Math.round((plannedDownloaded / plannedTotal) * 100)
+				: totalPages > 0
+					? Math.round((downloadedPages / totalPages) * 100)
+					: fallbackScheduled > 0
+						? Math.round((fallbackCompleted / fallbackScheduled) * 100)
+						: 0;
 		return {
 			percent: Math.max(0, Math.min(100, percent)),
-			scheduledChapters,
+			scheduledChapters: plannedTotal > 0 ? plannedTotal : fallbackScheduled,
+			plannedDownloaded,
 			queuedChapters,
 			downloadingChapters,
 			failedChapters,
@@ -90,38 +128,34 @@
 		};
 	});
 
-	const statusColors: Record<DownloadStatus, string> = {
-		downloading: 'text-[var(--text)]',
-		queued: 'text-[var(--text-muted)]',
-		completed: 'text-[var(--success)]',
-		failed: 'text-[var(--error)]',
-		cancelled: 'text-[var(--text-ghost)]'
+	const statusBarClass: Record<DownloadStatus, string> = {
+		downloading: 'bg-[var(--text-muted)] shadow-[0_0_6px_rgba(228,228,231,0.4)] animate-pulse',
+		queued: 'bg-[var(--void-6)]',
+		completed: 'bg-[var(--success)]/50 shadow-[0_0_6px_rgba(134,239,172,0.4)]',
+		failed: 'bg-[var(--error)]/50 shadow-[0_0_6px_rgba(248,113,113,0.3)]',
+		cancelled: 'bg-[var(--void-6)]'
 	};
 
-	const statusIcons: Record<DownloadStatus, string> = {
-		downloading: 'loader',
-		queued: 'clock',
-		completed: 'check-circle',
-		failed: 'x-circle',
-		cancelled: 'x'
-	};
+	const tabs: { key: TabValue; labelKey: string }[] = [
+		{ key: 'active', labelKey: 'downloads.active' },
+		{ key: 'history', labelKey: 'downloads.history' },
+		{ key: 'monitored', labelKey: 'downloads.monitored' }
+	];
 
 	onMount(() => {
 		void downloadsDashboardStore.load();
 		void loadSources();
-
 		const interval = setInterval(() => {
 			if (document.hidden) return;
 			void downloadsDashboardStore.refresh();
 		}, 15_000);
-
 		return () => clearInterval(interval);
 	});
 
 	async function loadSources() {
 		sourcesLoading = true;
 		try {
-			const sources = await listSources({ enabled: true });
+			const sources = await listSources();
 			availableSources = [...sources].sort((a, b) => {
 				const byName = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
 				if (byName !== 0) return byName;
@@ -164,9 +198,7 @@
 		item: DownloadExternalTitleResource,
 		sourceIdOverride?: string | null
 	) {
-		if (importingExternalKey === item.key) {
-			return;
-		}
+		if (importingExternalKey === item.key) return;
 		const sourceId = sourceIdOverride?.trim() || item.source_id?.trim() || '';
 		if (!sourceId) {
 			reconcileError = $_('downloads.selectSourceToImport');
@@ -194,12 +226,21 @@
 	}
 
 	async function togglePause(titleId: number, paused: boolean) {
-		if (profileActionTitleId === titleId) {
-			return;
-		}
+		if (profileActionTitleId === titleId) return;
 		profileActionTitleId = titleId;
 		try {
 			await updateDownloadProfile(titleId, { paused });
+			await downloadsDashboardStore.refresh();
+		} finally {
+			profileActionTitleId = null;
+		}
+	}
+
+	async function toggleMonitoring(titleId: number, enabled: boolean) {
+		if (profileActionTitleId === titleId) return;
+		profileActionTitleId = titleId;
+		try {
+			await updateDownloadProfile(titleId, { enabled });
 			await downloadsDashboardStore.refresh();
 		} finally {
 			profileActionTitleId = null;
@@ -221,7 +262,6 @@
 		const minutes = Math.floor(diff / 60000);
 		const hours = Math.floor(minutes / 60);
 		const days = Math.floor(hours / 24);
-
 		if (days > 0) return { key: 'time.shortDaysAgo', values: { count: days } };
 		if (hours > 0) return { key: 'time.shortHoursAgo', values: { count: hours } };
 		if (minutes > 0) return { key: 'time.shortMinutesAgo', values: { count: minutes } };
@@ -235,18 +275,18 @@
 		let unit = 0;
 		while (value >= 1024 && unit < units.length - 1) {
 			value /= 1024;
-			unit += 1;
+			unit++;
 		}
 		const decimals = value >= 100 || unit === 0 ? 0 : value >= 10 ? 1 : 2;
 		return `${value.toFixed(decimals)} ${units[unit]}`;
 	}
 
-	function overviewLabelKey(
+	function overviewShortLabel(
 		key: 'downloadedChapters' | 'avgChapterSize' | 'estimatedCapacity'
 	): string {
-		if (key === 'avgChapterSize') return 'downloads.avgChapterSize';
-		if (key === 'estimatedCapacity') return 'downloads.estimatedCapacity';
-		return 'downloads.downloadedChapters';
+		if (key === 'avgChapterSize') return $_('downloads.avgSizeShort');
+		if (key === 'estimatedCapacity') return $_('downloads.capacityShort');
+		return $_('downloads.chaptersShort');
 	}
 
 	function overviewValue(
@@ -262,6 +302,65 @@
 		if (tab === 'history') return dashboard.recentTasks;
 		return [];
 	}
+
+	function displaySources(sourceIds: string[]): string[] {
+		return sourceIds.map((sourceId) => sourceNameById.get(sourceId) ?? sourceId);
+	}
+
+	function activePlannedProgress(task: DownloadTaskItem): {
+		percent: number;
+		downloaded: number | null;
+		total: number | null;
+	} {
+		if (activeTab !== 'active') {
+			return { percent: task.progressPercent, downloaded: null, total: null };
+		}
+		const monitored = monitoredByTitleId.get(task.titleId);
+		if (!monitored || monitored.totalChapters <= 0) {
+			return { percent: task.progressPercent, downloaded: null, total: null };
+		}
+		const total = Math.max(0, monitored.totalChapters);
+		const downloaded = Math.max(0, Math.min(total, monitored.downloadedChapters));
+		return {
+			percent: Math.round((downloaded / total) * 100),
+			downloaded,
+			total
+		};
+	}
+
+	function taskStats(task: DownloadTaskItem): {
+		chaptersTotal: number;
+		chaptersQueued: number;
+		plannedDownloaded: number | null;
+		plannedTotal: number | null;
+	} {
+		if (activeTab === 'active') {
+			const monitored = monitoredByTitleId.get(task.titleId);
+			if (monitored) {
+				return {
+					chaptersTotal: Math.max(0, monitored.totalChapters),
+					chaptersQueued: Math.max(0, monitored.queuedTasks),
+					plannedDownloaded: Math.max(
+						0,
+						Math.min(monitored.totalChapters, monitored.downloadedChapters)
+					),
+					plannedTotal: Math.max(0, monitored.totalChapters)
+				};
+			}
+		}
+		return {
+			chaptersTotal: task.chaptersTotal,
+			chaptersQueued: task.chaptersQueued,
+			plannedDownloaded: null,
+			plannedTotal: null
+		};
+	}
+
+	function tabCount(key: TabValue): number {
+		if (key === 'active') return dashboard.activeTasks.length;
+		if (key === 'history') return dashboard.recentTasks.length;
+		return dashboard.monitoredTitles.length;
+	}
 </script>
 
 <svelte:head>
@@ -271,62 +370,103 @@
 <div class="flex flex-col gap-6">
 	<!-- Header -->
 	<div class="flex items-center justify-between">
-		<h1 class="text-display text-xl text-[var(--text)]">{$_('nav.downloads').toLowerCase()}</h1>
+		<h1 class="text-display text-lg tracking-tight text-[var(--text)]">
+			{$_('nav.downloads').toLowerCase()}
+		</h1>
+		<div class="flex items-center gap-1">
+			<button
+				type="button"
+				class="flex h-8 w-8 items-center justify-center transition-all {runningAction === 'cycle'
+					? 'text-[var(--text)]'
+					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+				onclick={handleRunMonitor}
+				disabled={runningAction !== null}
+				title={$_('downloads.runNow')}
+			>
+				{#if runningAction === 'cycle'}
+					<Icon name="loader" size={14} class="animate-spin" />
+				{:else}
+					<Icon name="play" size={14} />
+				{/if}
+			</button>
+			<button
+				type="button"
+				class="flex h-8 w-8 items-center justify-center transition-all {reconcileLoading
+					? 'text-[var(--text)]'
+					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+				onclick={handleReconcileDownloads}
+				disabled={reconcileLoading}
+				title={$_('downloads.scanDownloads')}
+			>
+				{#if reconcileLoading}
+					<Icon name="loader" size={14} class="animate-spin" />
+				{:else}
+					<Icon name="hard-drive" size={14} />
+				{/if}
+			</button>
+		</div>
 	</div>
 
-	<!-- Overview stats -->
+	<!-- Stats strip -->
 	{#if dashboard.overview.length > 0}
-		<div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+		<div class="flex items-start justify-between px-1">
 			{#each dashboard.overview as stat}
-				<div class="border border-[var(--line)] bg-[var(--void-2)] p-3">
-					<p class="text-xs text-[var(--text-ghost)]">{$_(overviewLabelKey(stat.key))}</p>
-					<p class="mt-1 text-lg text-[var(--text)]">{overviewValue(stat.key, stat.value)}</p>
+				<div class="flex flex-col gap-0.5">
+					<span class="text-lg font-medium text-[var(--text)] tabular-nums">
+						{overviewValue(stat.key, stat.value)}
+					</span>
+					<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
+						{overviewShortLabel(stat.key)}
+					</span>
 					{#if stat.key === 'estimatedCapacity' && stat.secondaryValue !== undefined}
-						<p class="mt-1 text-[11px] text-[var(--text-ghost)]">
-							{$_('downloads.freeSpace')}: {formatBytes(stat.secondaryValue)}
-						</p>
+						<span class="text-[10px] text-[var(--text-ghost)]">
+							{formatBytes(stat.secondaryValue)} free
+						</span>
 					{/if}
 				</div>
 			{/each}
 		</div>
 	{/if}
 
-	<!-- Actions -->
-	<div class="flex flex-col gap-2">
-		<Button
-			variant="outline"
-			size="sm"
-			onclick={handleRunMonitor}
-			disabled={runningAction !== null}
-		>
-			{#if runningAction === 'cycle'}
-				<Icon name="loader" size={14} class="animate-spin" />
-			{:else}
-				<Icon name="search" size={14} />
-			{/if}
-			{$_('downloads.runNow')}
-		</Button>
-		<Button
-			variant="outline"
-			size="sm"
-			onclick={handleReconcileDownloads}
-			disabled={reconcileLoading}
-		>
-			{#if reconcileLoading}
-				<Icon name="loader" size={14} class="animate-spin" />
-			{:else}
-				<Icon name="search" size={14} />
-			{/if}
-			{$_('downloads.scanDownloads')}
-		</Button>
-		<p class="text-xs text-[var(--text-ghost)]">{$_('downloads.autoWorkerHint')}</p>
-	</div>
+	<!-- Active queue progress -->
+	{#if activeQueueProgress || runningAction === 'cycle' || isRefreshing}
+		<div class="flex flex-col gap-1.5">
+			<div class="flex items-baseline justify-between">
+				<div class="flex items-center gap-2">
+					<Icon name="loader" size={10} class="animate-spin text-[var(--text-muted)]" />
+					<span class="text-xs text-[var(--text-muted)]">
+						{#if activeQueueProgress}
+							{activeQueueProgress.queuedChapters}
+							{$_('downloads.queued').toLowerCase()}
+							{#if activeQueueProgress.failedChapters > 0}
+								<span class="text-[var(--error)]"
+									>· {activeQueueProgress.failedChapters}
+									{$_('downloads.failed').toLowerCase()}</span
+								>
+							{/if}
+						{:else}
+							{$_('common.loading')}
+						{/if}
+					</span>
+				</div>
+				<span class="text-sm text-[var(--text)] tabular-nums"
+					>{activeQueueProgress?.percent ?? 0}%</span
+				>
+			</div>
+			<div class="h-0.5 w-full overflow-hidden bg-[var(--void-4)]">
+				<div
+					class="h-full bg-[var(--text-muted)] transition-[width] duration-500"
+					style="width: {activeQueueProgress?.percent ?? 8}%"
+				></div>
+			</div>
+		</div>
+	{/if}
 
 	<!-- Reconcile results -->
 	{#if reconcileResult || reconcileLoading || reconcileError}
-		<div class="flex flex-col gap-3 border border-[var(--line)] bg-[var(--void-2)] p-3">
+		<div class="flex flex-col gap-3">
 			{#if reconcileResult}
-				<p class="text-sm text-[var(--text-muted)]">
+				<p class="text-xs text-[var(--text-muted)]">
 					{$_('downloads.reconcileSummary', {
 						values: {
 							fixed: reconcileResult.reconciled_missing_chapters,
@@ -335,33 +475,34 @@
 					})}
 				</p>
 			{/if}
-			<div class="flex items-center gap-2">
-				<Input
-					type="search"
-					placeholder={$_('downloads.externalSearchPlaceholder')}
-					bind:value={externalSearch}
-				/>
-			</div>
+			<Input
+				type="search"
+				placeholder={$_('downloads.externalSearchPlaceholder')}
+				bind:value={externalSearch}
+				class="h-9 text-sm"
+			/>
 			{#if reconcileLoading}
-				<p class="text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
+				<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
 			{:else if reconcileResult}
 				{#if filteredExternalTitles.length === 0}
-					<p class="text-sm text-[var(--text-ghost)]">{$_('downloads.noExternalTitles')}</p>
+					<p class="text-xs text-[var(--text-ghost)]">{$_('downloads.noExternalTitles')}</p>
 				{:else}
-					<div class="flex flex-col gap-2">
+					<div class="flex flex-col">
 						{#each filteredExternalTitles as item (item.key)}
-							<div class="flex items-center justify-between gap-3 border border-[var(--line)] bg-[var(--void-3)] p-2">
+							<div
+								class="flex items-center justify-between gap-3 border-b border-[var(--void-3)] py-2.5"
+							>
 								<div class="min-w-0">
 									<p class="line-clamp-1 text-sm text-[var(--text)]">{item.title}</p>
-									<p class="mt-0.5 text-xs text-[var(--text-ghost)]">
-										{item.source_name}
-										{#if item.source_lang}
-											[{item.source_lang}]
-										{/if}
-										• {item.chapters_count} {$_('title.chapters').toLowerCase()}
+									<p class="mt-0.5 text-[10px] text-[var(--text-ghost)]">
+										{item.source_name}{#if item.source_lang}
+											[{item.source_lang}]{/if} · {item.chapters_count}
+										{$_('title.chapters').toLowerCase()}
 									</p>
 									{#if item.reason}
-										<p class="mt-0.5 line-clamp-1 text-xs text-[var(--text-ghost)]">{item.reason}</p>
+										<p class="mt-0.5 line-clamp-1 text-[10px] text-[var(--text-ghost)]">
+											{item.reason}
+										</p>
 									{/if}
 								</div>
 								<div class="shrink-0">
@@ -378,7 +519,7 @@
 									{:else if !item.source_id}
 										<div class="flex items-center gap-2">
 											<select
-												class="h-8 min-w-[10rem] border border-[var(--line)] bg-[var(--void-2)] px-2 text-xs text-[var(--text)]"
+												class="h-8 min-w-[9rem] border border-[var(--line)] bg-[var(--void-2)] px-2 text-xs text-[var(--text)]"
 												value={sourceByExternalKey[item.key] ?? ''}
 												onchange={(event) =>
 													setManualSource(
@@ -389,10 +530,9 @@
 											>
 												<option value="">{$_('downloads.selectSource')}</option>
 												{#each availableSources as source (source.id)}
-													<option value={source.id}>
-														{source.name}
-														{source.lang ? ` [${source.lang}]` : ''}
-													</option>
+													<option value={source.id}
+														>{source.name}{source.lang ? ` [${source.lang}]` : ''}</option
+													>
 												{/each}
 											</select>
 											<Button
@@ -400,18 +540,18 @@
 												size="sm"
 												onclick={() =>
 													handleImportExternalTitle(item, sourceByExternalKey[item.key] ?? null)}
-												disabled={
-													!sourceByExternalKey[item.key] ||
+												disabled={!sourceByExternalKey[item.key] ||
 													importingExternalKey === item.key ||
-													sourcesLoading
-												}
+													sourcesLoading}
 												loading={importingExternalKey === item.key}
 											>
 												{$_('downloads.importTitle')}
 											</Button>
 										</div>
 									{:else}
-										<span class="text-xs text-[var(--text-ghost)]">{$_('downloads.notImportable')}</span>
+										<span class="text-xs text-[var(--text-ghost)]"
+											>{$_('downloads.notImportable')}</span
+										>
 									{/if}
 								</div>
 							</div>
@@ -426,268 +566,216 @@
 	{/if}
 
 	<!-- Tabs -->
-	<div class="flex gap-1 border-b border-[var(--line)]">
-		<button
-			type="button"
-			class="px-4 py-2 text-sm transition-colors {activeTab === 'active'
-				? 'border-b-2 border-[var(--text)] text-[var(--text)]'
-				: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-			onclick={() => (activeTab = 'active')}
-		>
-			{$_('downloads.active')} ({dashboard.activeTasks.length})
-		</button>
-		<button
-			type="button"
-			class="px-4 py-2 text-sm transition-colors {activeTab === 'history'
-				? 'border-b-2 border-[var(--text)] text-[var(--text)]'
-				: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-			onclick={() => (activeTab = 'history')}
-		>
-			{$_('downloads.history')} ({dashboard.recentTasks.length})
-		</button>
-		<button
-			type="button"
-			class="px-4 py-2 text-sm transition-colors {activeTab === 'monitored'
-				? 'border-b-2 border-[var(--text)] text-[var(--text)]'
-				: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-			onclick={() => (activeTab = 'monitored')}
-		>
-			{$_('downloads.monitored')} ({dashboard.monitoredTitles.length})
-		</button>
+	<div class="flex gap-6 border-b border-[var(--void-3)]">
+		{#each tabs as tab (tab.key)}
+			{@const count = tabCount(tab.key)}
+			<button
+				type="button"
+				class="relative pb-2.5 text-xs font-medium tracking-wide transition-colors {activeTab ===
+				tab.key
+					? 'text-[var(--text)]'
+					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+				onclick={() => (activeTab = tab.key)}
+			>
+				{$_(tab.labelKey)}
+				{#if count > 0}
+					<span
+						class="ml-1.5 text-[10px] tabular-nums {activeTab === tab.key
+							? 'text-[var(--text-muted)]'
+							: 'text-[var(--void-6)]'}">{count}</span
+					>
+				{/if}
+				{#if activeTab === tab.key}
+					<div class="absolute inset-x-0 -bottom-px h-px bg-[var(--text)]"></div>
+				{/if}
+			</button>
+		{/each}
 	</div>
 
 	<!-- Content -->
 	{#if isLoading && !dashboard.generatedAt}
-		<div class="flex flex-col items-center gap-4 py-16">
-			<Icon name="loader" size={24} class="animate-spin text-[var(--text-muted)]" />
-			<p class="text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
+		<div class="flex items-center justify-center py-20">
+			<Icon name="loader" size={16} class="animate-spin text-[var(--text-ghost)]" />
 		</div>
 	{:else if activeTab === 'monitored'}
 		<!-- Monitored titles -->
 		{#if dashboard.monitoredTitles.length === 0}
-			<div class="flex flex-col items-center gap-4 py-12 text-center">
-				<div
-					class="flex h-16 w-16 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]"
-				>
-					<Icon name="book" size={24} class="text-[var(--text-ghost)]" />
-				</div>
-				<div>
-					<p class="text-[var(--text)]">{$_('downloads.noMonitored')}</p>
-					<p class="mt-1 text-sm text-[var(--text-ghost)]">
-						{$_('downloads.noMonitoredDescription')}
-					</p>
-				</div>
+			<div class="flex flex-col items-center py-20">
+				<p class="text-sm text-[var(--text-ghost)]">{$_('downloads.noMonitored')}</p>
 			</div>
 		{:else}
-			<div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+			<div class="flex flex-col gap-1">
 				{#each dashboard.monitoredTitles as item (item.titleId)}
-					<div class="card-glow flex gap-3 border border-[var(--line)] bg-[var(--void-2)] p-3">
-						<a href={buildTitlePath(item.titleId, item.title)} class="flex min-w-0 flex-1 gap-3">
+					{@const progress =
+						item.totalChapters > 0
+							? Math.round((item.downloadedChapters / item.totalChapters) * 100)
+							: 0}
+					<div class="group flex gap-3 py-2 transition-opacity {item.enabled ? '' : 'opacity-35'}">
+						<!-- Cover -->
+						<a href={buildTitlePath(item.titleId, item.title)} class="shrink-0">
 							<LazyImage
 								src={item.cover}
 								alt={item.title}
-								class="h-20 w-14 border border-[var(--line)]"
+								class="h-16 w-11 border border-[var(--line)]"
 							/>
-							<div class="min-w-0 flex-1">
-							<p class="line-clamp-1 font-medium text-[var(--text)]">{item.title}</p>
-							<div class="mt-1 flex items-center gap-2 text-xs">
-								{#if item.enabled}
-									<span class="text-[var(--success)]">{$_('downloads.enabled')}</span>
-								{:else}
-									<span class="text-[var(--text-ghost)]">{$_('downloads.disabled')}</span>
+						</a>
+						<!-- Content -->
+						<a href={buildTitlePath(item.titleId, item.title)} class="min-w-0 flex-1">
+							<!-- Row 1: Title + Chapter fraction -->
+							<div class="flex items-baseline justify-between gap-2">
+								<p class="line-clamp-1 text-sm text-[var(--text)]">{item.title}</p>
+								<span class="shrink-0 text-xs text-[var(--text-soft)] tabular-nums">
+									{item.downloadedChapters}/{item.totalChapters}
+								</span>
+							</div>
+							<!-- Row 2: Source + flags -->
+							<div class="mt-0.5 flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
+								{#if item.variantSources.length > 0}
+									<span>{item.variantSources.join(', ')}</span>
 								{/if}
 								{#if item.paused}
-									<span class="bg-[var(--void-4)] px-1 py-0.5 text-[var(--text-muted)]"
-										>{$_('downloads.paused')}</span
+									<span class="text-[var(--text-muted)]"
+										>{$_('downloads.paused').toLowerCase()}</span
 									>
 								{/if}
 								{#if item.autoDownload}
-									<span class="bg-[var(--void-4)] px-1 py-0.5 text-[var(--text-muted)]"
-										>{$_('downloads.autoDownload')}</span
-									>
+									<span>auto</span>
 								{/if}
+								<span>{formatBytes(item.downloadedBytes)}</span>
 							</div>
-							<div class="mt-1 text-xs text-[var(--text-ghost)]">
-								{item.downloadedChapters}/{item.totalChapters}
-								{$_('downloads.downloaded')}
-							</div>
-							<div class="mt-1 text-xs text-[var(--text-ghost)]">
-								{$_('downloads.titleSize')}: {formatBytes(item.downloadedBytes)}
-							</div>
-							<div class="mt-1 text-xs text-[var(--text-ghost)]">
-								{$_('downloads.avgTitleChapterSize')}: {formatBytes(item.avgChapterSizeBytes)}
-							</div>
-							{#if item.variantSources.length > 0}
-								<div class="mt-1 line-clamp-2 text-xs text-[var(--text-ghost)]">
-									{item.variantSources.join(', ')}
+							<!-- Row 3: Queue/failed alerts -->
+							{#if item.queuedTasks > 0 || item.failedTasks > 0}
+								<div class="mt-0.5 flex items-center gap-2 text-[10px]">
+									{#if item.queuedTasks > 0}
+										<span class="text-[var(--text-ghost)]"
+											>{item.queuedTasks} {$_('downloads.queued').toLowerCase()}</span
+										>
+									{/if}
+									{#if item.failedTasks > 0}
+										<span class="text-[var(--error)]"
+											>{item.failedTasks} {$_('downloads.failed').toLowerCase()}</span
+										>
+									{/if}
 								</div>
 							{/if}
-							{#if item.queuedTasks > 0}
-								<div class="mt-1 text-xs text-[var(--text-muted)]">
-									{item.queuedTasks}
-									{$_('downloads.queued')}
-								</div>
-							{/if}
-							{#if item.failedTasks > 0}
-								<div class="mt-1 text-xs text-[var(--error)]">
-									{item.failedTasks}
-									{$_('downloads.failed')}
-								</div>
-							{/if}
+							<!-- Row 4: Progress bar -->
+							<div class="mt-2 h-0.5 w-full overflow-hidden bg-[var(--void-4)]">
+								<div
+									class="h-full bg-[var(--text-muted)] transition-[width]"
+									style="width: {progress}%"
+								></div>
 							</div>
 						</a>
-						{#if item.enabled || item.paused}
-							<div class="flex shrink-0 items-start">
-								<Button
-									variant="ghost"
-									size="sm"
-									onclick={() => togglePause(item.titleId, !item.paused)}
-									disabled={profileActionTitleId === item.titleId}
-									loading={profileActionTitleId === item.titleId}
-								>
-									{item.paused ? $_('downloads.resume') : $_('downloads.pause')}
-								</Button>
-							</div>
-						{/if}
+						<!-- Toggle action (same pattern as extensions page) -->
+						<button
+							type="button"
+							class="flex h-5 w-9 shrink-0 items-center self-center px-0.5 transition-colors {item.enabled
+								? 'justify-end bg-[var(--success)]/20'
+								: 'justify-start bg-[var(--void-5)]'}"
+							onclick={() => toggleMonitoring(item.titleId, !item.enabled)}
+							disabled={profileActionTitleId === item.titleId}
+							title={item.enabled ? $_('extensions.disable') : $_('extensions.enable')}
+						>
+							{#if profileActionTitleId === item.titleId}
+								<div class="flex h-4 w-4 items-center justify-center bg-[var(--void-6)]">
+									<Icon name="loader" size={10} class="animate-spin text-[var(--text-ghost)]" />
+								</div>
+							{:else}
+								<div
+									class="h-4 w-4 {item.enabled ? 'bg-[var(--success)]' : 'bg-[var(--void-6)]'}"
+								></div>
+							{/if}
+						</button>
 					</div>
 				{/each}
 			</div>
 		{/if}
 	{:else}
-		<!-- Task list -->
+		<!-- Task list (active / history) -->
 		{@const tasks = getTasksList(activeTab)}
 		{#if tasks.length === 0}
-			<div class="flex flex-col items-center gap-4 py-12 text-center">
-				<div
-					class="flex h-16 w-16 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]"
-				>
-					<Icon name="download" size={24} class="text-[var(--text-ghost)]" />
-				</div>
-				<div>
-					<p class="text-[var(--text)]">
-						{activeTab === 'active' ? $_('downloads.noActive') : $_('downloads.noHistory')}
-					</p>
-				</div>
+			<div class="flex flex-col items-center py-20">
+				<p class="text-sm text-[var(--text-ghost)]">
+					{activeTab === 'active' ? $_('downloads.noActive') : $_('downloads.noHistory')}
+				</p>
 			</div>
 		{:else}
-			{#if activeTab === 'active' && activeQueueProgress}
-				<div class="mb-3 border border-[var(--line)] bg-[var(--void-2)] p-3">
-					<div class="flex items-center justify-between gap-3">
-						<p class="text-sm text-[var(--text-muted)]">{$_('downloads.overallQueueProgress')}</p>
-						<p class="text-sm font-medium text-[var(--text)]">{activeQueueProgress.percent}%</p>
-					</div>
-					<div class="mt-2 h-2 overflow-hidden bg-[var(--void-4)]">
-						<div
-							class="h-full bg-[var(--text)] transition-[width]"
-							style={`width:${activeQueueProgress.percent}%`}
-						></div>
-					</div>
-					<div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--text-ghost)]">
-						<span
-							>{activeQueueProgress.scheduledChapters}
-							{$_('title.chapters').toLowerCase()}</span
-						>
-						{#if activeQueueProgress.queuedChapters > 0}
-							<span>•</span>
-							<span
-								>{activeQueueProgress.queuedChapters}
-								{$_('downloads.queued').toLowerCase()}</span
-							>
-						{/if}
-						{#if activeQueueProgress.downloadingChapters > 0}
-							<span>•</span>
-							<span
-								>{activeQueueProgress.downloadingChapters}
-								{$_('downloads.downloading').toLowerCase()}</span
-							>
-						{/if}
-						{#if activeQueueProgress.failedChapters > 0}
-							<span>•</span>
-							<span class="text-[var(--error)]"
-								>{activeQueueProgress.failedChapters}
-								{$_('downloads.failed').toLowerCase()}</span
-							>
-						{/if}
-					</div>
-				</div>
-			{/if}
-			<div class="flex flex-col divide-y divide-[var(--line)] border border-[var(--line)]">
+			<div class="flex flex-col gap-1">
 				{#each tasks as task (task.id)}
 					{@const time = formatTime(task.updatedAt)}
-					<div class="flex gap-4 p-4 transition-colors hover:bg-[var(--void-3)]">
-						<LazyImage src={task.cover} alt={task.title} class="h-16 w-11 border border-[var(--line)]" />
+					{@const progress = activePlannedProgress(task)}
+					{@const stats = taskStats(task)}
+					<div class="group flex gap-3 py-2">
+						<!-- Cover -->
+						<a href={buildTitlePath(task.titleId, task.title)} class="shrink-0">
+							<LazyImage
+								src={task.cover}
+								alt={task.title}
+								class="h-16 w-11 border border-[var(--line)]"
+							/>
+						</a>
+						<!-- Content -->
 						<div class="min-w-0 flex-1">
-							<div class="flex items-start justify-between gap-3">
-								<div class="min-w-0">
-									<p class="line-clamp-1 font-medium text-[var(--text)]">{task.title}</p>
-									<p class="line-clamp-1 text-xs text-[var(--text-ghost)]">
-										{task.sources.join(', ')}
-									</p>
-								</div>
-								<div class="flex items-center gap-2">
-									<span class="{statusColors[task.status]} flex items-center gap-1 text-xs">
-										<Icon
-											name={statusIcons[task.status]}
-											size={12}
-											class={task.status === 'downloading' ? 'animate-spin' : ''}
-										/>
-										{$_(`downloads.${task.status}`)}
-									</span>
-									{#if task.isPaused}
-										<span class="text-xs text-[var(--text-ghost)]">{$_('downloads.paused')}</span>
-									{/if}
-								</div>
-								</div>
-								<p class="mt-1 line-clamp-1 text-sm text-[var(--text-muted)]">{task.chapter}</p>
-								{#if activeTab !== 'active'}
-									<div class="mt-2 h-1.5 overflow-hidden bg-[var(--void-4)]">
-										<div
-											class="h-full bg-[var(--text)] transition-[width]"
-											style={`width:${task.progressPercent}%`}
-										></div>
-									</div>
+							<!-- Row 1: Title + Percentage -->
+							<div class="flex items-baseline justify-between gap-2">
+								<a href={buildTitlePath(task.titleId, task.title)} class="min-w-0">
+									<p class="line-clamp-1 text-sm text-[var(--text)]">{task.title}</p>
+								</a>
+								<span class="shrink-0 text-sm text-[var(--text)] tabular-nums"
+									>{progress.percent}%</span
+								>
+							</div>
+							<!-- Row 2: Chapter -->
+							<p class="mt-0.5 line-clamp-1 text-xs text-[var(--text-muted)]">{task.chapter}</p>
+							<!-- Row 3: Metadata -->
+							<div
+								class="mt-1 flex flex-wrap items-center gap-x-2 text-[10px] text-[var(--text-ghost)]"
+							>
+								{#if stats.chaptersTotal > 1}
+									<span>{stats.chaptersTotal} ch</span>
 								{/if}
-								<div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--text-ghost)]">
-									<span>{task.progressPercent}%</span>
-								<span>•</span>
-								<span>{task.chaptersTotal} {$_('title.chapters').toLowerCase()}</span>
-								{#if task.chaptersQueued > 0}
-									<span>•</span>
-									<span>{task.chaptersQueued} {$_('downloads.queued').toLowerCase()}</span>
-								{/if}
-								{#if task.chaptersDownloading > 0}
-									<span>•</span>
-									<span>{task.chaptersDownloading} {$_('downloads.downloading').toLowerCase()}</span>
-								{/if}
-								{#if task.chaptersCompleted > 0}
-									<span>•</span>
-									<span>{task.chaptersCompleted} {$_('downloads.completed').toLowerCase()}</span>
+								{#if stats.chaptersQueued > 0}
+									<span>{stats.chaptersQueued} {$_('downloads.queued').toLowerCase()}</span>
 								{/if}
 								{#if task.chaptersFailed > 0}
-									<span>•</span>
 									<span class="text-[var(--error)]"
 										>{task.chaptersFailed} {$_('downloads.failed').toLowerCase()}</span
 									>
 								{/if}
-								<span>•</span>
 								<span>{$_(time.key, { values: time.values })}</span>
+								{#if activeTab === 'active' && task.isPaused}
+									<span class="text-[var(--text-muted)]"
+										>{$_('downloads.paused').toLowerCase()}</span
+									>
+								{/if}
 							</div>
-							{#if task.error}
-								<p class="mt-1 line-clamp-2 text-xs text-[var(--error)]">{task.error}</p>
+							<!-- Row 4: Progress bar with status glow -->
+							<div class="mt-2 h-0.5 w-full bg-[var(--void-4)]">
+								<div
+									class="h-full transition-[width] duration-300 {statusBarClass[task.status]}"
+									style="width: {progress.percent}%"
+								></div>
+							</div>
+							<!-- Error (suppress redundant "Paused" when already shown in metadata) -->
+							{#if task.error && task.error !== 'Paused'}
+								<p class="mt-1 line-clamp-1 text-[10px] text-[var(--error)]">{task.error}</p>
 							{/if}
 						</div>
+						<!-- Pause/Resume action -->
 						{#if activeTab === 'active'}
-							<div class="flex items-center">
-								<Button
-									variant="ghost"
-									size="sm"
-									onclick={() => togglePause(task.titleId, !task.isPaused)}
-									disabled={profileActionTitleId === task.titleId}
-									loading={profileActionTitleId === task.titleId}
-								>
-									{task.isPaused ? $_('downloads.resume') : $_('downloads.pause')}
-								</Button>
-							</div>
+							<button
+								type="button"
+								class="flex h-8 w-8 shrink-0 items-center justify-center self-center text-[var(--text-ghost)] transition-all hover:text-[var(--text-muted)]"
+								onclick={() => togglePause(task.titleId, !task.isPaused)}
+								disabled={profileActionTitleId === task.titleId}
+								title={task.isPaused ? $_('downloads.resume') : $_('downloads.pause')}
+							>
+								{#if profileActionTitleId === task.titleId}
+									<Icon name="loader" size={15} class="animate-spin" />
+								{:else}
+									<Icon name={task.isPaused ? 'play' : 'pause'} size={15} />
+								{/if}
+							</button>
 						{/if}
 					</div>
 				{/each}

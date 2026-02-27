@@ -4,6 +4,8 @@
 	import { onMount } from 'svelte';
 
 	import {
+		listLibraryTitleComments,
+		listLibraryTitleChapterProgress,
 		listLibraryCollections,
 		listLibrarySourceMatches,
 		listLibraryStatuses,
@@ -12,27 +14,30 @@
 		mergeLibraryTitles,
 		updateLibraryTitlePreferences,
 		type LibraryCollectionResource,
+		type LibraryChapterCommentResource,
 		type LibrarySourceMatchResource,
 		type LibraryUserStatusResource
 	} from '$lib/api/library';
+	import { listSources } from '$lib/api/explore';
 	import { Button } from '$lib/elements/button';
 	import { Icon } from '$lib/elements/icon';
 	import { LazyImage } from '$lib/elements/lazy-image';
+	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
 	import { libraryTitleDetailStore } from '$lib/stores/library';
+	import { panelOverlayOpen } from '$lib/stores/ui';
 	import { buildReaderPath, buildTitlePath, parseIdFromRouteParam } from '$lib/utils/routes';
 	import { mapLibraryChapterResources, type TitleChapterItem } from '$lib/utils/title-mappers';
 
 	let showFullDescription = $state(false);
-	let activeTab = $state<'chapters' | 'info'>('chapters');
+	let showManagementPanel = $state(false);
+	let activeTab = $state<'info' | 'chapters' | 'comments'>('info');
 	let statuses = $state<LibraryUserStatusResource[]>([]);
 	let collections = $state<LibraryCollectionResource[]>([]);
 	let prefsLoading = $state(true);
 	let prefsError = $state<string | null>(null);
 	let prefsSuccess = $state(false);
 	let selectedStatusId = $state<number | null>(null);
-	let statusMenuOpen = $state(false);
-	let statusMenuContainer = $state<HTMLDivElement | null>(null);
 	let selectedRating = $state<number>(0);
 	let selectedMonitoringVariantIds = $state<number[]>([]);
 	let selectedCollectionIds = $state<number[]>([]);
@@ -52,11 +57,19 @@
 	let variantChapters = $state<TitleChapterItem[] | null>(null);
 	let variantChaptersLoading = $state(false);
 	let variantChaptersError = $state<string | null>(null);
-	let didAutoVariantFallback = $state(false);
+	let enabledSourceIds = $state<Set<string> | null>(null);
 	let variantChaptersRequestId = 0;
+	let titleComments = $state<LibraryChapterCommentResource[]>([]);
+	let titleCommentsLoading = $state(false);
+	let titleCommentsError = $state<string | null>(null);
+	let titleCommentsNewestFirst = $state(true);
+	let titleCommentsRequestId = 0;
 	let saveTimer: ReturnType<typeof setTimeout> | null = null;
+	let readerProgressByChapter = $state<Record<number, number>>({});
+	let readerProgressUpdatedAtByChapter = $state<Record<number, string>>({});
 	const structuredChapterPattern =
 		/^\s*(?:\d+\s*[-_.]\s*)?(?:(?:vol(?:ume)?\.?\s*(\d+(?:\.\d+)?))\s*)?(?:ch(?:apter)?\.?\s*(\d+(?:\.\d+)?))(?:\s*[-:–]\s*(.*))?\s*$/i;
+	type TitleParentRoute = 'library' | 'explore';
 
 	function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 		let timer: ReturnType<typeof setTimeout> | null = null;
@@ -77,6 +90,14 @@
 
 	const routeTitleParam = $derived(page.params.id);
 	const routeTitleId = $derived(parseIdFromRouteParam(routeTitleParam) ?? NaN);
+	const titleParentRoute = $derived.by<TitleParentRoute>(() =>
+		page.url.searchParams.get('from') === 'explore' ? 'explore' : 'library'
+	);
+	const titleParentHref = $derived(titleParentRoute === 'explore' ? '/explore' : '/library');
+
+	function withTitleParent(path: string): string {
+		return `${path}?from=${titleParentRoute}`;
+	}
 
 	$effect(() => {
 		const nextRouteTitleId =
@@ -99,20 +120,25 @@
 	const title = $derived($libraryTitleDetailStore.data);
 	const isLoading = $derived($libraryTitleDetailStore.isLoading);
 	const hasAssignedStatus = $derived(selectedStatusId !== null);
-	const selectedStatus = $derived.by(() => {
-		if (selectedStatusId === null) return null;
-		return statuses.find((status) => status.id === selectedStatusId) ?? null;
+	const visibleVariants = $derived.by(() => {
+		if (!title) return [];
+		const enabledIds = enabledSourceIds;
+		if (enabledIds === null) return title.variants;
+		return title.variants.filter((variant) => enabledIds.has(variant.sourceId));
 	});
 	const selectedVariant = $derived.by(() => {
 		if (!title || selectedVariantId === null) return null;
-		return title.variants.find((variant) => variant.id === selectedVariantId) ?? null;
+		return visibleVariants.find((variant) => variant.id === selectedVariantId) ?? null;
+	});
+	const isMonitoringSelectedVariant = $derived.by(() => {
+		if (selectedStatusId === null || selectedVariantId === null) return false;
+		return selectedMonitoringVariantIds.includes(selectedVariantId);
 	});
 	const displayTitle = $derived(selectedVariant?.title ?? title?.title ?? '');
 	const displayCover = $derived(selectedVariant?.cover ?? title?.cover ?? '');
 	const displayAuthor = $derived(selectedVariant?.author ?? title?.author ?? '');
 	const displayArtist = $derived(selectedVariant?.artist ?? title?.artist ?? '');
 	const displayDescription = $derived(selectedVariant?.description ?? title?.description ?? '');
-	const displayStatus = $derived(selectedVariant?.status ?? title?.status ?? 0);
 	const displayGenres = $derived.by(() => {
 		const sourceGenre = selectedVariant?.genre
 			?.split(',')
@@ -142,38 +168,126 @@
 		orderedChaptersForReading.find((chapter) => !chapter.isRead) ?? null
 	);
 	const hasReadProgress = $derived(orderedChaptersForReading.some((chapter) => chapter.isRead));
+	const chapterWithServerProgress = $derived.by(() => {
+		let bestChapter: (typeof orderedChaptersForReading)[number] | null = null;
+		let bestUpdatedAt = '';
+		for (const chapter of orderedChaptersForReading) {
+			if (readerProgressByChapter[chapter.id] === undefined) continue;
+			const updatedAt = readerProgressUpdatedAtByChapter[chapter.id] ?? '';
+			if (!bestChapter || updatedAt > bestUpdatedAt) {
+				bestChapter = chapter;
+				bestUpdatedAt = updatedAt;
+			}
+		}
+		return bestChapter;
+	});
 	const continueChapterForReading = $derived(
 		firstUnreadChapter ?? orderedChaptersForReading[orderedChaptersForReading.length - 1] ?? null
 	);
-	const primaryReadingChapter = $derived(
+	const fallbackPrimaryReadingChapter = $derived(
 		hasReadProgress ? continueChapterForReading : firstChapterForReading
 	);
+	const primaryReadingChapter = $derived(chapterWithServerProgress ?? fallbackPrimaryReadingChapter);
+	const completedChapterCount = $derived(
+		orderedChaptersForReading.filter((chapter) => chapter.isRead).length
+	);
+	const localProgressChapterCount = $derived(
+		orderedChaptersForReading.filter((chapter) => readerProgressByChapter[chapter.id] !== undefined)
+			.length
+	);
+	const progressedChapterCount = $derived(
+		Math.max(completedChapterCount, localProgressChapterCount)
+	);
+	const hasAnyReadingProgress = $derived(progressedChapterCount > 0);
+	const readingProgressRatio = $derived.by(() => {
+		if (orderedChaptersForReading.length === 0) return 0;
+		return Math.min(1, progressedChapterCount / orderedChaptersForReading.length);
+	});
 	const primaryReadingHref = $derived.by(() => {
 		if (!title || !primaryReadingChapter) return null;
-		return buildReaderPath({
+		return withTitleParent(
+			buildReaderPath({
 			titleId: title.libraryId,
 			titleName: displayTitle || title.title,
 			chapterId: primaryReadingChapter.id,
 			chapterName: primaryReadingChapter.title,
 			chapterNumber: primaryReadingChapter.number
-		});
+			})
+		);
 	});
 
 	onMount(() => {
-		const handleDocumentPointerDown = (event: PointerEvent) => {
-			if (!statusMenuOpen) return;
-			if (!statusMenuContainer) return;
-			if (statusMenuContainer.contains(event.target as Node)) return;
-			statusMenuOpen = false;
-		};
-		document.addEventListener('pointerdown', handleDocumentPointerDown);
 		void loadPreferenceOptions();
+		void loadEnabledSourceIds();
 		return () => {
-			document.removeEventListener('pointerdown', handleDocumentPointerDown);
 			if (saveTimer) {
 				clearTimeout(saveTimer);
 			}
 		};
+	});
+
+	$effect(() => {
+		if (!title || selectedVariantId === null) {
+			readerProgressByChapter = {};
+			readerProgressUpdatedAtByChapter = {};
+			return;
+		}
+		const libraryTitleId = title.libraryId;
+		const variantId = selectedVariantId;
+		void (async () => {
+			try {
+				const progressRows = await listLibraryTitleChapterProgress(libraryTitleId, {
+					variant_id: variantId
+				});
+				if (!title || title.libraryId !== libraryTitleId || selectedVariantId !== variantId) return;
+				const byChapter: Record<number, number> = {};
+				const updatedByChapter: Record<number, string> = {};
+				for (const row of progressRows) {
+					if (row.page_index !== null) {
+						byChapter[row.chapter_id] = row.page_index;
+					}
+					if (row.updated_at) {
+						updatedByChapter[row.chapter_id] = row.updated_at;
+					}
+				}
+				readerProgressByChapter = byChapter;
+				readerProgressUpdatedAtByChapter = updatedByChapter;
+			} catch {
+				readerProgressByChapter = {};
+				readerProgressUpdatedAtByChapter = {};
+			}
+		})();
+	});
+
+	$effect(() => {
+		if (!title) {
+			titleComments = [];
+			titleCommentsError = null;
+			return;
+		}
+		const requestId = ++titleCommentsRequestId;
+		const libraryTitleId = title.libraryId;
+		const variantId = selectedVariantId;
+		titleCommentsLoading = true;
+		titleCommentsError = null;
+		void (async () => {
+			try {
+				const rows = await listLibraryTitleComments(libraryTitleId, {
+					variant_id: variantId ?? undefined,
+					newest_first: titleCommentsNewestFirst
+				});
+				if (requestId !== titleCommentsRequestId) return;
+				titleComments = rows;
+			} catch (cause) {
+				if (requestId !== titleCommentsRequestId) return;
+				titleComments = [];
+				titleCommentsError = cause instanceof Error ? cause.message : $_('title.commentsLoadFailed');
+			} finally {
+				if (requestId === titleCommentsRequestId) {
+					titleCommentsLoading = false;
+				}
+			}
+		})();
 	});
 
 	$effect(() => {
@@ -182,22 +296,27 @@
 		isHydratingPreferences = true;
 		selectedStatusId = title.userStatus?.id ?? null;
 		selectedRating = title.userRating ?? 0;
-		const availableVariantIds = new Set(title.variants.map((variant) => variant.id));
+		const availableVariantIds = new Set(visibleVariants.map((variant) => variant.id));
 		const linkedMonitoringVariantIds = (title.monitoringVariantIds ?? []).filter((variantId) =>
 			availableVariantIds.has(variantId)
 		);
-		const fallbackVariantId = title.preferredVariantId ?? title.variants[0]?.id ?? null;
+		const preferredVariantId =
+			title.preferredVariantId !== undefined &&
+			title.preferredVariantId !== null &&
+			availableVariantIds.has(title.preferredVariantId)
+				? title.preferredVariantId
+				: null;
+		const fallbackVariantId = preferredVariantId ?? visibleVariants[0]?.id ?? null;
 		selectedMonitoringVariantIds =
 			title.monitoringEnabled && linkedMonitoringVariantIds.length === 0
 				? fallbackVariantId
 					? [fallbackVariantId]
 					: []
 				: linkedMonitoringVariantIds;
-			selectedCollectionIds = title.collections.map((collection) => collection.id);
-			prefsSuccess = false;
-			prefsError = null;
-			statusMenuOpen = false;
-			const isDifferentTitle = sourceMatchesTitleId !== title.libraryId;
+		selectedCollectionIds = title.collections.map((collection) => collection.id);
+		prefsSuccess = false;
+		prefsError = null;
+		const isDifferentTitle = sourceMatchesTitleId !== title.libraryId;
 		if (isDifferentTitle) {
 			sourceMatches = [];
 			sourceMatchesLoading = false;
@@ -205,17 +324,12 @@
 			sourceMatchesError = null;
 			linkingSourceKey = null;
 			sourceMatchesTitleId = title.libraryId;
+			variantChapters = null;
 		}
 		variantChaptersError = null;
-		variantChapters = null;
-		didAutoVariantFallback = false;
 		const hasSelectedVariant =
-			selectedVariantId !== null &&
-			title.variants.some((variant) => variant.id === selectedVariantId);
-		const preferredVariantId = title.preferredVariantId ?? null;
-		selectedVariantId = hasSelectedVariant
-			? selectedVariantId
-			: (preferredVariantId ?? title.variants[0]?.id ?? null);
+			selectedVariantId !== null && availableVariantIds.has(selectedVariantId);
+		selectedVariantId = hasSelectedVariant ? selectedVariantId : fallbackVariantId;
 		queueMicrotask(() => {
 			isHydratingPreferences = false;
 		});
@@ -235,29 +349,6 @@
 					12_000
 				);
 				if (requestId !== variantChaptersRequestId) return;
-
-				if (
-					chapters.length === 0 &&
-					!didAutoVariantFallback &&
-					title.variants.length > 1 &&
-					selectedVariantId === (title.preferredVariantId ?? null)
-				) {
-					for (const fallbackVariant of title.variants) {
-						if (fallbackVariant.id === selectedVariantId) continue;
-						const fallbackChapters = await withTimeout(
-							listLibraryTitleChapters(title.libraryId, {
-								variant_id: fallbackVariant.id
-							}),
-							12_000
-						);
-						if (requestId !== variantChaptersRequestId) return;
-						if (fallbackChapters.length > 0) {
-							didAutoVariantFallback = true;
-							selectedVariantId = fallbackVariant.id;
-							return;
-						}
-					}
-				}
 
 				variantChapters = mapLibraryChapterResources(chapters);
 			} catch (error) {
@@ -286,6 +377,24 @@
 		const date = new Date(dateStr);
 		if (Number.isNaN(date.getTime())) return dateStr;
 		return date.toLocaleDateString();
+	}
+
+	function formatDateTime(dateStr: string): string {
+		const date = new Date(dateStr);
+		if (Number.isNaN(date.getTime())) return dateStr;
+		return date.toLocaleString();
+	}
+
+	function titleCommentReaderHref(comment: LibraryChapterCommentResource): string {
+		if (!title) return '#';
+		const base = buildReaderPath({
+			titleId: title.libraryId,
+			titleName: displayTitle || title.title,
+			chapterId: comment.chapter_id,
+			chapterName: comment.chapter_name,
+			chapterNumber: comment.chapter_number
+		});
+		return `${withTitleParent(base)}&page=${comment.page_index}`;
 	}
 
 	function chapterHeading(chapter: { title: string; number: number | null }): {
@@ -347,6 +456,19 @@
 		}
 	}
 
+	async function loadEnabledSourceIds() {
+		try {
+			const sources = await listSources({ enabled: true });
+			enabledSourceIds = new Set(
+				sources
+					.map((source) => source.id?.trim() ?? '')
+					.filter((sourceId) => sourceId.length > 0)
+			);
+		} catch {
+			enabledSourceIds = null;
+		}
+	}
+
 	function queueAutoSave() {
 		if (isHydratingPreferences || !title) return;
 		if (saveTimer) {
@@ -382,10 +504,32 @@
 				monitoring_variant_ids: monitoringVariantIds,
 				collection_ids: selectedCollectionIds
 			});
-			await Promise.all([
-				libraryTitleDetailStore.refresh(title.libraryId),
-				loadPreferenceOptions()
-			]);
+			const nextStatus = statuses.find((status) => status.id === selectedStatusId);
+			const nextCollections = collections.filter((collection) =>
+				selectedCollectionIds.includes(collection.id)
+			);
+			libraryTitleDetailStore.setData({
+				...title,
+				preferredVariantId: selectedVariantId ?? undefined,
+				userStatus: nextStatus
+					? {
+							id: nextStatus.id,
+							key: nextStatus.key,
+							label: nextStatus.label,
+							color: nextStatus.color,
+							position: nextStatus.position,
+							isDefault: nextStatus.is_default
+						}
+					: undefined,
+				userRating: selectedRating > 0 ? selectedRating : undefined,
+				monitoringEnabled: monitoringVariantIds.length > 0,
+				monitoringVariantIds,
+				collections: nextCollections.map((collection) => ({
+					id: collection.id,
+					name: collection.name,
+					color: collection.color
+				}))
+			});
 			prefsSuccess = true;
 		} catch (error) {
 			prefsError = error instanceof Error ? error.message : 'Failed to save preferences';
@@ -415,31 +559,19 @@
 		queueAutoSave();
 	}
 
-	function toggleMonitoringVariant(variantId: number) {
-		if (selectedStatusId === null) return;
-		if (selectedMonitoringVariantIds.includes(variantId)) {
-			selectedMonitoringVariantIds = selectedMonitoringVariantIds.filter((id) => id !== variantId);
-		} else {
-			selectedMonitoringVariantIds = [...selectedMonitoringVariantIds, variantId];
-		}
+	function toggleMonitoringForSelectedVariant() {
+		if (selectedStatusId === null || selectedVariantId === null) return;
+		selectedMonitoringVariantIds = isMonitoringSelectedVariant ? [] : [selectedVariantId];
 		queueAutoSave();
 	}
 
 	function setStatusId(statusId: number | null) {
-		if (selectedStatusId === statusId) {
-			statusMenuOpen = false;
-			return;
-		}
+		if (selectedStatusId === statusId) return;
 		selectedStatusId = statusId;
 		if (statusId === null && selectedMonitoringVariantIds.length > 0) {
 			selectedMonitoringVariantIds = [];
 		}
-		statusMenuOpen = false;
 		queueAutoSave();
-	}
-
-	function toggleStatusMenu() {
-		statusMenuOpen = !statusMenuOpen;
 	}
 
 	function sourceMatchKey(match: LibrarySourceMatchResource): string {
@@ -505,564 +637,594 @@
 	}
 
 	function handleBack() {
-		if (typeof window !== 'undefined' && window.history.length > 1) {
-			window.history.back();
-			return;
-		}
-		void goto('/library');
+		void goto(titleParentHref);
 	}
+
+	$effect(() => {
+		panelOverlayOpen.set(showManagementPanel);
+		return () => panelOverlayOpen.set(false);
+	});
 </script>
 
 <svelte:head>
 	<title>{displayTitle || title?.title || $_('common.loading')} | {$_('app.name')}</title>
 </svelte:head>
 
-<div class="flex flex-col gap-6">
-	<div class="flex items-center gap-3">
+<div class="flex flex-col">
+	<!-- Desktop-only back navigation -->
+	<div class="mb-6 hidden items-center gap-2 md:flex">
 		<Button variant="ghost" size="icon-sm" onclick={handleBack}>
-			<Icon name="chevron-left" size={20} />
+			<Icon name="chevron-left" size={18} />
 		</Button>
-		<h1 class="text-display line-clamp-1 flex-1 text-xl text-[var(--text)]">
-			{displayTitle || title?.title || $_('common.loading')}
-		</h1>
+		<span class="text-xs text-[var(--text-ghost)]">
+			{titleParentRoute === 'explore' ? $_('nav.explore') : $_('nav.library')}
+		</span>
 	</div>
 
 	{#if isLoading && !title}
-		<div class="flex flex-col gap-6 md:flex-row">
-			<div class="mx-auto h-72 w-48 animate-pulse bg-[var(--void-3)] md:mx-0 md:w-56"></div>
-			<div class="flex-1 space-y-4">
-				<div class="h-8 w-2/3 animate-pulse bg-[var(--void-3)]"></div>
-				<div class="h-4 w-1/3 animate-pulse bg-[var(--void-3)]"></div>
-				<div class="h-20 w-full animate-pulse bg-[var(--void-3)]"></div>
+		<!-- Loading skeleton — mobile: full-bleed, desktop: grid -->
+		<div class="md:hidden -mx-4">
+			<div class="aspect-[3/4] max-h-[70vh] w-full animate-pulse bg-[var(--void-3)]"></div>
+		</div>
+		<div class="md:grid md:grid-cols-[260px_1fr] md:gap-8">
+			<div class="hidden animate-pulse bg-[var(--void-3)] md:block md:aspect-[2/3]"></div>
+			<div class="relative -mt-24 flex flex-col gap-3 md:mt-0">
+				<div class="h-7 w-3/4 animate-pulse bg-[var(--void-4)]"></div>
+				<div class="h-4 w-1/3 animate-pulse bg-[var(--void-4)]"></div>
 			</div>
 		</div>
 	{:else if title}
-		<div class="flex flex-col gap-6 md:flex-row">
-			<div class="shrink-0">
-				<div class="card-glow mx-auto w-48 md:mx-0 md:w-56">
+		<!-- Responsive layout: full-bleed mobile / side-cover desktop -->
+		<div class="flex flex-col md:grid md:grid-cols-[260px_1fr] md:items-start md:gap-8">
+
+			<!-- COVER COLUMN -->
+			<div class="-mx-4 relative md:sticky md:top-8 md:mx-0">
+				<div class="aspect-[3/4] max-h-[70vh] w-full overflow-hidden bg-[var(--void-2)] md:aspect-[2/3] md:max-h-none">
 					<LazyImage
 						src={displayCover || title.cover}
 						alt={displayTitle || title.title}
-						class="aspect-[2/3] w-full border border-[var(--line)]"
+						class="h-full w-full"
+						imgClass="object-cover object-top"
 						loading="eager"
 					/>
 				</div>
-			</div>
+				<!-- Mobile gradient fade -->
+				<div
+					class="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 md:hidden"
+					style="background: linear-gradient(to top, var(--void-0) 0%, var(--void-0) 8%, transparent 100%);"
+				></div>
+				<!-- Mobile back button overlay -->
+				<button
+					type="button"
+					class="absolute left-4 top-4 flex h-8 w-8 items-center justify-center bg-[var(--void-0)]/60 text-[var(--text)] backdrop-blur-sm transition-colors hover:bg-[var(--void-0)]/80 md:hidden"
+					onclick={handleBack}
+				>
+					<Icon name="chevron-left" size={18} />
+				</button>
 
-			<div class="flex flex-1 flex-col gap-4">
-				<div>
-					<h2 class="text-xl font-semibold text-[var(--text)] md:text-2xl">
-						{displayTitle || title.title}
-					</h2>
-					{#if displayAuthor}
-						<p class="mt-1 text-[var(--text-muted)]">{displayAuthor}</p>
-					{/if}
-				</div>
-
-				<div class="flex flex-wrap items-center gap-3 text-sm">
-					{#if title.userStatus}
-						<span
-							class="border border-[var(--line)] bg-[var(--void-3)] px-2 py-0.5 text-[var(--text-muted)]"
-						>
-							{title.userStatus.label}
-						</span>
-					{:else if displayStatus}
-						<span
-							class="border border-[var(--line)] bg-[var(--void-3)] px-2 py-0.5 text-[var(--text-muted)]"
-						>
-							{$_(`status.${displayStatus}`)}
-						</span>
-					{/if}
-					{#if title.userRating != null}
-						<span
-							class="border border-[var(--line)] bg-[var(--void-3)] px-2 py-0.5 text-[var(--text-muted)]"
-						>
-							★ {title.userRating.toFixed(1)}
-						</span>
-					{/if}
-					<span class="text-[var(--text-muted)]"
-						>{displayedChapters.length} {$_('title.chapters')}</span
-					>
-					<span class="text-[var(--text-muted)]">{title.variants.length} {$_('title.sources')}</span
-					>
-				</div>
-
-				{#if displayGenres.length}
-					<div class="flex flex-wrap gap-1.5">
-						{#each displayGenres as genre (genre)}
-							<span
-								class="border border-[var(--line)] bg-[var(--void-2)] px-2 py-0.5 text-xs text-[var(--text-soft)]"
+				<!-- Desktop: CTA + progress under cover -->
+				<div class="mt-4 hidden flex-col gap-3 md:flex">
+					<div class="flex items-center gap-2">
+						{#if primaryReadingHref}
+							<a
+								href={primaryReadingHref}
+								class="flex h-10 flex-1 items-center justify-center gap-2 bg-[var(--void-5)] text-xs text-[var(--text)] transition-all hover:bg-[var(--void-6)]"
 							>
-								{genre}
-							</span>
-						{/each}
-					</div>
-				{/if}
-
-				<div class="flex flex-wrap gap-2">
-					{#if primaryReadingHref}
-						<Button variant="default" size="sm" href={primaryReadingHref}>
-							<Icon name="book-open" size={14} />
-							{hasReadProgress ? $_('title.continueReading') : $_('title.startReading')}
-						</Button>
-					{/if}
-					<Button variant="outline" size="sm" href="/downloads">
-						<Icon name="download" size={14} />
-						{$_('nav.downloads')}
-					</Button>
-				</div>
-
-				{#if title.variants.length > 0}
-					<div class="space-y-2">
-						<p class="text-xs text-[var(--text-ghost)]">{$_('title.readingSource')}</p>
-						<div class="flex flex-wrap gap-2">
-							{#each title.variants as variant (variant.id)}
-								<button
-									type="button"
-									class="border px-3 py-1.5 text-xs transition-colors {variant.id ===
-									selectedVariantId
-										? 'border-[var(--text)] bg-[var(--void-4)] text-[var(--text)]'
-										: 'border-[var(--line)] bg-[var(--void-3)] text-[var(--text-muted)] hover:border-[var(--void-6)] hover:text-[var(--text)]'}"
-									onclick={() => chooseReadingVariant(variant.id)}
-								>
-									{variant.sourceName || variant.sourceId}
-									{#if variant.sourceLang}
-										[{variant.sourceLang}]
-									{/if}
-								</button>
-							{/each}
-						</div>
-						{#if variantChaptersLoading}
-							<p class="text-xs text-[var(--text-ghost)]">{$_('title.loadingVariantChapters')}</p>
-						{:else if variantChaptersError}
-							<p class="text-xs text-[var(--error)]">{variantChaptersError}</p>
-						{/if}
-					</div>
-				{/if}
-
-				<div class="border border-[var(--line)] bg-[var(--void-2)] p-4">
-					<div class="flex items-center justify-between gap-3">
-						<p class="text-sm font-medium text-[var(--text)]">{$_('title.libraryControls')}</p>
-						{#if hasPendingSave}
-							<span class="text-xs text-[var(--text-ghost)]">{$_('title.saving')}</span>
-						{:else if prefsSuccess}
-							<span class="text-xs text-[var(--success)]">{$_('title.saved')}</span>
-						{/if}
-					</div>
-						{#if prefsLoading}
-							<p class="mt-3 text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
+								<Icon name="play" size={14} />
+								<span>{hasAnyReadingProgress ? $_('title.continueReading') : $_('title.startReading')}</span>
+							</a>
 						{:else}
-							<div class="mt-4 grid gap-4 md:grid-cols-2">
-								<div>
-									<p class="text-xs text-[var(--text-ghost)]">{$_('title.status')}</p>
-									<div class="relative mt-1" bind:this={statusMenuContainer}>
-										<button
-											type="button"
-											class="flex w-full items-center justify-between border border-[var(--line)] bg-[var(--void-3)] px-3 py-2 text-sm transition-colors hover:border-[var(--void-6)]"
-											aria-expanded={statusMenuOpen}
-											onclick={toggleStatusMenu}
-										>
-											<span class="flex items-center gap-2 text-[var(--text)]">
-												<Icon
-													name={selectedStatus ? 'check' : 'plus'}
-													size={14}
-													class={selectedStatus ? 'text-[var(--text)]' : 'text-[var(--text-muted)]'}
-												/>
-												<span>{selectedStatus?.label ?? $_('title.addToPlans')}</span>
-											</span>
-											<Icon
-												name="chevron-down"
-												size={14}
-												class="text-[var(--text-ghost)] transition-transform {statusMenuOpen
-													? 'rotate-180'
-													: ''}"
-											/>
-										</button>
-										{#if statusMenuOpen}
-											<div
-												class="absolute left-0 right-0 z-20 mt-2 max-h-64 overflow-auto border border-[var(--line)] bg-[var(--void-2)] p-1"
-											>
-												{#if statuses.length === 0}
-													<p class="px-3 py-2 text-sm text-[var(--text-ghost)]">{$_('common.noResults')}</p>
-												{:else}
-													{#each statuses as status (status.id)}
-														<button
-															type="button"
-															class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors {status.id ===
-															selectedStatusId
-																? 'bg-[var(--void-4)] text-[var(--text)]'
-																: 'text-[var(--text-muted)] hover:bg-[var(--void-3)] hover:text-[var(--text)]'}"
-															onclick={() => setStatusId(status.id)}
-														>
-															{#if status.id === selectedStatusId}
-																<Icon name="check" size={14} />
-															{:else}
-																<span class="h-[14px] w-[14px]"></span>
-															{/if}
-															<span>{status.label}</span>
-														</button>
-													{/each}
-													{#if selectedStatusId !== null}
-														<div class="my-1 h-px bg-[var(--line)]"></div>
-														<button
-															type="button"
-															class="w-full px-3 py-2 text-left text-sm text-[var(--error)] transition-colors hover:bg-[var(--void-3)]"
-															onclick={() => setStatusId(null)}
-														>
-															{$_('title.removeFromList')}
-														</button>
-													{/if}
-												{/if}
-											</div>
-										{/if}
-									</div>
-									{#if !hasAssignedStatus}
-										<p class="mt-2 text-[11px] text-[var(--text-ghost)]">
-											{$_('title.assignStatusBeforePreferences')}
-										</p>
-									{/if}
-								</div>
-								<div>
-									<p class="text-xs text-[var(--text-ghost)]">{$_('title.rating')}</p>
-									<div class="mt-1 flex items-center gap-1 {hasAssignedStatus ? '' : 'opacity-50'}">
-										{#each Array.from({ length: 5 }) as _, i (i)}
-											{@const value = i + 1}
-											<button
-												type="button"
-												class="h-8 w-8 border border-[var(--line)] text-lg leading-none transition-colors {selectedRating >=
-												value
-													? 'bg-[var(--void-4)] text-[var(--text)]'
-													: 'bg-[var(--void-3)] text-[var(--text-ghost)]'}"
-												disabled={!hasAssignedStatus}
-												onclick={() => setRating(value)}
-											>
-												★
-											</button>
-										{/each}
-										{#if selectedRating > 0}
-											<span class="ml-2 text-xs text-[var(--text-muted)]">{selectedRating}/5</span>
-										{/if}
-									</div>
-								</div>
-								<div>
-									<p class="text-xs text-[var(--text-ghost)]">{$_('title.downloadMonitoring')}</p>
-									<p class="mt-1 text-sm text-[var(--text-muted)]">
-										{hasAssignedStatus && selectedMonitoringVariantIds.length > 0
-											? $_('downloads.enabled')
-											: $_('downloads.disabled')}
-									</p>
-									<p class="mt-2 text-[11px] text-[var(--text-ghost)]">
-										{$_('title.monitoringSources')}
-									</p>
-									<div
-										class="mt-2 max-h-28 space-y-1 overflow-auto border border-[var(--line)] bg-[var(--void-3)] p-2 {hasAssignedStatus
-											? ''
-											: 'opacity-50'}"
-									>
-										{#if title.variants.length === 0}
-											<p class="text-xs text-[var(--text-ghost)]">{$_('common.noResults')}</p>
-										{:else}
-											{#each title.variants as variant (variant.id)}
-												<label class="flex items-center gap-2 text-xs text-[var(--text)]">
-													<input
-														type="checkbox"
-														checked={selectedMonitoringVariantIds.includes(variant.id)}
-														disabled={!hasAssignedStatus}
-														onchange={() => toggleMonitoringVariant(variant.id)}
-													/>
-													<span class="truncate">
-														{variant.sourceName || variant.sourceId}
-														{#if variant.sourceLang}
-															[{variant.sourceLang}]
-														{/if}
-													</span>
-												</label>
-											{/each}
-										{/if}
-									</div>
-								</div>
-								<div>
-									<p class="text-xs text-[var(--text-ghost)]">{$_('title.collections')}</p>
-									<div
-										class="mt-1 max-h-28 space-y-1 overflow-auto border border-[var(--line)] bg-[var(--void-3)] p-2 {hasAssignedStatus
-											? ''
-											: 'opacity-50'}"
-									>
-										{#if collections.length === 0}
-											<p class="text-xs text-[var(--text-ghost)]">{$_('title.noCollections')}</p>
-										{:else}
-											{#each collections as collection (collection.id)}
-												<label class="flex items-center gap-2 text-sm text-[var(--text)]">
-													<input
-														type="checkbox"
-														checked={selectedCollectionIds.includes(collection.id)}
-														disabled={!hasAssignedStatus}
-														onchange={() => toggleCollection(collection.id)}
-													/>
-													<span>{collection.name}</span>
-												</label>
-											{/each}
-										{/if}
-									</div>
-									<p class="mt-2 text-[11px] text-[var(--text-ghost)]">
-										{$_('title.manageCollectionsInLibrary')}
-									</p>
-								</div>
+							<div class="flex h-10 flex-1 items-center justify-center text-xs text-[var(--text-ghost)]">
+								{$_('title.noChapters')}
 							</div>
 						{/if}
-					{#if prefsError}
-						<p class="mt-3 text-xs text-[var(--error)]">{prefsError}</p>
+						<button
+							type="button"
+							class="flex h-10 w-10 shrink-0 items-center justify-center bg-[var(--void-3)] text-[var(--text-muted)] transition-colors hover:bg-[var(--void-4)] hover:text-[var(--text)]"
+							onclick={() => (showManagementPanel = true)}
+						>
+							<Icon name="settings" size={16} />
+						</button>
+					</div>
+					{#if orderedChaptersForReading.length > 0}
+						<div class="flex items-center gap-2">
+							<div class="relative h-px min-w-0 flex-1 bg-[var(--void-4)]">
+								<div
+									class="absolute inset-y-0 left-0 bg-[var(--text-ghost)] transition-[width] duration-500"
+									style="width: {Math.round(readingProgressRatio * 100)}%"
+								></div>
+							</div>
+							<span class="shrink-0 text-[11px] tabular-nums text-[var(--void-7)]">
+								{progressedChapterCount}/{orderedChaptersForReading.length}
+							</span>
+						</div>
 					{/if}
 				</div>
+			</div>
 
-				<div class="hidden md:block">
-					<p class="text-sm leading-relaxed text-[var(--text-soft)]">
-						{displayDescription || $_('title.noDescription')}
+			<!-- CONTENT COLUMN -->
+			<div class="flex flex-col">
+				<!-- Title identity -->
+				<div class="relative -mt-20 flex flex-col gap-2 sm:-mt-24 md:mt-0">
+					<h1 class="text-display text-2xl leading-tight text-[var(--text)] sm:text-3xl md:text-2xl">
+						{displayTitle || title.title}
+					</h1>
+					<p class="text-sm text-[var(--text-ghost)]">
+						{#if displayAuthor}
+							{displayAuthor}
+						{/if}
+						{#if displayArtist && displayArtist !== displayAuthor}
+							{#if displayAuthor} · {/if}{displayArtist}
+						{/if}
 					</p>
 				</div>
-			</div>
-		</div>
 
-		<div class="md:hidden">
-			<p
-				class="text-sm leading-relaxed text-[var(--text-soft)] {!showFullDescription
-					? 'line-clamp-3'
-					: ''}"
-			>
-				{displayDescription || $_('title.noDescription')}
-			</p>
-			{#if displayDescription && displayDescription.length > 150}
-				<button
-					onclick={() => (showFullDescription = !showFullDescription)}
-					class="mt-2 flex items-center gap-1 text-sm text-[var(--text-muted)] hover:text-[var(--text)]"
-				>
-					{showFullDescription ? $_('common.less') : $_('common.more')}
-					<Icon name={showFullDescription ? 'chevron-up' : 'chevron-down'} size={16} />
-				</button>
-			{/if}
-		</div>
-
-		<div class="flex gap-1 border-b border-[var(--line)]">
-			<button
-				type="button"
-				class="px-4 py-2 text-sm transition-colors {activeTab === 'chapters'
-					? 'border-b-2 border-[var(--text)] text-[var(--text)]'
-					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-				onclick={() => (activeTab = 'chapters')}
-			>
-				{$_('title.chapters')}
-			</button>
-			<button
-				type="button"
-				class="px-4 py-2 text-sm transition-colors {activeTab === 'info'
-					? 'border-b-2 border-[var(--text)] text-[var(--text)]'
-					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-				onclick={() => (activeTab = 'info')}
-			>
-				{$_('title.info')}
-			</button>
-		</div>
-
-		{#if activeTab === 'chapters'}
-			{#if displayedChapters.length === 0}
-				<div class="flex flex-col items-center gap-4 py-12 text-center">
-					<div
-						class="flex h-16 w-16 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]"
-					>
-						<Icon name="book" size={24} class="text-[var(--text-ghost)]" />
-					</div>
-					<div>
-						<p class="text-[var(--text)]">{$_('title.noChapters')}</p>
-						<p class="mt-1 text-sm text-[var(--text-ghost)]">{$_('title.noChaptersDescription')}</p>
-					</div>
-				</div>
-			{:else}
-				<div class="flex flex-col divide-y divide-[var(--line)] border border-[var(--line)]">
-					{#each displayedChapters as chapter (chapter.id)}
-						{@const heading = chapterHeading(chapter)}
-						<a
-							href={buildReaderPath({
-								titleId: title.libraryId,
-								titleName: displayTitle || title.title,
-								chapterId: chapter.id,
-								chapterName: chapter.title,
-								chapterNumber: chapter.number
-							})}
-							class="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-[var(--void-3)] {chapter.isRead
-								? 'opacity-50'
-								: ''}"
-						>
-							<div class="min-w-0 flex-1">
-								<div class="flex items-center gap-2">
-									{#if heading.label}
-										<span class="font-medium text-[var(--text)]">{heading.label}</span>
-									{/if}
-									{#if heading.detail}
-										<span class="truncate text-[var(--text-muted)]">
-											{heading.label ? `- ${heading.detail}` : heading.detail}
-										</span>
-									{/if}
-								</div>
-								<div class="mt-0.5 flex items-center gap-2 text-xs text-[var(--text-ghost)]">
-									<span>{formatDate(chapter.uploadDate)}</span>
-									{#if chapter.scanlator}
-										<span class="text-[var(--void-6)]">•</span>
-										<span>{chapter.scanlator}</span>
-									{/if}
-								</div>
-								{#if chapter.downloadError}
-									<p class="mt-1 text-xs text-[var(--error)]">{chapter.downloadError}</p>
-								{/if}
-							</div>
-							<div class="flex items-center gap-2 text-[var(--text-ghost)]">
-								{#if chapter.isDownloaded}
-									<Icon name="download" size={16} class="text-[var(--success)]" />
-								{/if}
-								{#if chapter.isRead}
-									<Icon name="check" size={16} />
-								{/if}
-							</div>
-						</a>
-					{/each}
-				</div>
-			{/if}
-		{:else}
-			<div class="space-y-4 border border-[var(--line)] bg-[var(--void-2)] p-4">
-				{#if displayAuthor}
-					<div>
-						<p class="text-xs text-[var(--text-ghost)]">{$_('title.author')}</p>
-						<p class="text-[var(--text)]">{displayAuthor}</p>
-					</div>
-				{/if}
-				{#if displayArtist && displayArtist !== displayAuthor}
-					<div>
-						<p class="text-xs text-[var(--text-ghost)]">{$_('title.artist')}</p>
-						<p class="text-[var(--text)]">{displayArtist}</p>
-					</div>
-				{/if}
-				{#if displayGenres.length}
-					<div>
-						<p class="text-xs text-[var(--text-ghost)]">{$_('title.genres')}</p>
-						<p class="text-[var(--text)]">{displayGenres.join(', ')}</p>
-					</div>
-				{/if}
-				<div>
-					<p class="text-xs text-[var(--text-ghost)]">{$_('title.sources')}</p>
-					<div class="mt-2 flex flex-wrap items-center gap-2">
-						<input
-							type="text"
-							class="h-8 w-24 border border-[var(--line)] bg-[var(--void-3)] px-2 text-xs text-[var(--text)]"
-							placeholder={$_('title.langFilter')}
-							bind:value={sourceLangFilter}
-						/>
-						<Button
-							variant="outline"
-							size="sm"
-							onclick={findOtherSources}
-							disabled={sourceMatchesLoading}
-							loading={sourceMatchesLoading}
-						>
-							{$_('title.findOtherSources')}
-						</Button>
-					</div>
-					{#if sourceMatchesError}
-						<p class="mt-2 text-xs text-[var(--error)]">{sourceMatchesError}</p>
-					{/if}
-					<div class="mt-2 space-y-2">
-						{#each title.variants as variant (variant.id)}
-							<button
-								type="button"
-								class="w-full border bg-[var(--void-3)] p-3 text-left transition-colors {variant.id ===
-								selectedVariantId
-									? 'border-[var(--text)]'
-									: 'border-[var(--line)] hover:border-[var(--void-6)]'}"
-								onclick={() => chooseReadingVariant(variant.id)}
+				<!-- PRIMARY ACTION BAR (mobile only — desktop version is under cover) -->
+				<div class="mt-8 flex flex-col gap-4 md:hidden">
+					<div class="flex items-center gap-3">
+						{#if primaryReadingHref}
+							<a
+								href={primaryReadingHref}
+								class="flex h-12 flex-1 items-center justify-center gap-2 bg-[var(--void-5)] text-sm text-[var(--text)] transition-all hover:bg-[var(--void-6)]"
 							>
-								<div class="flex items-center justify-between gap-2">
-									<div class="flex min-w-0 items-center gap-2">
-										<p class="truncate font-medium text-[var(--text)]">
-											{variant.sourceName || variant.sourceId}
-										</p>
-										{#if variant.id === selectedVariantId}
-											<span class="text-xs text-[var(--text-ghost)]">{$_('title.readingNow')}</span>
-										{/if}
-									</div>
-									<span
-										class="border border-[var(--line)] px-1.5 py-0.5 text-xs text-[var(--text-muted)]"
-									>
-										{variant.sourceLang || '—'}
-									</span>
+								<Icon name="play" size={16} />
+								<span>{hasAnyReadingProgress ? $_('title.continueReading') : $_('title.startReading')}</span>
+							</a>
+						{:else}
+							<div class="flex h-12 flex-1 items-center justify-center text-sm text-[var(--text-ghost)]">
+								{$_('title.noChapters')}
+							</div>
+						{/if}
+
+						<button
+							type="button"
+							class="flex h-12 w-12 shrink-0 items-center justify-center bg-[var(--void-3)] text-[var(--text-muted)] transition-colors hover:bg-[var(--void-4)] hover:text-[var(--text)]"
+							onclick={() => (showManagementPanel = true)}
+						>
+							<Icon name="settings" size={18} />
+						</button>
+					</div>
+
+					{#if orderedChaptersForReading.length > 0}
+						<div class="flex items-center gap-3">
+							<div class="relative h-px min-w-0 flex-1 bg-[var(--void-4)]">
+								<div
+									class="absolute inset-y-0 left-0 bg-[var(--text-ghost)] transition-[width] duration-500"
+									style="width: {Math.round(readingProgressRatio * 100)}%"
+								></div>
+							</div>
+							<span class="shrink-0 text-xs tabular-nums text-[var(--void-7)]">
+								{progressedChapterCount}/{orderedChaptersForReading.length}
+							</span>
+						</div>
+					{/if}
+				</div>
+
+				{#if variantChaptersError}
+					<p class="mt-2 text-xs text-[var(--error)]">{variantChaptersError}</p>
+				{/if}
+
+				<!-- TABS -->
+				<div class="mt-8 flex gap-1">
+					<button
+						type="button"
+						class="px-3 py-1.5 text-xs transition-colors {activeTab === 'info'
+							? 'bg-[var(--void-4)] text-[var(--text)]'
+							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+						onclick={() => (activeTab = 'info')}
+					>
+						{$_('title.info')}
+					</button>
+					<button
+						type="button"
+						class="px-3 py-1.5 text-xs transition-colors {activeTab === 'chapters'
+							? 'bg-[var(--void-4)] text-[var(--text)]'
+							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+						onclick={() => (activeTab = 'chapters')}
+					>
+						{$_('title.chapters')}
+						{#if displayedChapters.length > 0}
+							<span class="ml-1 text-[10px] {activeTab === 'chapters' ? 'text-[var(--text-muted)]' : 'text-[var(--void-6)]'}">
+								{displayedChapters.length}
+							</span>
+						{/if}
+					</button>
+					<button
+						type="button"
+						class="px-3 py-1.5 text-xs transition-colors {activeTab === 'comments'
+							? 'bg-[var(--void-4)] text-[var(--text)]'
+							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+						onclick={() => (activeTab = 'comments')}
+					>
+						{$_('title.comments')}
+						{#if titleComments.length > 0}
+							<span class="ml-1 text-[10px] {activeTab === 'comments' ? 'text-[var(--text-muted)]' : 'text-[var(--void-6)]'}">
+								{titleComments.length}
+							</span>
+						{/if}
+					</button>
+				</div>
+
+				<!-- TAB CONTENT -->
+				<div class="mt-4">
+					{#if activeTab === 'info'}
+						<!-- INFO TAB -->
+						<div class="flex flex-col gap-8">
+							{#if displayDescription}
+								<div>
+									<p class="text-sm leading-relaxed text-[var(--text-soft)] {!showFullDescription ? 'line-clamp-6' : ''}">
+										{displayDescription}
+									</p>
+									{#if displayDescription.length > 300}
+										<button
+											type="button"
+											class="mt-2 text-xs text-[var(--void-7)] transition-colors hover:text-[var(--text-muted)]"
+											onclick={() => (showFullDescription = !showFullDescription)}
+										>
+											{showFullDescription ? $_('common.less') : $_('common.more')}
+										</button>
+									{/if}
 								</div>
-								<p class="mt-0.5 text-sm text-[var(--text-muted)]">{variant.title}</p>
-							</button>
-						{/each}
-						{#if sourceMatchesLoaded}
-							{#if sourceMatches.length === 0}
-								<p class="text-xs text-[var(--text-ghost)]">{$_('title.noSourceMatches')}</p>
-							{:else}
-								{#each sourceMatches as match (sourceMatchKey(match))}
-									<div class="border border-[var(--line)] bg-[var(--void-3)] p-3">
-										<div class="flex items-center justify-between gap-2">
-											<div class="min-w-0">
-												<p class="font-medium text-[var(--text)]">
-													{match.source_name}
-													{#if match.source_lang}
-														[{match.source_lang}]
-													{/if}
-												</p>
-												<p class="truncate text-sm text-[var(--text-muted)]">{match.title}</p>
-											</div>
-											{#if match.linked_library_title_id && match.linked_library_title_id !== title.libraryId}
-												<div class="flex items-center gap-2">
-													<span class="text-xs text-[var(--text-ghost)]">
-														{$_('title.linkedElsewhere')}
+							{/if}
+
+							{#if displayGenres.length > 0}
+								<div class="flex flex-wrap gap-2">
+									{#each displayGenres as genre (genre)}
+										<span class="bg-[var(--void-2)] px-2.5 py-1 text-[11px] text-[var(--text-ghost)]">
+											{genre}
+										</span>
+									{/each}
+								</div>
+							{/if}
+
+							{#if displayAuthor || (displayArtist && displayArtist !== displayAuthor)}
+								<div class="flex flex-col gap-3">
+									{#if displayAuthor}
+										<div class="flex items-baseline justify-between gap-4">
+											<span class="text-[10px] uppercase tracking-widest text-[var(--void-6)]">
+												{$_('title.author')}
+											</span>
+											<span class="text-xs text-[var(--text-muted)]">{displayAuthor}</span>
+										</div>
+									{/if}
+									{#if displayArtist && displayArtist !== displayAuthor}
+										<div class="flex items-baseline justify-between gap-4">
+											<span class="text-[10px] uppercase tracking-widest text-[var(--void-6)]">
+												{$_('title.artist')}
+											</span>
+											<span class="text-xs text-[var(--text-muted)]">{displayArtist}</span>
+										</div>
+									{/if}
+								</div>
+							{/if}
+						</div>
+					{:else if activeTab === 'chapters'}
+						<!-- CHAPTERS TAB -->
+						{#if variantChaptersLoading && displayedChapters.length === 0}
+							<div class="flex justify-center py-12">
+								<Icon name="loader" size={18} class="animate-spin text-[var(--text-ghost)]" />
+							</div>
+						{:else if displayedChapters.length === 0}
+							<div class="flex flex-col items-center gap-3 py-16">
+								<Icon name="book" size={28} class="text-[var(--void-5)]" />
+								<p class="text-sm text-[var(--text-ghost)]">{$_('title.noChapters')}</p>
+							</div>
+						{:else}
+							<div class="flex flex-col">
+								{#each displayedChapters as chapter (chapter.id)}
+									{@const heading = chapterHeading(chapter)}
+									{@const chapterProgress = readerProgressByChapter[chapter.id]}
+									<a
+										href={withTitleParent(buildReaderPath({
+											titleId: title.libraryId,
+											titleName: displayTitle || title.title,
+											chapterId: chapter.id,
+											chapterName: chapter.title,
+											chapterNumber: chapter.number
+										}))}
+										class="group flex items-center gap-4 py-3 transition-colors hover:bg-[var(--void-2)] {chapter.isRead ? 'opacity-30' : ''}"
+									>
+										<div class="min-w-0 flex-1">
+											<div class="flex items-baseline gap-2">
+												{#if heading.label}
+													<span class="shrink-0 text-sm text-[var(--text)]">
+														{heading.label}
 													</span>
-													<Button
-														variant="outline"
-														size="sm"
-														onclick={() => mergeSourceTitle(match)}
-														disabled={linkingSourceKey === sourceMatchKey(match)}
-														loading={linkingSourceKey === sourceMatchKey(match)}
-													>
-														{$_('title.mergeTitle')}
-													</Button>
-												</div>
-											{:else}
-												<Button
-													variant="outline"
-													size="sm"
-													onclick={() => addSourceVariant(match)}
-													disabled={linkingSourceKey === sourceMatchKey(match)}
-													loading={linkingSourceKey === sourceMatchKey(match)}
-												>
-													{$_('title.addSource')}
-												</Button>
+												{/if}
+												{#if heading.detail}
+													<span class="truncate text-sm text-[var(--text-muted)]">
+														{heading.detail}
+													</span>
+												{/if}
+											</div>
+											<div class="mt-1 flex items-center gap-2 text-[11px] text-[var(--text-ghost)]">
+												<span>{formatDate(chapter.uploadDate)}</span>
+												{#if chapter.scanlator}
+													<span class="text-[var(--void-5)]">·</span>
+													<span class="truncate">{chapter.scanlator}</span>
+												{/if}
+											</div>
+											{#if chapter.downloadError}
+												<p class="mt-1 text-[11px] text-[var(--error)]">{chapter.downloadError}</p>
 											{/if}
 										</div>
-									</div>
+										<div class="flex shrink-0 items-center gap-2 text-[var(--text-ghost)]">
+											{#if chapterProgress !== undefined}
+												<span class="text-[10px] tabular-nums text-[var(--void-7)]">
+													p.{chapterProgress + 1}
+												</span>
+											{/if}
+											{#if chapter.isDownloaded}
+												<Icon name="download" size={13} class="text-[var(--void-7)]" />
+											{/if}
+											{#if chapter.isRead}
+												<Icon name="check" size={13} />
+											{/if}
+										</div>
+									</a>
 								{/each}
-							{/if}
+							</div>
 						{/if}
-					</div>
+					{:else}
+						<!-- COMMENTS TAB -->
+						<div class="flex flex-col gap-2">
+							<div class="flex items-center justify-end">
+								<Button
+									variant="ghost"
+									size="sm"
+									onclick={() => (titleCommentsNewestFirst = !titleCommentsNewestFirst)}
+								>
+									<Icon name="clock" size={13} />
+									{titleCommentsNewestFirst ? $_('reader.sortNewest') : $_('reader.sortOldest')}
+								</Button>
+							</div>
+							{#if titleCommentsError}
+								<p class="text-xs text-[var(--error)]">{titleCommentsError}</p>
+							{:else if titleCommentsLoading}
+								<div class="flex justify-center py-8">
+									<Icon name="loader" size={18} class="animate-spin text-[var(--text-ghost)]" />
+								</div>
+							{:else if titleComments.length === 0}
+								<p class="py-6 text-center text-sm text-[var(--text-ghost)]">{$_('title.noComments')}</p>
+							{:else}
+								<div class="flex flex-col gap-2">
+									{#each titleComments as comment (comment.id)}
+										<a
+											href={titleCommentReaderHref(comment)}
+											class="block bg-[var(--void-2)] px-4 py-3 text-xs transition-colors hover:bg-[var(--void-3)]"
+										>
+											<div class="mb-1.5 flex items-center justify-between gap-2 text-[10px] text-[var(--text-ghost)]">
+												<span class="truncate">
+													{comment.chapter_name} · {$_('reader.page')} {comment.page_index + 1}
+												</span>
+												<span class="shrink-0">{formatDateTime(comment.created_at)}</span>
+											</div>
+											<p class="line-clamp-3 whitespace-pre-wrap text-[var(--text-muted)]">
+												{comment.message}
+											</p>
+										</a>
+									{/each}
+								</div>
+							{/if}
+						</div>
+					{/if}
 				</div>
 			</div>
-		{/if}
+		</div>
 	{:else}
-		<div class="flex flex-col items-center gap-4 py-16 text-center">
-			<div
-				class="flex h-16 w-16 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]"
-			>
-				<Icon name="book" size={24} class="text-[var(--text-ghost)]" />
-			</div>
+		<!-- Not found -->
+		<div class="flex flex-col items-center gap-4 py-20 text-center">
+			<Icon name="book" size={28} class="text-[var(--void-6)]" />
 			<div>
-				<p class="text-[var(--text)]">{$_('title.notFound')}</p>
-				<p class="mt-1 text-sm text-[var(--text-ghost)]">
+				<p class="text-sm text-[var(--text-ghost)]">{$_('title.notFound')}</p>
+				<p class="mt-1 text-xs text-[var(--void-6)]">
 					{$libraryTitleDetailStore.error || $_('title.notFoundDescription')}
 				</p>
 			</div>
-			<Button variant="outline" onclick={handleBack}>
-				{$_('title.backToLibrary')}
-			</Button>
+			<Button variant="outline" onclick={handleBack}>{$_('title.backToLibrary')}</Button>
 		</div>
 	{/if}
 </div>
+
+<!-- MANAGEMENT SLIDE PANEL -->
+{#if title}
+	<SlidePanel
+		open={showManagementPanel}
+		title={$_('title.info')}
+		onclose={() => (showManagementPanel = false)}
+	>
+		<div class="flex flex-col gap-6">
+			<!-- Status selection -->
+			<div class="flex flex-col gap-2">
+				<span class="text-label">{$_('title.status')}</span>
+				<div class="flex flex-wrap gap-1.5">
+					{#each statuses as status (status.id)}
+						<button
+							type="button"
+							class="px-3 py-1.5 text-xs transition-colors {status.id === selectedStatusId
+								? 'bg-[var(--void-5)] text-[var(--text)]'
+								: 'bg-[var(--void-3)] text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+							onclick={() => setStatusId(status.id)}
+						>
+							{status.label}
+						</button>
+					{/each}
+					{#if selectedStatusId !== null}
+						<button
+							type="button"
+							class="px-3 py-1.5 text-xs text-[var(--error)] transition-colors hover:bg-[var(--error-soft)]"
+							onclick={() => setStatusId(null)}
+						>
+							{$_('title.removeFromList')}
+						</button>
+					{/if}
+				</div>
+			</div>
+
+			<!-- Rating -->
+			{#if hasAssignedStatus}
+				<div class="flex flex-col gap-2">
+					<span class="text-label">{$_('title.rating')}</span>
+					<div class="flex items-center gap-1">
+						{#each Array.from({ length: 5 }) as _, i (i)}
+							{@const val = i + 1}
+							<button
+								type="button"
+								class="flex h-10 w-10 items-center justify-center text-lg transition-colors {selectedRating >= val
+									? 'text-[var(--text)]'
+									: 'text-[var(--void-5)] hover:text-[var(--void-7)]'}"
+								onclick={() => setRating(val)}
+							>
+								★
+							</button>
+						{/each}
+						{#if selectedRating > 0}
+							<span class="ml-2 text-xs text-[var(--text-muted)]">{selectedRating}/5</span>
+						{/if}
+					</div>
+				</div>
+			{/if}
+
+			<!-- Collections -->
+			{#if hasAssignedStatus && collections.length > 0}
+				<div class="flex flex-col gap-2">
+					<span class="text-label">{$_('title.collections')}</span>
+					<div class="flex flex-wrap gap-1.5">
+						{#each collections as collection (collection.id)}
+							{@const active = selectedCollectionIds.includes(collection.id)}
+							<button
+								type="button"
+								class="px-3 py-1.5 text-xs transition-colors {active
+									? 'bg-[var(--void-5)] text-[var(--text)]'
+									: 'bg-[var(--void-3)] text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+								onclick={() => toggleCollection(collection.id)}
+							>
+								{collection.name}
+							</button>
+						{/each}
+					</div>
+				</div>
+			{/if}
+
+			<!-- Monitoring toggle -->
+			<div class="flex flex-col gap-2">
+				<span class="text-label">{$_('downloads.monitor')}</span>
+				<button
+					type="button"
+					class="flex h-10 items-center gap-3 px-3 text-xs transition-colors {isMonitoringSelectedVariant
+						? 'bg-[var(--void-5)] text-[var(--text)]'
+						: 'bg-[var(--void-3)] text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+					onclick={toggleMonitoringForSelectedVariant}
+					disabled={!hasAssignedStatus || selectedVariantId === null}
+				>
+					<Icon name="download" size={14} />
+					{isMonitoringSelectedVariant ? $_('downloads.enabled') : $_('downloads.disabled')}
+				</button>
+			</div>
+
+			<!-- Sources section -->
+			{#if visibleVariants.length > 0}
+				<div class="flex flex-col gap-2">
+					<span class="text-label">{$_('title.sources')}</span>
+					<div class="flex flex-col">
+						{#each visibleVariants as variant (variant.id)}
+							<button
+								type="button"
+								class="flex items-center gap-3 py-2.5 text-left text-xs transition-colors {variant.id === selectedVariantId
+									? 'text-[var(--text)]'
+									: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+								onclick={() => chooseReadingVariant(variant.id)}
+							>
+								<div class="min-w-0 flex-1">
+									<span>{variant.sourceName || variant.sourceId}</span>
+									{#if variant.id === selectedVariantId}
+										<span class="ml-2 text-[var(--void-6)]">{$_('title.readingNow')}</span>
+									{/if}
+									<p class="mt-0.5 truncate text-[var(--void-6)]">{variant.title}</p>
+								</div>
+								<span class="shrink-0 text-[10px] text-[var(--void-7)]">
+									{variant.sourceLang || ''}
+								</span>
+							</button>
+						{/each}
+					</div>
+				</div>
+			{/if}
+
+			<!-- Find other sources -->
+			<div class="flex flex-col gap-2">
+				<div class="flex items-center gap-2">
+					<input
+						type="text"
+						class="h-8 w-20 bg-[var(--void-3)] px-2 text-xs text-[var(--text)] placeholder-[var(--void-6)] focus:bg-[var(--void-4)] focus:outline-none"
+						placeholder={$_('title.langFilter')}
+						bind:value={sourceLangFilter}
+					/>
+					<Button
+						variant="outline"
+						size="sm"
+						onclick={findOtherSources}
+						disabled={sourceMatchesLoading}
+						loading={sourceMatchesLoading}
+					>
+						{$_('title.findOtherSources')}
+					</Button>
+				</div>
+				{#if sourceMatchesError}
+					<p class="text-xs text-[var(--error)]">{sourceMatchesError}</p>
+				{/if}
+				{#if sourceMatchesLoaded}
+					{#if sourceMatches.length === 0}
+						<p class="text-xs text-[var(--void-6)]">{$_('title.noSourceMatches')}</p>
+					{:else}
+						<div class="flex flex-col gap-1.5">
+							{#each sourceMatches as match (sourceMatchKey(match))}
+								<div class="flex items-center gap-2 bg-[var(--void-3)] p-2.5">
+									<div class="min-w-0 flex-1">
+										<p class="text-xs text-[var(--text-muted)]">
+											{match.source_name}
+											{#if match.source_lang}
+												<span class="text-[var(--void-6)]">[{match.source_lang}]</span>
+											{/if}
+										</p>
+										<p class="truncate text-[11px] text-[var(--void-6)]">{match.title}</p>
+									</div>
+									{#if match.linked_library_title_id && match.linked_library_title_id !== title.libraryId}
+										<Button
+											variant="outline"
+											size="sm"
+											onclick={() => mergeSourceTitle(match)}
+											disabled={linkingSourceKey === sourceMatchKey(match)}
+											loading={linkingSourceKey === sourceMatchKey(match)}
+										>
+											{$_('title.mergeTitle')}
+										</Button>
+									{:else}
+										<Button
+											variant="outline"
+											size="sm"
+											onclick={() => addSourceVariant(match)}
+											disabled={linkingSourceKey === sourceMatchKey(match)}
+											loading={linkingSourceKey === sourceMatchKey(match)}
+										>
+											{$_('title.addSource')}
+										</Button>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					{/if}
+				{/if}
+			</div>
+
+			<!-- Save status feedback -->
+			{#if prefsError}
+				<span class="text-[11px] text-[var(--error)]">{prefsError}</span>
+			{:else if hasPendingSave}
+				<span class="text-[11px] text-[var(--void-7)]">{$_('title.saving')}</span>
+			{:else if prefsSuccess}
+				<span class="text-[11px] text-[var(--text-muted)]">{$_('title.saved')}</span>
+			{/if}
+		</div>
+	</SlidePanel>
+{/if}

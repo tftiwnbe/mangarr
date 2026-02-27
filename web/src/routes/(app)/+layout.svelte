@@ -8,6 +8,7 @@
 	import { Icon } from '$lib/elements/icon';
 	import { StarField } from '$lib/elements/starfield';
 	import { _ } from '$lib/i18n';
+	import { panelOverlayOpen } from '$lib/stores/ui';
 
 	let { children } = $props();
 	let isCheckingAuth = $state(true);
@@ -24,6 +25,7 @@
 	] as const;
 
 	const currentPath = $derived(page.url.pathname);
+	const isReaderRoute = $derived(currentPath.startsWith('/reader/'));
 
 	async function navigateToLogin(): Promise<void> {
 		const target = encodeURIComponent(redirectTarget);
@@ -105,22 +107,24 @@
 		</main>
 
 		<!-- Bottom navigation (mobile) -->
-		<nav class="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--line)] bg-[var(--void-1)]/95 backdrop-blur-sm md:hidden">
-			<div class="flex items-center justify-around">
-				{#each navItems as item}
-					{@const isActive = currentPath.startsWith(item.href)}
-					<a
-						href={item.href}
-						class="flex flex-1 flex-col items-center gap-1 py-3 text-xs transition-colors {isActive
-							? 'text-[var(--text)]'
-							: 'text-[var(--text-ghost)]'}"
-					>
-						<Icon name={item.icon} size={20} />
-						<span>{$_(`nav.${item.label}`)}</span>
-					</a>
-				{/each}
-			</div>
-		</nav>
+		{#if !isReaderRoute && !$panelOverlayOpen}
+			<nav class="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--line)] bg-[var(--void-1)]/95 backdrop-blur-sm md:hidden">
+				<div class="flex items-center justify-around">
+					{#each navItems as item}
+						{@const isActive = currentPath.startsWith(item.href)}
+						<a
+							href={item.href}
+							class="flex flex-1 flex-col items-center gap-1 py-3 text-xs transition-colors {isActive
+								? 'text-[var(--text)]'
+								: 'text-[var(--text-ghost)]'}"
+						>
+							<Icon name={item.icon} size={20} />
+							<span>{$_(`nav.${item.label}`)}</span>
+						</a>
+					{/each}
+				</div>
+			</nav>
+		{/if}
 
 		<!-- Desktop sidebar -->
 		<aside class="fixed inset-y-0 left-0 z-40 hidden w-16 flex-col border-r border-[var(--line)] bg-[var(--void-1)] md:flex">

@@ -247,6 +247,15 @@ body {
 		border: 1px solid rgba(113, 113, 122, 0.06);
 		border-radius: 50%;
 	}
+
+	/* Hide scrollbar but keep scrollable */
+	.no-scrollbar {
+		scrollbar-width: none;
+		-ms-overflow-style: none;
+	}
+	.no-scrollbar::-webkit-scrollbar {
+		display: none;
+	}
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

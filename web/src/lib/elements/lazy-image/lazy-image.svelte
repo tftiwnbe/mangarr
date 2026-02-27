@@ -23,17 +23,25 @@
 	let shouldLoad = $state(loading === 'eager');
 	let isLoaded = $state(false);
 	let hasError = $state(false);
+	let activeSrc = $state('');
 
 	$effect(() => {
-		isLoaded = false;
-		hasError = false;
-		if (!src.trim()) {
-			shouldLoad = false;
+		const nextSrc = src.trim();
+		if (!nextSrc) {
+			if (!activeSrc) {
+				isLoaded = false;
+			}
 			return;
 		}
 		if (loading === 'eager') {
 			shouldLoad = true;
 		}
+		if (nextSrc === activeSrc) {
+			return;
+		}
+		activeSrc = nextSrc;
+		isLoaded = false;
+		hasError = false;
 	});
 
 	onMount(() => {
@@ -64,9 +72,9 @@
 	{#if !isLoaded}
 		<div class="absolute inset-0 animate-pulse bg-[var(--void-3)]"></div>
 	{/if}
-	{#if shouldLoad && src.trim()}
+	{#if shouldLoad && activeSrc}
 		<img
-			src={src}
+			src={activeSrc}
 			{alt}
 			{loading}
 			{decoding}

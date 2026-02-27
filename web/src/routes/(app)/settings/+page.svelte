@@ -20,6 +20,7 @@
 		createLibraryStatus,
 		deleteLibraryStatus,
 		listLibraryStatuses,
+		updateLibraryCollection,
 		updateLibraryStatus,
 		type LibraryCollectionResource,
 		type LibraryUserStatusResource
@@ -36,7 +37,7 @@
 	import { Input } from '$lib/elements/input';
 	import { _ } from '$lib/i18n';
 
-	type SettingsTab = 'account' | 'library' | 'downloads' | 'jobs' | 'about';
+	type SettingsTab = 'account' | 'library' | 'system' | 'about';
 
 	let user = $state<UserProfile | null>(null);
 	let loading = $state(true);
@@ -74,6 +75,11 @@
 	let newCollectionName = $state('');
 	let creatingCollection = $state(false);
 	let deletingCollectionId = $state<number | null>(null);
+	let collectionSavingId = $state<number | null>(null);
+
+	const sortedCollections = $derived(
+		[...collections].sort((a, b) => b.titles_count - a.titles_count)
+	);
 
 	let downloadRootDir = $state('');
 	let downloadParallelDownloads = $state(2);
@@ -210,6 +216,7 @@
 				new_password: newPassword
 			});
 			passwordSuccess = true;
+			setTimeout(() => (passwordSuccess = false), 3000);
 			currentPassword = '';
 			newPassword = '';
 			confirmPassword = '';
@@ -228,6 +235,7 @@
 		try {
 			await rotateApiKey();
 			apiKeySuccess = true;
+			setTimeout(() => (apiKeySuccess = false), 3000);
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Failed to rotate API key';
 		} finally {
@@ -394,6 +402,35 @@
 		}
 	}
 
+	function handleCollectionFieldChange(collectionId: number, value: string) {
+		collections = collections.map((collection) =>
+			collection.id === collectionId
+				? {
+						...collection,
+						name: value
+					}
+				: collection
+		);
+	}
+
+	async function handleSaveCollection(collectionId: number) {
+		const collection = collections.find((item) => item.id === collectionId);
+		if (!collection || collectionSavingId === collectionId) return;
+		collectionSavingId = collectionId;
+		collectionsError = null;
+		try {
+			const updated = await updateLibraryCollection(collectionId, {
+				name: collection.name,
+				position: collection.position
+			});
+			collections = collections.map((item) => (item.id === collectionId ? updated : item));
+		} catch (cause) {
+			collectionsError = cause instanceof Error ? cause.message : 'Failed to save collection';
+		} finally {
+			collectionSavingId = null;
+		}
+	}
+
 	async function handleSaveDownloadSettings() {
 		if (!downloadRootDir.trim() || downloadsSettingsSaving) return;
 		const parallel = Math.round(downloadParallelDownloads);
@@ -415,6 +452,7 @@
 			downloadUsedBytes = updated.used_bytes;
 			downloadFreeBytes = updated.free_bytes;
 			downloadsSettingsSuccess = true;
+			setTimeout(() => (downloadsSettingsSuccess = false), 3000);
 		} catch (cause) {
 			downloadsSettingsError =
 				cause instanceof Error ? cause.message : 'Failed to save download settings';
@@ -442,6 +480,7 @@
 			jobsCleanupBatchLimit = updated.cleanup_unassigned_batch_limit;
 			jobsLastCleanupAt = updated.last_cleanup_at ?? null;
 			jobsSettingsSuccess = true;
+			setTimeout(() => (jobsSettingsSuccess = false), 3000);
 		} catch (cause) {
 			jobsSettingsError = cause instanceof Error ? cause.message : 'Failed to save jobs settings';
 		} finally {
@@ -472,10 +511,8 @@
 	<title>{$_('nav.settings')} | {$_('app.name')}</title>
 </svelte:head>
 
-<div class="flex flex-col gap-6">
-	<div class="flex items-center justify-between">
-		<h1 class="text-display text-xl text-[var(--text)]">{$_('nav.settings').toLowerCase()}</h1>
-	</div>
+<div class="flex flex-col gap-6 max-w-xl">
+	<h1 class="text-display text-xl text-[var(--text)]">{$_('nav.settings').toLowerCase()}</h1>
 
 	{#if loading}
 		<div class="flex flex-col items-center gap-4 py-16">
@@ -483,160 +520,146 @@
 			<p class="text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
 		</div>
 	{:else if error && !user}
-		<div class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]">
-			{error}
-		</div>
+		<p class="text-sm text-[var(--error)]">{error}</p>
 	{:else}
-		<div class="flex flex-wrap gap-2 border-b border-[var(--line)] pb-3">
+		<!-- Tabs -->
+		<div class="flex gap-1 overflow-x-auto no-scrollbar">
 			<button
 				type="button"
-				class="border px-3 py-1.5 text-xs transition-colors {activeTab === 'account'
-					? 'border-[var(--text)] bg-[var(--void-2)] text-[var(--text)]'
-					: 'border-[var(--line)] text-[var(--text-ghost)] hover:border-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+				class="shrink-0 px-3 py-1.5 text-xs font-medium transition-colors {activeTab === 'account'
+					? 'bg-[var(--void-4)] text-[var(--text)]'
+					: 'text-[var(--text-ghost)] hover:bg-[var(--void-3)] hover:text-[var(--text-muted)]'}"
 				onclick={() => (activeTab = 'account')}
 			>
-				{$_('settings.account')}
+				{$_('settings.account').toLowerCase()}
 			</button>
 			<button
 				type="button"
-				class="border px-3 py-1.5 text-xs transition-colors {activeTab === 'library'
-					? 'border-[var(--text)] bg-[var(--void-2)] text-[var(--text)]'
-					: 'border-[var(--line)] text-[var(--text-ghost)] hover:border-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+				class="shrink-0 px-3 py-1.5 text-xs font-medium transition-colors {activeTab === 'library'
+					? 'bg-[var(--void-4)] text-[var(--text)]'
+					: 'text-[var(--text-ghost)] hover:bg-[var(--void-3)] hover:text-[var(--text-muted)]'}"
 				onclick={() => (activeTab = 'library')}
 			>
-				{$_('nav.library')}
+				{$_('nav.library').toLowerCase()}
 			</button>
 			<button
 				type="button"
-				class="border px-3 py-1.5 text-xs transition-colors {activeTab === 'downloads'
-					? 'border-[var(--text)] bg-[var(--void-2)] text-[var(--text)]'
-					: 'border-[var(--line)] text-[var(--text-ghost)] hover:border-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-				onclick={() => (activeTab = 'downloads')}
+				class="shrink-0 px-3 py-1.5 text-xs font-medium transition-colors {activeTab === 'system'
+					? 'bg-[var(--void-4)] text-[var(--text)]'
+					: 'text-[var(--text-ghost)] hover:bg-[var(--void-3)] hover:text-[var(--text-muted)]'}"
+				onclick={() => (activeTab = 'system')}
 			>
-				{$_('nav.downloads')}
+				{$_('settings.system').toLowerCase()}
 			</button>
 			<button
 				type="button"
-				class="border px-3 py-1.5 text-xs transition-colors {activeTab === 'jobs'
-					? 'border-[var(--text)] bg-[var(--void-2)] text-[var(--text)]'
-					: 'border-[var(--line)] text-[var(--text-ghost)] hover:border-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-				onclick={() => (activeTab = 'jobs')}
-			>
-				{$_('settings.jobs')}
-			</button>
-			<button
-				type="button"
-				class="border px-3 py-1.5 text-xs transition-colors {activeTab === 'about'
-					? 'border-[var(--text)] bg-[var(--void-2)] text-[var(--text)]'
-					: 'border-[var(--line)] text-[var(--text-ghost)] hover:border-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+				class="shrink-0 px-3 py-1.5 text-xs font-medium transition-colors {activeTab === 'about'
+					? 'bg-[var(--void-4)] text-[var(--text)]'
+					: 'text-[var(--text-ghost)] hover:bg-[var(--void-3)] hover:text-[var(--text-muted)]'}"
 				onclick={() => (activeTab = 'about')}
 			>
-				{$_('settings.about')}
+				{$_('settings.about').toLowerCase()}
 			</button>
 		</div>
 
+		<!-- ═══════════════════ ACCOUNT ═══════════════════ -->
 		{#if activeTab === 'account'}
-			<section class="border border-[var(--line)] bg-[var(--void-2)] p-4">
-				<h2 class="text-sm font-medium text-[var(--text)]">{$_('settings.account')}</h2>
-				<div class="mt-3 space-y-2 text-sm">
-					<div class="flex items-center justify-between">
-						<span class="text-[var(--text-ghost)]">{$_('settings.username')}</span>
-						<span class="text-[var(--text)]">{user?.username}</span>
+			<div class="flex flex-col gap-8">
+				<!-- Identity + sign out -->
+				<div class="flex flex-col gap-3">
+					<div class="flex items-baseline justify-between">
+						<span class="text-label">{$_('settings.username')}</span>
+						<span class="text-sm text-[var(--text)]">{user?.username}</span>
 					</div>
-					<div class="flex items-center justify-between">
-						<span class="text-[var(--text-ghost)]">{$_('settings.role')}</span>
-						<span class="text-[var(--text)]"
-							>{user?.is_admin ? $_('settings.roleAdmin') : $_('settings.roleUser')}</span
-						>
+					<div class="flex items-baseline justify-between">
+						<span class="text-label">{$_('settings.role')}</span>
+						<span class="text-sm text-[var(--text)]">{user?.is_admin ? $_('settings.roleAdmin') : $_('settings.roleUser')}</span>
 					</div>
-				</div>
-			</section>
-
-			<section class="border border-[var(--line)] bg-[var(--void-2)] p-4">
-				<h2 class="text-sm font-medium text-[var(--text)]">{$_('settings.changePassword')}</h2>
-				<form class="mt-4 flex flex-col gap-4" onsubmit={handleChangePassword}>
-					<Input
-						type="password"
-						label={$_('settings.currentPassword')}
-						bind:value={currentPassword}
-						required
-						autocomplete="current-password"
-					/>
-					<Input
-						type="password"
-						label={$_('settings.newPassword')}
-						bind:value={newPassword}
-						required
-						autocomplete="new-password"
-					/>
-					<Input
-						type="password"
-						label={$_('settings.confirmPassword')}
-						bind:value={confirmPassword}
-						required
-						autocomplete="new-password"
-					/>
-
-					{#if passwordError}
-						<div
-							class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]"
-						>
-							{passwordError}
-						</div>
-					{/if}
-
-					{#if passwordSuccess}
-						<div
-							class="border border-[var(--success)]/20 bg-[var(--success-soft)] px-4 py-3 text-sm text-[var(--success)]"
-						>
-							{$_('settings.passwordChanged')}
-						</div>
-					{/if}
-
-					<Button
-						type="submit"
-						variant="outline"
-						size="sm"
-						disabled={passwordLoading || !currentPassword || !newPassword || !confirmPassword}
-						loading={passwordLoading}
-						class="self-start"
-					>
-						{$_('settings.updatePassword')}
+					<Button variant="ghost" size="sm" onclick={handleSignOut} class="self-start">
+						<Icon name="arrow-left" size={14} />
+						{$_('settings.signOut').toLowerCase()}
 					</Button>
-				</form>
-			</section>
-
-			<section class="border border-[var(--line)] bg-[var(--void-2)] p-4">
-				<h2 class="text-sm font-medium text-[var(--text)]">{$_('settings.apiKey')}</h2>
-				<p class="mt-1 text-xs text-[var(--text-ghost)]">{$_('settings.apiKeyDescription')}</p>
-				<div class="mt-4 flex items-center gap-2">
-					<Button
-						variant="outline"
-						size="sm"
-						onclick={handleRotateApiKey}
-						disabled={apiKeyLoading}
-						loading={apiKeyLoading}
-					>
-						<Icon name="refresh" size={14} />
-						{$_('settings.rotateApiKey')}
-					</Button>
-					{#if apiKeySuccess}
-						<span class="text-xs text-[var(--success)]">{$_('settings.apiKeyRotated')}</span>
-					{/if}
 				</div>
 
-				<div class="mt-6 border-t border-[var(--line)] pt-4">
-					<h3 class="text-xs font-medium tracking-[0.08em] text-[var(--text-muted)] uppercase">
-						{$_('settings.integrationApiKeys')}
-					</h3>
-					<p class="mt-1 text-xs text-[var(--text-ghost)]">
-						{$_('settings.integrationApiKeysDescription')}
-					</p>
+				<!-- Change Password -->
+				<section class="flex flex-col gap-4">
+					<h2 class="text-sm font-medium text-[var(--text-soft)]">{$_('settings.changePassword').toLowerCase()}</h2>
+					<form class="flex flex-col gap-4" onsubmit={handleChangePassword}>
+						<Input
+							type="password"
+							label={$_('settings.currentPassword')}
+							bind:value={currentPassword}
+							required
+							autocomplete="current-password"
+						/>
+						<Input
+							type="password"
+							label={$_('settings.newPassword')}
+							bind:value={newPassword}
+							required
+							autocomplete="new-password"
+						/>
+						<Input
+							type="password"
+							label={$_('settings.confirmPassword')}
+							bind:value={confirmPassword}
+							required
+							autocomplete="new-password"
+						/>
 
-					<div class="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
+						{#if passwordError}
+							<p class="text-xs text-[var(--error)] animate-fade-in">{passwordError}</p>
+						{/if}
+						{#if passwordSuccess}
+							<p class="text-xs text-[var(--success)] animate-fade-in">{$_('settings.passwordChanged')}</p>
+						{/if}
+
+						<Button
+							type="submit"
+							variant="outline"
+							size="sm"
+							disabled={passwordLoading || !currentPassword || !newPassword || !confirmPassword}
+							loading={passwordLoading}
+							class="self-start"
+						>
+							{$_('settings.updatePassword').toLowerCase()}
+						</Button>
+					</form>
+				</section>
+
+				<!-- API Key -->
+				<section class="flex flex-col gap-3">
+					<h2 class="text-sm font-medium text-[var(--text-soft)]">{$_('settings.apiKey').toLowerCase()}</h2>
+					<p class="text-xs text-[var(--text-ghost)]">{$_('settings.apiKeyDescription')}</p>
+					<div class="flex items-center gap-3">
+						<Button
+							variant="outline"
+							size="sm"
+							onclick={handleRotateApiKey}
+							disabled={apiKeyLoading}
+							loading={apiKeyLoading}
+						>
+							<Icon name="refresh" size={14} />
+							{$_('settings.rotateApiKey').toLowerCase()}
+						</Button>
+						{#if apiKeySuccess}
+							<span class="text-xs text-[var(--success)] animate-fade-in">{$_('settings.apiKeyRotated')}</span>
+						{/if}
+					</div>
+				</section>
+
+				<!-- Integration API Keys -->
+				<section class="flex flex-col gap-4">
+					<div class="flex flex-col gap-1">
+						<h2 class="text-sm font-medium text-[var(--text-soft)]">{$_('settings.integrationApiKeys').toLowerCase()}</h2>
+						<p class="text-xs text-[var(--text-ghost)]">{$_('settings.integrationApiKeysDescription')}</p>
+					</div>
+
+					<!-- Create new key -->
+					<div class="flex flex-col gap-2">
 						<input
 							type="text"
-							class="h-9 border border-[var(--line)] bg-[var(--void-3)] px-3 text-sm text-[var(--text)] focus:border-[var(--void-6)] focus:outline-none"
+							class="settings-input"
 							placeholder={$_('settings.integrationApiKeyNamePlaceholder')}
 							bind:value={integrationKeyName}
 						/>
@@ -646,24 +669,26 @@
 							onclick={handleCreateIntegrationApiKey}
 							disabled={!integrationKeyName.trim() || creatingIntegrationKey}
 							loading={creatingIntegrationKey}
+							class="self-start"
 						>
-							{$_('settings.createIntegrationApiKey')}
+							{$_('settings.createIntegrationApiKey').toLowerCase()}
 						</Button>
 					</div>
 
+					<!-- Created key banner -->
 					{#if createdIntegrationKeyValue}
-						<div class="mt-3 border border-[var(--line)] bg-[var(--void-3)] p-3">
+						<div class="bg-[var(--void-3)] p-4 animate-fade-in">
 							<p class="text-xs text-[var(--text-ghost)]">
 								{$_('settings.integrationApiKeyCreated', {
 									values: { name: createdIntegrationKeyName ?? '' }
 								})}
 							</p>
-							<p class="mt-2 break-all font-mono text-xs text-[var(--text)]">
+							<p class="mt-2 break-all text-xs text-[var(--text)]">
 								{createdIntegrationKeyValue}
 							</p>
-							<div class="mt-2 flex gap-2">
+							<div class="mt-3 flex gap-2">
 								<Button variant="ghost" size="sm" onclick={copyCreatedIntegrationApiKey}>
-									{$_('settings.copyKey')}
+									{$_('settings.copyKey').toLowerCase()}
 								</Button>
 								<Button
 									variant="ghost"
@@ -673,209 +698,234 @@
 										createdIntegrationKeyName = null;
 									}}
 								>
-									{$_('common.close')}
+									{$_('common.close').toLowerCase()}
 								</Button>
 							</div>
 						</div>
 					{/if}
 
+					<!-- Key list -->
 					{#if integrationKeysLoading}
-						<p class="mt-3 text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
+						<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
 					{:else if integrationApiKeys.length === 0}
-						<p class="mt-3 text-sm text-[var(--text-ghost)]">{$_('settings.noIntegrationApiKeys')}</p>
+						<p class="text-xs text-[var(--text-ghost)]">{$_('settings.noIntegrationApiKeys')}</p>
 					{:else}
-						<div class="mt-3 flex flex-col gap-2">
+						<div class="flex flex-col">
 							{#each integrationApiKeys as key (key.id)}
-								<div
-									class="grid gap-2 border border-[var(--line)] bg-[var(--void-3)] p-3 md:grid-cols-[1fr_auto]"
-								>
-									<div class="min-w-0">
+								<div class="flex items-center justify-between gap-3 py-3 border-b border-[var(--void-3)]/30 last:border-b-0">
+									<div class="min-w-0 flex-1">
 										<p class="truncate text-sm text-[var(--text)]">{key.name}</p>
 										<p class="mt-1 text-xs text-[var(--text-ghost)]">
-											{key.key_prefix} • {$_('settings.createdAt')}:
-											{formatDateTime(key.created_at)}
+											{key.key_prefix} · {$_('settings.createdAt')}: {formatDateTime(key.created_at)}
 										</p>
 										{#if key.last_used_at}
-											<p class="mt-1 text-xs text-[var(--text-ghost)]">
+											<p class="mt-0.5 text-xs text-[var(--text-ghost)]">
 												{$_('settings.lastUsedAt')}: {formatDateTime(key.last_used_at)}
 											</p>
 										{/if}
 									</div>
-									<div class="flex items-center">
-										<Button
-											variant="ghost"
-											size="sm"
-											onclick={() => handleRevokeIntegrationApiKey(key.id)}
-											disabled={revokingIntegrationKeyId === key.id}
-											loading={revokingIntegrationKeyId === key.id}
-										>
-											{$_('settings.revokeKey')}
-										</Button>
-									</div>
+									<Button
+										variant="ghost"
+										size="sm"
+										onclick={() => handleRevokeIntegrationApiKey(key.id)}
+										disabled={revokingIntegrationKeyId === key.id}
+										loading={revokingIntegrationKeyId === key.id}
+									>
+										{$_('settings.revokeKey').toLowerCase()}
+									</Button>
 								</div>
 							{/each}
 						</div>
 					{/if}
 
 					{#if integrationKeysError}
-						<p class="mt-3 text-xs text-[var(--error)]">{integrationKeysError}</p>
+						<p class="text-xs text-[var(--error)] animate-fade-in">{integrationKeysError}</p>
 					{/if}
-				</div>
-			</section>
+				</section>
+			</div>
 
-			<section class="border border-[var(--line)] bg-[var(--void-2)] p-4">
-				<h2 class="text-sm font-medium text-[var(--text)]">{$_('settings.session')}</h2>
-				<p class="mt-1 text-xs text-[var(--text-ghost)]">{$_('settings.sessionDescription')}</p>
-				<div class="mt-4">
-					<Button variant="outline" size="sm" onclick={handleSignOut}>
-						<Icon name="arrow-left" size={14} />
-						{$_('settings.signOut')}
-					</Button>
-				</div>
-			</section>
+		<!-- ═══════════════════ LIBRARY ═══════════════════ -->
 		{:else if activeTab === 'library'}
-			<section class="border border-[var(--line)] bg-[var(--void-2)] p-4">
-				<h2 class="text-sm font-medium text-[var(--text)]">{$_('settings.libraryStatuses')}</h2>
-				<p class="mt-1 text-xs text-[var(--text-ghost)]">{$_('settings.libraryStatusesDescription')}</p>
-				{#if statusesLoading}
-					<p class="mt-3 text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
-				{:else}
-					<div class="mt-4 flex flex-col gap-2">
-						{#each statuses as status (status.id)}
-							<div
-								class="grid gap-2 border border-[var(--line)] bg-[var(--void-3)] p-3 md:grid-cols-[1fr_auto_auto]"
-							>
-								<input
-									type="text"
-									class="h-9 border border-[var(--line)] bg-[var(--void-2)] px-3 text-sm text-[var(--text)] focus:border-[var(--void-6)] focus:outline-none"
-									value={status.label}
-									oninput={(event) =>
-										handleStatusFieldChange(status.id, (event.currentTarget as HTMLInputElement).value)}
-								/>
-								<div class="flex items-center">
-									<span class="text-xs text-[var(--text-ghost)]">{status.key}</span>
-								</div>
-								<div class="flex items-center gap-2">
+			<div class="flex flex-col gap-8">
+				<!-- Statuses -->
+				<section class="flex flex-col gap-3">
+					<div class="flex flex-col gap-1">
+						<h2 class="text-sm font-medium text-[var(--text-soft)]">{$_('settings.libraryStatuses').toLowerCase()}</h2>
+						<p class="text-xs text-[var(--text-ghost)]">{$_('settings.libraryStatusesDescription')}</p>
+					</div>
+
+					{#if statusesLoading}
+						<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
+					{:else}
+						<div class="flex flex-col">
+							{#each statuses as status (status.id)}
+								<div class="flex items-center gap-2 py-2.5 border-b border-[var(--void-3)]/30 last:border-b-0">
+									<input
+										type="text"
+										class="settings-input-compact min-w-0 flex-1"
+										value={status.label}
+										oninput={(event) =>
+											handleStatusFieldChange(status.id, (event.currentTarget as HTMLInputElement).value)}
+									/>
+									<span
+										class="hidden shrink-0 text-[10px] text-[var(--text-ghost)] sm:inline-flex"
+										title={$_('settings.libraryStatusesDescription')}
+									>
+										{status.key}
+									</span>
 									<Button
-										variant="outline"
+										variant="ghost"
 										size="sm"
 										onclick={() => handleSaveStatus(status.id)}
 										disabled={statusSavingId === status.id}
 										loading={statusSavingId === status.id}
 									>
-										{$_('common.save')}
+										{$_('common.save').toLowerCase()}
 									</Button>
 									{#if !status.is_default}
-										<Button
-											variant="ghost"
-											size="sm"
+										<button
+											type="button"
+											class="flex h-10 w-10 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--error)] hover:bg-[var(--error-soft)]"
 											onclick={() => handleDeleteStatus(status.id)}
 											disabled={deletingStatusId === status.id}
-											loading={deletingStatusId === status.id}
+											title={$_('common.delete')}
 										>
-											{$_('common.delete')}
-										</Button>
+											{#if deletingStatusId === status.id}
+												<Icon name="loader" size={14} class="animate-spin" />
+											{:else}
+												<Icon name="trash-2" size={14} />
+											{/if}
+										</button>
+									{:else}
+										<span class="w-10 shrink-0"></span>
 									{/if}
 								</div>
-							</div>
-						{/each}
-					</div>
-					<div class="mt-4 grid gap-2 border border-[var(--line)] bg-[var(--void-3)] p-3 md:grid-cols-[1fr_auto]">
-						<input
-							type="text"
-							class="h-9 border border-[var(--line)] bg-[var(--void-2)] px-3 text-sm text-[var(--text)] focus:border-[var(--void-6)] focus:outline-none"
-							placeholder={$_('settings.newStatusPlaceholder')}
-							bind:value={newStatusLabel}
-						/>
-						<Button
-							variant="outline"
-							size="sm"
-							onclick={handleCreateStatus}
-							disabled={!newStatusLabel.trim() || creatingStatus}
-							loading={creatingStatus}
-						>
-							{$_('common.add')}
-						</Button>
-					</div>
-				{/if}
-				{#if statusesError}
-					<p class="mt-3 text-xs text-[var(--error)]">{statusesError}</p>
-				{/if}
-			</section>
-			<section class="border border-[var(--line)] bg-[var(--void-2)] p-4">
-				<h2 class="text-sm font-medium text-[var(--text)]">{$_('settings.libraryCollections')}</h2>
-				<p class="mt-1 text-xs text-[var(--text-ghost)]">
-					{$_('settings.libraryCollectionsDescription')}
-				</p>
-				{#if collectionsLoading}
-					<p class="mt-3 text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
-				{:else}
-					{#if collections.length === 0}
-						<p class="mt-3 text-sm text-[var(--text-ghost)]">{$_('settings.noCollections')}</p>
-					{:else}
-						<div class="mt-4 flex flex-col gap-2">
-							{#each collections as collection (collection.id)}
-								<div
-									class="grid gap-2 border border-[var(--line)] bg-[var(--void-3)] p-3 md:grid-cols-[1fr_auto]"
+							{/each}
+
+							<!-- Add new -->
+							<div class="flex items-center gap-2 pt-3">
+								<input
+									type="text"
+									class="settings-input-compact min-w-0 flex-1"
+									placeholder={$_('settings.newStatusPlaceholder')}
+									bind:value={newStatusLabel}
+								/>
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={handleCreateStatus}
+									disabled={!newStatusLabel.trim() || creatingStatus}
+									loading={creatingStatus}
 								>
-									<div class="min-w-0">
-										<p class="truncate text-sm text-[var(--text)]">{collection.name}</p>
-										<p class="mt-1 text-xs text-[var(--text-ghost)]">
-											{$_('settings.collectionTitlesCount', {
-												values: { count: collection.titles_count }
-											})}
-										</p>
-									</div>
-									<div class="flex items-center gap-2">
+									{$_('common.add').toLowerCase()}
+								</Button>
+							</div>
+						</div>
+					{/if}
+
+					{#if statusesError}
+						<p class="text-xs text-[var(--error)] animate-fade-in">{statusesError}</p>
+					{/if}
+				</section>
+
+				<!-- Collections -->
+				<section class="flex flex-col gap-3">
+					<div class="flex flex-col gap-1">
+						<h2 class="text-sm font-medium text-[var(--text-soft)]">{$_('settings.libraryCollections').toLowerCase()}</h2>
+						<p class="text-xs text-[var(--text-ghost)]">{$_('settings.libraryCollectionsDescription')}</p>
+					</div>
+
+					{#if collectionsLoading}
+						<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
+					{:else}
+						<div class="flex flex-col">
+							{#if sortedCollections.length === 0}
+								<p class="py-2 text-xs text-[var(--text-ghost)]">{$_('settings.noCollections')}</p>
+							{:else}
+								{#each sortedCollections as collection (collection.id)}
+									<div class="flex items-center gap-2 py-2.5 border-b border-[var(--void-3)]/30 last:border-b-0">
+										<input
+											type="text"
+											class="settings-input-compact min-w-0 flex-1"
+											value={collection.name}
+											oninput={(event) =>
+												handleCollectionFieldChange(
+													collection.id,
+													(event.currentTarget as HTMLInputElement).value
+												)}
+										/>
 										<Button
 											variant="ghost"
 											size="sm"
-											onclick={() => handleDeleteCollection(collection.id)}
-											disabled={deletingCollectionId === collection.id}
-											loading={deletingCollectionId === collection.id}
+											onclick={() => handleSaveCollection(collection.id)}
+											disabled={collectionSavingId === collection.id}
+											loading={collectionSavingId === collection.id}
 										>
-											{$_('common.delete')}
+											{$_('common.save').toLowerCase()}
 										</Button>
+										<button
+											type="button"
+											class="flex h-10 w-10 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--error)] hover:bg-[var(--error-soft)]"
+											onclick={() => handleDeleteCollection(collection.id)}
+											disabled={deletingCollectionId === collection.id || collectionSavingId === collection.id}
+											title={$_('common.delete')}
+										>
+											{#if deletingCollectionId === collection.id}
+												<Icon name="loader" size={14} class="animate-spin" />
+											{:else}
+												<Icon name="trash-2" size={14} />
+											{/if}
+										</button>
 									</div>
-								</div>
-							{/each}
+								{/each}
+							{/if}
+
+							<!-- Add new -->
+							<div class="flex items-center gap-2 pt-3">
+								<input
+									type="text"
+									class="settings-input-compact min-w-0 flex-1"
+									placeholder={$_('settings.newCollectionPlaceholder')}
+									bind:value={newCollectionName}
+								/>
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={handleCreateCollection}
+									disabled={!newCollectionName.trim() || creatingCollection}
+									loading={creatingCollection}
+								>
+									{$_('common.add').toLowerCase()}
+								</Button>
+							</div>
 						</div>
 					{/if}
-					<div class="mt-4 grid gap-2 border border-[var(--line)] bg-[var(--void-3)] p-3 md:grid-cols-[1fr_auto]">
-						<input
-							type="text"
-							class="h-9 border border-[var(--line)] bg-[var(--void-2)] px-3 text-sm text-[var(--text)] focus:border-[var(--void-6)] focus:outline-none"
-							placeholder={$_('settings.newCollectionPlaceholder')}
-							bind:value={newCollectionName}
-						/>
-						<Button
-							variant="outline"
-							size="sm"
-							onclick={handleCreateCollection}
-							disabled={!newCollectionName.trim() || creatingCollection}
-							loading={creatingCollection}
-						>
-							{$_('common.add')}
-						</Button>
+
+					{#if collectionsError}
+						<p class="text-xs text-[var(--error)] animate-fade-in">{collectionsError}</p>
+					{/if}
+				</section>
+			</div>
+
+		<!-- ═══════════════════ SYSTEM ═══════════════════ -->
+		{:else if activeTab === 'system'}
+			<div class="flex flex-col gap-8">
+				<!-- Downloads -->
+				<section class="flex flex-col gap-4">
+					<div class="flex flex-col gap-1">
+						<h2 class="text-sm font-medium text-[var(--text-soft)]">{$_('settings.downloadSettings').toLowerCase()}</h2>
+						<p class="text-xs text-[var(--text-ghost)]">{$_('settings.downloadSettingsDescription')}</p>
 					</div>
-				{/if}
-				{#if collectionsError}
-					<p class="mt-3 text-xs text-[var(--error)]">{collectionsError}</p>
-				{/if}
-			</section>
-		{:else if activeTab === 'downloads'}
-			<section class="border border-[var(--line)] bg-[var(--void-2)] p-4">
-				<h2 class="text-sm font-medium text-[var(--text)]">{$_('settings.downloadSettings')}</h2>
-				<p class="mt-1 text-xs text-[var(--text-ghost)]">{$_('settings.downloadSettingsDescription')}</p>
-				{#if downloadsSettingsLoading}
-					<p class="mt-3 text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
-				{:else}
-					<div class="mt-4 flex flex-col gap-3">
+
+					{#if downloadsSettingsLoading}
+						<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
+					{:else}
 						<Input
 							label={$_('settings.downloadPath')}
 							bind:value={downloadRootDir}
 							placeholder="/path/to/downloads"
 						/>
+
 						<div class="flex flex-col gap-1.5">
 							<label class="text-label" for="parallel-downloads">
 								{$_('settings.parallelDownloads')}
@@ -886,7 +936,7 @@
 								min="1"
 								max="16"
 								step="1"
-								class="h-12 w-full border border-[var(--line)] bg-[var(--void-2)] px-4 text-sm text-[var(--text)] focus:border-[var(--void-6)] focus:outline-none"
+								class="settings-input"
 								value={downloadParallelDownloads}
 								oninput={(event) => {
 									const raw = Number((event.currentTarget as HTMLInputElement).value);
@@ -897,21 +947,24 @@
 								{$_('settings.parallelDownloadsDescription')}
 							</p>
 						</div>
-						<div class="grid grid-cols-3 gap-2 text-xs">
-							<div class="border border-[var(--line)] bg-[var(--void-3)] p-2">
-								<p class="text-[var(--text-ghost)]">{$_('settings.totalSpace')}</p>
-								<p class="mt-1 text-[var(--text)]">{formatBytes(downloadTotalBytes)}</p>
+
+						<!-- Disk stats -->
+						<div class="flex flex-col gap-2 pt-2">
+							<div class="flex items-baseline justify-between">
+								<span class="text-label">{$_('settings.totalSpace')}</span>
+								<span class="text-sm text-[var(--text)]">{formatBytes(downloadTotalBytes)}</span>
 							</div>
-							<div class="border border-[var(--line)] bg-[var(--void-3)] p-2">
-								<p class="text-[var(--text-ghost)]">{$_('settings.usedSpace')}</p>
-								<p class="mt-1 text-[var(--text)]">{formatBytes(downloadUsedBytes)}</p>
+							<div class="flex items-baseline justify-between">
+								<span class="text-label">{$_('settings.usedSpace')}</span>
+								<span class="text-sm text-[var(--text)]">{formatBytes(downloadUsedBytes)}</span>
 							</div>
-							<div class="border border-[var(--line)] bg-[var(--void-3)] p-2">
-								<p class="text-[var(--text-ghost)]">{$_('settings.freeSpace')}</p>
-								<p class="mt-1 text-[var(--text)]">{formatBytes(downloadFreeBytes)}</p>
+							<div class="flex items-baseline justify-between">
+								<span class="text-label">{$_('settings.freeSpace')}</span>
+								<span class="text-sm text-[var(--text)]">{formatBytes(downloadFreeBytes)}</span>
 							</div>
 						</div>
-						<div class="flex gap-2">
+
+						<div class="flex gap-2 pt-1">
 							<Button
 								variant="outline"
 								size="sm"
@@ -919,32 +972,38 @@
 								disabled={!downloadRootDir.trim() || downloadsSettingsSaving}
 								loading={downloadsSettingsSaving}
 							>
-								{$_('common.save')}
+								{$_('common.save').toLowerCase()}
 							</Button>
 							<Button variant="ghost" size="sm" onclick={loadDownloadSettings}>
-								{$_('common.refresh')}
+								{$_('common.refresh').toLowerCase()}
 							</Button>
 						</div>
+
+						{#if downloadsSettingsError}
+							<p class="text-xs text-[var(--error)] animate-fade-in">{downloadsSettingsError}</p>
+						{/if}
+						{#if downloadsSettingsSuccess}
+							<p class="text-xs text-[var(--success)] animate-fade-in">{$_('settings.downloadSettingsSaved')}</p>
+						{/if}
+					{/if}
+				</section>
+
+				<div class="h-px bg-[var(--void-3)]"></div>
+
+				<!-- Jobs / Cleanup -->
+				<section class="flex flex-col gap-4">
+					<div class="flex flex-col gap-1">
+						<h2 class="text-sm font-medium text-[var(--text-soft)]">{$_('settings.jobs').toLowerCase()}</h2>
+						<p class="text-xs text-[var(--text-ghost)]">{$_('settings.jobsDescription')}</p>
 					</div>
-				{/if}
-				{#if downloadsSettingsError}
-					<p class="mt-3 text-xs text-[var(--error)]">{downloadsSettingsError}</p>
-				{/if}
-				{#if downloadsSettingsSuccess}
-					<p class="mt-3 text-xs text-[var(--success)]">{$_('settings.downloadSettingsSaved')}</p>
-				{/if}
-			</section>
-		{:else if activeTab === 'jobs'}
-			<section class="border border-[var(--line)] bg-[var(--void-2)] p-4">
-				<h2 class="text-sm font-medium text-[var(--text)]">{$_('settings.jobs')}</h2>
-				<p class="mt-1 text-xs text-[var(--text-ghost)]">{$_('settings.jobsDescription')}</p>
-				{#if jobsSettingsLoading}
-					<p class="mt-3 text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
-				{:else}
-					<div class="mt-4 flex flex-col gap-3">
-						<label class="flex items-center gap-2 text-sm text-[var(--text)]">
+
+					{#if jobsSettingsLoading}
+						<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
+					{:else}
+						<label class="flex items-center gap-3 py-1 text-sm text-[var(--text)] cursor-pointer select-none">
 							<input
 								type="checkbox"
+								class="h-5 w-5 accent-[var(--void-8)]"
 								checked={jobsCleanupEnabled}
 								onchange={(event) => {
 									jobsCleanupEnabled = (event.currentTarget as HTMLInputElement).checked;
@@ -952,17 +1011,18 @@
 							/>
 							{$_('settings.cleanupUnassignedEnabled')}
 						</label>
-						<div class="grid gap-3 md:grid-cols-3">
-							<div class="flex flex-col gap-1">
-								<label for="jobs-cleanup-interval-days" class="text-xs text-[var(--text-ghost)]"
-									>{$_('settings.cleanupIntervalDays')}</label
-								>
+
+						<div class="flex flex-col gap-4">
+							<div class="flex flex-col gap-1.5">
+								<label class="text-label" for="jobs-cleanup-interval-days">
+									{$_('settings.cleanupIntervalDays')}
+								</label>
 								<input
 									id="jobs-cleanup-interval-days"
 									type="number"
 									min="1"
 									max="365"
-									class="h-10 border border-[var(--line)] bg-[var(--void-3)] px-3 text-sm text-[var(--text)]"
+									class="settings-input"
 									value={jobsCleanupIntervalDays}
 									oninput={(event) => {
 										const raw = Number((event.currentTarget as HTMLInputElement).value);
@@ -970,16 +1030,16 @@
 									}}
 								/>
 							</div>
-							<div class="flex flex-col gap-1">
-								<label for="jobs-cleanup-older-than-days" class="text-xs text-[var(--text-ghost)]"
-									>{$_('settings.cleanupOlderThanDays')}</label
-								>
+							<div class="flex flex-col gap-1.5">
+								<label class="text-label" for="jobs-cleanup-older-than-days">
+									{$_('settings.cleanupOlderThanDays')}
+								</label>
 								<input
 									id="jobs-cleanup-older-than-days"
 									type="number"
 									min="1"
 									max="3650"
-									class="h-10 border border-[var(--line)] bg-[var(--void-3)] px-3 text-sm text-[var(--text)]"
+									class="settings-input"
 									value={jobsCleanupOlderThanDays}
 									oninput={(event) => {
 										const raw = Number((event.currentTarget as HTMLInputElement).value);
@@ -987,16 +1047,16 @@
 									}}
 								/>
 							</div>
-							<div class="flex flex-col gap-1">
-								<label for="jobs-cleanup-batch-limit" class="text-xs text-[var(--text-ghost)]"
-									>{$_('settings.cleanupBatchLimit')}</label
-								>
+							<div class="flex flex-col gap-1.5">
+								<label class="text-label" for="jobs-cleanup-batch-limit">
+									{$_('settings.cleanupBatchLimit')}
+								</label>
 								<input
 									id="jobs-cleanup-batch-limit"
 									type="number"
 									min="1"
 									max="5000"
-									class="h-10 border border-[var(--line)] bg-[var(--void-3)] px-3 text-sm text-[var(--text)]"
+									class="settings-input"
 									value={jobsCleanupBatchLimit}
 									oninput={(event) => {
 										const raw = Number((event.currentTarget as HTMLInputElement).value);
@@ -1005,10 +1065,12 @@
 								/>
 							</div>
 						</div>
+
 						<p class="text-xs text-[var(--text-ghost)]">
 							{$_('settings.lastCleanupAt')}: {formatDateTime(jobsLastCleanupAt)}
 						</p>
-						<div class="flex flex-wrap gap-2">
+
+						<div class="flex gap-2">
 							<Button
 								variant="outline"
 								size="sm"
@@ -1016,7 +1078,7 @@
 								disabled={jobsSettingsSaving}
 								loading={jobsSettingsSaving}
 							>
-								{$_('common.save')}
+								{$_('common.save').toLowerCase()}
 							</Button>
 							<Button
 								variant="ghost"
@@ -1025,35 +1087,92 @@
 								disabled={jobsCleanupRunning}
 								loading={jobsCleanupRunning}
 							>
-								{$_('settings.runCleanupNow')}
+								{$_('settings.runCleanupNow').toLowerCase()}
 							</Button>
 						</div>
-					</div>
-				{/if}
-				{#if jobsSettingsError}
-					<p class="mt-3 text-xs text-[var(--error)]">{jobsSettingsError}</p>
-				{/if}
-				{#if jobsSettingsSuccess}
-					<p class="mt-3 text-xs text-[var(--success)]">{$_('settings.jobsSettingsSaved')}</p>
-				{/if}
-				{#if jobsCleanupInfo}
-					<p class="mt-3 text-xs text-[var(--text-muted)]">{jobsCleanupInfo}</p>
-				{/if}
-			</section>
+
+						{#if jobsSettingsError}
+							<p class="text-xs text-[var(--error)] animate-fade-in">{jobsSettingsError}</p>
+						{/if}
+						{#if jobsSettingsSuccess}
+							<p class="text-xs text-[var(--success)] animate-fade-in">{$_('settings.jobsSettingsSaved')}</p>
+						{/if}
+						{#if jobsCleanupInfo}
+							<p class="text-xs text-[var(--text-muted)] animate-fade-in">{jobsCleanupInfo}</p>
+						{/if}
+					{/if}
+				</section>
+			</div>
+
+		<!-- ═══════════════════ ABOUT ═══════════════════ -->
 		{:else}
-			<section class="border border-[var(--line)] bg-[var(--void-2)] p-4">
-				<h2 class="text-sm font-medium text-[var(--text)]">{$_('settings.about')}</h2>
-				<div class="mt-3 space-y-2 text-sm">
-					<div class="flex items-center justify-between">
-						<span class="text-[var(--text-ghost)]">{$_('app.name')}</span>
-						<span class="text-[var(--text)]">v2.0.0</span>
-					</div>
-					<div class="flex items-center justify-between">
-						<span class="text-[var(--text-ghost)]">{$_('settings.domain')}</span>
-						<span class="text-[var(--text)]">hmphin.space</span>
-					</div>
+			<div class="flex flex-col gap-3">
+				<div class="flex items-baseline justify-between">
+					<span class="text-label">{$_('app.name')}</span>
+					<span class="text-sm text-[var(--text)]">v2.0.0</span>
 				</div>
-			</section>
+				<div class="flex items-baseline justify-between">
+					<span class="text-label">{$_('settings.domain')}</span>
+					<span class="text-sm text-[var(--text)]">hmphin.space</span>
+				</div>
+			</div>
 		{/if}
 	{/if}
 </div>
+
+<style>
+	/* Shared input styles for settings — float in the void */
+	.settings-input {
+		height: 3rem; /* 48px, touch-friendly */
+		width: 100%;
+		border: 1px solid var(--line);
+		background: var(--void-2);
+		padding: 0 1rem;
+		font-size: 0.875rem;
+		color: var(--text);
+		transition: border-color 150ms, background-color 150ms;
+	}
+	.settings-input::placeholder {
+		color: var(--text-ghost);
+	}
+	.settings-input:hover {
+		border-color: var(--void-5);
+	}
+	.settings-input:focus {
+		border-color: var(--void-6);
+		background: var(--void-3);
+		outline: none;
+	}
+
+	/* Compact variant for CRUD list rows */
+	.settings-input-compact {
+		height: 2.5rem; /* 40px */
+		border: 1px solid var(--line);
+		background: var(--void-2);
+		padding: 0 0.75rem;
+		font-size: 0.875rem;
+		color: var(--text);
+		transition: border-color 150ms, background-color 150ms;
+	}
+	.settings-input-compact::placeholder {
+		color: var(--text-ghost);
+	}
+	.settings-input-compact:hover {
+		border-color: var(--void-5);
+	}
+	.settings-input-compact:focus {
+		border-color: var(--void-6);
+		background: var(--void-3);
+		outline: none;
+	}
+
+	/* Hide number input spinners */
+	input[type='number']::-webkit-inner-spin-button,
+	input[type='number']::-webkit-outer-spin-button {
+		-webkit-appearance: none;
+		margin: 0;
+	}
+	input[type='number'] {
+		-moz-appearance: textfield;
+	}
+</style>

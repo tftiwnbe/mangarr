@@ -24,8 +24,14 @@ from app.models import (
     LibraryCollectionTitle,
     LibraryCollectionUpdate,
     LibraryChapter,
+    LibraryChapterComment,
+    LibraryChapterCommentCreate,
+    LibraryChapterCommentResource,
+    LibraryChapterCommentUpdate,
     LibraryChapterPage,
     LibraryChapterPageResource,
+    LibraryChapterProgressResource,
+    LibraryChapterProgressUpdate,
     LibraryChapterResource,
     LibraryImportRequest,
     LibraryImportResponse,
@@ -980,10 +986,240 @@ class LibraryService:
                 downloaded_at=chapter.downloaded_at,
                 download_path=chapter.download_path,
                 download_error=chapter.download_error,
+                reader_page_index=chapter.reader_page_index,
+                reader_updated_at=chapter.reader_updated_at,
             )
             for chapter in chapter_rows
             if chapter.id is not None
         ]
+
+    async def list_title_chapter_progress(
+        self,
+        title_id: int,
+        variant_id: int | None = None,
+    ) -> list[LibraryChapterProgressResource]:
+        title = await self.session.get(LibraryTitle, title_id)
+        if title is None:
+            raise BridgeAPIError(404, f"Library title not found: {title_id}")
+
+        variant = await self._resolve_variant(title_id=title_id, variant_id=variant_id)
+        chapter_rows = (
+            await self.session.exec(
+                select(LibraryChapter)
+                .where(LibraryChapter.variant_id == int(variant.id))
+                .order_by(LibraryChapter.chapter_number, LibraryChapter.date_upload, LibraryChapter.id)
+            )
+        ).all()
+
+        return [
+            LibraryChapterProgressResource(
+                chapter_id=int(chapter.id),
+                page_index=chapter.reader_page_index,
+                comment=chapter.reader_comment,
+                updated_at=chapter.reader_updated_at,
+            )
+            for chapter in chapter_rows
+            if chapter.id is not None
+        ]
+
+    @staticmethod
+    def _to_chapter_comment_resource(
+        comment: LibraryChapterComment, chapter: LibraryChapter
+    ) -> LibraryChapterCommentResource:
+        if comment.id is None:
+            raise BridgeAPIError(500, "Library chapter comment id is missing")
+        return LibraryChapterCommentResource(
+            id=int(comment.id),
+            chapter_id=int(comment.chapter_id),
+            library_title_id=int(chapter.library_title_id),
+            variant_id=int(chapter.variant_id),
+            chapter_name=chapter.name,
+            chapter_number=chapter.chapter_number,
+            page_index=comment.page_index,
+            message=comment.message,
+            created_at=comment.created_at,
+            updated_at=comment.updated_at,
+        )
+
+    async def list_chapter_comments(
+        self,
+        chapter_id: int,
+        newest_first: bool = True,
+    ) -> list[LibraryChapterCommentResource]:
+        chapter = await self.session.get(LibraryChapter, chapter_id)
+        if chapter is None:
+            raise BridgeAPIError(404, f"Library chapter not found: {chapter_id}")
+
+        order = desc(LibraryChapterComment.created_at) if newest_first else LibraryChapterComment.created_at
+        rows = (
+            await self.session.exec(
+                select(LibraryChapterComment)
+                .where(LibraryChapterComment.chapter_id == chapter_id)
+                .order_by(order, desc(LibraryChapterComment.id))
+            )
+        ).all()
+        comments = list(rows)
+        return [self._to_chapter_comment_resource(comment, chapter) for comment in comments]
+
+    async def create_chapter_comment(
+        self,
+        chapter_id: int,
+        payload: LibraryChapterCommentCreate,
+    ) -> LibraryChapterCommentResource:
+        chapter = await self.session.get(LibraryChapter, chapter_id)
+        if chapter is None:
+            raise BridgeAPIError(404, f"Library chapter not found: {chapter_id}")
+
+        message = payload.message.strip()
+        if not message:
+            raise BridgeAPIError(422, "Comment message cannot be empty")
+
+        now = datetime.now(timezone.utc)
+        comment = LibraryChapterComment(
+            chapter_id=chapter_id,
+            page_index=payload.page_index,
+            message=message,
+            created_at=now,
+            updated_at=now,
+        )
+        self.session.add(comment)
+        await self.session.commit()
+        await self.session.refresh(comment)
+        return self._to_chapter_comment_resource(comment, chapter)
+
+    async def update_chapter_comment(
+        self,
+        comment_id: int,
+        payload: LibraryChapterCommentUpdate,
+    ) -> LibraryChapterCommentResource:
+        comment = await self.session.get(LibraryChapterComment, comment_id)
+        if comment is None:
+            raise BridgeAPIError(404, f"Library chapter comment not found: {comment_id}")
+
+        chapter = await self.session.get(LibraryChapter, int(comment.chapter_id))
+        if chapter is None:
+            raise BridgeAPIError(404, f"Library chapter not found: {comment.chapter_id}")
+
+        updates = payload.model_dump(exclude_unset=True)
+        changed = False
+        if "page_index" in updates:
+            comment.page_index = int(updates["page_index"])
+            changed = True
+        if "message" in updates:
+            message = updates["message"]
+            if message is None:
+                raise BridgeAPIError(422, "Comment message cannot be empty")
+            message = message.strip()
+            if not message:
+                raise BridgeAPIError(422, "Comment message cannot be empty")
+            comment.message = message
+            changed = True
+
+        if changed:
+            comment.updated_at = datetime.now(timezone.utc)
+            self.session.add(comment)
+            await self.session.commit()
+            await self.session.refresh(comment)
+
+        return self._to_chapter_comment_resource(comment, chapter)
+
+    async def delete_chapter_comment(self, comment_id: int) -> None:
+        comment = await self.session.get(LibraryChapterComment, comment_id)
+        if comment is None:
+            return
+        await self.session.delete(comment)
+        await self.session.commit()
+
+    async def list_title_comments(
+        self,
+        title_id: int,
+        variant_id: int | None = None,
+        newest_first: bool = True,
+    ) -> list[LibraryChapterCommentResource]:
+        title = await self.session.get(LibraryTitle, title_id)
+        if title is None:
+            raise BridgeAPIError(404, f"Library title not found: {title_id}")
+
+        chapter_stmt = select(LibraryChapter).where(LibraryChapter.library_title_id == title_id)
+        if variant_id is not None:
+            chapter_stmt = chapter_stmt.where(LibraryChapter.variant_id == variant_id)
+
+        chapter_rows = (await self.session.exec(chapter_stmt)).all()
+        chapters = list(chapter_rows)
+        if not chapters:
+            return []
+        chapter_by_id = {int(chapter.id): chapter for chapter in chapters if chapter.id is not None}
+        chapter_ids = list(chapter_by_id.keys())
+        if not chapter_ids:
+            return []
+
+        order = desc(LibraryChapterComment.created_at) if newest_first else LibraryChapterComment.created_at
+        comment_rows = (
+            await self.session.exec(
+                select(LibraryChapterComment)
+                .where(LibraryChapterComment.chapter_id.in_(chapter_ids))
+                .order_by(order, desc(LibraryChapterComment.id))
+            )
+        ).all()
+        comments = list(comment_rows)
+        resources: list[LibraryChapterCommentResource] = []
+        for comment in comments:
+            chapter = chapter_by_id.get(int(comment.chapter_id))
+            if chapter is None:
+                continue
+            resources.append(self._to_chapter_comment_resource(comment, chapter))
+        return resources
+
+    async def get_chapter_progress(self, chapter_id: int) -> LibraryChapterProgressResource:
+        chapter = await self.session.get(LibraryChapter, chapter_id)
+        if chapter is None:
+            raise BridgeAPIError(404, f"Library chapter not found: {chapter_id}")
+        return LibraryChapterProgressResource(
+            chapter_id=chapter_id,
+            page_index=chapter.reader_page_index,
+            comment=chapter.reader_comment,
+            updated_at=chapter.reader_updated_at,
+        )
+
+    async def update_chapter_progress(
+        self,
+        chapter_id: int,
+        payload: LibraryChapterProgressUpdate,
+    ) -> LibraryChapterProgressResource:
+        chapter = await self.session.get(LibraryChapter, chapter_id)
+        if chapter is None:
+            raise BridgeAPIError(404, f"Library chapter not found: {chapter_id}")
+
+        updates = payload.model_dump(exclude_unset=True)
+        changed = False
+        now = datetime.now(timezone.utc)
+
+        if "page_index" in updates:
+            chapter.reader_page_index = updates["page_index"]
+            changed = True
+
+        if "comment" in updates:
+            comment = updates["comment"]
+            if comment is not None:
+                comment = comment.strip()
+                if comment == "":
+                    comment = None
+            chapter.reader_comment = comment
+            changed = True
+
+        if changed:
+            chapter.reader_updated_at = now
+            chapter.updated_at = now
+            self.session.add(chapter)
+            await self.session.commit()
+            await self.session.refresh(chapter)
+
+        return LibraryChapterProgressResource(
+            chapter_id=chapter_id,
+            page_index=chapter.reader_page_index,
+            comment=chapter.reader_comment,
+            updated_at=chapter.reader_updated_at,
+        )
 
     async def list_source_matches(
         self,
@@ -2188,6 +2424,9 @@ class LibraryService:
             is_downloaded=chapter.is_downloaded,
             prev_chapter_id=prev_chapter_id,
             next_chapter_id=next_chapter_id,
+            reader_page_index=chapter.reader_page_index,
+            reader_comment=chapter.reader_comment,
+            reader_updated_at=chapter.reader_updated_at,
             pages=reader_pages,
         )
 

@@ -419,8 +419,41 @@ class DownloadService:
                 int(variant.id): variant for variant in variant_rows if variant.id is not None
             }
 
+        chapter_variant_ids_by_title: dict[int, list[int]] = {}
+        for title_id in title_ids:
+            selected_ids = [
+                variant_id
+                for variant_id in selected_variant_ids_by_title.get(title_id, [])
+                if variant_id in variants_by_id
+            ]
+            if not selected_ids:
+                profile = profiles_by_title_id.get(title_id)
+                title = titles_by_id.get(title_id)
+                fallback_variant_id = (
+                    int(profile.preferred_variant_id)
+                    if profile is not None and profile.preferred_variant_id is not None
+                    else (
+                        int(title.preferred_variant_id)
+                        if title is not None and title.preferred_variant_id is not None
+                        else None
+                    )
+                )
+                if (
+                    fallback_variant_id is not None
+                    and fallback_variant_id in variants_by_id
+                ):
+                    selected_ids = [fallback_variant_id]
+            chapter_variant_ids_by_title[title_id] = selected_ids
+
         chapter_stats: dict[int, tuple[int, int]] = {}
-        if title_ids:
+        chapter_variant_ids = sorted(
+            {
+                variant_id
+                for per_title_ids in chapter_variant_ids_by_title.values()
+                for variant_id in per_title_ids
+            }
+        )
+        if title_ids and chapter_variant_ids:
             chapter_rows = (
                 await self.session.exec(
                     select(
@@ -430,7 +463,10 @@ class DownloadService:
                             case((LibraryChapter.is_downloaded == True, 1), else_=0)  # noqa: E712
                         ),
                     )
-                    .where(LibraryChapter.library_title_id.in_(title_ids))
+                    .where(
+                        LibraryChapter.library_title_id.in_(title_ids),
+                        LibraryChapter.variant_id.in_(chapter_variant_ids),
+                    )
                     .group_by(LibraryChapter.library_title_id)
                 )
             ).all()
