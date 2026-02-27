@@ -5,6 +5,7 @@ from typing import Any
 
 from alembic import command
 from alembic.config import Config
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncEngine,
@@ -20,9 +21,19 @@ class DatabaseSessionManager:
     """Create and manage shared async SQLAlchemy engine and session factories."""
 
     def __init__(self, host: str, engine_kwargs: Mapping[str, Any] | None = None):
+        merged_engine_kwargs: dict[str, Any] = dict(engine_kwargs or {})
+        if host.startswith("sqlite"):
+            connect_args = dict(merged_engine_kwargs.get("connect_args") or {})
+            connect_args.setdefault("timeout", 60)
+            merged_engine_kwargs["connect_args"] = connect_args
+
         self._engine: AsyncEngine | None = create_async_engine(
-            host, **(engine_kwargs) or {}
+            host,
+            **merged_engine_kwargs,
         )
+        if host.startswith("sqlite"):
+            self._configure_sqlite_pragmas()
+
         self._sessionmaker: async_sessionmaker[AsyncSession] | None = (
             async_sessionmaker(
                 bind=self._engine,
@@ -30,6 +41,18 @@ class DatabaseSessionManager:
                 class_=AsyncSession,
             )
         )
+
+    def _configure_sqlite_pragmas(self) -> None:
+        if self._engine is None:
+            return
+
+        @event.listens_for(self._engine.sync_engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, _connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA busy_timeout=60000")
+            cursor.close()
 
     @property
     def engine(self):

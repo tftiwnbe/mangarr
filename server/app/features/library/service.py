@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 from difflib import SequenceMatcher
@@ -6,6 +7,7 @@ from pathlib import Path
 from urllib.parse import quote, urljoin, urlparse
 
 import httpx
+from sqlalchemy.exc import OperationalError, PendingRollbackError
 from sqlalchemy import insert
 from sqlmodel import delete, desc, func, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -106,9 +108,40 @@ def _fallback_title_from_url(title_url: str) -> str:
 
 
 class LibraryService:
+    _SQLITE_LOCK_RETRY_ATTEMPTS = 5
+    _SQLITE_LOCK_INITIAL_DELAY_SECONDS = 0.25
+
     def __init__(self, session: AsyncSession):
         self.session = session
         self.extension_service = ExtensionService(session)
+
+    @staticmethod
+    def _is_sqlite_locked_error(error: BaseException) -> bool:
+        text = str(getattr(error, "orig", error)).lower()
+        return "database is locked" in text or "sqlite_busy" in text
+
+    async def _commit_with_sqlite_retry(self) -> None:
+        delay = self._SQLITE_LOCK_INITIAL_DELAY_SECONDS
+        for attempt in range(self._SQLITE_LOCK_RETRY_ATTEMPTS + 1):
+            try:
+                await self.session.commit()
+                return
+            except OperationalError as exc:
+                if not self._is_sqlite_locked_error(exc):
+                    raise
+                await self.session.rollback()
+                if attempt >= self._SQLITE_LOCK_RETRY_ATTEMPTS:
+                    raise
+                await asyncio.sleep(delay)
+                delay *= 2
+            except PendingRollbackError as exc:
+                if not self._is_sqlite_locked_error(exc):
+                    raise
+                await self.session.rollback()
+                if attempt >= self._SQLITE_LOCK_RETRY_ATTEMPTS:
+                    raise
+                await asyncio.sleep(delay)
+                delay *= 2
 
     async def list_titles(
         self,
@@ -557,7 +590,7 @@ class LibraryService:
                     created_at=datetime.now(timezone.utc),
                 )
             )
-            await self.session.commit()
+            await self._commit_with_sqlite_retry()
 
     async def remove_title_from_collection(self, collection_id: int, title_id: int) -> None:
         await self._get_collection_or_404(collection_id)
@@ -567,7 +600,7 @@ class LibraryService:
                 LibraryCollectionTitle.library_title_id == title_id,
             )
         )
-        await self.session.commit()
+        await self._commit_with_sqlite_retry()
 
     async def update_title_preferences(
         self,
@@ -1193,7 +1226,7 @@ class LibraryService:
         if changed:
             comment.updated_at = datetime.now(timezone.utc)
             self.session.add(comment)
-            await self.session.commit()
+            await self._commit_with_sqlite_retry()
             await self.session.refresh(comment)
 
         return self._to_chapter_comment_resource(comment, chapter)
@@ -1203,7 +1236,7 @@ class LibraryService:
         if comment is None:
             return
         await self.session.delete(comment)
-        await self.session.commit()
+        await self._commit_with_sqlite_retry()
 
     async def list_title_comments(
         self,
@@ -1286,7 +1319,7 @@ class LibraryService:
             chapter.reader_updated_at = now
             chapter.updated_at = now
             self.session.add(chapter)
-            await self.session.commit()
+            await self._commit_with_sqlite_retry()
             await self.session.refresh(chapter)
 
         return LibraryChapterProgressResource(
@@ -1750,7 +1783,7 @@ class LibraryService:
             self._set_profile_variant_ids(profile, [pin_variant_id])
             profile.updated_at = now
             self.session.add(profile)
-        await self.session.commit()
+        await self._commit_with_sqlite_retry()
 
         return LibraryLinkVariantResponse(
             library_title_id=title_id,
@@ -2334,7 +2367,7 @@ class LibraryService:
 
             chapter.updated_at = datetime.now(timezone.utc)
             self.session.add(chapter)
-            await self.session.commit()
+            await self._commit_with_sqlite_retry()
 
             cached_rows = (
                 await self.session.exec(
@@ -2403,7 +2436,7 @@ class LibraryService:
             model.fetched_at = now
             self.session.add(model)
 
-        await self.session.commit()
+        await self._commit_with_sqlite_retry()
         rows = (
             await self.session.exec(
                 select(LibraryChapterPage)
