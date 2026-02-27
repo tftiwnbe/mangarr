@@ -1,6 +1,12 @@
 package mangarr.tachibridge.extensions
 
+import eu.kanade.tachiyomi.network.HttpException
+import io.grpc.Status
+import io.grpc.StatusException
+import io.grpc.StatusRuntimeException
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.serialization.MissingFieldException
+import java.util.regex.Pattern
 import mangarr.tachibridge.HealthCheckRequest
 import mangarr.tachibridge.HealthCheckResponse
 import mangarr.tachibridge.TachibridgeGrpcKt
@@ -21,6 +27,54 @@ class ExtensionBridgeService(
     private val extensionManager: ExtensionManager,
     private val repoService: ExtensionRepoService,
 ) : TachibridgeGrpcKt.TachibridgeCoroutineImplBase() {
+    private fun asGrpcException(operation: String, error: Exception): Exception {
+        if (error is StatusException || error is StatusRuntimeException) return error
+
+        val chain = generateSequence(error as Throwable?) { it.cause }.toList()
+        val rootCause = chain.lastOrNull() ?: error
+        val chainMessages = chain.mapNotNull { it.message?.trim() }.filter { it.isNotEmpty() }
+
+        val directHttp = chain.filterIsInstance<HttpException>().lastOrNull()
+        val messageHttpCode =
+            chainMessages
+                .asSequence()
+                .mapNotNull { msg ->
+                    Pattern.compile("HTTP error\\s+(\\d+)", Pattern.CASE_INSENSITIVE).matcher(msg).let {
+                        if (it.find()) it.group(1)?.toIntOrNull() else null
+                    }
+                }.firstOrNull()
+        val httpCode = directHttp?.code ?: messageHttpCode
+
+        val reason =
+            when {
+                httpCode != null -> "HTTP error $httpCode"
+                rootCause is MissingFieldException -> rootCause.message?.trim().orEmpty()
+                else -> (rootCause.message?.trim().orEmpty()).ifEmpty {
+                    chainMessages.lastOrNull() ?: rootCause::class.java.simpleName
+                }
+            }
+        val status =
+            when {
+                httpCode != null ->
+                    when (httpCode) {
+                        401 -> Status.UNAUTHENTICATED
+                        403 -> Status.PERMISSION_DENIED
+                        404 -> Status.NOT_FOUND
+                        408 -> Status.DEADLINE_EXCEEDED
+                        429 -> Status.RESOURCE_EXHAUSTED
+                        in 500..599 -> Status.UNAVAILABLE
+                        else -> Status.FAILED_PRECONDITION
+                    }
+                rootCause is MissingFieldException -> Status.FAILED_PRECONDITION
+                reason.contains("missingfieldexception", ignoreCase = true) ||
+                    reason.contains("libgroup.pages", ignoreCase = true) -> Status.FAILED_PRECONDITION
+                rootCause is IllegalArgumentException -> Status.INVALID_ARGUMENT
+                rootCause is NoSuchElementException -> Status.NOT_FOUND
+                else -> Status.INTERNAL
+            }
+        return status.withDescription("$operation failed: $reason").withCause(error).asRuntimeException()
+    }
+
     override suspend fun setRepoUrl(request: SetRepoUrlRequest): SetRepoUrlResponse =
         try {
             ConfigManager.setRepoUrl(request.url)
@@ -117,7 +171,7 @@ class ExtensionBridgeService(
             )
         } catch (e: Exception) {
             logger.error(e) { "Search failed" }
-            throw e
+            throw asGrpcException("search_title", e)
         }
 
     override suspend fun getPopularTitles(request: GetPopularTitlesRequest): TitlesPageResponse =
@@ -125,7 +179,7 @@ class ExtensionBridgeService(
             extensionManager.getPopularTitles(request.sourceId, request.page)
         } catch (e: Exception) {
             logger.error(e) { "Get popular failed" }
-            throw e
+            throw asGrpcException("get_popular_titles", e)
         }
 
     override suspend fun getLatestTitles(request: GetLatestTitlesRequest): TitlesPageResponse =
@@ -133,7 +187,7 @@ class ExtensionBridgeService(
             extensionManager.getLatestTitles(request.sourceId, request.page)
         } catch (e: Exception) {
             logger.error(e) { "Get latest failed" }
-            throw e
+            throw asGrpcException("get_latest_titles", e)
         }
 
     override suspend fun getTitleDetails(request: GetTitleDetailsRequest): TitleResponse =
@@ -141,7 +195,7 @@ class ExtensionBridgeService(
             extensionManager.getTitleDetails(request.sourceId, request.titleUrl)
         } catch (e: Exception) {
             logger.error(e) { "Get details failed" }
-            throw e
+            throw asGrpcException("get_title_details", e)
         }
 
     override suspend fun getChapterList(request: GetChaptersListRequest): ChaptersListResponse =
@@ -149,7 +203,7 @@ class ExtensionBridgeService(
             extensionManager.getChaptersList(request.sourceId, request.titleUrl)
         } catch (e: Exception) {
             logger.error(e) { "Get chapters failed" }
-            throw e
+            throw asGrpcException("get_chapter_list", e)
         }
 
     override suspend fun getPageList(request: GetPagesListRequest): PagesListResponse =
@@ -157,7 +211,7 @@ class ExtensionBridgeService(
             extensionManager.getPagesList(request.sourceId, request.chapterUrl)
         } catch (e: Exception) {
             logger.error(e) { "Get pages failed" }
-            throw e
+            throw asGrpcException("get_page_list", e)
         }
 
     override suspend fun getFilters(request: GetFiltersRequest): FiltersResponse =
@@ -165,7 +219,7 @@ class ExtensionBridgeService(
             extensionManager.getFilters(request.sourceId)
         } catch (e: Exception) {
             logger.error(e) { "Get filters failed" }
-            throw e
+            throw asGrpcException("get_filters", e)
         }
 
     override suspend fun getSearchFilters(request: GetFiltersRequest): FiltersResponse =
@@ -173,7 +227,7 @@ class ExtensionBridgeService(
             extensionManager.getSearchFilters(request.sourceId)
         } catch (e: Exception) {
             logger.error(e) { "Get search filters failed" }
-            throw e
+            throw asGrpcException("get_search_filters", e)
         }
 
     override suspend fun setPreference(request: SetPreferenceRequest): SetPreferenceResponse =

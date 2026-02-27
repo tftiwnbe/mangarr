@@ -19,6 +19,9 @@ def parse_bridge_log_line(
     logger_name = payload.get("logger") or "bridge"
     thread = payload.get("thread") or "unknown"
     message = payload.get("message") or ""
+    throwable_class = payload.get("throwable_class") or ""
+    throwable_message = payload.get("throwable_message") or ""
+    stack_trace = payload.get("stack_trace") or ""
 
     lines = [entry.strip() for entry in message.splitlines() if entry.strip()]
     if lines:
@@ -28,6 +31,20 @@ def parse_bridge_log_line(
             message = f"{message} … (+{extra_lines} lines)"
     else:
         message = ""
+
+    if throwable_class or throwable_message:
+        throwable_summary = " ".join(
+            part for part in (throwable_class, throwable_message) if part
+        ).strip()
+        if throwable_summary:
+            message = f"{message} | {throwable_summary}" if message else throwable_summary
+    elif stack_trace:
+        first_trace_line = next(
+            (entry.strip() for entry in stack_trace.splitlines() if entry.strip()),
+            "",
+        )
+        if first_trace_line:
+            message = f"{message} | {first_trace_line}" if message else first_trace_line
 
     return (map_bridge_level(level), logger_name, thread, message)
 

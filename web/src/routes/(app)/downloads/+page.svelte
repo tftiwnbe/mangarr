@@ -72,7 +72,14 @@
 		const relevantMonitored = dashboard.monitoredTitles.filter(
 			(item) => item.queuedTasks > 0 || activeTitleIds.has(item.titleId)
 		);
-		if (relevantMonitored.length === 0 && dashboard.activeTasks.length === 0) return null;
+		const hasActiveFromOverview =
+			dashboard.queueTotals.queued > 0 || dashboard.queueTotals.downloading > 0;
+		if (
+			relevantMonitored.length === 0 &&
+			dashboard.activeTasks.length === 0 &&
+			!hasActiveFromOverview
+		)
+			return null;
 
 		let plannedTotal = 0;
 		let plannedDownloaded = 0;
@@ -90,6 +97,12 @@
 			queuedChapters += Math.max(0, item.queuedTasks);
 			failedChapters += Math.max(0, item.failedTasks);
 		}
+		if (queuedChapters === 0 && dashboard.queueTotals.queued > 0) {
+			queuedChapters = dashboard.queueTotals.queued;
+		}
+		if (failedChapters === 0 && dashboard.queueTotals.failed > 0) {
+			failedChapters = dashboard.queueTotals.failed;
+		}
 
 		for (const task of dashboard.activeTasks) {
 			downloadingChapters += Math.max(0, task.chaptersDownloading);
@@ -97,6 +110,9 @@
 				totalPages += task.totalPages;
 				downloadedPages += Math.min(task.totalPages, Math.max(0, task.downloadedPages));
 			}
+		}
+		if (downloadingChapters === 0 && dashboard.queueTotals.downloading > 0) {
+			downloadingChapters = dashboard.queueTotals.downloading;
 		}
 
 		const fallbackScheduled = dashboard.activeTasks.reduce(

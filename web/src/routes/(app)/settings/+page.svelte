@@ -26,9 +26,11 @@
 		type LibraryUserStatusResource
 	} from '$lib/api/library';
 	import {
+		getFlareSolverrSettings,
 		getDownloadSettings,
 		getJobsSettings,
 		runCleanupNow,
+		updateFlareSolverrSettings,
 		updateDownloadSettings,
 		updateJobsSettings
 	} from '$lib/api/settings';
@@ -103,6 +105,17 @@
 	let jobsCleanupRunning = $state(false);
 	let jobsCleanupInfo = $state<string | null>(null);
 
+	let flareEnabled = $state(false);
+	let flareUrl = $state('http://localhost:8191');
+	let flareTimeoutSeconds = $state(45);
+	let flareResponseFallback = $state(true);
+	let flareSessionName = $state('');
+	let flareSessionTtlMinutes = $state('');
+	let flareSettingsLoading = $state(true);
+	let flareSettingsSaving = $state(false);
+	let flareSettingsError = $state<string | null>(null);
+	let flareSettingsSuccess = $state(false);
+
 	onMount(async () => {
 		try {
 			user = await getMe();
@@ -111,7 +124,8 @@
 				loadLibraryCollections(),
 				loadDownloadSettings(),
 				loadIntegrationApiKeys(),
-				loadJobsSettings()
+				loadJobsSettings(),
+				loadFlareSolverrSettings()
 			]);
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Failed to load profile';
@@ -189,6 +203,26 @@
 			jobsSettingsError = cause instanceof Error ? cause.message : 'Failed to load jobs settings';
 		} finally {
 			jobsSettingsLoading = false;
+		}
+	}
+
+	async function loadFlareSolverrSettings() {
+		flareSettingsLoading = true;
+		flareSettingsError = null;
+		try {
+			const settings = await getFlareSolverrSettings();
+			flareEnabled = settings.enabled;
+			flareUrl = settings.url;
+			flareTimeoutSeconds = settings.timeout_seconds;
+			flareResponseFallback = settings.response_fallback;
+			flareSessionName = settings.session_name ?? '';
+			flareSessionTtlMinutes =
+				settings.session_ttl_minutes !== null ? String(settings.session_ttl_minutes) : '';
+		} catch (cause) {
+			flareSettingsError =
+				cause instanceof Error ? cause.message : 'Failed to load FlareSolverr settings';
+		} finally {
+			flareSettingsLoading = false;
 		}
 	}
 
@@ -503,6 +537,40 @@
 			jobsSettingsError = cause instanceof Error ? cause.message : 'Failed to run cleanup';
 		} finally {
 			jobsCleanupRunning = false;
+		}
+	}
+
+	async function handleSaveFlareSolverrSettings() {
+		if (flareSettingsSaving) return;
+		flareSettingsSaving = true;
+		flareSettingsError = null;
+		flareSettingsSuccess = false;
+		try {
+			const timeout = Math.max(5, Math.min(300, Math.round(flareTimeoutSeconds || 45)));
+			const sessionTtlRaw = flareSessionTtlMinutes.trim();
+			const sessionTtl = sessionTtlRaw ? Math.max(1, Math.min(1440, Math.round(Number(sessionTtlRaw)))) : null;
+			const updated = await updateFlareSolverrSettings({
+				enabled: flareEnabled,
+				url: flareUrl.trim(),
+				timeout_seconds: timeout,
+				response_fallback: flareResponseFallback,
+				session_name: flareSessionName.trim() || null,
+				session_ttl_minutes: sessionTtl
+			});
+			flareEnabled = updated.enabled;
+			flareUrl = updated.url;
+			flareTimeoutSeconds = updated.timeout_seconds;
+			flareResponseFallback = updated.response_fallback;
+			flareSessionName = updated.session_name ?? '';
+			flareSessionTtlMinutes =
+				updated.session_ttl_minutes !== null ? String(updated.session_ttl_minutes) : '';
+			flareSettingsSuccess = true;
+			setTimeout(() => (flareSettingsSuccess = false), 3000);
+		} catch (cause) {
+			flareSettingsError =
+				cause instanceof Error ? cause.message : 'Failed to save FlareSolverr settings';
+		} finally {
+			flareSettingsSaving = false;
 		}
 	}
 </script>
@@ -1099,6 +1167,111 @@
 						{/if}
 						{#if jobsCleanupInfo}
 							<p class="text-xs text-[var(--text-muted)] animate-fade-in">{jobsCleanupInfo}</p>
+						{/if}
+					{/if}
+				</section>
+
+				<div class="h-px bg-[var(--void-3)]"></div>
+
+				<!-- FlareSolverr -->
+				<section class="flex flex-col gap-4">
+					<div class="flex flex-col gap-1">
+						<h2 class="text-sm font-medium text-[var(--text-soft)]">flaresolverr</h2>
+						<p class="text-xs text-[var(--text-ghost)]">
+							Enable Cloudflare challenge bypass via FlareSolverr.
+						</p>
+					</div>
+
+					{#if flareSettingsLoading}
+						<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
+					{:else}
+						<label class="flex items-center gap-3 py-1 text-sm text-[var(--text)] cursor-pointer select-none">
+							<input
+								type="checkbox"
+								class="h-5 w-5 accent-[var(--void-8)]"
+								checked={flareEnabled}
+								onchange={(event) => {
+									flareEnabled = (event.currentTarget as HTMLInputElement).checked;
+								}}
+							/>
+							Enable FlareSolverr
+						</label>
+
+						<Input label="FlareSolverr URL" bind:value={flareUrl} placeholder="http://localhost:8191" />
+
+						<div class="flex flex-col gap-1.5">
+							<label class="text-label" for="flare-timeout-seconds">Timeout (seconds)</label>
+							<input
+								id="flare-timeout-seconds"
+								type="number"
+								min="5"
+								max="300"
+								class="settings-input"
+								value={flareTimeoutSeconds}
+								oninput={(event) => {
+									const raw = Number((event.currentTarget as HTMLInputElement).value);
+									flareTimeoutSeconds = Number.isFinite(raw) ? raw : 45;
+								}}
+							/>
+						</div>
+
+						<label class="flex items-center gap-3 py-1 text-sm text-[var(--text)] cursor-pointer select-none">
+							<input
+								type="checkbox"
+								class="h-5 w-5 accent-[var(--void-8)]"
+								checked={flareResponseFallback}
+								onchange={(event) => {
+									flareResponseFallback = (event.currentTarget as HTMLInputElement).checked;
+								}}
+							/>
+							Response fallback
+						</label>
+						<p class="text-xs text-[var(--text-dim)]">
+							If enabled, requests fall back to the extension's direct response when
+							FlareSolverr fails or times out.
+						</p>
+
+						<Input
+							label="Session name (optional)"
+							bind:value={flareSessionName}
+							placeholder="leave empty for no pinned session"
+						/>
+
+						<div class="flex flex-col gap-1.5">
+							<label class="text-label" for="flare-session-ttl">Session TTL minutes (optional)</label>
+							<input
+								id="flare-session-ttl"
+								type="number"
+								min="1"
+								max="1440"
+								class="settings-input"
+								value={flareSessionTtlMinutes}
+								oninput={(event) => {
+									flareSessionTtlMinutes = (event.currentTarget as HTMLInputElement).value;
+								}}
+							/>
+						</div>
+
+						<div class="flex gap-2">
+							<Button
+								variant="outline"
+								size="sm"
+								onclick={handleSaveFlareSolverrSettings}
+								disabled={!flareUrl.trim() || flareSettingsSaving}
+								loading={flareSettingsSaving}
+							>
+								{$_('common.save').toLowerCase()}
+							</Button>
+							<Button variant="ghost" size="sm" onclick={loadFlareSolverrSettings}>
+								{$_('common.refresh').toLowerCase()}
+							</Button>
+						</div>
+
+						{#if flareSettingsError}
+							<p class="text-xs text-[var(--error)] animate-fade-in">{flareSettingsError}</p>
+						{/if}
+						{#if flareSettingsSuccess}
+							<p class="text-xs text-[var(--success)] animate-fade-in">FlareSolverr settings saved</p>
 						{/if}
 					{/if}
 				</section>

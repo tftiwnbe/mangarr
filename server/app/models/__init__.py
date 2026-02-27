@@ -88,6 +88,8 @@ from app.models.library import (
 from app.models.settings import (
     DownloadSettingsResource,
     DownloadSettingsUpdate,
+    FlareSolverrSettingsResource,
+    FlareSolverrSettingsUpdate,
     JobsCleanupRunResource,
     JobsSettingsResource,
     JobsSettingsUpdate,
@@ -130,6 +132,8 @@ __all__ = [
     "DownloadExternalTitleResource",
     "DownloadSettingsResource",
     "DownloadSettingsUpdate",
+    "FlareSolverrSettingsResource",
+    "FlareSolverrSettingsUpdate",
     "JobsCleanupRunResource",
     "JobsSettingsResource",
     "JobsSettingsUpdate",

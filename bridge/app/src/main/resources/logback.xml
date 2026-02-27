@@ -17,6 +17,15 @@
                     <fieldName>thread</fieldName>
                 </threadName>
                 <message />
+                <throwableClassName>
+                    <fieldName>throwable_class</fieldName>
+                </throwableClassName>
+                <throwableMessage>
+                    <fieldName>throwable_message</fieldName>
+                </throwableMessage>
+                <stackTrace>
+                    <fieldName>stack_trace</fieldName>
+                </stackTrace>
                 <mdc />
             </providers>
         </encoder>

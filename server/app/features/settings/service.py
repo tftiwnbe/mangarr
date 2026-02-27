@@ -1,12 +1,15 @@
 import shutil
 from pathlib import Path
 
+from app.bridge import tachibridge
 from app.config import settings
 from app.core.errors import BridgeAPIError
 from app.features.library.jobs import get_last_cleanup_run_at, run_unassigned_cleanup
 from app.models import (
     DownloadSettingsResource,
     DownloadSettingsUpdate,
+    FlareSolverrSettingsResource,
+    FlareSolverrSettingsUpdate,
     JobsCleanupRunResource,
     JobsSettingsResource,
     JobsSettingsUpdate,
@@ -129,3 +132,43 @@ class SettingsService:
             ran_at=ran_at.isoformat() if ran_at else None,
             reason=None if executed else "not_due",
         )
+
+    @staticmethod
+    async def get_flaresolverr_settings() -> FlareSolverrSettingsResource:
+        config = await tachibridge.fetch_flaresolverr_config()
+        return FlareSolverrSettingsResource(**config)
+
+    @staticmethod
+    async def update_flaresolverr_settings(
+        payload: FlareSolverrSettingsUpdate,
+        current_user: User,
+    ) -> FlareSolverrSettingsResource:
+        if not current_user.is_admin:
+            raise BridgeAPIError(403, "Only admins can update FlareSolverr settings")
+
+        updates = payload.model_dump(exclude_unset=True)
+        if not updates:
+            raise BridgeAPIError(400, "No FlareSolverr settings changes provided")
+
+        current = await tachibridge.fetch_flaresolverr_config()
+        merged = {**current, **updates}
+
+        # Empty string means disabled session pinning.
+        session_name = merged.get("session_name")
+        if isinstance(session_name, str):
+            session_name = session_name.strip() or None
+
+        await tachibridge.set_flaresolverr_config(
+            enabled=bool(merged["enabled"]),
+            url=str(merged["url"]).strip(),
+            timeout_seconds=int(merged["timeout_seconds"]),
+            response_fallback=bool(merged["response_fallback"]),
+            session_name=session_name,
+            session_ttl_minutes=(
+                int(merged["session_ttl_minutes"])
+                if merged.get("session_ttl_minutes") is not None
+                else None
+            ),
+        )
+
+        return await SettingsService.get_flaresolverr_settings()

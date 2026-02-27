@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from datetime import UTC, datetime
 from typing import Any, NoReturn
 
@@ -141,6 +142,62 @@ class TachibridgeService:
             return response.success
         except AioRpcError as e:
             self._handle_grpc_error(e, "set_repository_url")
+
+    async def fetch_flaresolverr_config(self) -> dict[str, Any]:
+        """Return current FlareSolverr config from bridge."""
+        try:
+            stub = await self._connection.get_stub()
+            request = config_pb2.GetFlareSolverrConfigRequest()
+            response = await stub.GetFlareSolverrConfig(request, timeout=10.0)
+            config = response.config
+            return {
+                "enabled": bool(config.enabled),
+                "url": config.url,
+                "timeout_seconds": int(config.timeout_seconds),
+                "response_fallback": bool(config.response_fallback),
+                "session_name": (
+                    config.session_name if config.HasField("session_name") else None
+                ),
+                "session_ttl_minutes": (
+                    int(config.session_ttl_minutes)
+                    if config.HasField("session_ttl_minutes")
+                    else None
+                ),
+            }
+        except AioRpcError as e:
+            self._handle_grpc_error(e, "fetch_flaresolverr_config")
+
+    async def set_flaresolverr_config(
+        self,
+        *,
+        enabled: bool,
+        url: str,
+        timeout_seconds: int,
+        response_fallback: bool,
+        session_name: str | None,
+        session_ttl_minutes: int | None,
+    ) -> bool:
+        """Set FlareSolverr config in bridge."""
+        try:
+            stub = await self._connection.get_stub()
+            flare_config = config_pb2.FlareSolverrConfig(
+                enabled=enabled,
+                url=url,
+                timeout_seconds=timeout_seconds,
+                response_fallback=response_fallback,
+            )
+            if session_name is not None:
+                flare_config.session_name = session_name
+            if session_ttl_minutes is not None:
+                flare_config.session_ttl_minutes = session_ttl_minutes
+
+            request = config_pb2.SetFlareSolverrConfigRequest(config=flare_config)
+            response = await stub.SetFlareSolverrConfig(request, timeout=10.0)
+            if not response.success:
+                raise BridgeAPIError(500, response.error or "Failed to set FlareSolverr config")
+            return True
+        except AioRpcError as e:
+            self._handle_grpc_error(e, "set_flaresolverr_config")
 
     async def fetch_repository_extensions(self) -> list[RepoExtension]:
         """Return metadata for extensions available in the remote repository."""
@@ -416,7 +473,35 @@ class TachibridgeService:
         }
 
         http_code = code_map.get(status_code, 500)
-        message = f"{operation} failed: {error.details()}"
+        details = (error.details() or "").strip()
+        debug_details = (error.debug_error_string() or "").strip()
+
+        # gRPC sometimes returns UNKNOWN with an empty grpc_message payload.
+        # Replace opaque peer text with a readable actionable message.
+        peer_unknown = (
+            status_code == grpc.StatusCode.UNKNOWN
+            and (
+                not details
+                or "Error received from peer" in details
+                or (debug_details and "Error received from peer" in debug_details)
+            )
+        )
+        if peer_unknown:
+            grpc_message = ""
+            for blob in (details, debug_details):
+                match = re.search(r'grpc_message:\s*"([^"]*)"', blob)
+                if match:
+                    grpc_message = match.group(1).strip()
+                    if grpc_message:
+                        break
+            details = (
+                grpc_message
+                or "Bridge extension failed with an empty internal error. "
+                "Check bridge logs for root cause."
+            )
+        elif not details:
+            details = debug_details or "No error details from gRPC peer"
+        message = f"{operation} failed ({status_code.name}): {details}"
         raise BridgeAPIError(http_code, message)
 
     # Protobuf Converters

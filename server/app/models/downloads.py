@@ -64,6 +64,8 @@ class DownloadTask(SQLModel, table=True):
     chapter_url: str
     title_name: str
     chapter_name: str
+    attempt_group_id: int | None = Field(default=None, index=True)
+    retry_of_task_id: int | None = Field(default=None, index=True)
 
     status: DownloadTaskStatus = Field(default=DownloadTaskStatus.QUEUED, index=True)
     trigger: DownloadTrigger = DownloadTrigger.MONITOR
@@ -112,6 +114,8 @@ class DownloadProfileUpdate(SQLModel):
 
 class DownloadTaskResource(SQLModel):
     id: int
+    attempt_group_id: int | None
+    retry_of_task_id: int | None
     library_title_id: int
     variant_id: int | None
     chapter_id: int

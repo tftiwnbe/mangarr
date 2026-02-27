@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote, urljoin, urlparse
 
+import httpx
 from sqlalchemy import insert
 from sqlmodel import delete, desc, func, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -17,6 +18,9 @@ from app.models import (
     DownloadProfile,
     DownloadTask,
     DownloadStrategy,
+    ExploreCacheItem,
+    ExploreTitleDetailsCache,
+    ExtensionSourceTitle,
     LibraryCollection,
     LibraryCollectionCreate,
     LibraryCollectionResource,
@@ -52,7 +56,9 @@ from app.models import (
     ReaderPageResource,
     Source,
     SourceChapter,
+    SourcePreference,
     SourceSummary,
+    Status,
 )
 
 _NORMALIZE_RE = re.compile(r"[\W_]+", re.UNICODE)
@@ -87,6 +93,16 @@ def _canonical_key(title: str, author: str | None = None) -> str:
 def _status_value(value: object) -> int:
     raw = getattr(value, "value", value)
     return int(raw)
+
+
+def _fallback_title_from_url(title_url: str) -> str:
+    slug = title_url.strip().strip("/")
+    if "--" in slug:
+        slug = slug.split("--", 1)[1]
+    slug = slug.replace("-", " ").replace("_", " ").strip()
+    if not slug:
+        return title_url
+    return " ".join(part.capitalize() for part in slug.split())
 
 
 class LibraryService:
@@ -811,7 +827,7 @@ class LibraryService:
 
     async def import_title(self, request: LibraryImportRequest) -> LibraryImportResponse:
         source = await self._resolve_source(request.source_id)
-        details = await tachibridge.fetch_title_details(
+        details = await self._fetch_title_details_with_fallback(
             source_id=request.source_id,
             title_url=request.title_url,
         )
@@ -949,6 +965,65 @@ class LibraryService:
             library_title_id=int(library_title.id),
             created=created,
         )
+
+    async def _fetch_title_details_with_fallback(
+        self, source_id: str, title_url: str
+    ) -> ExtensionSourceTitle:
+        try:
+            return await tachibridge.fetch_title_details(
+                source_id=source_id,
+                title_url=title_url,
+            )
+        except BridgeAPIError:
+            cache_row = await self.session.get(
+                ExploreTitleDetailsCache,
+                {"source_id": source_id, "title_url": title_url},
+            )
+            title = _fallback_title_from_url(title_url)
+            status = Status.UNKNOWN
+            thumbnail_url = ""
+            artist = None
+            author = None
+            description = None
+            genre = None
+
+            if cache_row is None:
+                cache_row = (
+                    await self.session.exec(
+                        select(ExploreCacheItem)
+                        .where(
+                            ExploreCacheItem.source_id == source_id,
+                            ExploreCacheItem.title_url == title_url,
+                        )
+                        .order_by(desc(ExploreCacheItem.fetched_at))
+                        .limit(1)
+                    )
+                ).first()
+
+            if cache_row is not None:
+                title = cache_row.title or title
+                raw_status = int(getattr(cache_row, "status", 0) or 0)
+                status = (
+                    Status(raw_status)
+                    if raw_status in Status._value2member_map_
+                    else Status.UNKNOWN
+                )
+                thumbnail_url = getattr(cache_row, "thumbnail_url", "") or ""
+                artist = getattr(cache_row, "artist", None)
+                author = getattr(cache_row, "author", None)
+                description = getattr(cache_row, "description", None)
+                genre = getattr(cache_row, "genre", None)
+
+            return ExtensionSourceTitle(
+                url=title_url,
+                title=title,
+                status=status,
+                thumbnail_url=thumbnail_url,
+                artist=artist,
+                author=author,
+                description=description,
+                genre=genre,
+            )
 
     async def list_chapters(
         self,
@@ -2205,10 +2280,26 @@ class LibraryService:
             variant = await self.session.get(LibraryTitleVariant, chapter.variant_id)
             if variant is None:
                 raise BridgeAPIError(500, f"Library chapter has no variant: {chapter_id}")
-            pages = await tachibridge.fetch_chapter_pages(
+            preflight_error = await self._preflight_mangalib_chapter_pages_unavailable(
                 source_id=variant.source_id,
                 chapter_url=chapter.chapter_url,
             )
+            if preflight_error:
+                raise BridgeAPIError(409, preflight_error)
+            try:
+                pages = await tachibridge.fetch_chapter_pages(
+                    source_id=variant.source_id,
+                    chapter_url=chapter.chapter_url,
+                )
+            except BridgeAPIError as exc:
+                normalized = await self._normalize_mangalib_pages_error(
+                    source_id=variant.source_id,
+                    chapter_url=chapter.chapter_url,
+                    error_text=str(exc),
+                )
+                if normalized:
+                    raise BridgeAPIError(409, normalized) from exc
+                raise
 
             existing_by_index = {item.page_index: item for item in cached_pages}
             seen_indexes: set[int] = set()
@@ -2374,6 +2465,9 @@ class LibraryService:
             raise BridgeAPIError(404, f"Library chapter not found: {chapter_id}")
 
         pages = await self.get_chapter_pages(chapter_id=chapter_id, refresh=refresh)
+        variant = await self.session.get(LibraryTitleVariant, chapter.variant_id)
+        source_id = variant.source_id if variant is not None else None
+        source_url_base = await self._resolve_source_image_base_url(source_id)
         chapter_ids_rows = (
             await self.session.exec(
                 select(LibraryChapter.id)
@@ -2402,6 +2496,15 @@ class LibraryService:
                 image_url=page.image_url,
                 page_url=page.url,
                 chapter_url=chapter.chapter_url,
+            )
+            remote = self._prefer_source_page_image_path(
+                remote_url=remote,
+                page_url=page.url,
+                source_url_base=source_url_base,
+            )
+            remote = self._resolve_source_relative_url(
+                remote_url=remote,
+                source_url_base=source_url_base,
             )
             local_url = self._local_page_url(page.local_path)
             src = local_url or remote
@@ -3282,6 +3385,238 @@ class LibraryService:
             return urljoin(chapter_base, image_candidate)
 
         return image_candidate
+
+    async def _resolve_source_image_base_url(self, source_id: str | None) -> str | None:
+        if not source_id:
+            return None
+
+        try:
+            prefs = await self.extension_service.list_source_preferences(source_id)
+        except Exception:
+            return None
+
+        pref_by_key = {pref.key: pref.current_value for pref in prefs.preferences}
+        bases = self._extract_url_preference_bases(prefs.preferences)
+        selected_base = bases[0] if bases else None
+        if "MangaLibImageServer" in pref_by_key:
+            image_server = str(pref_by_key.get("MangaLibImageServer") or "compress").strip()
+            if not image_server:
+                image_server = "compress"
+            api_domain = str(pref_by_key.get("MangaLibApiDomain") or "https://api.cdnlibs.org").strip()
+            if not api_domain:
+                api_domain = "https://api.cdnlibs.org"
+            mangalib = await self._fetch_mangalib_image_server_url(
+                api_domain=api_domain,
+                image_server=image_server,
+            )
+            if mangalib:
+                selected_base = mangalib
+
+        if not selected_base:
+            return None
+        return selected_base.strip().rstrip("/") or None
+
+    async def _preflight_mangalib_chapter_pages_unavailable(
+        self,
+        source_id: str | None,
+        chapter_url: str | None,
+    ) -> str | None:
+        if not source_id or not chapter_url:
+            return None
+
+        try:
+            prefs = await self.extension_service.list_source_preferences(source_id)
+        except Exception:
+            return None
+
+        pref_by_key = {pref.key: pref.current_value for pref in prefs.preferences}
+        if "MangaLibApiDomain" not in pref_by_key and "MangaLibImageServer" not in pref_by_key:
+            return None
+
+        api_domain = str(pref_by_key.get("MangaLibApiDomain") or "https://api.cdnlibs.org").strip()
+        if not api_domain:
+            api_domain = "https://api.cdnlibs.org"
+        endpoint = f"{api_domain.rstrip('/')}/api/manga{chapter_url}"
+
+        try:
+            timeout = httpx.Timeout(15.0)
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                response = await client.get(endpoint)
+                response.raise_for_status()
+        except Exception:
+            return None
+
+        payload = response.json()
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            return None
+
+        pages = data.get("pages")
+        if isinstance(pages, list) and pages:
+            return None
+
+        expired_at = str(data.get("expired_at") or "").strip()
+        expired_type = data.get("expired_type")
+        if expired_at:
+            return f"Chapter pages are unavailable in MangaLib API (locked until {expired_at})"
+        if expired_type == 1:
+            return "Chapter pages are unavailable in MangaLib API (chapter is time-locked)"
+        return "Chapter pages are unavailable in MangaLib API"
+
+    async def _normalize_mangalib_pages_error(
+        self,
+        source_id: str | None,
+        chapter_url: str | None,
+        error_text: str | None,
+    ) -> str | None:
+        source_key = (source_id or "").lower()
+        if "mangalib" not in source_key:
+            return None
+
+        text = (error_text or "").lower()
+        looks_like_unavailable = (
+            "missingfieldexception" in text
+            or "libgroup.pages" in text
+            or "path: $.data" in text
+            or "fetch_chapter_pages failed (unknown)" in text
+        )
+        if not looks_like_unavailable:
+            return None
+
+        preflight_error = await self._preflight_mangalib_chapter_pages_unavailable(
+            source_id=source_id,
+            chapter_url=chapter_url,
+        )
+        return preflight_error or "Chapter pages are unavailable in MangaLib API"
+
+    @staticmethod
+    async def _fetch_mangalib_image_server_url(
+        *,
+        api_domain: str,
+        image_server: str,
+    ) -> str | None:
+        api_base = api_domain.rstrip("/")
+        constants_url = f"{api_base}/api/constants"
+        try:
+            timeout = httpx.Timeout(10.0)
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                response = await client.get(
+                    constants_url,
+                    params=[("fields[]", "imageServers")],
+                )
+                response.raise_for_status()
+        except Exception:
+            return None
+
+        payload = response.json()
+        servers = payload.get("data", {}).get("imageServers", [])
+        if not isinstance(servers, list):
+            return None
+
+        normalized_server = image_server.strip().lower()
+        for entry in servers:
+            if not isinstance(entry, dict):
+                continue
+            raw_url = str(entry.get("url") or "").strip()
+            if not raw_url:
+                continue
+            parsed = urlparse(raw_url)
+            if not (parsed.scheme and parsed.netloc):
+                continue
+            entry_id = str(entry.get("id") or "").strip().lower()
+            if entry_id == normalized_server:
+                return f"{parsed.scheme}://{parsed.netloc}"
+        return None
+
+    @staticmethod
+    def _extract_url_preference_bases(preferences: list[SourcePreference]) -> list[str]:
+        bases: list[str] = []
+        seen: set[str] = set()
+
+        def push(value: object | None) -> None:
+            if value is None:
+                return
+            if isinstance(value, list | tuple | set):
+                for item in value:
+                    push(item)
+                return
+
+            candidate = str(value).strip()
+            parsed = urlparse(candidate)
+            if not (parsed.scheme and parsed.netloc):
+                return
+            base = f"{parsed.scheme}://{parsed.netloc}"
+            if base in seen:
+                return
+            seen.add(base)
+            bases.append(base)
+
+        for pref in preferences:
+            push(pref.current_value)
+            push(pref.default_value)
+
+            selected_indexes: list[int] = []
+            if pref.entry_values:
+                if isinstance(pref.current_value, list):
+                    selected_values = {str(value) for value in pref.current_value}
+                    for idx, entry_value in enumerate(pref.entry_values):
+                        if str(entry_value) in selected_values:
+                            selected_indexes.append(idx)
+                else:
+                    selected_value = str(pref.current_value or "")
+                    for idx, entry_value in enumerate(pref.entry_values):
+                        if str(entry_value) == selected_value:
+                            selected_indexes.append(idx)
+            elif isinstance(pref.current_value, int | float):
+                selected_indexes.append(int(pref.current_value))
+
+            for idx in selected_indexes:
+                if pref.entry_values and 0 <= idx < len(pref.entry_values):
+                    push(pref.entry_values[idx])
+                if pref.entries and 0 <= idx < len(pref.entries):
+                    push(pref.entries[idx])
+
+        return bases
+
+    @staticmethod
+    def _resolve_source_relative_url(
+        remote_url: str,
+        source_url_base: str | None,
+    ) -> str:
+        if not remote_url or not source_url_base:
+            return remote_url
+
+        if remote_url.startswith("//"):
+            parsed = urlparse(f"https:{remote_url}")
+            host = parsed.netloc.strip().lower()
+            if host and ("." in host or ":" in host):
+                return remote_url
+            return urljoin(
+                source_url_base.rstrip("/") + "/",
+                "/" + remote_url.lstrip("/"),
+            )
+        if remote_url.startswith("/"):
+            return urljoin(source_url_base.rstrip("/") + "/", remote_url)
+        return remote_url
+
+    @staticmethod
+    def _prefer_source_page_image_path(
+        remote_url: str,
+        page_url: str | None,
+        source_url_base: str | None,
+    ) -> str:
+        if not source_url_base:
+            return remote_url
+
+        candidate = LibraryService._sanitize_comma_encoded_url((page_url or "").strip()) or (page_url or "").strip()
+        if not candidate:
+            return remote_url
+
+        parsed = urlparse(f"https:{candidate}" if candidate.startswith("//") else candidate)
+        path = (parsed.path or "").lower()
+        if path and any(path.endswith(suffix) for suffix in _IMAGE_SUFFIXES):
+            return candidate
+        return remote_url
 
     @staticmethod
     def _sanitize_comma_encoded_url(value: str) -> str | None:

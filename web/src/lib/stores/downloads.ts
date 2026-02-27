@@ -7,7 +7,7 @@ import { createAsyncResourceStore } from './async-resource';
 async function loadDashboard(): Promise<DownloadDashboardViewModel> {
 	const dashboard = await downloadsApi.getDownloadDashboard({
 		monitored_limit: 30,
-		active_limit: 30,
+		active_limit: 100,
 		recent_limit: 40
 	});
 	return mapDownloadDashboard(dashboard);

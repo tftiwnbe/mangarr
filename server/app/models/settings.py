@@ -34,3 +34,21 @@ class JobsCleanupRunResource(SQLModel):
     deleted_titles: int = 0
     ran_at: str | None = None
     reason: str | None = None
+
+
+class FlareSolverrSettingsResource(SQLModel):
+    enabled: bool = False
+    url: str = "http://localhost:8191"
+    timeout_seconds: int = Field(default=45, ge=5, le=300)
+    response_fallback: bool = True
+    session_name: str | None = None
+    session_ttl_minutes: int | None = Field(default=None, ge=1, le=1440)
+
+
+class FlareSolverrSettingsUpdate(SQLModel):
+    enabled: bool | None = None
+    url: str | None = None
+    timeout_seconds: int | None = Field(default=None, ge=5, le=300)
+    response_fallback: bool | None = None
+    session_name: str | None = None
+    session_ttl_minutes: int | None = Field(default=None, ge=1, le=1440)

@@ -5,6 +5,8 @@ from app.features.settings.service import SettingsService
 from app.models import (
     DownloadSettingsResource,
     DownloadSettingsUpdate,
+    FlareSolverrSettingsResource,
+    FlareSolverrSettingsUpdate,
     JobsCleanupRunResource,
     JobsSettingsResource,
     JobsSettingsUpdate,
@@ -49,3 +51,19 @@ async def update_jobs_settings(
 @router.post("/jobs/cleanup-now", response_model=JobsCleanupRunResource)
 async def run_jobs_cleanup_now(current_user: CurrentUserDep):
     return await SettingsService.run_jobs_cleanup_now(current_user=current_user)
+
+
+@router.get("/flaresolverr", response_model=FlareSolverrSettingsResource)
+async def get_flaresolverr_settings():
+    return await SettingsService.get_flaresolverr_settings()
+
+
+@router.put("/flaresolverr", response_model=FlareSolverrSettingsResource)
+async def update_flaresolverr_settings(
+    payload: FlareSolverrSettingsUpdate,
+    current_user: CurrentUserDep,
+):
+    return await SettingsService.update_flaresolverr_settings(
+        payload=payload,
+        current_user=current_user,
+    )

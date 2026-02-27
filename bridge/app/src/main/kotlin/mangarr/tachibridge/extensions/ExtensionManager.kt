@@ -15,6 +15,8 @@ import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.source.CatalogueSource
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.Source
+import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.tachiyomi.source.model.Page as SourcePage
 import eu.kanade.tachiyomi.source.model.Filter as SourceFilter
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -324,7 +326,7 @@ class ExtensionManager(
             val result = source.getMangaDetails(manga)
             TitleResponse
                 .newBuilder()
-                .setTitle(convertManga(result))
+                .setTitle(convertManga(result, fallbackUrl = mangaUrl))
                 .build()
         }
 
@@ -348,18 +350,22 @@ class ExtensionManager(
         withSource<Source, PagesListResponse>(sourceId) { source ->
             val chapter = SChapter.create().apply { url = chapterUrl }
             val pages = source.getPageList(chapter)
+            val resolvedPages = mutableListOf<Page>()
+            for ((index, page) in pages.withIndex()) {
+                val pageUrl = safeString { page.url }
+                val pageImageUrl = resolvePageImageUrl(source, page)
+                resolvedPages +=
+                    Page
+                        .newBuilder()
+                        .setIndex(index)
+                        .setUrl(pageUrl)
+                        .setImageUrl(pageImageUrl)
+                        .build()
+            }
             PagesListResponse
                 .newBuilder()
-                .addAllPages(
-                    pages.mapIndexed { index, page ->
-                        Page
-                            .newBuilder()
-                            .setIndex(index)
-                            .setUrl(page.url)
-                            .setImageUrl(page.imageUrl ?: "")
-                            .build()
-                    },
-                ).build()
+                .addAllPages(resolvedPages)
+                .build()
         }
 
     suspend fun getFilters(sourceId: Long): FiltersResponse {
@@ -917,27 +923,76 @@ class ExtensionManager(
             .setHasNextPage(page.hasNextPage)
             .build()
 
-    private suspend fun convertManga(manga: SManga) =
+    private suspend fun convertManga(
+        manga: SManga,
+        fallbackUrl: String = "",
+    ) =
         Title
             .newBuilder()
-            .setUrl(manga.url)
-            .setTitle(manga.title)
-            .setArtist(manga.artist ?: "")
-            .setAuthor(manga.author ?: "")
-            .setDescription(manga.description ?: "")
-            .setGenre(manga.genre ?: "")
-            .setStatus(manga.status)
-            .setThumbnailUrl(manga.thumbnail_url ?: "")
-            .setInitialized(manga.initialized)
+            .setUrl(safeMangaUrl(manga, fallbackUrl))
+            .setTitle(safeMangaTitle(manga, fallbackUrl))
+            .setArtist(safeString { manga.artist })
+            .setAuthor(safeString { manga.author })
+            .setDescription(safeString { manga.description })
+            .setGenre(safeString { manga.genre })
+            .setStatus(safeInt { manga.status })
+            .setThumbnailUrl(safeString { manga.thumbnail_url })
+            .setInitialized(safeBoolean { manga.initialized })
             .build()
 
     private suspend fun convertChapter(chapter: SChapter) =
         Chapter
             .newBuilder()
-            .setUrl(chapter.url)
-            .setName(chapter.name)
-            .setDateUpload(chapter.date_upload)
-            .setChapterNumber(chapter.chapter_number)
-            .setScanlator(chapter.scanlator ?: "")
+            .setUrl(safeString { chapter.url })
+            .setName(safeString { chapter.name })
+            .setDateUpload(safeLong { chapter.date_upload })
+            .setChapterNumber(safeFloat { chapter.chapter_number })
+            .setScanlator(safeString { chapter.scanlator })
             .build()
+
+    private fun safeMangaUrl(manga: SManga, fallbackUrl: String): String =
+        safeString { manga.url }.ifBlank { fallbackUrl }
+
+    private fun safeMangaTitle(manga: SManga, fallbackUrl: String): String =
+        safeString { manga.title }.ifBlank {
+            val raw = safeMangaUrl(manga, fallbackUrl).substringAfterLast('/')
+            raw.split("--")
+                .lastOrNull()
+                ?.replace('-', ' ')
+                ?.replace('_', ' ')
+                ?.trim()
+                ?.ifBlank { "Unknown title" }
+                ?: "Unknown title"
+        }
+
+    private fun safeString(block: () -> String?): String =
+        runCatching { block().orEmpty() }.getOrDefault("")
+
+    private fun safeInt(block: () -> Int): Int =
+        runCatching { block() }.getOrDefault(0)
+
+    private fun safeLong(block: () -> Long): Long =
+        runCatching { block() }.getOrDefault(0L)
+
+    private fun safeFloat(block: () -> Float): Float =
+        runCatching { block() }.getOrDefault(0f)
+
+    private fun safeBoolean(block: () -> Boolean): Boolean =
+        runCatching { block() }.getOrDefault(false)
+
+    private suspend fun resolvePageImageUrl(source: Source, page: SourcePage): String {
+        val explicitImageUrl = safeString { page.imageUrl }
+        if (explicitImageUrl.isNotBlank()) {
+            return explicitImageUrl
+        }
+
+        if (source is HttpSource) {
+            val computed = runCatching { source.getImageUrl(page).orEmpty() }.getOrDefault("")
+            if (computed.isNotBlank()) {
+                return computed
+            }
+        }
+
+        return ""
+    }
 }

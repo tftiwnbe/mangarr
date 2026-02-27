@@ -52,6 +52,11 @@ interface DownloadOverviewItem {
 export interface DownloadDashboardViewModel {
 	generatedAt: string;
 	overview: DownloadOverviewItem[];
+	queueTotals: {
+		queued: number;
+		downloading: number;
+		failed: number;
+	};
 	activeTasks: DownloadTaskItem[];
 	recentTasks: DownloadTaskItem[];
 	monitoredTitles: DownloadMonitoredItem[];
@@ -250,6 +255,11 @@ export function emptyDownloadDashboard(): DownloadDashboardViewModel {
 	return {
 		generatedAt: new Date(0).toISOString(),
 		overview: [],
+		queueTotals: {
+			queued: 0,
+			downloading: 0,
+			failed: 0
+		},
 		activeTasks: [],
 		recentTasks: [],
 		monitoredTitles: []
@@ -265,6 +275,11 @@ export function mapDownloadDashboard(
 	return {
 		generatedAt: resource.generated_at,
 		overview: mapOverview(resource),
+		queueTotals: {
+			queued: toFiniteNumber(resource.overview.queued),
+			downloading: toFiniteNumber(resource.overview.downloading),
+			failed: toFiniteNumber(resource.overview.failed)
+		},
 		activeTasks: mapTaskGroups(resource.active_tasks, coverByTitleId),
 		recentTasks: mapTaskGroups(resource.recent_tasks, coverByTitleId),
 		monitoredTitles

@@ -17,6 +17,7 @@ from app.bridge import tachibridge
 from app.config import settings
 from app.core.database import sessionmanager
 from app.core.errors import BridgeAPIError
+from app.features.extensions import ExtensionService
 from app.models import (
     DownloadOverviewResource,
     DownloadExternalImportRequest,
@@ -44,6 +45,7 @@ from app.models import (
     MonitorRunResponse,
     Source,
     SourceChapter,
+    SourcePreference,
     WorkerRunResponse,
 )
 
@@ -217,6 +219,7 @@ class DownloadService:
     def __init__(self, session: AsyncSession):
         self.session = session
         self._download_root_cache: Path | None = None
+        self._source_image_base_cache: dict[str, str | None] = {}
 
     async def get_overview(self) -> DownloadOverviewResource:
         monitored_titles = int(
@@ -483,7 +486,7 @@ class DownloadService:
 
         task_stats: dict[int, dict[DownloadTaskStatus, int]] = {}
         if title_ids:
-            task_rows = (
+            active_task_rows = (
                 await self.session.exec(
                     select(
                         DownloadTask.library_title_id,
@@ -496,19 +499,44 @@ class DownloadService:
                             [
                                 DownloadTaskStatus.QUEUED,
                                 DownloadTaskStatus.DOWNLOADING,
-                                DownloadTaskStatus.FAILED,
                             ]
                         ),
                     )
                     .group_by(DownloadTask.library_title_id, DownloadTask.status)
                 )
             ).all()
-            for title_id, raw_status, count in task_rows:
+            for title_id, raw_status, count in active_task_rows:
                 status = _coerce_task_status(raw_status)
                 if status is None:
                     continue
                 per_title = task_stats.setdefault(int(title_id), {})
                 per_title[status] = int(count)
+
+            # Count failed chapters by latest attempt only. This avoids inflating
+            # failed counters when historical attempts failed but later retries succeeded.
+            latest_task_ids = (
+                select(
+                    DownloadTask.chapter_id.label("chapter_id"),
+                    func.max(DownloadTask.id).label("latest_task_id"),
+                )
+                .where(DownloadTask.library_title_id.in_(title_ids))
+                .group_by(DownloadTask.chapter_id)
+                .subquery()
+            )
+            failed_latest_rows = (
+                await self.session.exec(
+                    select(DownloadTask.library_title_id, func.count(DownloadTask.id))
+                    .join(
+                        latest_task_ids,
+                        DownloadTask.id == latest_task_ids.c.latest_task_id,
+                    )
+                    .where(DownloadTask.status == DownloadTaskStatus.FAILED)
+                    .group_by(DownloadTask.library_title_id)
+                )
+            ).all()
+            for title_id, count in failed_latest_rows:
+                per_title = task_stats.setdefault(int(title_id), {})
+                per_title[DownloadTaskStatus.FAILED] = int(count)
 
         monitored_titles: list[DownloadMonitoredTitleResource] = []
         for title_id in title_ids:
@@ -618,9 +646,15 @@ class DownloadService:
                 )
             )
 
-        active_rows = (
+        min_priority = func.min(DownloadTask.priority).label("min_priority")
+        first_created_at = func.min(DownloadTask.created_at).label("first_created_at")
+        active_title_rows = (
             await self.session.exec(
-                select(DownloadTask)
+                select(
+                    DownloadTask.library_title_id,
+                    min_priority,
+                    first_created_at,
+                )
                 .where(
                     DownloadTask.status.in_(
                         [
@@ -629,10 +663,30 @@ class DownloadService:
                         ]
                     )
                 )
-                .order_by(DownloadTask.priority, DownloadTask.created_at)
+                .group_by(DownloadTask.library_title_id)
+                .order_by(min_priority, first_created_at)
                 .limit(active_limit)
             )
         ).all()
+        active_title_ids = [int(row[0]) for row in active_title_rows]
+
+        active_rows: list[DownloadTask] = []
+        if active_title_ids:
+            active_rows = (
+                await self.session.exec(
+                    select(DownloadTask)
+                    .where(
+                        DownloadTask.status.in_(
+                            [
+                                DownloadTaskStatus.QUEUED,
+                                DownloadTaskStatus.DOWNLOADING,
+                            ]
+                        ),
+                        DownloadTask.library_title_id.in_(active_title_ids),
+                    )
+                    .order_by(DownloadTask.priority, DownloadTask.created_at)
+                )
+            ).all()
 
         recent_rows = (
             await self.session.exec(
@@ -888,17 +942,38 @@ class DownloadService:
         if task is None:
             raise BridgeAPIError(404, f"Download task not found: {task_id}")
 
-        task.status = DownloadTaskStatus.QUEUED
-        task.available_at = _now_utc()
-        task.error = None
-        task.finished_at = None
-        task.updated_at = _now_utc()
+        if task.status in (DownloadTaskStatus.QUEUED, DownloadTaskStatus.DOWNLOADING):
+            raise BridgeAPIError(409, "Task is already active")
+        if task.status == DownloadTaskStatus.COMPLETED:
+            raise BridgeAPIError(409, "Completed task cannot be retried")
 
-        self.session.add(task)
+        existing_active = (
+            await self.session.exec(
+                select(DownloadTask)
+                .where(
+                    DownloadTask.chapter_id == task.chapter_id,
+                    DownloadTask.status.in_(
+                        [DownloadTaskStatus.QUEUED, DownloadTaskStatus.DOWNLOADING]
+                    ),
+                )
+                .limit(1)
+            )
+        ).first()
+        if existing_active is not None:
+            raise BridgeAPIError(409, "Chapter already has an active task")
+
+        queued_retry = self._spawn_retry_task(
+            task=task,
+            available_at=_now_utc(),
+            trigger=DownloadTrigger.MANUAL,
+            attempts_seed=0,
+            error=None,
+        )
+        await self._finalize_new_task(queued_retry)
         await self.session.commit()
-        await self.session.refresh(task)
+        await self.session.refresh(queued_retry)
 
-        return self._to_task_resource(task)
+        return self._to_task_resource(queued_retry)
 
     async def cancel_task(self, task_id: int) -> DownloadTaskResource:
         task = await self.session.get(DownloadTask, task_id)
@@ -2069,12 +2144,29 @@ class DownloadService:
             return
 
         output_dir = self._chapter_dir(title=title, variant=variant, chapter=chapter)
+        source_url_base = await self._resolve_source_image_base_url(variant.source_id)
 
         try:
-            pages = await tachibridge.fetch_chapter_pages(
+            preflight_error = await self._preflight_mangalib_chapter_pages_unavailable(
                 source_id=variant.source_id,
                 chapter_url=chapter.chapter_url,
             )
+            if preflight_error:
+                raise RuntimeError(preflight_error)
+            try:
+                pages = await tachibridge.fetch_chapter_pages(
+                    source_id=variant.source_id,
+                    chapter_url=chapter.chapter_url,
+                )
+            except BridgeAPIError as exc:
+                normalized = await self._normalize_mangalib_pages_error(
+                    source_id=variant.source_id,
+                    chapter_url=chapter.chapter_url,
+                    error_text=str(exc),
+                )
+                if normalized:
+                    raise RuntimeError(normalized) from exc
+                raise
             if not pages:
                 raise RuntimeError("Chapter has no pages")
 
@@ -2105,6 +2197,15 @@ class DownloadService:
                         image_url=page.image_url,
                         page_url=page.url,
                         chapter_url=chapter.chapter_url,
+                    )
+                    remote_url = self._prefer_source_page_image_path(
+                        remote_url=remote_url,
+                        page_url=page.url,
+                        source_url_base=source_url_base,
+                    )
+                    remote_url = self._resolve_source_relative_url(
+                        remote_url=remote_url,
+                        source_url_base=source_url_base,
                     )
                     if not remote_url:
                         raise RuntimeError(
@@ -2169,6 +2270,8 @@ class DownloadService:
             self.session.add(chapter)
 
             final = task.attempts >= task.max_attempts
+            if "unavailable in MangaLib API" in (chapter.download_error or ""):
+                final = True
             await self._mark_task_failed(task.id, chapter.download_error, final=final)
 
     async def _download_with_retries(
@@ -2182,8 +2285,9 @@ class DownloadService:
 
         for attempt in range(retries + 1):
             tmp_path = output_path.with_suffix(f"{output_path.suffix}.part")
+            request_timeout = settings.downloads.request_timeout_seconds + (attempt * 10)
             try:
-                async with client.stream("GET", url) as response:
+                async with client.stream("GET", url, timeout=request_timeout) as response:
                     response.raise_for_status()
                     content_type = response.headers.get("content-type")
                     bytes_written = 0
@@ -2201,7 +2305,8 @@ class DownloadService:
                 if tmp_path.exists():
                     await asyncio.to_thread(tmp_path.unlink)
                 if attempt < retries:
-                    await asyncio.sleep(min(5.0, 0.5 * (2**attempt)))
+                    wait_seconds = min(90.0, 3.0 * (2**attempt))
+                    await asyncio.sleep(wait_seconds)
 
         assert last_exc is not None
         raise last_exc
@@ -2232,19 +2337,111 @@ class DownloadService:
             return
 
         now = _now_utc()
+        task.status = DownloadTaskStatus.FAILED
         task.error = error
+        task.finished_at = now
         task.updated_at = now
 
-        if final:
-            task.status = DownloadTaskStatus.FAILED
-            task.finished_at = now
-        else:
-            backoff = min(30 * (2 ** max(task.attempts - 1, 0)), 1800)
-            task.status = DownloadTaskStatus.QUEUED
-            task.available_at = now + timedelta(seconds=backoff)
-
         self.session.add(task)
+        if not final:
+            backoff = min(30 * (2 ** max(task.attempts - 1, 0)), 1800)
+            queued_retry = self._spawn_retry_task(
+                task=task,
+                available_at=now + timedelta(seconds=backoff),
+                trigger=task.trigger,
+                attempts_seed=max(task.attempts, 0),
+                error=None,
+            )
+            await self._finalize_new_task(queued_retry)
         await self.session.commit()
+
+    def _spawn_retry_task(
+        self,
+        task: DownloadTask,
+        available_at: datetime,
+        trigger: DownloadTrigger,
+        attempts_seed: int,
+        error: str | None,
+    ) -> DownloadTask:
+        group_id = (
+            int(task.attempt_group_id)
+            if task.attempt_group_id is not None
+            else (int(task.id) if task.id is not None else None)
+        )
+        retry_of = int(task.id) if task.id is not None else None
+        return self._build_queued_task(
+            library_title_id=task.library_title_id,
+            variant_id=task.variant_id,
+            chapter_id=task.chapter_id,
+            source_id=task.source_id,
+            chapter_url=task.chapter_url,
+            title_name=task.title_name,
+            chapter_name=task.chapter_name,
+            trigger=trigger,
+            priority=task.priority,
+            max_attempts=task.max_attempts,
+            available_at=available_at,
+            attempts=max(0, attempts_seed),
+            attempt_group_id=group_id,
+            retry_of_task_id=retry_of,
+            error=error,
+        )
+
+    def _build_queued_task(
+        self,
+        *,
+        library_title_id: int,
+        variant_id: int | None,
+        chapter_id: int,
+        source_id: str,
+        chapter_url: str,
+        title_name: str,
+        chapter_name: str,
+        trigger: DownloadTrigger,
+        priority: int,
+        max_attempts: int,
+        available_at: datetime,
+        attempts: int = 0,
+        attempt_group_id: int | None = None,
+        retry_of_task_id: int | None = None,
+        error: str | None = None,
+    ) -> DownloadTask:
+        now = _now_utc()
+        return DownloadTask(
+            library_title_id=library_title_id,
+            variant_id=variant_id,
+            chapter_id=chapter_id,
+            source_id=source_id,
+            chapter_url=chapter_url,
+            title_name=title_name,
+            chapter_name=chapter_name,
+            attempt_group_id=attempt_group_id,
+            retry_of_task_id=retry_of_task_id,
+            status=DownloadTaskStatus.QUEUED,
+            trigger=trigger,
+            priority=priority,
+            attempts=max(0, attempts),
+            max_attempts=max_attempts,
+            available_at=available_at,
+            downloaded_pages=0,
+            total_pages=0,
+            output_dir=None,
+            error=error,
+            started_at=None,
+            finished_at=None,
+            created_at=now,
+            updated_at=now,
+        )
+
+    async def _finalize_new_task(self, task: DownloadTask) -> None:
+        self.session.add(task)
+        await self.session.flush()
+        if task.id is None:
+            return
+        if task.attempt_group_id is None:
+            task.attempt_group_id = int(task.id)
+            self.session.add(task)
+            await self.session.flush()
 
     async def _mark_task_cancelled(self, task_id: int | None, reason: str) -> None:
         if task_id is None:
@@ -2527,6 +2724,241 @@ class DownloadService:
 
         return image_candidate
 
+    async def _resolve_source_image_base_url(self, source_id: str | None) -> str | None:
+        if not source_id:
+            return None
+        if source_id in self._source_image_base_cache:
+            return self._source_image_base_cache[source_id]
+
+        resolved: str | None = None
+        try:
+            prefs = await ExtensionService(self.session).list_source_preferences(source_id)
+            pref_by_key = {pref.key: pref.current_value for pref in prefs.preferences}
+            preferred_bases = self._extract_url_preference_bases(prefs.preferences)
+            if preferred_bases:
+                resolved = preferred_bases[0]
+            if "MangaLibImageServer" in pref_by_key:
+                image_server = str(pref_by_key.get("MangaLibImageServer") or "compress").strip()
+                if not image_server:
+                    image_server = "compress"
+                api_domain = str(pref_by_key.get("MangaLibApiDomain") or "https://api.cdnlibs.org").strip()
+                if not api_domain:
+                    api_domain = "https://api.cdnlibs.org"
+                mangalib_base = await self._fetch_mangalib_image_server_url(
+                    api_domain=api_domain,
+                    image_server=image_server,
+                )
+                if mangalib_base:
+                    resolved = mangalib_base
+        except Exception:
+            resolved = None
+
+        if resolved:
+            resolved = resolved.strip().rstrip("/") or None
+        self._source_image_base_cache[source_id] = resolved
+        return resolved
+
+    async def _preflight_mangalib_chapter_pages_unavailable(
+        self,
+        source_id: str | None,
+        chapter_url: str | None,
+    ) -> str | None:
+        if not source_id or not chapter_url:
+            return None
+
+        try:
+            prefs = await ExtensionService(self.session).list_source_preferences(source_id)
+        except Exception:
+            return None
+
+        pref_by_key = {pref.key: pref.current_value for pref in prefs.preferences}
+        if "MangaLibApiDomain" not in pref_by_key and "MangaLibImageServer" not in pref_by_key:
+            return None
+
+        api_domain = str(pref_by_key.get("MangaLibApiDomain") or "https://api.cdnlibs.org").strip()
+        if not api_domain:
+            api_domain = "https://api.cdnlibs.org"
+        endpoint = f"{api_domain.rstrip('/')}/api/manga{chapter_url}"
+
+        try:
+            timeout = httpx.Timeout(15.0)
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                response = await client.get(endpoint)
+                response.raise_for_status()
+        except Exception:
+            return None
+
+        payload = response.json()
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            return None
+
+        pages = data.get("pages")
+        if isinstance(pages, list) and pages:
+            return None
+
+        expired_at = str(data.get("expired_at") or "").strip()
+        expired_type = data.get("expired_type")
+        if expired_at:
+            return f"Chapter pages are unavailable in MangaLib API (locked until {expired_at})"
+        if expired_type == 1:
+            return "Chapter pages are unavailable in MangaLib API (chapter is time-locked)"
+        return "Chapter pages are unavailable in MangaLib API"
+
+    async def _normalize_mangalib_pages_error(
+        self,
+        source_id: str | None,
+        chapter_url: str | None,
+        error_text: str | None,
+    ) -> str | None:
+        source_key = (source_id or "").lower()
+        if "mangalib" not in source_key:
+            return None
+
+        text = (error_text or "").lower()
+        looks_like_unavailable = (
+            "missingfieldexception" in text
+            or "libgroup.pages" in text
+            or "path: $.data" in text
+            or "fetch_chapter_pages failed (unknown)" in text
+        )
+        if not looks_like_unavailable:
+            return None
+
+        preflight_error = await self._preflight_mangalib_chapter_pages_unavailable(
+            source_id=source_id,
+            chapter_url=chapter_url,
+        )
+        return preflight_error or "Chapter pages are unavailable in MangaLib API"
+
+    @staticmethod
+    def _extract_url_preference_bases(preferences: list[SourcePreference]) -> list[str]:
+        bases: list[str] = []
+        seen: set[str] = set()
+
+        def push(value: object | None) -> None:
+            if value is None:
+                return
+            if isinstance(value, list | tuple | set):
+                for item in value:
+                    push(item)
+                return
+
+            candidate = str(value).strip()
+            parsed = urlparse(candidate)
+            if not (parsed.scheme and parsed.netloc):
+                return
+            base = f"{parsed.scheme}://{parsed.netloc}"
+            if base in seen:
+                return
+            seen.add(base)
+            bases.append(base)
+
+        for pref in preferences:
+            push(pref.current_value)
+            push(pref.default_value)
+
+            selected_indexes: list[int] = []
+            if pref.entry_values:
+                if isinstance(pref.current_value, list):
+                    selected_values = {str(value) for value in pref.current_value}
+                    for idx, entry_value in enumerate(pref.entry_values):
+                        if str(entry_value) in selected_values:
+                            selected_indexes.append(idx)
+                else:
+                    selected_value = str(pref.current_value or "")
+                    for idx, entry_value in enumerate(pref.entry_values):
+                        if str(entry_value) == selected_value:
+                            selected_indexes.append(idx)
+            elif isinstance(pref.current_value, int | float):
+                selected_indexes.append(int(pref.current_value))
+
+            for idx in selected_indexes:
+                if pref.entry_values and 0 <= idx < len(pref.entry_values):
+                    push(pref.entry_values[idx])
+                if pref.entries and 0 <= idx < len(pref.entries):
+                    push(pref.entries[idx])
+
+        return bases
+
+    @staticmethod
+    async def _fetch_mangalib_image_server_url(
+        *,
+        api_domain: str,
+        image_server: str,
+    ) -> str | None:
+        api_base = api_domain.rstrip("/")
+        constants_url = f"{api_base}/api/constants"
+        try:
+            timeout = httpx.Timeout(10.0)
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                response = await client.get(
+                    constants_url,
+                    params=[("fields[]", "imageServers")],
+                )
+                response.raise_for_status()
+        except Exception:
+            return None
+
+        payload = response.json()
+        servers = payload.get("data", {}).get("imageServers", [])
+        if not isinstance(servers, list):
+            return None
+
+        normalized_server = image_server.strip().lower()
+        for entry in servers:
+            if not isinstance(entry, dict):
+                continue
+            raw_url = str(entry.get("url") or "").strip()
+            if not raw_url:
+                continue
+            parsed = urlparse(raw_url)
+            if not (parsed.scheme and parsed.netloc):
+                continue
+            entry_id = str(entry.get("id") or "").strip().lower()
+            if entry_id == normalized_server:
+                return f"{parsed.scheme}://{parsed.netloc}"
+        return None
+
+    @staticmethod
+    def _resolve_source_relative_url(
+        remote_url: str,
+        source_url_base: str | None,
+    ) -> str:
+        if not remote_url or not source_url_base:
+            return remote_url
+        if remote_url.startswith("//"):
+            parsed = urlparse(f"https:{remote_url}")
+            host = parsed.netloc.strip().lower()
+            if host and ("." in host or ":" in host):
+                return remote_url
+            return urljoin(
+                source_url_base.rstrip("/") + "/",
+                "/" + remote_url.lstrip("/"),
+            )
+        if remote_url.startswith("/"):
+            return urljoin(source_url_base.rstrip("/") + "/", remote_url)
+        return remote_url
+
+    @staticmethod
+    def _prefer_source_page_image_path(
+        remote_url: str,
+        page_url: str | None,
+        source_url_base: str | None,
+    ) -> str:
+        if not source_url_base:
+            return remote_url
+
+        candidate = DownloadService._sanitize_comma_encoded_url((page_url or "").strip()) or (page_url or "").strip()
+        if not candidate:
+            return remote_url
+
+        parsed = urlparse(f"https:{candidate}" if candidate.startswith("//") else candidate)
+        path = (parsed.path or "").lower()
+        if path and any(path.endswith(suffix) for suffix in _IMAGE_SUFFIXES):
+            return candidate
+        return remote_url
+
     @staticmethod
     def _sanitize_comma_encoded_url(value: str) -> str | None:
         candidate = value.strip()
@@ -2630,7 +3062,7 @@ class DownloadService:
             if variant is None or title is None:
                 raise BridgeAPIError(500, f"Broken chapter references: {chapter_id}")
 
-            task = DownloadTask(
+            task = self._build_queued_task(
                 library_title_id=int(title.id),
                 variant_id=int(variant.id),
                 chapter_id=chapter_id,
@@ -2638,16 +3070,12 @@ class DownloadService:
                 chapter_url=chapter.chapter_url,
                 title_name=variant.title or title.title,
                 chapter_name=chapter.name,
-                status=DownloadTaskStatus.QUEUED,
                 trigger=trigger,
                 priority=priority,
                 max_attempts=settings.downloads.max_attempts,
                 available_at=_now_utc(),
-                created_at=_now_utc(),
-                updated_at=_now_utc(),
             )
-            self.session.add(task)
-            await self.session.flush()
+            await self._finalize_new_task(task)
             return task, True
 
     async def _resolve_variant(
@@ -2948,6 +3376,8 @@ class DownloadService:
     ) -> DownloadTaskResource:
         return DownloadTaskResource(
             id=int(task.id),
+            attempt_group_id=task.attempt_group_id,
+            retry_of_task_id=task.retry_of_task_id,
             library_title_id=task.library_title_id,
             variant_id=task.variant_id,
             chapter_id=task.chapter_id,
