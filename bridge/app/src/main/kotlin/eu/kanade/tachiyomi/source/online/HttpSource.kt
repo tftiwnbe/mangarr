@@ -125,7 +125,7 @@ abstract class HttpSource : CatalogueSource {
             .newCall(popularMangaRequest(page))
             .asObservableSuccess()
             .map { response ->
-                popularMangaParse(response)
+                response.use { popularMangaParse(it) }
             }
 
     /**
@@ -166,7 +166,7 @@ abstract class HttpSource : CatalogueSource {
                     throw RuntimeException(e)
                 }
             }.map { response ->
-                searchMangaParse(response)
+                response.use { searchMangaParse(it) }
             }
 
     /**
@@ -200,7 +200,7 @@ abstract class HttpSource : CatalogueSource {
             .newCall(latestUpdatesRequest(page))
             .asObservableSuccess()
             .map { response ->
-                latestUpdatesParse(response)
+                response.use { latestUpdatesParse(it) }
             }
 
     /**
@@ -233,7 +233,7 @@ abstract class HttpSource : CatalogueSource {
             .newCall(mangaDetailsRequest(manga))
             .asObservableSuccess()
             .map { response ->
-                mangaDetailsParse(response).apply { initialized = true }
+                response.use { mangaDetailsParse(it).apply { initialized = true } }
             }
 
     /**
@@ -275,7 +275,7 @@ abstract class HttpSource : CatalogueSource {
                 .newCall(chapterListRequest(manga))
                 .asObservableSuccess()
                 .map { response ->
-                    chapterListParse(response)
+                    response.use { chapterListParse(it) }
                 }
         } else {
             Observable.error(LicensedMangaChaptersException())
@@ -312,7 +312,7 @@ abstract class HttpSource : CatalogueSource {
             .newCall(pageListRequest(chapter))
             .asObservableSuccess()
             .map { response ->
-                pageListParse(response)
+                response.use { pageListParse(it) }
             }
 
     /**
@@ -345,7 +345,7 @@ abstract class HttpSource : CatalogueSource {
         client
             .newCall(imageUrlRequest(page))
             .asObservableSuccess()
-            .map { imageUrlParse(it) }
+            .map { response -> response.use { imageUrlParse(it) } }
 
     /**
      * Returns the request for getting the url to the source image. Override only if it's needed to
