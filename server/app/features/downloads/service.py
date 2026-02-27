@@ -914,6 +914,7 @@ class DownloadService:
             chapter_id=chapter_id,
             trigger=trigger,
             priority=priority,
+            attempt_group_id=None,
         )
         await self.session.commit()
         if task.id is None:
@@ -946,13 +947,17 @@ class DownloadService:
         ).all()
 
         queued = 0
+        attempt_group_id: int | None = None
         for chapter in chapters:
-            _, created = await self._enqueue_chapter_if_needed(
+            task, created = await self._enqueue_chapter_if_needed(
                 chapter_id=int(chapter.id),
                 trigger=DownloadTrigger.MANUAL,
                 priority=80,
+                attempt_group_id=attempt_group_id,
             )
             if created:
+                if attempt_group_id is None and task.attempt_group_id is not None:
+                    attempt_group_id = int(task.attempt_group_id)
                 queued += 1
 
         await self.session.commit()
@@ -1089,6 +1094,7 @@ class DownloadService:
                     self.session.add(profile)
 
                     if profile.auto_download:
+                        attempt_group_id: int | None = None
                         for variant in variants:
                             if variant.id is None:
                                 continue
@@ -1102,12 +1108,18 @@ class DownloadService:
                                 seed_existing=seed_existing or int(variant.id) not in new_chapter_ids_by_variant,
                             )
                             for chapter_id in candidate_ids:
-                                _, created = await self._enqueue_chapter_if_needed(
+                                task, created = await self._enqueue_chapter_if_needed(
                                     chapter_id=chapter_id,
                                     trigger=DownloadTrigger.MONITOR,
                                     priority=60,
+                                    attempt_group_id=attempt_group_id,
                                 )
                                 if created:
+                                    if (
+                                        attempt_group_id is None
+                                        and task.attempt_group_id is not None
+                                    ):
+                                        attempt_group_id = int(task.attempt_group_id)
                                     enqueued_total += 1
 
                     await self.session.commit()
@@ -3058,6 +3070,7 @@ class DownloadService:
         chapter_id: int,
         trigger: DownloadTrigger,
         priority: int,
+        attempt_group_id: int | None = None,
     ) -> tuple[DownloadTask, bool]:
         async with self._enqueue_lock:
             chapter = await self.session.get(LibraryChapter, chapter_id)
@@ -3098,6 +3111,7 @@ class DownloadService:
                 priority=priority,
                 max_attempts=settings.downloads.max_attempts,
                 available_at=_now_utc(),
+                attempt_group_id=attempt_group_id,
             )
             await self._finalize_new_task(task)
             return task, True

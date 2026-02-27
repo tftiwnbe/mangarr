@@ -217,33 +217,52 @@ function mapTaskGroups(
 		}));
 }
 
-function mapTask(task: DownloadTaskResource, coverByTitleId: Map<number, string>): DownloadTaskItem {
-	const status = task.status as DownloadStatus;
-	const downloadedPages = Math.max(0, toFiniteNumber(task.downloaded_pages));
-	const totalPages = Math.max(0, toFiniteNumber(task.total_pages));
-	const progressPercent =
-		totalPages > 0 ? Math.max(0, Math.min(100, Math.round((downloadedPages / totalPages) * 100))) : 0;
-	return {
-		id: String(task.id),
-		titleId: task.library_title_id,
-		title: task.title_name,
-		chapter: task.chapter_name,
-		status,
-		isPaused: Boolean(task.is_paused),
-		progressPercent,
-		downloadedPages,
-		totalPages,
-		chaptersTotal: 1,
-		chaptersQueued: status === 'queued' ? 1 : 0,
-		chaptersDownloading: status === 'downloading' ? 1 : 0,
-		chaptersCompleted: status === 'completed' ? 1 : 0,
-		chaptersFailed: status === 'failed' ? 1 : 0,
-		chaptersCancelled: status === 'cancelled' ? 1 : 0,
-		error: task.error,
-		updatedAt: task.updated_at,
-		cover: normalizeCover(coverByTitleId.get(task.library_title_id) ?? ''),
-		sources: task.source_id ? [task.source_id] : []
-	};
+function mapRecentTaskGroups(
+	tasks: DownloadTaskResource[],
+	coverByTitleId: Map<number, string>
+): DownloadTaskItem[] {
+	const grouped = new Map<string, MutableTaskGroup>();
+
+	for (const task of tasks) {
+		const attemptGroup = Number(
+			(task as { attempt_group_id?: number | null }).attempt_group_id ?? task.id
+		);
+		const key = Number.isFinite(attemptGroup) && attemptGroup > 0 ? String(attemptGroup) : String(task.id);
+		const existing = grouped.get(key);
+		if (!existing) {
+			const created = createTaskGroup(task, coverByTitleId);
+			created.id = key;
+			grouped.set(key, created);
+			continue;
+		}
+		applyTaskToGroup(existing, task);
+	}
+
+	return [...grouped.values()]
+		.sort((a, b) => b.updatedAtMs - a.updatedAtMs)
+		.map((group) => ({
+			id: group.id,
+			titleId: group.titleId,
+			title: group.title,
+			chapter: group.chapter,
+			status: groupStatus(group),
+			isPaused: group.isPaused,
+			progressPercent: groupProgress(group),
+			downloadedPages: group.downloadedPages,
+			totalPages: group.totalPages,
+			chaptersTotal: group.chaptersTotal,
+			chaptersQueued: group.chaptersQueued,
+			chaptersDownloading: group.chaptersDownloading,
+			chaptersCompleted: group.chaptersCompleted,
+			chaptersFailed: group.chaptersFailed,
+			chaptersCancelled: group.chaptersCancelled,
+			error: group.error,
+			updatedAt: group.updatedAt,
+			cover: group.cover,
+			sources: [...group.sourceSet.values()].sort((a, b) =>
+				a.localeCompare(b, undefined, { sensitivity: 'base' })
+			)
+		}));
 }
 
 function mapMonitored(
@@ -310,9 +329,7 @@ export function mapDownloadDashboard(
 			failed: toFiniteNumber(resource.overview.failed)
 		},
 		activeTasks: mapTaskGroups(resource.active_tasks, coverByTitleId),
-		recentTasks: resource.recent_tasks
-			.map((task) => mapTask(task, coverByTitleId))
-			.sort((a, b) => parseDateTime(b.updatedAt) - parseDateTime(a.updatedAt)),
+		recentTasks: mapRecentTaskGroups(resource.recent_tasks, coverByTitleId),
 		monitoredTitles
 	};
 }
