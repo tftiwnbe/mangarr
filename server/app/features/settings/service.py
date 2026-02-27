@@ -46,6 +46,7 @@ class SettingsService:
         return DownloadSettingsResource(
             root_dir=str(root),
             parallel_downloads=settings.downloads.parallel_downloads,
+            failed_chapter_retry_delay_seconds=settings.downloads.failed_chapter_retry_delay_seconds,
             total_bytes=int(usage.total),
             used_bytes=int(usage.used),
             free_bytes=int(usage.free),
@@ -59,7 +60,11 @@ class SettingsService:
         if not current_user.is_admin:
             raise BridgeAPIError(403, "Only admins can update download settings")
 
-        if payload.root_dir is None and payload.parallel_downloads is None:
+        if (
+            payload.root_dir is None
+            and payload.parallel_downloads is None
+            and payload.failed_chapter_retry_delay_seconds is None
+        ):
             raise BridgeAPIError(400, "No download settings changes provided")
 
         if payload.root_dir is not None:
@@ -73,6 +78,10 @@ class SettingsService:
 
         if payload.parallel_downloads is not None:
             settings.downloads.parallel_downloads = int(payload.parallel_downloads)
+        if payload.failed_chapter_retry_delay_seconds is not None:
+            settings.downloads.failed_chapter_retry_delay_seconds = int(
+                payload.failed_chapter_retry_delay_seconds
+            )
 
         settings.save_settings()
         return SettingsService.get_download_settings()

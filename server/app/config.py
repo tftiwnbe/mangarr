@@ -74,6 +74,7 @@ class DownloadsConfig(MangarrBaseSettings):
     max_attempts: int = 4
     request_timeout_seconds: float = 30.0
     page_retry_count: int = 2
+    failed_chapter_retry_delay_seconds: int = 21600
 
 
 class JobsConfig(MangarrBaseSettings):

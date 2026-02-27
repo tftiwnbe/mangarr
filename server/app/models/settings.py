@@ -4,6 +4,7 @@ from sqlmodel import Field, SQLModel
 class DownloadSettingsResource(SQLModel):
     root_dir: str
     parallel_downloads: int = Field(default=1, ge=1, le=16)
+    failed_chapter_retry_delay_seconds: int = Field(default=21600, ge=60, le=604800)
     total_bytes: int = Field(default=0, ge=0)
     used_bytes: int = Field(default=0, ge=0)
     free_bytes: int = Field(default=0, ge=0)
@@ -12,6 +13,7 @@ class DownloadSettingsResource(SQLModel):
 class DownloadSettingsUpdate(SQLModel):
     root_dir: str | None = None
     parallel_downloads: int | None = Field(default=None, ge=1, le=16)
+    failed_chapter_retry_delay_seconds: int | None = Field(default=None, ge=60, le=604800)
 
 
 class JobsSettingsResource(SQLModel):

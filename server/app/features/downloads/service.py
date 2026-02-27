@@ -245,6 +245,27 @@ class DownloadService:
                 continue
             by_status[status] = int(count)
 
+        latest_task_ids = (
+            select(
+                DownloadTask.library_title_id.label("library_title_id"),
+                DownloadTask.chapter_id.label("chapter_id"),
+                func.max(DownloadTask.id).label("latest_task_id"),
+            )
+            .group_by(DownloadTask.library_title_id, DownloadTask.chapter_id)
+            .subquery()
+        )
+        failed_latest_value = (
+            await self.session.exec(
+                select(func.count(DownloadTask.id))
+                .join(
+                    latest_task_ids,
+                    DownloadTask.id == latest_task_ids.c.latest_task_id,
+                )
+                .where(DownloadTask.status == DownloadTaskStatus.FAILED)
+            )
+        ).one()
+        failed_chapters = int(failed_latest_value or 0)
+
         downloaded_chapters = int(
             (
                 await self.session.exec(
@@ -278,7 +299,7 @@ class DownloadService:
             queued=by_status.get(DownloadTaskStatus.QUEUED, 0),
             downloading=by_status.get(DownloadTaskStatus.DOWNLOADING, 0),
             completed=by_status.get(DownloadTaskStatus.COMPLETED, 0),
-            failed=by_status.get(DownloadTaskStatus.FAILED, 0),
+            failed=failed_chapters,
             cancelled=by_status.get(DownloadTaskStatus.CANCELLED, 0),
             downloaded_chapters=downloaded_chapters,
             total_downloaded_bytes=total_downloaded_bytes_value,
@@ -2344,7 +2365,10 @@ class DownloadService:
 
         self.session.add(task)
         if not final:
-            backoff = min(30 * (2 ** max(task.attempts - 1, 0)), 1800)
+            backoff = max(
+                0,
+                int(settings.downloads.failed_chapter_retry_delay_seconds),
+            )
             queued_retry = self._spawn_retry_task(
                 task=task,
                 available_at=now + timedelta(seconds=backoff),

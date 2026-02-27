@@ -85,6 +85,7 @@
 
 	let downloadRootDir = $state('');
 	let downloadParallelDownloads = $state(2);
+	let downloadFailedChapterRetryDelaySeconds = $state(21600);
 	let downloadTotalBytes = $state(0);
 	let downloadUsedBytes = $state(0);
 	let downloadFreeBytes = $state(0);
@@ -165,6 +166,7 @@
 			const settings = await getDownloadSettings();
 			downloadRootDir = settings.root_dir;
 			downloadParallelDownloads = settings.parallel_downloads;
+			downloadFailedChapterRetryDelaySeconds = settings.failed_chapter_retry_delay_seconds;
 			downloadTotalBytes = settings.total_bytes;
 			downloadUsedBytes = settings.used_bytes;
 			downloadFreeBytes = settings.free_bytes;
@@ -472,16 +474,23 @@
 			downloadsSettingsError = $_('settings.parallelDownloadsInvalid');
 			return;
 		}
+		const retryDelay = Math.round(downloadFailedChapterRetryDelaySeconds);
+		if (!Number.isFinite(retryDelay) || retryDelay < 60 || retryDelay > 604800) {
+			downloadsSettingsError = $_('settings.failedChapterRetryDelayInvalid');
+			return;
+		}
 		downloadsSettingsSaving = true;
 		downloadsSettingsError = null;
 		downloadsSettingsSuccess = false;
 		try {
 			const updated = await updateDownloadSettings({
 				root_dir: downloadRootDir.trim(),
-				parallel_downloads: parallel
+				parallel_downloads: parallel,
+				failed_chapter_retry_delay_seconds: retryDelay
 			});
 			downloadRootDir = updated.root_dir;
 			downloadParallelDownloads = updated.parallel_downloads;
+			downloadFailedChapterRetryDelaySeconds = updated.failed_chapter_retry_delay_seconds;
 			downloadTotalBytes = updated.total_bytes;
 			downloadUsedBytes = updated.used_bytes;
 			downloadFreeBytes = updated.free_bytes;
@@ -1013,6 +1022,28 @@
 							/>
 							<p class="text-xs text-[var(--text-ghost)]">
 								{$_('settings.parallelDownloadsDescription')}
+							</p>
+						</div>
+
+						<div class="flex flex-col gap-1.5">
+							<label class="text-label" for="failed-retry-delay">
+								{$_('settings.failedChapterRetryDelay')}
+							</label>
+							<input
+								id="failed-retry-delay"
+								type="number"
+								min="60"
+								max="604800"
+								step="60"
+								class="settings-input"
+								value={downloadFailedChapterRetryDelaySeconds}
+								oninput={(event) => {
+									const raw = Number((event.currentTarget as HTMLInputElement).value);
+									downloadFailedChapterRetryDelaySeconds = Number.isFinite(raw) ? raw : 21600;
+								}}
+							/>
+							<p class="text-xs text-[var(--text-ghost)]">
+								{$_('settings.failedChapterRetryDelayDescription')}
 							</p>
 						</div>
 

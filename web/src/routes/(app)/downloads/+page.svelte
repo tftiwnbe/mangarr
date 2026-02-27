@@ -35,7 +35,6 @@
 
 	const dashboard = $derived($downloadsDashboardStore.data);
 	const isLoading = $derived($downloadsDashboardStore.isLoading);
-	const isRefreshing = $derived($downloadsDashboardStore.isRefreshing);
 	const numberFormatter = new Intl.NumberFormat();
 	const sourceNameById = $derived.by(() => {
 		const map = new Map<string, string>();
@@ -65,83 +64,6 @@
 				item.source_name.toLowerCase().includes(query) ||
 				(item.source_lang ?? '').toLowerCase().includes(query)
 		);
-	});
-
-	const activeQueueProgress = $derived.by(() => {
-		const activeTitleIds = new Set(dashboard.activeTasks.map((task) => task.titleId));
-		const relevantMonitored = dashboard.monitoredTitles.filter(
-			(item) => item.queuedTasks > 0 || activeTitleIds.has(item.titleId)
-		);
-		const hasActiveFromOverview =
-			dashboard.queueTotals.queued > 0 || dashboard.queueTotals.downloading > 0;
-		if (
-			relevantMonitored.length === 0 &&
-			dashboard.activeTasks.length === 0 &&
-			!hasActiveFromOverview
-		)
-			return null;
-
-		let plannedTotal = 0;
-		let plannedDownloaded = 0;
-		let queuedChapters = 0;
-		let failedChapters = 0;
-		let downloadingChapters = 0;
-		let downloadedPages = 0;
-		let totalPages = 0;
-
-		for (const item of relevantMonitored) {
-			const total = Math.max(0, item.totalChapters);
-			const downloaded = Math.max(0, Math.min(total, item.downloadedChapters));
-			plannedTotal += total;
-			plannedDownloaded += downloaded;
-			queuedChapters += Math.max(0, item.queuedTasks);
-			failedChapters += Math.max(0, item.failedTasks);
-		}
-		if (queuedChapters === 0 && dashboard.queueTotals.queued > 0) {
-			queuedChapters = dashboard.queueTotals.queued;
-		}
-		if (failedChapters === 0 && dashboard.queueTotals.failed > 0) {
-			failedChapters = dashboard.queueTotals.failed;
-		}
-
-		for (const task of dashboard.activeTasks) {
-			downloadingChapters += Math.max(0, task.chaptersDownloading);
-			if (task.totalPages > 0) {
-				totalPages += task.totalPages;
-				downloadedPages += Math.min(task.totalPages, Math.max(0, task.downloadedPages));
-			}
-		}
-		if (downloadingChapters === 0 && dashboard.queueTotals.downloading > 0) {
-			downloadingChapters = dashboard.queueTotals.downloading;
-		}
-
-		const fallbackScheduled = dashboard.activeTasks.reduce(
-			(total, task) => total + Math.max(0, task.chaptersTotal),
-			0
-		);
-		const fallbackCompleted = dashboard.activeTasks.reduce(
-			(total, task) => total + Math.max(0, task.chaptersCompleted + task.chaptersCancelled),
-			0
-		);
-
-		const percent =
-			plannedTotal > 0
-				? Math.round((plannedDownloaded / plannedTotal) * 100)
-				: totalPages > 0
-					? Math.round((downloadedPages / totalPages) * 100)
-					: fallbackScheduled > 0
-						? Math.round((fallbackCompleted / fallbackScheduled) * 100)
-						: 0;
-		return {
-			percent: Math.max(0, Math.min(100, percent)),
-			scheduledChapters: plannedTotal > 0 ? plannedTotal : fallbackScheduled,
-			plannedDownloaded,
-			queuedChapters,
-			downloadingChapters,
-			failedChapters,
-			downloadedPages,
-			totalPages
-		};
 	});
 
 	const statusBarClass: Record<DownloadStatus, string> = {
@@ -444,40 +366,6 @@
 		</div>
 	{/if}
 
-	<!-- Active queue progress -->
-	{#if activeQueueProgress || runningAction === 'cycle' || isRefreshing}
-		<div class="flex flex-col gap-1.5">
-			<div class="flex items-baseline justify-between">
-				<div class="flex items-center gap-2">
-					<Icon name="loader" size={10} class="animate-spin text-[var(--text-muted)]" />
-					<span class="text-xs text-[var(--text-muted)]">
-						{#if activeQueueProgress}
-							{activeQueueProgress.queuedChapters}
-							{$_('downloads.queued').toLowerCase()}
-							{#if activeQueueProgress.failedChapters > 0}
-								<span class="text-[var(--error)]"
-									>· {activeQueueProgress.failedChapters}
-									{$_('downloads.failed').toLowerCase()}</span
-								>
-							{/if}
-						{:else}
-							{$_('common.loading')}
-						{/if}
-					</span>
-				</div>
-				<span class="text-sm text-[var(--text)] tabular-nums"
-					>{activeQueueProgress?.percent ?? 0}%</span
-				>
-			</div>
-			<div class="h-0.5 w-full overflow-hidden bg-[var(--void-4)]">
-				<div
-					class="h-full bg-[var(--text-muted)] transition-[width] duration-500"
-					style="width: {activeQueueProgress?.percent ?? 8}%"
-				></div>
-			</div>
-		</div>
-	{/if}
-
 	<!-- Reconcile results -->
 	{#if reconcileResult || reconcileLoading || reconcileError}
 		<div class="flex flex-col gap-3">
@@ -659,19 +547,12 @@
 								{/if}
 								<span>{formatBytes(item.downloadedBytes)}</span>
 							</div>
-							<!-- Row 3: Queue/failed alerts -->
-							{#if item.queuedTasks > 0 || item.failedTasks > 0}
+							<!-- Row 3: Queue alerts -->
+							{#if item.queuedTasks > 0}
 								<div class="mt-0.5 flex items-center gap-2 text-[10px]">
-									{#if item.queuedTasks > 0}
-										<span class="text-[var(--text-ghost)]"
-											>{item.queuedTasks} {$_('downloads.queued').toLowerCase()}</span
-										>
-									{/if}
-									{#if item.failedTasks > 0}
-										<span class="text-[var(--error)]"
-											>{item.failedTasks} {$_('downloads.failed').toLowerCase()}</span
-										>
-									{/if}
+									<span class="text-[var(--text-ghost)]"
+										>{item.queuedTasks} {$_('downloads.queued').toLowerCase()}</span
+									>
 								</div>
 							{/if}
 							<!-- Row 4: Progress bar -->

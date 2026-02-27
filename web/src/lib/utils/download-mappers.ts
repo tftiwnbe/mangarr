@@ -217,6 +217,35 @@ function mapTaskGroups(
 		}));
 }
 
+function mapTask(task: DownloadTaskResource, coverByTitleId: Map<number, string>): DownloadTaskItem {
+	const status = task.status as DownloadStatus;
+	const downloadedPages = Math.max(0, toFiniteNumber(task.downloaded_pages));
+	const totalPages = Math.max(0, toFiniteNumber(task.total_pages));
+	const progressPercent =
+		totalPages > 0 ? Math.max(0, Math.min(100, Math.round((downloadedPages / totalPages) * 100))) : 0;
+	return {
+		id: String(task.id),
+		titleId: task.library_title_id,
+		title: task.title_name,
+		chapter: task.chapter_name,
+		status,
+		isPaused: Boolean(task.is_paused),
+		progressPercent,
+		downloadedPages,
+		totalPages,
+		chaptersTotal: 1,
+		chaptersQueued: status === 'queued' ? 1 : 0,
+		chaptersDownloading: status === 'downloading' ? 1 : 0,
+		chaptersCompleted: status === 'completed' ? 1 : 0,
+		chaptersFailed: status === 'failed' ? 1 : 0,
+		chaptersCancelled: status === 'cancelled' ? 1 : 0,
+		error: task.error,
+		updatedAt: task.updated_at,
+		cover: normalizeCover(coverByTitleId.get(task.library_title_id) ?? ''),
+		sources: task.source_id ? [task.source_id] : []
+	};
+}
+
 function mapMonitored(
 	item: DownloadDashboardResource['monitored_titles'][number]
 ): DownloadMonitoredItem {
@@ -281,7 +310,9 @@ export function mapDownloadDashboard(
 			failed: toFiniteNumber(resource.overview.failed)
 		},
 		activeTasks: mapTaskGroups(resource.active_tasks, coverByTitleId),
-		recentTasks: mapTaskGroups(resource.recent_tasks, coverByTitleId),
+		recentTasks: resource.recent_tasks
+			.map((task) => mapTask(task, coverByTitleId))
+			.sort((a, b) => parseDateTime(b.updatedAt) - parseDateTime(a.updatedAt)),
 		monitoredTitles
 	};
 }

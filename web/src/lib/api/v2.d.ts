@@ -1306,6 +1306,11 @@ export interface components {
 			 */
 			parallel_downloads: number;
 			/**
+			 * Failed Chapter Retry Delay Seconds
+			 * @default 21600
+			 */
+			failed_chapter_retry_delay_seconds: number;
+			/**
 			 * Total Bytes
 			 * @default 0
 			 */
@@ -1327,6 +1332,8 @@ export interface components {
 			root_dir?: string | null;
 			/** Parallel Downloads */
 			parallel_downloads?: number | null;
+			/** Failed Chapter Retry Delay Seconds */
+			failed_chapter_retry_delay_seconds?: number | null;
 		};
 		/**
 		 * DownloadStrategy
