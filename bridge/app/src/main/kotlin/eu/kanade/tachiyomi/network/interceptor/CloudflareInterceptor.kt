@@ -17,12 +17,15 @@ import okhttp3.Cookie
 import okhttp3.HttpUrl
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
+import org.jsoup.parser.Parser
 import uy.kohesive.injekt.injectLazy
 import java.io.IOException
+import java.net.SocketTimeoutException
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.toJavaDuration
 
@@ -38,59 +41,123 @@ class CloudflareInterceptor(
 
         logger.trace { "CloudflareInterceptor is being used." }
 
-        val originalResponse = chain.proceed(originalRequest)
+        val originalResponse =
+            try {
+                chain.proceed(originalRequest)
+            } catch (e: SocketTimeoutException) {
+                val flareConfig = configProvider.config.value
+                if (!flareConfig.enabled) {
+                    throw e
+                }
+                logger.debug {
+                    "Request timed out for ${originalRequest.url}, trying FlareSolverr before failing"
+                }
+                return resolveThroughFlareSolverr(
+                    originalRequest = originalRequest,
+                    originalResponse = null,
+                    isKnownCloudflareResponse = false,
+                    flareResponseFallback = flareConfig.responseFallback,
+                    chain = chain,
+                )
+            }
+        val flareConfig = configProvider.config.value
+        val serverHeader = originalResponse.header("Server")
+        val isKnownCloudflareResponse =
+            originalResponse.code in ERROR_CODES && serverHeader in SERVER_CHECK
 
-        // Check if Cloudflare anti-bot is on
-        if (!(originalResponse.code in ERROR_CODES && originalResponse.header("Server") in SERVER_CHECK)) {
+        // Attempt bypass for blocked responses when FlareSolverr is enabled.
+        if (!(originalResponse.code in ERROR_CODES && flareConfig.enabled)) {
             return originalResponse
         }
 
-        val flareConfig = configProvider.config.value
-
-        if (!flareConfig.enabled) {
-            throw IOException("Cloudflare bypass currently disabled")
+        if (isKnownCloudflareResponse) {
+            logger.debug { "Cloudflare anti-bot is on, CloudflareInterceptor is kicking in..." }
+        } else {
+            logger.debug {
+                "Blocked response (${originalResponse.code}) from ${originalRequest.url.host} " +
+                    "with server=${serverHeader ?: "<unknown>"}, trying FlareSolverr"
+            }
         }
 
-        logger.debug { "Cloudflare anti-bot is on, CloudflareInterceptor is kicking in..." }
+        return resolveThroughFlareSolverr(
+            originalRequest = originalRequest,
+            originalResponse = originalResponse,
+            isKnownCloudflareResponse = isKnownCloudflareResponse,
+            flareResponseFallback = flareConfig.responseFallback,
+            chain = chain,
+        )
+    }
 
+    private fun resolveThroughFlareSolverr(
+        originalRequest: Request,
+        originalResponse: Response?,
+        isKnownCloudflareResponse: Boolean,
+        flareResponseFallback: Boolean,
+        chain: Interceptor.Chain,
+    ): Response {
         return try {
-            originalResponse.close()
+            originalResponse?.close()
 
-            val flareResponseFallback = flareConfig.responseFallback
             val flareResponse =
                 runBlocking {
                     CFClearance.resolveWithFlareSolver(originalRequest, !flareResponseFallback)
                 }
 
-            if (flareResponse.message.contains("not detected", ignoreCase = true)) {
-                logger.debug { "FlareSolverr failed to detect Cloudflare challenge" }
+            if (
+                flareResponseFallback &&
+                flareResponse.solution.status in 200..299 &&
+                flareResponse.solution.response != null
+            ) {
+                val rawResponse = flareResponse.solution.response
+                val normalizedResponse = unwrapPreformattedJson(rawResponse)
+                val wasUnwrappedFromHtml = normalizedResponse != rawResponse
+                val contentType =
+                    flareResponse.solution.headers
+                        ?.entries
+                        ?.firstOrNull { it.key.equals("content-type", ignoreCase = true) }
+                        ?.value
+                val isImage = CHROME_IMAGE_TEMPLATE_REGEX in rawResponse
+                val isHtml = contentType?.contains("text/html", ignoreCase = true) == true
+                val isJsonBody = normalizedResponse.trimStart().startsWith("{") ||
+                    normalizedResponse.trimStart().startsWith("[")
+                val useDirectJsonFallback =
+                    !wasUnwrappedFromHtml && !isImage && isJsonBody &&
+                        looksLikeUsableApiJson(normalizedResponse)
 
-                if (flareResponseFallback &&
-                    flareResponse.solution.status in 200..299 &&
-                    flareResponse.solution.response != null
-                ) {
-                    val isImage = CHROME_IMAGE_TEMPLATE_REGEX in flareResponse.solution.response
-                    if (!isImage) {
-                        logger.debug { "Falling back to FlareSolverr response" }
+                if ((wasUnwrappedFromHtml || useDirectJsonFallback) && !isImage && isJsonBody) {
+                    logger.debug { "Falling back to FlareSolverr response" }
 
-                        setUserAgent(flareResponse.solution.userAgent)
-
-                        return originalResponse
-                            .newBuilder()
-                            .code(flareResponse.solution.status)
-                            .body(flareResponse.solution.response.toResponseBody())
-                            .build()
-                    } else {
-                        logger.debug { "FlareSolverr response is an image html template, not falling back" }
+                    setUserAgent(flareResponse.solution.userAgent)
+                    val baseResponseBuilder =
+                        originalResponse?.newBuilder()
+                            ?: Response
+                                .Builder()
+                                .request(originalRequest)
+                                .protocol(Protocol.HTTP_1_1)
+                                .message("FlareSolverr")
+                    return baseResponseBuilder
+                        .code(flareResponse.solution.status)
+                        .body(normalizedResponse.toResponseBody())
+                        .build()
+                } else if (!wasUnwrappedFromHtml && (!isHtml || isJsonBody)) {
+                    logger.debug {
+                        "Ignoring direct FlareSolverr body for ${originalRequest.url}; retrying with solved cookies"
                     }
                 }
             }
 
-            val request = CFClearance.requestWithFlareSolverr(flareResponse, setUserAgent, originalRequest)
+            if (
+                isKnownCloudflareResponse &&
+                flareResponse.message.contains("not detected", ignoreCase = true)
+            ) {
+                logger.debug { "FlareSolverr failed to detect Cloudflare challenge" }
+            }
 
+            val request = CFClearance.requestWithFlareSolverr(flareResponse, setUserAgent, originalRequest)
             chain.proceed(request)
         } catch (e: Exception) {
-            throw IOException(e)
+            val reason = e.message?.takeIf { it.isNotBlank() } ?: e::class.java.simpleName
+            throw IOException("FlareSolverr resolution failed: $reason", e)
         }
     }
 
@@ -98,6 +165,28 @@ class CloudflareInterceptor(
         private val ERROR_CODES = listOf(403, 503)
         private val SERVER_CHECK = arrayOf("cloudflare-nginx", "cloudflare")
         private val CHROME_IMAGE_TEMPLATE_REGEX = Regex("""<title>(.*?) \(\d+×\d+\)</title>""")
+        private val HTML_PRE_JSON_REGEX = Regex("<pre>([\\s\\S]+?)</pre>", RegexOption.IGNORE_CASE)
+
+        private fun unwrapPreformattedJson(body: String): String {
+            val trimmed = body.trimStart()
+            if (!trimmed.startsWith("<", ignoreCase = true)) {
+                return body
+            }
+            val preMatch = HTML_PRE_JSON_REGEX.find(body) ?: return body
+            val preContent = preMatch.groupValues.getOrNull(1)?.trim() ?: return body
+            return Parser.unescapeEntities(preContent, false)
+        }
+
+        private fun looksLikeUsableApiJson(body: String): Boolean {
+            val trimmed = body.trimStart()
+            if (trimmed.startsWith("[")) return true
+            if (!trimmed.startsWith("{")) return false
+            val lower = trimmed.lowercase()
+            val hasData = "\"data\"" in lower
+            val hasToast = "\"toast\"" in lower
+            val hasError = "\"error\"" in lower || "\"errors\"" in lower
+            return hasData && !hasToast && !hasError
+        }
     }
 }
 
@@ -186,37 +275,68 @@ object CFClearance {
         val timeout = flareConfig.timeoutSeconds.seconds
 
         return mutex.withLock {
-            val response =
-                getClient()
-                    .newCall(
-                        POST(
-                            url = flareConfig.url.removeSuffix("/") + "/v1",
-                            body =
-                                Json
-                                    .encodeToString(
-                                        FlareSolverRequest(
-                                            "request.get",
-                                            originalRequest.url.toString(),
-                                            session = flareConfig.sessionName,
-                                            sessionTtlMinutes = flareConfig.sessionTtlMinutes,
-                                            cookies =
-                                                network.cookieStore.get(originalRequest.url).map {
-                                                    FlareSolverCookie(it.name, it.value)
-                                                },
-                                            returnOnlyCookies = onlyCookies,
-                                            maxTimeout = timeout.inWholeMilliseconds.toInt(),
-                                        ),
-                                    ).toRequestBody(jsonMediaType),
+            val requestPayload =
+                Json
+                    .encodeToString(
+                        FlareSolverRequest(
+                            "request.get",
+                            originalRequest.url.toString(),
+                            session = flareConfig.sessionName,
+                            sessionTtlMinutes = flareConfig.sessionTtlMinutes,
+                            cookies =
+                                network.cookieStore.get(originalRequest.url).map {
+                                    FlareSolverCookie(it.name, it.value)
+                                },
+                            returnOnlyCookies = onlyCookies,
+                            maxTimeout = timeout.inWholeMilliseconds.toInt(),
                         ),
-                    ).awaitSuccess()
+                    ).toRequestBody(jsonMediaType)
+            val endpoints = buildFlareSolverEndpoints(flareConfig.url)
+            var lastError: Exception? = null
 
-            // Parse response manually with our json instance
-            val responseBody =
-                response.body?.string()
-                    ?: throw IOException("Empty FlareSolverr response")
+            for (endpoint in endpoints) {
+                try {
+                    val response =
+                        getClient()
+                            .newCall(
+                                POST(
+                                    url = endpoint,
+                                    body = requestPayload,
+                                ),
+                            ).awaitSuccess()
 
-            json.decodeFromString<FlareSolverResponse>(responseBody)
+                    val responseBody =
+                        response.body?.string()
+                            ?: throw IOException("Empty FlareSolverr response")
+                    return@withLock json.decodeFromString<FlareSolverResponse>(responseBody)
+                } catch (e: Exception) {
+                    lastError = e
+                }
+            }
+
+            throw IOException(
+                "Unable to call FlareSolverr at ${flareConfig.url}. Tried: ${endpoints.joinToString()}",
+                lastError,
+            )
         }
+    }
+
+    private fun buildFlareSolverEndpoints(rawUrl: String): List<String> {
+        val base = rawUrl.trim().removeSuffix("/")
+        if (base.isEmpty()) return listOf("/v1")
+
+        fun withV1(url: String): String =
+            if (url.endsWith("/v1")) url else "$url/v1"
+
+        val endpoints = linkedSetOf<String>()
+        endpoints += withV1(base)
+
+        if (base.startsWith("http://")) {
+            val httpsBase = "https://" + base.removePrefix("http://")
+            endpoints += withV1(httpsBase)
+        }
+
+        return endpoints.toList()
     }
 
     fun requestWithFlareSolverr(

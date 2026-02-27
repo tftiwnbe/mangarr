@@ -26,6 +26,8 @@ from .proto.mangarr.tachibridge.config import config_pb2
 from .connection import TachibridgeConnection
 from .process import TachibridgeProcess
 
+SOURCE_RPC_TIMEOUT_SECONDS = 90.0
+
 
 class TachibridgeService:
     """
@@ -340,7 +342,9 @@ class TachibridgeService:
             request = extensions_pb2.GetPopularTitlesRequest(
                 source_id=int(source_id), page=page or 1
             )
-            response = await stub.GetPopularTitles(request, timeout=30.0)
+            response = await stub.GetPopularTitles(
+                request, timeout=SOURCE_RPC_TIMEOUT_SECONDS
+            )
 
             titles = [
                 self._proto_to_extension_title(title) for title in response.titles
@@ -360,7 +364,9 @@ class TachibridgeService:
             request = extensions_pb2.GetLatestTitlesRequest(
                 source_id=int(source_id), page=page or 1
             )
-            response = await stub.GetLatestTitles(request, timeout=30.0)
+            response = await stub.GetLatestTitles(
+                request, timeout=SOURCE_RPC_TIMEOUT_SECONDS
+            )
 
             titles = [
                 self._proto_to_extension_title(title) for title in response.titles
@@ -392,7 +398,7 @@ class TachibridgeService:
                 page=page or 1,
                 filters=filters,
             )
-            response = await stub.SearchTitle(request, timeout=30.0)
+            response = await stub.SearchTitle(request, timeout=SOURCE_RPC_TIMEOUT_SECONDS)
 
             titles = [
                 self._proto_to_extension_title(title) for title in response.titles
@@ -414,7 +420,9 @@ class TachibridgeService:
             request = extensions_pb2.GetTitleDetailsRequest(
                 source_id=int(source_id), title_url=title_url
             )
-            response = await stub.GetTitleDetails(request, timeout=30.0)
+            response = await stub.GetTitleDetails(
+                request, timeout=SOURCE_RPC_TIMEOUT_SECONDS
+            )
 
             return self._proto_to_extension_title(response.title)
         except AioRpcError as e:
@@ -431,7 +439,9 @@ class TachibridgeService:
             request = extensions_pb2.GetChaptersListRequest(
                 source_id=int(source_id), title_url=title_url
             )
-            response = await stub.GetChapterList(request, timeout=30.0)
+            response = await stub.GetChapterList(
+                request, timeout=SOURCE_RPC_TIMEOUT_SECONDS
+            )
 
             return [self._proto_to_chapter(ch) for ch in response.chapters]
         except AioRpcError as e:
@@ -448,7 +458,7 @@ class TachibridgeService:
             request = extensions_pb2.GetPagesListRequest(
                 source_id=int(source_id), chapter_url=chapter_url
             )
-            response = await stub.GetPageList(request, timeout=30.0)
+            response = await stub.GetPageList(request, timeout=SOURCE_RPC_TIMEOUT_SECONDS)
 
             return [self._proto_to_page(page) for page in response.pages]
         except AioRpcError as e:
