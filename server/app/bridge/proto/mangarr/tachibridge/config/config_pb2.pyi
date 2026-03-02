@@ -58,3 +58,59 @@ class SetFlareSolverrConfigResponse(_message.Message):
     success: bool
     error: str
     def __init__(self, success: bool = ..., error: _Optional[str] = ...) -> None: ...
+
+class ProxyConfig(_message.Message):
+    __slots__ = ("hostname", "port", "username", "password", "ignored_addresses", "bypass_local_addresses")
+    HOSTNAME_FIELD_NUMBER: _ClassVar[int]
+    PORT_FIELD_NUMBER: _ClassVar[int]
+    USERNAME_FIELD_NUMBER: _ClassVar[int]
+    PASSWORD_FIELD_NUMBER: _ClassVar[int]
+    IGNORED_ADDRESSES_FIELD_NUMBER: _ClassVar[int]
+    BYPASS_LOCAL_ADDRESSES_FIELD_NUMBER: _ClassVar[int]
+    hostname: str
+    port: int
+    username: str
+    password: str
+    ignored_addresses: str
+    bypass_local_addresses: bool
+    def __init__(self, hostname: _Optional[str] = ..., port: _Optional[int] = ..., username: _Optional[str] = ..., password: _Optional[str] = ..., ignored_addresses: _Optional[str] = ..., bypass_local_addresses: bool = ...) -> None: ...
+
+class GetProxyConfigRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class GetProxyConfigResponse(_message.Message):
+    __slots__ = ("config",)
+    CONFIG_FIELD_NUMBER: _ClassVar[int]
+    config: ProxyConfig
+    def __init__(self, config: _Optional[_Union[ProxyConfig, _Mapping]] = ...) -> None: ...
+
+class SetProxyConfigRequest(_message.Message):
+    __slots__ = ("config",)
+    CONFIG_FIELD_NUMBER: _ClassVar[int]
+    config: ProxyConfig
+    def __init__(self, config: _Optional[_Union[ProxyConfig, _Mapping]] = ...) -> None: ...
+
+class SetProxyConfigResponse(_message.Message):
+    __slots__ = ("success", "error")
+    SUCCESS_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    success: bool
+    error: str
+    def __init__(self, success: bool = ..., error: _Optional[str] = ...) -> None: ...
+
+class SetExtensionProxyRequest(_message.Message):
+    __slots__ = ("package_name", "use_proxy")
+    PACKAGE_NAME_FIELD_NUMBER: _ClassVar[int]
+    USE_PROXY_FIELD_NUMBER: _ClassVar[int]
+    package_name: str
+    use_proxy: bool
+    def __init__(self, package_name: _Optional[str] = ..., use_proxy: bool = ...) -> None: ...
+
+class SetExtensionProxyResponse(_message.Message):
+    __slots__ = ("success", "error")
+    SUCCESS_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    success: bool
+    error: str
+    def __init__(self, success: bool = ..., error: _Optional[str] = ...) -> None: ...

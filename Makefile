@@ -42,6 +42,7 @@ generate-stubs: ## Generate Python gRPC Stubs
   mangarr/tachibridge/tachibridge.proto \
 	mangarr/tachibridge/extensions/extensions.proto \
 	mangarr/tachibridge/config/config.proto
+	cd server && uv run python -c "from pathlib import Path; files=(Path('app/bridge/proto/mangarr/tachibridge/tachibridge_pb2.py'), Path('app/bridge/proto/mangarr/tachibridge/tachibridge_pb2_grpc.py')); replacements=(('from mangarr.tachibridge.config import config_pb2 as','from .config import config_pb2 as'), ('from mangarr.tachibridge.extensions import extensions_pb2 as','from .extensions import extensions_pb2 as'), ('from mangarr.tachibridge import tachibridge_pb2 as','from . import tachibridge_pb2 as')); [file.write_text((lambda text: [text := text.replace(src, dst) for src, dst in replacements] and text)(file.read_text())) for file in files]"
 
 generate-types: ## Turns OpenAPI schemas into TypeScript types
 	@echo "Checking if backend is running..."

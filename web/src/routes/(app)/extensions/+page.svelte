@@ -48,6 +48,10 @@
 	let sourceSettingsError = $state<string | null>(null);
 	let sourceSettingsSaving = $state(false);
 	let pendingPreferenceChanges = $state<Map<string, unknown>>(new Map());
+	let authImportText = $state('');
+	let authImportSaving = $state(false);
+	let authImportError = $state<string | null>(null);
+	let authImportSuccess = $state<string | null>(null);
 
 	// Filtered installed — matches extension name OR any source name/lang
 	const filteredInstalled = $derived.by(() => {
@@ -190,7 +194,9 @@
 		sourceSettingsData = null;
 		pendingPreferenceChanges = new Map();
 		try {
-			sourceSettingsData = await getSourcePreferences(sourceId);
+			const resolved = await getSourcePreferences(sourceId);
+			sourceSettingsData = resolved;
+			syncAuthImportTextFromImportedStorage(resolved);
 		} catch (e) {
 			sourceSettingsError = e instanceof Error ? e.message : 'Failed to load preferences';
 		} finally {
@@ -203,11 +209,235 @@
 		sourceSettingsData = null;
 		sourceSettingsError = null;
 		pendingPreferenceChanges = new Map();
+		authImportText = '';
+		authImportSaving = false;
+		authImportError = null;
+		authImportSuccess = null;
 	}
 
 	function handlePreferenceChange(key: string, value: unknown) {
 		pendingPreferenceChanges.set(key, value);
 		pendingPreferenceChanges = new Map(pendingPreferenceChanges);
+	}
+
+	function parsePossiblyStringifiedJson(value: unknown): unknown {
+		if (typeof value !== 'string') return value;
+		const trimmed = value.trim();
+		if (!trimmed) return value;
+		if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return value;
+		try {
+			return JSON.parse(trimmed);
+		} catch {
+			return value;
+		}
+	}
+
+	function parseLooseKeyValueInput(input: string): Record<string, unknown> | null {
+		const lines = input
+			.split('\n')
+			.map((line) => line.trim())
+			.filter((line) => line.length > 0);
+		if (lines.length === 0) return null;
+
+		const map: Record<string, unknown> = {};
+		for (const line of lines) {
+			const separatorIndex = line.search(/\s+/);
+			if (separatorIndex <= 0) return null;
+			const key = line.slice(0, separatorIndex).trim();
+			const rawValue = line.slice(separatorIndex).trim();
+			if (!key || !rawValue) return null;
+			map[key] = parsePossiblyStringifiedJson(rawValue);
+		}
+		return map;
+	}
+
+	function parseAuthImportInput(input: string): Record<string, unknown> {
+		const trimmed = input.trim();
+		if (!trimmed) {
+			throw new Error('Paste JSON or key-value storage dump first.');
+		}
+
+		try {
+			const parsed = JSON.parse(trimmed);
+			if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+				throw new Error('Top-level JSON must be an object.');
+			}
+			return parsed as Record<string, unknown>;
+		} catch {
+			const loose = parseLooseKeyValueInput(trimmed);
+			if (loose) return loose;
+			throw new Error('Unable to parse input. Expected JSON object or lines in format: key <json/value>.');
+		}
+	}
+
+	function buildLibGroupTokenStorePayload(raw: Record<string, unknown>): Record<string, unknown> {
+		let tokenPayload: Record<string, unknown> | null = null;
+		let authPayload: Record<string, unknown> | null = null;
+
+		if (raw.token && raw.auth && typeof raw.token === 'object' && typeof raw.auth === 'object') {
+			tokenPayload = raw.token as Record<string, unknown>;
+			authPayload = raw.auth as Record<string, unknown>;
+		}
+
+		const authEntry = parsePossiblyStringifiedJson(raw.auth);
+		if (!tokenPayload && authEntry && typeof authEntry === 'object' && !Array.isArray(authEntry)) {
+			const authObj = authEntry as Record<string, unknown>;
+			if (authObj.token && authObj.auth) {
+				tokenPayload = authObj.token as Record<string, unknown>;
+				authPayload = authObj.auth as Record<string, unknown>;
+			}
+		}
+
+		if (!tokenPayload || !authPayload) {
+			throw new Error('Unable to find LibGroup auth payload. Expected object with token/auth fields.');
+		}
+
+		const userId = Number(authPayload.id);
+		if (!Number.isFinite(userId) || userId <= 0) {
+			throw new Error('Invalid auth.id in payload.');
+		}
+
+		const tokenType = String(tokenPayload.token_type ?? tokenPayload.tokenType ?? '').trim();
+		const accessToken = String(tokenPayload.access_token ?? tokenPayload.accessToken ?? '').trim();
+		const expiresIn = Number(tokenPayload.expires_in ?? tokenPayload.expiresIn ?? 0);
+		const timestamp = Number(tokenPayload.timestamp ?? Date.now());
+
+		if (!tokenType || !accessToken || !Number.isFinite(expiresIn) || expiresIn <= 0) {
+			throw new Error('Invalid token payload. token_type, access_token, expires_in are required.');
+		}
+
+		return {
+			TokenStore: {
+				auth: { id: userId },
+				token: {
+					token_type: tokenType,
+					access_token: accessToken,
+					expires_in: Math.trunc(expiresIn),
+					timestamp: Math.trunc(Number.isFinite(timestamp) ? timestamp : Date.now())
+				}
+			}
+		};
+	}
+
+	function normalizeRawMapPayload(raw: Record<string, unknown>): Record<string, unknown> {
+		const out: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(raw)) {
+			const normalizedKey = key.trim();
+			if (!normalizedKey) continue;
+			const parsed = parsePossiblyStringifiedJson(value);
+			if (
+				typeof parsed === 'string' ||
+				typeof parsed === 'number' ||
+				typeof parsed === 'boolean' ||
+				parsed === null
+			) {
+				out[normalizedKey] = parsed;
+			} else {
+				out[normalizedKey] = JSON.stringify(parsed);
+			}
+		}
+
+		// Generic mode convenience:
+		// if user pasted browser localStorage auth payload ("auth", or "token"+"auth"),
+		// auto-generate LibGroup TokenStore entry required by HentaiLib/MangaLib sources.
+		try {
+			const maybeTokenStore = buildLibGroupTokenStorePayload(raw);
+			for (const [k, v] of Object.entries(maybeTokenStore)) {
+				out[k] = JSON.stringify(v);
+			}
+		} catch {
+			// Ignore when input is not LibGroup-style auth payload.
+		}
+
+		return out;
+	}
+
+	function hasStoredValue(value: unknown): boolean {
+		if (value === null || value === undefined) return false;
+		if (typeof value === 'string') return value.trim().length > 0;
+		if (Array.isArray(value)) return value.length > 0;
+		return true;
+	}
+
+	function isHiddenStoragePreference(
+		pref: NonNullable<typeof sourceSettingsData>['preferences'][number]
+	): boolean {
+		return !pref.visible && hasStoredValue(pref.current_value);
+	}
+
+	function getHiddenStorageKeys(): string[] {
+		if (!sourceSettingsData) return [];
+		return sourceSettingsData.preferences.filter(isHiddenStoragePreference).map((pref) => pref.key);
+	}
+
+	function importedStorageMap(
+		data: SourcePreferencesResolved | null = sourceSettingsData
+	): Record<string, unknown> {
+		const map: Record<string, unknown> = {};
+		if (!data) return map;
+		for (const pref of data.preferences) {
+			if (!isHiddenStoragePreference(pref)) continue;
+			map[pref.key] = pref.current_value;
+		}
+		return map;
+	}
+
+	function serializeImportedStorageMap(map: Record<string, unknown>): string {
+		if (Object.keys(map).length === 0) return '';
+		try {
+			return JSON.stringify(map, null, 2);
+		} catch {
+			return '';
+		}
+	}
+
+	function syncAuthImportTextFromImportedStorage(
+		data: SourcePreferencesResolved | null = sourceSettingsData
+	) {
+		authImportText = serializeImportedStorageMap(importedStorageMap(data));
+	}
+
+	async function importAuthStorage() {
+		if (!sourceSettingsData) return;
+
+		authImportSaving = true;
+		authImportError = null;
+		authImportSuccess = null;
+		try {
+			let mapped: Record<string, unknown> = {};
+			if (authImportText.trim()) {
+				const raw = parseAuthImportInput(authImportText);
+				mapped = normalizeRawMapPayload(raw);
+			}
+
+			const upserts: SourcePreferenceUpdate[] = Object.entries(mapped).map(([key, value]) => ({
+				key,
+				value
+			}));
+			const existingKeys = getHiddenStorageKeys();
+			if (existingKeys.length === 0 && upserts.length === 0) {
+				throw new Error('No imported keys yet. Paste JSON map to import.');
+			}
+			const deletes: SourcePreferenceUpdate[] = existingKeys.map((key) => ({
+				key,
+				delete: true
+			}));
+			sourceSettingsData = await updateSourcePreferences(sourceSettingsData.source_id, [
+				...deletes,
+				...upserts
+			]);
+			syncAuthImportTextFromImportedStorage(sourceSettingsData);
+
+			if (upserts.length === 0) {
+				authImportSuccess = `Deleted ${deletes.length} imported key${deletes.length === 1 ? '' : 's'}.`;
+			} else {
+				authImportSuccess = `Replaced imported storage with ${upserts.length} key${upserts.length === 1 ? '' : 's'} (removed ${deletes.length}).`;
+			}
+		} catch (e) {
+			authImportError = e instanceof Error ? e.message : 'Failed to import auth/storage values';
+		} finally {
+			authImportSaving = false;
+		}
 	}
 
 	async function saveSourceSettings() {
@@ -231,6 +461,11 @@
 		if (pendingPreferenceChanges.has(pref.key)) return pendingPreferenceChanges.get(pref.key);
 		return pref.current_value ?? pref.default_value;
 	}
+
+	const importedStoragePreferences = $derived.by(() => {
+		if (!sourceSettingsData) return [];
+		return sourceSettingsData.preferences.filter(isHiddenStoragePreference);
+	});
 
 	function switchTab(tab: TabValue) {
 		activeTab = tab;
@@ -601,6 +836,55 @@
 			</div>
 		{:else}
 			<div class="flex flex-col gap-4">
+				<div class="border border-[var(--line)] bg-[var(--void-2)] p-4">
+						<div class="flex flex-col gap-3">
+							<div>
+								<p class="text-sm text-[var(--text)]">Advanced Auth / Storage Import</p>
+								<p class="mt-0.5 text-xs text-[var(--text-ghost)]">
+									Single replace editor for hidden extension storage values (no WebView login). Existing imported keys are loaded here; applying replaces all imported keys.
+								</p>
+							</div>
+
+							<p class="text-xs text-[var(--text-muted)]">Generic key/value map</p>
+
+							<textarea
+								class="min-h-40 w-full border border-[var(--line)] bg-[var(--void-1)] p-3 text-xs text-[var(--text)] outline-none focus:border-[var(--text-ghost)]"
+								placeholder="JSON object. Leave empty and apply to delete all imported keys."
+								bind:value={authImportText}
+							></textarea>
+							<p class="text-[11px] text-[var(--text-ghost)]">
+								{#if importedStoragePreferences.length > 0}
+									Loaded {importedStoragePreferences.length} imported key{importedStoragePreferences.length === 1 ? '' : 's'} into this editor.
+								{:else}
+									No imported keys yet.
+								{/if}
+							</p>
+
+						{#if authImportError}
+							<div class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-3 py-2 text-xs text-[var(--error)]">
+								{authImportError}
+							</div>
+						{/if}
+						{#if authImportSuccess}
+							<div class="border border-[var(--success)]/20 bg-[var(--success)]/10 px-3 py-2 text-xs text-[var(--success)]">
+								{authImportSuccess}
+							</div>
+						{/if}
+
+							<div class="flex items-center gap-2">
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={importAuthStorage}
+									disabled={authImportSaving || (!authImportText.trim() && importedStoragePreferences.length === 0)}
+									loading={authImportSaving}
+								>
+									Apply replacement
+								</Button>
+							</div>
+						</div>
+					</div>
+
 				{#each sourceSettingsData.preferences.filter(p => p.visible) as pref (pref.key)}
 					<div class="border border-[var(--line)] bg-[var(--void-2)] p-4">
 						<div class="flex items-start justify-between gap-3">

@@ -139,6 +139,27 @@ object ConfigManager {
         }
     }
 
+    fun removeSourcePreference(
+        sourceId: Long,
+        key: String,
+    ) {
+        update { config ->
+            val sourceIdStr = sourceId.toString()
+            val currentPrefs = config.sourcePreferences[sourceIdStr] ?: return@update config
+            if (!currentPrefs.containsKey(key)) return@update config
+
+            val updatedPrefs = currentPrefs - key
+            val updatedSourcePrefs =
+                if (updatedPrefs.isEmpty()) {
+                    config.sourcePreferences - sourceIdStr
+                } else {
+                    config.sourcePreferences + (sourceIdStr to updatedPrefs)
+                }
+
+            config.copy(sourcePreferences = updatedSourcePrefs)
+        }
+    }
+
     fun updateFlareSolverr(updater: (BridgeConfig.FlareSolverr) -> BridgeConfig.FlareSolverr) {
         update { config ->
             val updated = updater(config.flareSolverr)
@@ -157,6 +178,10 @@ object ConfigManager {
 
     fun setFlareSolverrTimeout(timeoutSeconds: Int) {
         updateFlareSolverr { it.copy(timeoutSeconds = timeoutSeconds) }
+    }
+
+    fun setProxyConfig(proxy: BridgeConfig.Proxy) {
+        update { config -> config.copy(proxy = proxy) }
     }
 
     fun syncExtensions(validPackages: Set<String>) {

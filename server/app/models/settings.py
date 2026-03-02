@@ -54,3 +54,21 @@ class FlareSolverrSettingsUpdate(SQLModel):
     response_fallback: bool | None = None
     session_name: str | None = None
     session_ttl_minutes: int | None = Field(default=None, ge=1, le=1440)
+
+
+class ProxySettingsResource(SQLModel):
+    hostname: str = ""
+    port: int = Field(default=0, ge=0, le=65535)
+    username: str | None = None
+    password: str | None = None
+    ignored_addresses: str = ""
+    bypass_local_addresses: bool = True
+
+
+class ProxySettingsUpdate(SQLModel):
+    hostname: str | None = None
+    port: int | None = Field(default=None, ge=0, le=65535)
+    username: str | None = None
+    password: str | None = None
+    ignored_addresses: str | None = None
+    bypass_local_addresses: bool | None = None

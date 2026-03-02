@@ -9,7 +9,9 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import mangarr.tachibridge.config.FlareSolverrConfigProvider
+import okhttp3.Authenticator
 import okhttp3.Cache
+import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.brotli.BrotliInterceptor
 import okhttp3.logging.HttpLoggingInterceptor
@@ -49,6 +51,24 @@ class NetworkHelper(
                     .connectTimeout(30, TimeUnit.SECONDS)
                     .readTimeout(30, TimeUnit.SECONDS)
                     .callTimeout(2, TimeUnit.MINUTES)
+                    .proxySelector(BridgeProxySelector())
+                    .proxyAuthenticator(
+                        Authenticator { _, response ->
+                            val proxySettings = BridgeProxyContext.current()
+                            val username = proxySettings?.username?.trim().orEmpty()
+                        if (username.isBlank()) {
+                            return@Authenticator null
+                        }
+                        val credential = Credentials.basic(username, proxySettings?.password.orEmpty())
+                        if (response.request.header("Proxy-Authorization") == credential) {
+                            return@Authenticator null
+                        }
+                            response.request
+                                .newBuilder()
+                                .header("Proxy-Authorization", credential)
+                                .build()
+                        },
+                    )
                     .cache(
                         Cache(
                             directory = Files.createTempDirectory("tachidesk_network_cache").toFile(),

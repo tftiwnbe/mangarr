@@ -4,7 +4,7 @@ import re
 from difflib import SequenceMatcher
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import quote, urljoin, urlparse
+from urllib.parse import parse_qs, quote, urljoin, urlparse
 
 import httpx
 from sqlalchemy.exc import OperationalError, PendingRollbackError
@@ -105,6 +105,32 @@ def _fallback_title_from_url(title_url: str) -> str:
     if not slug:
         return title_url
     return " ".join(part.capitalize() for part in slug.split())
+
+
+def _resolve_libgroup_chapter_url_for_bridge(chapter_url: str) -> str:
+    raw = (chapter_url or "").strip()
+    prefix = "mangarr-libgroup://"
+    if not raw.startswith(prefix):
+        return raw
+
+    payload = raw.removeprefix(prefix)
+    slug, _, query = payload.partition("?")
+    slug = slug.strip().lstrip("/")
+    if not slug:
+        return raw
+
+    params = parse_qs(query, keep_blank_values=True)
+    volume = (params.get("v", [None])[0] or "").strip()
+    number = (params.get("n", [None])[0] or "").strip()
+    if not volume or not number:
+        return raw
+
+    branch_id = (params.get("b", [None])[0] or "").strip()
+    branch_part = f"&branch_id={quote(branch_id, safe='')}" if branch_id else ""
+    return (
+        f"/{slug}/chapter?"
+        f"{branch_part}&volume={quote(volume, safe='')}&number={quote(number, safe='')}"
+    )
 
 
 class LibraryService:
@@ -2313,26 +2339,32 @@ class LibraryService:
             variant = await self.session.get(LibraryTitleVariant, chapter.variant_id)
             if variant is None:
                 raise BridgeAPIError(500, f"Library chapter has no variant: {chapter_id}")
+            bridge_chapter_url = _resolve_libgroup_chapter_url_for_bridge(chapter.chapter_url)
             preflight_error = await self._preflight_mangalib_chapter_pages_unavailable(
                 source_id=variant.source_id,
-                chapter_url=chapter.chapter_url,
+                chapter_url=bridge_chapter_url,
             )
             if preflight_error:
                 raise BridgeAPIError(409, preflight_error)
             try:
                 pages = await tachibridge.fetch_chapter_pages(
                     source_id=variant.source_id,
-                    chapter_url=chapter.chapter_url,
+                    chapter_url=bridge_chapter_url,
                 )
             except BridgeAPIError as exc:
                 normalized = await self._normalize_mangalib_pages_error(
                     source_id=variant.source_id,
-                    chapter_url=chapter.chapter_url,
+                    chapter_url=bridge_chapter_url,
                     error_text=str(exc),
                 )
                 if normalized:
                     raise BridgeAPIError(409, normalized) from exc
                 raise
+            if not pages:
+                raise BridgeAPIError(
+                    409,
+                    "Chapter pages are unavailable from source API (empty response).",
+                )
 
             existing_by_index = {item.page_index: item for item in cached_pages}
             seen_indexes: set[int] = set()
@@ -3429,6 +3461,10 @@ class LibraryService:
             return None
 
         pref_by_key = {pref.key: pref.current_value for pref in prefs.preferences}
+        site_id = self._infer_mangalib_site_id(
+            source_name=prefs.name,
+            preferences=prefs.preferences,
+        )
         bases = self._extract_url_preference_bases(prefs.preferences)
         selected_base = bases[0] if bases else None
         if "MangaLibImageServer" in pref_by_key:
@@ -3441,6 +3477,7 @@ class LibraryService:
             mangalib = await self._fetch_mangalib_image_server_url(
                 api_domain=api_domain,
                 image_server=image_server,
+                site_id=site_id,
             )
             if mangalib:
                 selected_base = mangalib
@@ -3527,6 +3564,7 @@ class LibraryService:
         *,
         api_domain: str,
         image_server: str,
+        site_id: int | None = None,
     ) -> str | None:
         api_base = api_domain.rstrip("/")
         constants_url = f"{api_base}/api/constants"
@@ -3547,6 +3585,7 @@ class LibraryService:
             return None
 
         normalized_server = image_server.strip().lower()
+        fallback_match: str | None = None
         for entry in servers:
             if not isinstance(entry, dict):
                 continue
@@ -3557,8 +3596,51 @@ class LibraryService:
             if not (parsed.scheme and parsed.netloc):
                 continue
             entry_id = str(entry.get("id") or "").strip().lower()
-            if entry_id == normalized_server:
-                return f"{parsed.scheme}://{parsed.netloc}"
+            if entry_id != normalized_server:
+                continue
+
+            resolved_base = f"{parsed.scheme}://{parsed.netloc}"
+            site_ids = entry.get("site_ids")
+            if (
+                site_id is not None
+                and isinstance(site_ids, list)
+                and any(
+                    str(item).strip().isdigit() and int(str(item).strip()) == site_id
+                    for item in site_ids
+                    if isinstance(item, int | str)
+                )
+            ):
+                return resolved_base
+            if fallback_match is None:
+                fallback_match = resolved_base
+        return fallback_match
+
+    @staticmethod
+    def _infer_mangalib_site_id(
+        source_name: str | None,
+        preferences: list[SourcePreference],
+    ) -> int | None:
+        name = (source_name or "").strip().lower()
+        if "hentai" in name:
+            return 4
+        if "yaoi" in name:
+            return 3
+        if "manga" in name:
+            return 1
+
+        domain_value = ""
+        for pref in preferences:
+            key = (pref.key or "").strip().lower()
+            if key == "домен":
+                domain_value = str(pref.current_value or pref.default_value or "").strip().lower()
+                break
+
+        if "hentai" in domain_value:
+            return 4
+        if "slashlib" in domain_value or "yaoi" in domain_value:
+            return 3
+        if "mangalib" in domain_value:
+            return 1
         return None
 
     @staticmethod
@@ -3643,6 +3725,11 @@ class LibraryService:
 
         candidate = LibraryService._sanitize_comma_encoded_url((page_url or "").strip()) or (page_url or "").strip()
         if not candidate:
+            return remote_url
+
+        parsed_remote = urlparse(remote_url)
+        remote_is_absolute = bool(parsed_remote.scheme and parsed_remote.netloc)
+        if remote_is_absolute and (candidate.startswith("/") or candidate.startswith("//")):
             return remote_url
 
         parsed = urlparse(f"https:{candidate}" if candidate.startswith("//") else candidate)

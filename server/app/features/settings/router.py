@@ -10,6 +10,8 @@ from app.models import (
     JobsCleanupRunResource,
     JobsSettingsResource,
     JobsSettingsUpdate,
+    ProxySettingsResource,
+    ProxySettingsUpdate,
 )
 
 router = APIRouter(
@@ -64,6 +66,22 @@ async def update_flaresolverr_settings(
     current_user: CurrentUserDep,
 ):
     return await SettingsService.update_flaresolverr_settings(
+        payload=payload,
+        current_user=current_user,
+    )
+
+
+@router.get("/proxy", response_model=ProxySettingsResource)
+async def get_proxy_settings():
+    return await SettingsService.get_proxy_settings()
+
+
+@router.put("/proxy", response_model=ProxySettingsResource)
+async def update_proxy_settings(
+    payload: ProxySettingsUpdate,
+    current_user: CurrentUserDep,
+):
+    return await SettingsService.update_proxy_settings(
         payload=payload,
         current_user=current_user,
     )

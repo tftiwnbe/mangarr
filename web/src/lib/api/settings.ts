@@ -16,6 +16,15 @@ export type FlareSolverrSettingsResource = {
 	session_ttl_minutes: number | null;
 };
 export type FlareSolverrSettingsUpdate = Partial<FlareSolverrSettingsResource>;
+export type ProxySettingsResource = {
+	hostname: string;
+	port: number;
+	username: string | null;
+	password: string | null;
+	ignored_addresses: string;
+	bypass_local_addresses: boolean;
+};
+export type ProxySettingsUpdate = Partial<ProxySettingsResource>;
 
 export async function getDownloadSettings(): Promise<DownloadSettingsResource> {
 	return expectData(await httpClient.GET('/api/v2/settings/downloads'), 'Unable to load download settings');
@@ -61,5 +70,18 @@ export async function updateFlareSolverrSettings(
 	return expectData(
 		await (httpClient as any).PUT('/api/v2/settings/flaresolverr', { body: payload }),
 		'Unable to update FlareSolverr settings'
+	);
+}
+
+export async function getProxySettings(): Promise<ProxySettingsResource> {
+	return expectData(await (httpClient as any).GET('/api/v2/settings/proxy'), 'Unable to load proxy settings');
+}
+
+export async function updateProxySettings(
+	payload: ProxySettingsUpdate
+): Promise<ProxySettingsResource> {
+	return expectData(
+		await (httpClient as any).PUT('/api/v2/settings/proxy', { body: payload }),
+		'Unable to update proxy settings'
 	);
 }

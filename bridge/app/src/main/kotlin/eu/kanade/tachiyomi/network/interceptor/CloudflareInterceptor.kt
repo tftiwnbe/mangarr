@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.network.interceptor
 
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.BridgeProxyContext
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.parseAs
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -25,6 +26,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.jsoup.parser.Parser
 import uy.kohesive.injekt.injectLazy
 import java.io.IOException
+import java.net.URLEncoder
 import java.net.SocketTimeoutException
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.toJavaDuration
@@ -230,6 +232,7 @@ object CFClearance {
         val cookies: List<FlareSolverCookie>? = null,
         val returnOnlyCookies: Boolean? = null,
         val proxy: String? = null,
+        val headers: Map<String, String>? = null,
         val postData: String? = null,
     )
 
@@ -287,6 +290,8 @@ object CFClearance {
                                 network.cookieStore.get(originalRequest.url).map {
                                     FlareSolverCookie(it.name, it.value)
                                 },
+                            proxy = buildFlareSolverProxy(originalRequest),
+                            headers = buildFlareSolverHeaders(originalRequest),
                             returnOnlyCookies = onlyCookies,
                             maxTimeout = timeout.inWholeMilliseconds.toInt(),
                         ),
@@ -296,7 +301,7 @@ object CFClearance {
 
             for (endpoint in endpoints) {
                 try {
-                    val response =
+                    val responseBody =
                         getClient()
                             .newCall(
                                 POST(
@@ -304,10 +309,10 @@ object CFClearance {
                                     body = requestPayload,
                                 ),
                             ).awaitSuccess()
-
-                    val responseBody =
-                        response.body?.string()
-                            ?: throw IOException("Empty FlareSolverr response")
+                            .use { response ->
+                                response.body?.string()
+                                    ?: throw IOException("Empty FlareSolverr response")
+                            }
                     return@withLock json.decodeFromString<FlareSolverResponse>(responseBody)
                 } catch (e: Exception) {
                     lastError = e
@@ -337,6 +342,48 @@ object CFClearance {
         }
 
         return endpoints.toList()
+    }
+
+    private fun buildFlareSolverProxy(originalRequest: Request): String? {
+        val proxySettings = BridgeProxyContext.current() ?: return null
+        if (!proxySettings.isConfigured()) return null
+
+        val requestHost = originalRequest.url.host
+        if (proxySettings.shouldBypass(requestHost)) {
+            return null
+        }
+
+        val encodedUser = proxySettings.username?.trim().orEmpty().takeIf { it.isNotBlank() }?.let(::encodeProxyPart)
+        val encodedPass = proxySettings.password.orEmpty().takeIf { encodedUser != null }?.let(::encodeProxyPart)
+        val authPart =
+            if (encodedUser != null) {
+                "$encodedUser:${encodedPass.orEmpty()}@"
+            } else {
+                ""
+            }
+
+        return "http://$authPart${proxySettings.hostname}:${proxySettings.port}"
+    }
+
+    private fun encodeProxyPart(value: String): String =
+        URLEncoder.encode(value, Charsets.UTF_8).replace("+", "%20")
+
+    private fun buildFlareSolverHeaders(originalRequest: Request): Map<String, String>? {
+        val blockedHeaders =
+            setOf(
+                "host",
+                "content-length",
+            )
+
+        val headers = linkedMapOf<String, String>()
+        for (name in originalRequest.headers.names()) {
+            if (name.lowercase() in blockedHeaders) continue
+            val value = originalRequest.header(name)?.trim().orEmpty()
+            if (value.isNotEmpty()) {
+                headers[name] = value
+            }
+        }
+        return headers.takeIf { it.isNotEmpty() }
     }
 
     fun requestWithFlareSolverr(

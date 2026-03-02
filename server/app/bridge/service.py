@@ -27,6 +27,7 @@ from .connection import TachibridgeConnection
 from .process import TachibridgeProcess
 
 SOURCE_RPC_TIMEOUT_SECONDS = 90.0
+DELETE_PREFERENCE_MARKER = "__mangarr_delete_preference__"
 
 
 class TachibridgeService:
@@ -201,6 +202,76 @@ class TachibridgeService:
         except AioRpcError as e:
             self._handle_grpc_error(e, "set_flaresolverr_config")
 
+    async def fetch_proxy_config(self) -> dict[str, Any]:
+        """Return current proxy config from bridge."""
+        try:
+            stub = await self._connection.get_stub()
+            request = config_pb2.GetProxyConfigRequest()
+            response = await stub.GetProxyConfig(request, timeout=10.0)
+            config = response.config
+            return {
+                "hostname": config.hostname,
+                "port": int(config.port),
+                "username": config.username if config.HasField("username") else None,
+                "password": config.password if config.HasField("password") else None,
+                "ignored_addresses": config.ignored_addresses,
+                "bypass_local_addresses": bool(config.bypass_local_addresses),
+            }
+        except AioRpcError as e:
+            self._handle_grpc_error(e, "fetch_proxy_config")
+
+    async def set_proxy_config(
+        self,
+        *,
+        hostname: str,
+        port: int,
+        username: str | None,
+        password: str | None,
+        ignored_addresses: str,
+        bypass_local_addresses: bool,
+    ) -> bool:
+        """Set proxy config in bridge."""
+        try:
+            stub = await self._connection.get_stub()
+            proxy_config = config_pb2.ProxyConfig(
+                hostname=hostname,
+                port=port,
+                ignored_addresses=ignored_addresses,
+                bypass_local_addresses=bypass_local_addresses,
+            )
+            if username is not None:
+                proxy_config.username = username
+            if password is not None:
+                proxy_config.password = password
+
+            request = config_pb2.SetProxyConfigRequest(config=proxy_config)
+            response = await stub.SetProxyConfig(request, timeout=10.0)
+            if not response.success:
+                raise BridgeAPIError(500, response.error or "Failed to set proxy config")
+            return True
+        except AioRpcError as e:
+            self._handle_grpc_error(e, "set_proxy_config")
+
+    async def set_extension_proxy(
+        self,
+        *,
+        package_name: str,
+        use_proxy: bool,
+    ) -> bool:
+        """Enable or disable proxy mode for an extension in bridge runtime config."""
+        try:
+            stub = await self._connection.get_stub()
+            request = config_pb2.SetExtensionProxyRequest(
+                package_name=package_name,
+                use_proxy=use_proxy,
+            )
+            response = await stub.SetExtensionProxy(request, timeout=10.0)
+            if not response.success:
+                raise BridgeAPIError(500, response.error or "Failed to set extension proxy")
+            return True
+        except AioRpcError as e:
+            self._handle_grpc_error(e, "set_extension_proxy")
+
     async def fetch_repository_extensions(self) -> list[RepoExtension]:
         """Return metadata for extensions available in the remote repository."""
         try:
@@ -319,6 +390,18 @@ class TachibridgeService:
                 raise BridgeAPIError(500, response.error or "Failed to set preference")
         except AioRpcError as e:
             self._handle_grpc_error(e, "set_source_preference")
+
+    async def remove_source_preference(
+        self,
+        source_id: str,
+        key: str,
+    ) -> None:
+        """Remove one source preference value."""
+        await self.set_source_preference(
+            source_id=source_id,
+            key=key,
+            value={DELETE_PREFERENCE_MARKER: True},
+        )
 
     async def set_source_preferences(
         self,

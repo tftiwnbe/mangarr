@@ -51,6 +51,21 @@ class TachibridgeStub(object):
                 request_serializer=mangarr_dot_tachibridge_dot_config_dot_config__pb2.SetFlareSolverrConfigRequest.SerializeToString,
                 response_deserializer=mangarr_dot_tachibridge_dot_config_dot_config__pb2.SetFlareSolverrConfigResponse.FromString,
                 _registered_method=True)
+        self.GetProxyConfig = channel.unary_unary(
+                '/mangarr.tachibridge.Tachibridge/GetProxyConfig',
+                request_serializer=mangarr_dot_tachibridge_dot_config_dot_config__pb2.GetProxyConfigRequest.SerializeToString,
+                response_deserializer=mangarr_dot_tachibridge_dot_config_dot_config__pb2.GetProxyConfigResponse.FromString,
+                _registered_method=True)
+        self.SetProxyConfig = channel.unary_unary(
+                '/mangarr.tachibridge.Tachibridge/SetProxyConfig',
+                request_serializer=mangarr_dot_tachibridge_dot_config_dot_config__pb2.SetProxyConfigRequest.SerializeToString,
+                response_deserializer=mangarr_dot_tachibridge_dot_config_dot_config__pb2.SetProxyConfigResponse.FromString,
+                _registered_method=True)
+        self.SetExtensionProxy = channel.unary_unary(
+                '/mangarr.tachibridge.Tachibridge/SetExtensionProxy',
+                request_serializer=mangarr_dot_tachibridge_dot_config_dot_config__pb2.SetExtensionProxyRequest.SerializeToString,
+                response_deserializer=mangarr_dot_tachibridge_dot_config_dot_config__pb2.SetExtensionProxyResponse.FromString,
+                _registered_method=True)
         self.InstallExtension = channel.unary_unary(
                 '/mangarr.tachibridge.Tachibridge/InstallExtension',
                 request_serializer=mangarr_dot_tachibridge_dot_extensions_dot_extensions__pb2.InstallExtensionRequest.SerializeToString,
@@ -145,6 +160,24 @@ class TachibridgeServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def SetFlareSolverrConfig(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetProxyConfig(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetProxyConfig(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetExtensionProxy(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -260,6 +293,21 @@ def add_TachibridgeServicer_to_server(servicer, server):
                     servicer.SetFlareSolverrConfig,
                     request_deserializer=mangarr_dot_tachibridge_dot_config_dot_config__pb2.SetFlareSolverrConfigRequest.FromString,
                     response_serializer=mangarr_dot_tachibridge_dot_config_dot_config__pb2.SetFlareSolverrConfigResponse.SerializeToString,
+            ),
+            'GetProxyConfig': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetProxyConfig,
+                    request_deserializer=mangarr_dot_tachibridge_dot_config_dot_config__pb2.GetProxyConfigRequest.FromString,
+                    response_serializer=mangarr_dot_tachibridge_dot_config_dot_config__pb2.GetProxyConfigResponse.SerializeToString,
+            ),
+            'SetProxyConfig': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetProxyConfig,
+                    request_deserializer=mangarr_dot_tachibridge_dot_config_dot_config__pb2.SetProxyConfigRequest.FromString,
+                    response_serializer=mangarr_dot_tachibridge_dot_config_dot_config__pb2.SetProxyConfigResponse.SerializeToString,
+            ),
+            'SetExtensionProxy': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetExtensionProxy,
+                    request_deserializer=mangarr_dot_tachibridge_dot_config_dot_config__pb2.SetExtensionProxyRequest.FromString,
+                    response_serializer=mangarr_dot_tachibridge_dot_config_dot_config__pb2.SetExtensionProxyResponse.SerializeToString,
             ),
             'InstallExtension': grpc.unary_unary_rpc_method_handler(
                     servicer.InstallExtension,
@@ -418,6 +466,87 @@ class Tachibridge(object):
             '/mangarr.tachibridge.Tachibridge/SetFlareSolverrConfig',
             mangarr_dot_tachibridge_dot_config_dot_config__pb2.SetFlareSolverrConfigRequest.SerializeToString,
             mangarr_dot_tachibridge_dot_config_dot_config__pb2.SetFlareSolverrConfigResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetProxyConfig(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mangarr.tachibridge.Tachibridge/GetProxyConfig',
+            mangarr_dot_tachibridge_dot_config_dot_config__pb2.GetProxyConfigRequest.SerializeToString,
+            mangarr_dot_tachibridge_dot_config_dot_config__pb2.GetProxyConfigResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetProxyConfig(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mangarr.tachibridge.Tachibridge/SetProxyConfig',
+            mangarr_dot_tachibridge_dot_config_dot_config__pb2.SetProxyConfigRequest.SerializeToString,
+            mangarr_dot_tachibridge_dot_config_dot_config__pb2.SetProxyConfigResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetExtensionProxy(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mangarr.tachibridge.Tachibridge/SetExtensionProxy',
+            mangarr_dot_tachibridge_dot_config_dot_config__pb2.SetExtensionProxyRequest.SerializeToString,
+            mangarr_dot_tachibridge_dot_config_dot_config__pb2.SetExtensionProxyResponse.FromString,
             options,
             channel_credentials,
             insecure,

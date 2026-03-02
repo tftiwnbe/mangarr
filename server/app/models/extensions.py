@@ -43,6 +43,7 @@ class SourcePreference(SQLModel):
 class SourcePreferenceUpdate(SQLModel):
     key: str
     value: Any | None = None
+    delete: bool = False
 
 
 class RepoSource(SQLModel):

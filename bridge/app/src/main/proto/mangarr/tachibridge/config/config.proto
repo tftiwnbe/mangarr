@@ -42,3 +42,39 @@ message SetFlareSolverrConfigResponse {
   bool success = 1;
   string error = 2;
 }
+
+// Proxy configuration
+
+message ProxyConfig {
+  string hostname = 1;
+  int32 port = 2;
+  optional string username = 3;
+  optional string password = 4;
+  string ignored_addresses = 5;
+  bool bypass_local_addresses = 6;
+}
+
+message GetProxyConfigRequest {}
+
+message GetProxyConfigResponse {
+  ProxyConfig config = 1;
+}
+
+message SetProxyConfigRequest {
+  ProxyConfig config = 1;
+}
+
+message SetProxyConfigResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message SetExtensionProxyRequest {
+  string package_name = 1;
+  bool use_proxy = 2;
+}
+
+message SetExtensionProxyResponse {
+  bool success = 1;
+  string error = 2;
+}

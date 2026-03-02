@@ -93,6 +93,8 @@ from app.models.settings import (
     JobsCleanupRunResource,
     JobsSettingsResource,
     JobsSettingsUpdate,
+    ProxySettingsResource,
+    ProxySettingsUpdate,
 )
 from app.models.titles import (
     ExtensionSourceTitle,
@@ -134,6 +136,8 @@ __all__ = [
     "DownloadSettingsUpdate",
     "FlareSolverrSettingsResource",
     "FlareSolverrSettingsUpdate",
+    "ProxySettingsResource",
+    "ProxySettingsUpdate",
     "JobsCleanupRunResource",
     "JobsSettingsResource",
     "JobsSettingsUpdate",

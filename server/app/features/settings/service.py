@@ -13,6 +13,8 @@ from app.models import (
     JobsCleanupRunResource,
     JobsSettingsResource,
     JobsSettingsUpdate,
+    ProxySettingsResource,
+    ProxySettingsUpdate,
     User,
 )
 
@@ -181,3 +183,51 @@ class SettingsService:
         )
 
         return await SettingsService.get_flaresolverr_settings()
+
+    @staticmethod
+    async def get_proxy_settings() -> ProxySettingsResource:
+        config = await tachibridge.fetch_proxy_config()
+        return ProxySettingsResource(**config)
+
+    @staticmethod
+    async def update_proxy_settings(
+        payload: ProxySettingsUpdate,
+        current_user: User,
+    ) -> ProxySettingsResource:
+        if not current_user.is_admin:
+            raise BridgeAPIError(403, "Only admins can update proxy settings")
+
+        updates = payload.model_dump(exclude_unset=True)
+        if not updates:
+            raise BridgeAPIError(400, "No proxy settings changes provided")
+
+        current = await tachibridge.fetch_proxy_config()
+        merged = {**current, **updates}
+
+        hostname = str(merged.get("hostname") or "").strip()
+        port = int(merged.get("port") or 0)
+        if hostname and not (1 <= port <= 65535):
+            raise BridgeAPIError(400, "Proxy port must be between 1 and 65535")
+        if not hostname:
+            port = 0
+
+        username = merged.get("username")
+        password = merged.get("password")
+        ignored_addresses = str(merged.get("ignored_addresses") or "").strip()
+        bypass_local_addresses = bool(merged.get("bypass_local_addresses", True))
+
+        if isinstance(username, str):
+            username = username.strip() or None
+        if isinstance(password, str):
+            password = password.strip() or None
+
+        await tachibridge.set_proxy_config(
+            hostname=hostname,
+            port=port,
+            username=username,
+            password=password,
+            ignored_addresses=ignored_addresses,
+            bypass_local_addresses=bypass_local_addresses,
+        )
+
+        return await SettingsService.get_proxy_settings()

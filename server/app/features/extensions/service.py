@@ -177,6 +177,10 @@ class ExtensionService:
     async def toggle_extension_proxy(
         self, extension_pkg: str, use_proxy: bool
     ) -> Extension:
+        await tachibridge.set_extension_proxy(
+            package_name=extension_pkg,
+            use_proxy=use_proxy,
+        )
         extension_update = UpdateExtension(use_proxy=use_proxy)
         return await self._update_extension(extension_pkg, extension_update)
 
@@ -225,6 +229,12 @@ class ExtensionService:
     async def update_source_preferences(
         self, source_id: str, preferences: list[SourcePreferenceUpdate]
     ) -> SourcePreferencesResource:
-        preferences_dict = {pref.key: pref.value for pref in preferences}
-        await tachibridge.set_source_preferences(source_id, preferences_dict)
+        delete_keys = [pref.key for pref in preferences if pref.delete]
+        upserts = {pref.key: pref.value for pref in preferences if not pref.delete}
+
+        for key in delete_keys:
+            await tachibridge.remove_source_preference(source_id, key)
+        if upserts:
+            await tachibridge.set_source_preferences(source_id, upserts)
+
         return await tachibridge.fetch_source_preferences(source_id)

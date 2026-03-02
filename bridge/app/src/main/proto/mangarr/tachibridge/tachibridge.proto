@@ -17,6 +17,12 @@ service Tachibridge {
 
   rpc SetFlareSolverrConfig(mangarr.tachibridge.config.SetFlareSolverrConfigRequest) returns (mangarr.tachibridge.config.SetFlareSolverrConfigResponse);
 
+  rpc GetProxyConfig(mangarr.tachibridge.config.GetProxyConfigRequest) returns (mangarr.tachibridge.config.GetProxyConfigResponse);
+
+  rpc SetProxyConfig(mangarr.tachibridge.config.SetProxyConfigRequest) returns (mangarr.tachibridge.config.SetProxyConfigResponse);
+
+  rpc SetExtensionProxy(mangarr.tachibridge.config.SetExtensionProxyRequest) returns (mangarr.tachibridge.config.SetExtensionProxyResponse);
+
   // Extension management
   rpc InstallExtension(mangarr.tachibridge.extensions.InstallExtensionRequest) returns (mangarr.tachibridge.extensions.InstallExtensionResponse);
 

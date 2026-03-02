@@ -10,6 +10,8 @@ import androidx.preference.Preference
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
 import androidx.preference.TwoStatePreference
+import eu.kanade.tachiyomi.network.BridgeProxyContext
+import eu.kanade.tachiyomi.network.BridgeProxySettings
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.source.CatalogueSource
@@ -23,10 +25,12 @@ import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
@@ -49,6 +53,7 @@ import mangarr.tachibridge.repo.ExtensionRepoService
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.IOException
+import java.net.SocketTimeoutException
 import java.net.URLEncoder
 import java.nio.file.Files
 import java.nio.file.Path
@@ -67,6 +72,12 @@ class ExtensionManager(
     private val repoService: ExtensionRepoService,
     private val networkHelper: NetworkHelper,
 ) {
+    companion object {
+        const val DELETE_PREFERENCE_MARKER = "__mangarr_delete_preference__"
+    }
+
+    private val libGroupRetryDelaysMs = listOf(0L, 2_000L, 6_000L)
+
     private val sourceMap = ConcurrentHashMap<Long, Source>()
     private val sourceToPackage = ConcurrentHashMap<Long, String>()
 
@@ -327,18 +338,41 @@ class ExtensionManager(
     ): TitleResponse =
         withSource<Source, TitleResponse>(sourceId) { source ->
             var normalizedUrl = normalizeSourceUrl(source, mangaUrl)
+            if (isLibGroupSource(source)) {
+                val fallback = fetchLibGroupMangaDetailsFallback(source, normalizedUrl)
+                if (fallback != null) {
+                    return@withSource TitleResponse
+                        .newBuilder()
+                        .setTitle(convertManga(fallback, fallbackUrl = normalizedUrl))
+                        .build()
+                }
+            }
             var manga = SManga.create().apply { url = normalizedUrl }
             val result =
                 try {
                     source.getMangaDetails(manga)
                 } catch (error: Exception) {
+                    logger.warn(error) {
+                        "LibGroup getMangaDetails failed for source=${source.id} url=$normalizedUrl"
+                    }
                     val resolvedUrl = resolveLibGroupCanonicalUrl(source, normalizedUrl, error)
                     if (resolvedUrl != null) {
                         normalizedUrl = resolvedUrl
                         manga = SManga.create().apply { url = normalizedUrl }
+                        logger.info {
+                            "Retrying LibGroup details with canonical url source=${source.id} url=$normalizedUrl"
+                        }
                         source.getMangaDetails(manga)
                     } else {
-                        fetchLibGroupMangaDetailsFallback(source, normalizedUrl) ?: throw error
+                        val fallback = fetchLibGroupMangaDetailsFallback(source, normalizedUrl)
+                        if (fallback != null) {
+                            logger.info {
+                                "Using LibGroup details fallback for source=${source.id} url=$normalizedUrl"
+                            }
+                            fallback
+                        } else {
+                            throw decorateLibGroupError(source, error)
+                        }
                     }
                 }
             TitleResponse
@@ -353,6 +387,15 @@ class ExtensionManager(
     ): ChaptersListResponse =
         withSource<Source, ChaptersListResponse>(sourceId) { source ->
             var normalizedUrl = normalizeSourceUrl(source, mangaUrl)
+            if (isLibGroupSource(source)) {
+                val fallback = fetchLibGroupChapterListFallback(source, normalizedUrl)
+                if (!fallback.isNullOrEmpty()) {
+                    return@withSource ChaptersListResponse
+                        .newBuilder()
+                        .addAllChapters(fallback.map { convertChapter(it) })
+                        .build()
+                }
+            }
             var manga = SManga.create().apply { url = normalizedUrl }
             val chapters =
                 try {
@@ -365,10 +408,11 @@ class ExtensionManager(
                         try {
                             source.getChapterList(manga).reversed()
                         } catch (resolvedError: Exception) {
-                            fetchLibGroupChapterListFallback(source, normalizedUrl) ?: throw resolvedError
+                            fetchLibGroupChapterListFallback(source, normalizedUrl)
+                                ?: throw decorateLibGroupError(source, resolvedError)
                         }
                     } else {
-                        fetchLibGroupChapterListFallback(source, normalizedUrl) ?: throw error
+                        fetchLibGroupChapterListFallback(source, normalizedUrl) ?: throw decorateLibGroupError(source, error)
                     }
                 }
             ChaptersListResponse
@@ -384,14 +428,35 @@ class ExtensionManager(
         withSource<Source, PagesListResponse>(sourceId) { source ->
             val normalizedUrl = normalizeSourceUrl(source, chapterUrl)
             val pages =
-                if (normalizedUrl.startsWith("mangarr-libgroup://")) {
-                    fetchLibGroupPagesFallback(source, normalizedUrl) ?: emptyList()
+                if (isLibGroupSource(source)) {
+                    val fallbackPages = fetchLibGroupPagesFallback(source, normalizedUrl)
+                    if (!fallbackPages.isNullOrEmpty()) {
+                        fallbackPages
+                    } else {
+                        val resolvedSourceChapterUrl =
+                            if (normalizedUrl.startsWith("mangarr-libgroup://")) {
+                                libGroupRefToSourceChapterUrl(normalizedUrl)
+                            } else {
+                                normalizedUrl
+                            }
+
+                        if (resolvedSourceChapterUrl.isNullOrBlank()) {
+                            fallbackPages ?: emptyList()
+                        } else {
+                            val chapter = SChapter.create().apply { url = resolvedSourceChapterUrl }
+                            try {
+                                source.getPageList(chapter)
+                            } catch (error: Exception) {
+                                fallbackPages ?: throw decorateLibGroupError(source, error)
+                            }
+                        }
+                    }
                 } else {
                     val chapter = SChapter.create().apply { url = normalizedUrl }
                     try {
                         source.getPageList(chapter)
                     } catch (error: Exception) {
-                        fetchLibGroupPagesFallback(source, normalizedUrl) ?: throw error
+                        fetchLibGroupPagesFallback(source, normalizedUrl) ?: throw decorateLibGroupError(source, error)
                     }
                 }
             val resolvedPages = mutableListOf<Page>()
@@ -413,39 +478,62 @@ class ExtensionManager(
         }
 
     suspend fun getFilters(sourceId: Long): FiltersResponse {
-        val source =
-            sourceMap[sourceId] as? ConfigurableSource
-                ?: return FiltersResponse.getDefaultInstance()
+        val source = sourceMap[sourceId]
 
-        applyPreferences(source)
+        val (screenFilters, knownKeys) =
+            if (source is ConfigurableSource) {
+                applyPreferences(source)
 
-        val screen = PreferenceScreen(Injekt.get<Application>())
-        screen.setSharedPreferences(source.getSourcePreferences())
-        source.setupPreferenceScreen(screen)
+                val screen = PreferenceScreen(Injekt.get<Application>())
+                screen.setSharedPreferences(source.getSourcePreferences())
+                source.setupPreferenceScreen(screen)
 
-        val filters =
-            screen.preferences.mapNotNull { preference ->
-                runCatching {
-                    val type = preferenceType(preference)
-                    val data = encodePreference(preference, type)
+                val filters =
+                    screen.preferences.mapNotNull { preference ->
+                        runCatching {
+                            val type = preferenceType(preference)
+                            val data = encodePreference(preference, type)
 
-                    Filter
-                        .newBuilder()
-                        .setName(preference.title?.toString() ?: preference.key ?: "Preference")
-                        .setType(type)
-                        .setData(data)
-                        .build()
-                }.getOrElse {
-                    logger.warn(it) {
-                        "Failed to serialize preference for source $sourceId: ${preference.key}"
+                            Filter
+                                .newBuilder()
+                                .setName(preference.title?.toString() ?: preference.key ?: "Preference")
+                                .setType(type)
+                                .setData(data)
+                                .build()
+                        }.getOrElse {
+                            logger.warn(it) {
+                                "Failed to serialize preference for source $sourceId: ${preference.key}"
+                            }
+                            null
+                        }
                     }
-                    null
-                }
+
+                val keys =
+                    screen.preferences
+                        .mapNotNull { preference ->
+                            preference.key?.trim()?.takeIf { it.isNotEmpty() }
+                        }.toSet()
+
+                filters to keys
+            } else {
+                emptyList<Filter>() to emptySet()
             }
+
+        val storedFilters =
+            ConfigManager.config
+                .sourcePreferencesFor(sourceId)
+                .asSequence()
+                .filter { (key, _) -> key.isNotBlank() && key !in knownKeys }
+                .map { (key, value) -> encodeStoredPreference(key, value) }
+                .toList()
+
+        if (screenFilters.isEmpty() && storedFilters.isEmpty()) {
+            return FiltersResponse.getDefaultInstance()
+        }
 
         return FiltersResponse
             .newBuilder()
-            .addAllFilters(filters)
+            .addAllFilters(screenFilters + storedFilters)
             .build()
     }
 
@@ -472,6 +560,22 @@ class ExtensionManager(
         key: String,
         value: String,
     ) {
+        if (isDeletePreferencePayload(value)) {
+            ConfigManager.removeSourcePreference(sourceId, key)
+
+            val source = sourceMap[sourceId]
+            if (source is ConfigurableSource) {
+                source
+                    .getSourcePreferences()
+                    .edit()
+                    .remove(key)
+                    .apply()
+            }
+
+            logger.debug { "Removed preference: source=$sourceId key=$key" }
+            return
+        }
+
         val prefValue = parsePreferenceValue(value)
         ConfigManager.setSourcePreference(sourceId, key, prefValue)
 
@@ -491,6 +595,12 @@ class ExtensionManager(
         }
 
         logger.debug { "Set preference: source=$sourceId key=$key" }
+    }
+
+    private fun isDeletePreferencePayload(raw: String): Boolean {
+        val parsed = runCatching { Json.parseToJsonElement(raw) }.getOrNull() as? JsonObject ?: return false
+        val marker = parsed[DELETE_PREFERENCE_MARKER] as? JsonPrimitive ?: return false
+        return marker.booleanOrNull == true
     }
 
     suspend fun cleanup() {
@@ -531,7 +641,7 @@ class ExtensionManager(
 
     private suspend inline fun <reified T : Source, R> withSource(
         sourceId: Long,
-        block: (T) -> R,
+        crossinline block: suspend (T) -> R,
     ): R {
         val source =
             sourceMap[sourceId] as? T
@@ -539,6 +649,7 @@ class ExtensionManager(
 
         if (source is ConfigurableSource) {
             applyPreferences(source)
+            syncRuntimePreferences(source)
         }
 
         val packageName = sourceToPackage[sourceId]
@@ -548,8 +659,23 @@ class ExtensionManager(
             } ?: false
 
         return if (useProxy) {
-            // TODO: Implement proxy support via NetworkHelper
-            block(source)
+            val proxy = ConfigManager.config.proxy
+            val proxySettings =
+                BridgeProxySettings(
+                    hostname = proxy.hostname,
+                    port = proxy.port,
+                    username = proxy.username,
+                    password = proxy.password,
+                    ignoredAddresses = proxy.ignoredAddresses,
+                    bypassLocalAddresses = proxy.bypassLocalAddresses,
+                )
+            if (proxySettings.isConfigured()) {
+                BridgeProxyContext.withProxy(proxySettings) {
+                    block(source)
+                }
+            } else {
+                block(source)
+            }
         } else {
             block(source)
         }
@@ -571,6 +697,47 @@ class ExtensionManager(
             }
         }
         editor.apply()
+    }
+
+    private fun syncRuntimePreferences(source: ConfigurableSource) {
+        if (!isLibGroupSource(source)) return
+
+        val sourcePrefs = source.getSourcePreferences()
+        val apiDomain = sourcePrefs.getString("MangaLibApiDomain", null)?.trim().orEmpty()
+        if (apiDomain.isNotBlank()) {
+            setSourceField(source, "apiDomain", apiDomain)
+        }
+
+        val siteDomain = sourcePrefs.getString("Домен", null)?.trim().orEmpty()
+        if (siteDomain.isNotBlank()) {
+            setSourceField(source, "domain", siteDomain)
+            setSourceField(source, "baseUrl", siteDomain)
+        }
+    }
+
+    private fun setSourceField(
+        source: Source,
+        fieldName: String,
+        value: String,
+    ) {
+        var currentClass: Class<*>? = source.javaClass
+        while (currentClass != null) {
+            val field =
+                runCatching { currentClass.getDeclaredField(fieldName) }
+                    .getOrNull()
+            if (field != null) {
+                runCatching {
+                    field.isAccessible = true
+                    field.set(source, value)
+                }.onFailure {
+                    logger.debug(it) {
+                        "Failed to sync field '$fieldName' for ${source.javaClass.name}"
+                    }
+                }
+                return
+            }
+            currentClass = currentClass.superclass
+        }
     }
 
     private fun applySearchFilters(
@@ -826,6 +993,40 @@ class ExtensionManager(
         return Json.encodeToString(JsonElement.serializer(), payload)
     }
 
+    private fun encodeStoredPreference(
+        key: String,
+        value: PreferenceValue,
+    ): Filter {
+        val payload =
+            buildJsonObject {
+                put("key", key)
+                put("title", key)
+                put("summary", "Imported storage value")
+                put("type", "text")
+                put("enabled", true)
+                put("visible", false)
+                put("default_value", JsonNull)
+                put("current_value", preferenceValueToJsonElement(value))
+            }
+
+        return Filter
+            .newBuilder()
+            .setName(key)
+            .setType("text")
+            .setData(Json.encodeToString(JsonElement.serializer(), payload))
+            .build()
+    }
+
+    private fun preferenceValueToJsonElement(value: PreferenceValue): JsonElement =
+        when (value) {
+            is PreferenceValue.BooleanValue -> JsonPrimitive(value.value)
+            is PreferenceValue.IntValue -> JsonPrimitive(value.value)
+            is PreferenceValue.LongValue -> JsonPrimitive(value.value)
+            is PreferenceValue.FloatValue -> JsonPrimitive(value.value)
+            is PreferenceValue.StringValue -> JsonPrimitive(value.value)
+            is PreferenceValue.StringSetValue -> JsonArray(value.value.map { JsonPrimitive(it) })
+        }
+
     private fun toJsonElement(value: Any?): JsonElement =
         when (value) {
             null -> {
@@ -997,17 +1198,66 @@ class ExtensionManager(
     private fun safeMangaUrl(manga: SManga, fallbackUrl: String): String =
         safeString { manga.url }.ifBlank { fallbackUrl }
 
+    private fun decorateLibGroupError(
+        source: Source,
+        error: Exception,
+    ): Exception {
+        if (!isLibGroupSource(source)) return error
+
+        val packageName = sourceToPackage[source.id].orEmpty()
+        val message = error.message.orEmpty()
+        if (packageName.contains("hentailib", ignoreCase = true)) {
+            if (message.contains("HTTP error 403", ignoreCase = true)) {
+                return IllegalStateException(
+                    "HentaiLib API is blocked (HTTP 403). Verify selected API domain and proxy, " +
+                        "then retry after WebView authorization.",
+                    error,
+                )
+            }
+            if (message.contains("HTTP error 404", ignoreCase = true)) {
+                return IllegalStateException(
+                    "HentaiLib title URL was rejected by API (HTTP 404). " +
+                        "Check configured API domain and retry title refresh.",
+                    error,
+                )
+            }
+        }
+
+        return error
+    }
+
     private fun normalizeSourceUrl(
         source: Source,
         rawUrl: String,
     ): String {
         val trimmed = rawUrl.trim()
         val isLibGroupFamily = isLibGroupSource(source)
-        return if (isLibGroupFamily && trimmed.startsWith('/')) {
-            trimmed.removePrefix("/")
-        } else {
-            trimmed
+        if (!isLibGroupFamily) {
+            return trimmed
         }
+
+        if (trimmed.startsWith("mangarr-libgroup://")) {
+            return trimmed
+        }
+
+        val normalized = stripSchemeAndHost(trimmed).trim()
+        if (normalized.startsWith("mangarr-libgroup://")) {
+            return normalized
+        }
+        if (normalized.isBlank()) return normalized
+
+        // LibGroup sources expect canonical relative URLs like:
+        //   /slug--name
+        //   /slug--name/chapters/1-1
+        // Normalizing to "manga/..." breaks their internal request builders.
+        val withLeadingSlash =
+            if (normalized.startsWith("/")) {
+                normalized
+            } else {
+                "/$normalized"
+            }
+
+        return withLeadingSlash.replace(Regex("^/manga/"), "/")
     }
 
     private fun isLibGroupSource(source: Source): Boolean =
@@ -1015,20 +1265,16 @@ class ExtensionManager(
             .map { it.name.lowercase() }
             .any { it.contains("multisrc.libgroup") }
 
-    private fun fetchLibGroupMangaDetailsFallback(
+    private suspend fun fetchLibGroupMangaDetailsFallback(
         source: Source,
         normalizedUrl: String,
     ): SManga? {
         if (!isLibGroupSource(source)) return null
 
-        val slug = normalizedUrl.trim().removePrefix("/")
+        val slug = extractLibGroupSlug(normalizedUrl)
         if (slug.isBlank()) return null
 
-        val baseApi =
-            (ConfigManager.config.sourcePreferencesFor(source.id)["MangaLibApiDomain"] as? PreferenceValue.StringValue)
-                ?.value
-                ?.ifBlank { null }
-                ?: "https://api2.mangalib.me"
+        val baseApi = libGroupBaseApi(source)
         val fields =
             listOf(
                 "eng_name",
@@ -1047,17 +1293,11 @@ class ExtensionManager(
             ).joinToString("&") { "fields[]=${URLEncoder.encode(it, Charsets.UTF_8)}" }
         val url = "${baseApi.removeSuffix("/")}/api/manga/$slug?$fields"
 
-        val request = GET(url)
-        val responseBody =
-            okhttp3.OkHttpClient()
-                .newCall(request)
-                .execute()
-                .use { response ->
-                    if (!response.isSuccessful) return null
-                    response.body?.string() ?: return null
-                }
-        val root = runCatching { Json.parseToJsonElement(responseBody).jsonObject }.getOrNull() ?: return null
+        val root = fetchLibGroupJsonObject(url) ?: return null
         val data = root["data"]?.jsonObject ?: return null
+        if (data["toast"] != null || data["message"] != null) {
+            return null
+        }
 
         val fallback = SManga.create()
         fallback.url = normalizedUrl
@@ -1078,7 +1318,7 @@ class ExtensionManager(
         return fallback
     }
 
-    private fun resolveLibGroupCanonicalUrl(
+    private suspend fun resolveLibGroupCanonicalUrl(
         source: Source,
         normalizedUrl: String,
         error: Exception,
@@ -1087,50 +1327,26 @@ class ExtensionManager(
         val message = error.message.orEmpty()
         if (!message.contains("URL серии изменился", ignoreCase = true)) return null
 
-        val slug = normalizedUrl.trim().removePrefix("/")
+        val slug = extractLibGroupSlug(normalizedUrl)
         if (slug.isBlank()) return null
-        val baseApi =
-            (ConfigManager.config.sourcePreferencesFor(source.id)["MangaLibApiDomain"] as? PreferenceValue.StringValue)
-                ?.value
-                ?.ifBlank { null }
-                ?: "https://api2.mangalib.me"
+        val baseApi = libGroupBaseApi(source)
         val url = "${baseApi.removeSuffix("/")}/api/manga/$slug"
-        val responseBody =
-            okhttp3.OkHttpClient()
-                .newCall(GET(url))
-                .execute()
-                .use { response ->
-                    if (!response.isSuccessful) return null
-                    response.body?.string() ?: return null
-                }
-        val root = runCatching { Json.parseToJsonElement(responseBody).jsonObject }.getOrNull() ?: return null
+        val root = fetchLibGroupJsonObject(url) ?: return null
         val data = root["data"]?.jsonObject ?: return null
         val canonical = data["slug_url"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().removePrefix("/")
         return canonical.ifBlank { null }
     }
 
-    private fun fetchLibGroupChapterListFallback(
+    private suspend fun fetchLibGroupChapterListFallback(
         source: Source,
         normalizedUrl: String,
     ): List<SChapter>? {
         if (!isLibGroupSource(source)) return null
-        val slug = resolveCanonicalSlug(source, normalizedUrl) ?: normalizedUrl.removePrefix("/")
+        val slug = resolveCanonicalSlug(source, normalizedUrl) ?: extractLibGroupSlug(normalizedUrl)
         if (slug.isBlank()) return null
-        val baseApi =
-            (ConfigManager.config.sourcePreferencesFor(source.id)["MangaLibApiDomain"] as? PreferenceValue.StringValue)
-                ?.value
-                ?.ifBlank { null }
-                ?: "https://api2.mangalib.me"
+        val baseApi = libGroupBaseApi(source)
         val url = "${baseApi.removeSuffix("/")}/api/manga/$slug/chapters?page=1"
-        val responseBody =
-            okhttp3.OkHttpClient()
-                .newCall(GET(url))
-                .execute()
-                .use { response ->
-                    if (!response.isSuccessful) return null
-                    response.body?.string() ?: return null
-                }
-        val root = runCatching { Json.parseToJsonElement(responseBody).jsonObject }.getOrNull() ?: return null
+        val root = fetchLibGroupJsonObject(url) ?: return null
         val rows = root["data"]?.jsonArray ?: return null
         return rows.mapNotNull { row ->
             val obj = row.jsonObject
@@ -1172,29 +1388,17 @@ class ExtensionManager(
         }
     }
 
-    private fun fetchLibGroupPagesFallback(
+    private suspend fun fetchLibGroupPagesFallback(
         source: Source,
         chapterUrl: String,
     ): List<SourcePage>? {
         if (!isLibGroupSource(source)) return null
-        val raw = chapterUrl.removePrefix("mangarr-libgroup://")
-        val slug = raw.substringBefore('?').removePrefix("/").trim()
-        if (slug.isBlank()) return null
-        val query = raw.substringAfter('?', missingDelimiterValue = "")
-        val parts =
-            query.split('&')
-                .mapNotNull { part ->
-                    val idx = part.indexOf('=')
-                    if (idx <= 0) null else part.substring(0, idx) to part.substring(idx + 1)
-                }.toMap()
-        val volume = parts["v"]?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8) } ?: return null
-        val number = parts["n"]?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8) } ?: return null
-        val branchId = parts["b"]?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8) }?.takeIf { it.isNotBlank() }
-        val baseApi =
-            (ConfigManager.config.sourcePreferencesFor(source.id)["MangaLibApiDomain"] as? PreferenceValue.StringValue)
-                ?.value
-                ?.ifBlank { null }
-                ?: "https://api2.mangalib.me"
+        val chapterRef = parseLibGroupChapterRef(chapterUrl) ?: return null
+        val slug = chapterRef.slug
+        val volume = chapterRef.volume
+        val number = chapterRef.number
+        val branchId = chapterRef.branchId
+        val baseApi = libGroupBaseApi(source)
         val url =
             buildString {
                 append(baseApi.removeSuffix("/"))
@@ -1209,15 +1413,7 @@ class ExtensionManager(
                     append(URLEncoder.encode(branchId, Charsets.UTF_8))
                 }
             }
-        val responseBody =
-            okhttp3.OkHttpClient()
-                .newCall(GET(url))
-                .execute()
-                .use { response ->
-                    if (!response.isSuccessful) return null
-                    response.body?.string() ?: return null
-                }
-        val root = runCatching { Json.parseToJsonElement(responseBody).jsonObject }.getOrNull() ?: return null
+        val root = fetchLibGroupJsonObject(url) ?: return null
         val chapterData = root["data"]?.jsonObject ?: return null
         val pages = chapterData["pages"]?.jsonArray ?: return null
         return pages.mapIndexedNotNull { index, page ->
@@ -1233,28 +1429,182 @@ class ExtensionManager(
         }
     }
 
-    private fun resolveCanonicalSlug(
+    private suspend fun resolveCanonicalSlug(
         source: Source,
         normalizedUrl: String,
     ): String? {
-        val slug = normalizedUrl.removePrefix("/").trim()
+        val slug = extractLibGroupSlug(normalizedUrl)
         if (slug.isBlank()) return null
-        val baseApi =
-            (ConfigManager.config.sourcePreferencesFor(source.id)["MangaLibApiDomain"] as? PreferenceValue.StringValue)
-                ?.value
-                ?.ifBlank { null }
-                ?: "https://api2.mangalib.me"
-        val responseBody =
-            okhttp3.OkHttpClient()
-                .newCall(GET("${baseApi.removeSuffix("/")}/api/manga/$slug"))
-                .execute()
-                .use { response ->
-                    if (!response.isSuccessful) return null
-                    response.body?.string() ?: return null
-                }
-        val root = runCatching { Json.parseToJsonElement(responseBody).jsonObject }.getOrNull() ?: return null
+        val baseApi = libGroupBaseApi(source)
+        val root = fetchLibGroupJsonObject("${baseApi.removeSuffix("/")}/api/manga/$slug") ?: return null
         val data = root["data"]?.jsonObject ?: return null
         return data["slug_url"]?.jsonPrimitive?.contentOrNull?.removePrefix("/")?.trim()?.ifBlank { null }
+    }
+
+    private fun extractLibGroupSlug(rawUrl: String): String =
+        stripSchemeAndHost(rawUrl)
+            .trim()
+            .removePrefix("/")
+            .removePrefix("manga/")
+            .substringBefore('?')
+            .trim()
+
+    private fun stripSchemeAndHost(rawUrl: String): String {
+        val trimmed = rawUrl.trim()
+        if (
+            trimmed.startsWith("http://", ignoreCase = true) ||
+            trimmed.startsWith("https://", ignoreCase = true)
+        ) {
+            return trimmed.substringAfter("://", trimmed).substringAfter('/', "")
+        }
+        return trimmed
+    }
+
+    private fun libGroupBaseApi(source: Source): String {
+        val sourceConfigured =
+            (source as? ConfigurableSource)
+                ?.getSourcePreferences()
+                ?.getString("MangaLibApiDomain", null)
+                ?.trim()
+                ?.ifBlank { null }
+        if (sourceConfigured != null) {
+            return sourceConfigured
+        }
+
+        val configConfigured =
+            (ConfigManager.config.sourcePreferencesFor(source.id)["MangaLibApiDomain"] as? PreferenceValue.StringValue)
+                ?.value
+                ?.trim()
+                ?.ifBlank { null }
+        if (configConfigured != null) {
+            return configConfigured
+        }
+
+        val packageName = sourceToPackage[source.id].orEmpty()
+        return if (packageName.contains("hentailib")) {
+            "https://hapi.hentaicdn.org"
+        } else {
+            "https://api2.mangalib.me"
+        }
+    }
+
+    private suspend fun fetchLibGroupJsonObject(url: String): JsonObject? {
+        val responseBody = fetchLibGroupResponseBody(url) ?: return null
+        return runCatching { Json.parseToJsonElement(responseBody).jsonObject }
+            .onFailure { logger.warn(it) { "Failed to parse libgroup response from $url" } }
+            .getOrNull()
+    }
+
+    private suspend fun fetchLibGroupResponseBody(
+        url: String,
+    ): String? {
+        for ((attemptIndex, delayMs) in libGroupRetryDelaysMs.withIndex()) {
+            if (delayMs > 0) {
+                delay(delayMs)
+            }
+
+            try {
+                val responseBody =
+                    networkHelper.client
+                        .newCall(GET(url))
+                        .execute()
+                        .use { response ->
+                            if (!response.isSuccessful) {
+                                val shouldRetry = response.code == 429 || response.code in 500..599
+                                if (shouldRetry && attemptIndex < libGroupRetryDelaysMs.lastIndex) {
+                                    logger.warn {
+                                        "Libgroup request failed with HTTP ${response.code} for $url " +
+                                            "(attempt ${attemptIndex + 1}/${libGroupRetryDelaysMs.size}), retrying"
+                                    }
+                                }
+                                return@use null
+                            }
+                            response.body?.string()
+                        }
+
+                if (!responseBody.isNullOrBlank()) {
+                    return responseBody
+                }
+            } catch (e: SocketTimeoutException) {
+                if (attemptIndex < libGroupRetryDelaysMs.lastIndex) {
+                    logger.warn {
+                        "Libgroup request timed out for $url " +
+                            "(attempt ${attemptIndex + 1}/${libGroupRetryDelaysMs.size}), retrying"
+                    }
+                    continue
+                }
+                logger.warn(e) { "Libgroup request timed out for $url after ${attemptIndex + 1} attempts" }
+            } catch (e: IOException) {
+                if (attemptIndex < libGroupRetryDelaysMs.lastIndex) {
+                    logger.warn {
+                        "Libgroup request failed for $url: ${e.message.orEmpty()} " +
+                            "(attempt ${attemptIndex + 1}/${libGroupRetryDelaysMs.size}), retrying"
+                    }
+                    continue
+                }
+                logger.warn(e) { "Libgroup request failed for $url after ${attemptIndex + 1} attempts" }
+            }
+        }
+
+        return null
+    }
+
+    private fun parseLibGroupChapterRef(chapterUrl: String): LibGroupChapterRef? {
+        if (chapterUrl.startsWith("mangarr-libgroup://")) {
+            val raw = chapterUrl.removePrefix("mangarr-libgroup://")
+            val slug = raw.substringBefore('?').removePrefix("/").trim()
+            if (slug.isBlank()) return null
+
+            val query = raw.substringAfter('?', missingDelimiterValue = "")
+            val parts =
+                query.split('&')
+                    .mapNotNull { part ->
+                        val idx = part.indexOf('=')
+                        if (idx <= 0) {
+                            null
+                        } else {
+                            part.substring(0, idx) to part.substring(idx + 1)
+                        }
+                    }.toMap()
+            val volume = parts["v"]?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8) } ?: return null
+            val number = parts["n"]?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8) } ?: return null
+            val branchId = parts["b"]?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8) }?.takeIf { it.isNotBlank() }
+            return LibGroupChapterRef(slug = slug, volume = volume, number = number, branchId = branchId)
+        }
+
+        val withoutProtocol = chapterUrl.substringAfter("://", chapterUrl)
+        val rawPath = withoutProtocol.substringAfter('/', withoutProtocol).substringBefore('?').removePrefix("/")
+        val slugPart = rawPath.substringBefore("/chapters/").removePrefix("manga/").trim()
+        val chapterPart = rawPath.substringAfter("/chapters/", "").substringBefore('/').trim()
+        if (slugPart.isBlank() || chapterPart.isBlank()) return null
+
+        val separatorIndex = chapterPart.indexOf('-')
+        if (separatorIndex <= 0 || separatorIndex >= chapterPart.lastIndex) return null
+
+        val volume = chapterPart.substring(0, separatorIndex).trim()
+        val number = chapterPart.substring(separatorIndex + 1).trim()
+        if (volume.isBlank() || number.isBlank()) return null
+
+        return LibGroupChapterRef(slug = slugPart, volume = volume, number = number, branchId = null)
+    }
+
+    private data class LibGroupChapterRef(
+        val slug: String,
+        val volume: String,
+        val number: String,
+        val branchId: String?,
+    )
+
+    private fun libGroupRefToSourceChapterUrl(chapterUrl: String): String? {
+        val ref = parseLibGroupChapterRef(chapterUrl) ?: return null
+        val encodedVolume = URLEncoder.encode(ref.volume, Charsets.UTF_8)
+        val encodedNumber = URLEncoder.encode(ref.number, Charsets.UTF_8)
+        val branchQuery =
+            ref.branchId
+                ?.takeIf { it.isNotBlank() }
+                ?.let { "&branch_id=${URLEncoder.encode(it, Charsets.UTF_8)}" }
+                .orEmpty()
+        return "/${ref.slug}/chapter?$branchQuery&volume=$encodedVolume&number=$encodedNumber"
     }
 
     private fun safeMangaTitle(manga: SManga, fallbackUrl: String): String =

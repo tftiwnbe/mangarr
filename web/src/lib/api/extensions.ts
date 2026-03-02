@@ -5,7 +5,9 @@ import type { components } from './v2';
 export type ExtensionResource = components['schemas']['ExtensionResource'];
 export type RepoExtensionResource = components['schemas']['RepoExtensionResource'];
 export type RepositoryUpdate = components['schemas']['RepositoryUpdate'];
-export type SourcePreferenceUpdate = components['schemas']['SourcePreferenceUpdate'];
+export type SourcePreferenceUpdate = components['schemas']['SourcePreferenceUpdate'] & {
+	delete?: boolean;
+};
 export type SourcePreferencesResource = components['schemas']['SourcePreferencesResource'];
 export type SourcePreferencesResolved = Omit<SourcePreferencesResource, 'name' | 'lang'> & {
 	name: string;

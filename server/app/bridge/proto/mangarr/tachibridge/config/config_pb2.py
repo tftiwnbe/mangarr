@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\'mangarr/tachibridge/config/config.proto\x12\x1amangarr.tachibridge.config\" \n\x11SetRepoUrlRequest\x12\x0b\n\x03url\x18\x01 \x01(\t\"4\n\x12SetRepoUrlResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\r\n\x05\x65rror\x18\x02 \x01(\t\"\xcc\x01\n\x12\x46lareSolverrConfig\x12\x0f\n\x07\x65nabled\x18\x01 \x01(\x08\x12\x0b\n\x03url\x18\x02 \x01(\t\x12\x17\n\x0ftimeout_seconds\x18\x03 \x01(\x05\x12\x19\n\x11response_fallback\x18\x04 \x01(\x08\x12\x19\n\x0csession_name\x18\x05 \x01(\tH\x00\x88\x01\x01\x12 \n\x13session_ttl_minutes\x18\x06 \x01(\x05H\x01\x88\x01\x01\x42\x0f\n\r_session_nameB\x16\n\x14_session_ttl_minutes\"\x1e\n\x1cGetFlareSolverrConfigRequest\"_\n\x1dGetFlareSolverrConfigResponse\x12>\n\x06\x63onfig\x18\x01 \x01(\x0b\x32..mangarr.tachibridge.config.FlareSolverrConfig\"^\n\x1cSetFlareSolverrConfigRequest\x12>\n\x06\x63onfig\x18\x01 \x01(\x0b\x32..mangarr.tachibridge.config.FlareSolverrConfig\"?\n\x1dSetFlareSolverrConfigResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\r\n\x05\x65rror\x18\x02 \x01(\tB!\n\x1amangarr.tachibridge.configP\x01Z\x01.b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\'mangarr/tachibridge/config/config.proto\x12\x1amangarr.tachibridge.config\" \n\x11SetRepoUrlRequest\x12\x0b\n\x03url\x18\x01 \x01(\t\"4\n\x12SetRepoUrlResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\r\n\x05\x65rror\x18\x02 \x01(\t\"\xcc\x01\n\x12\x46lareSolverrConfig\x12\x0f\n\x07\x65nabled\x18\x01 \x01(\x08\x12\x0b\n\x03url\x18\x02 \x01(\t\x12\x17\n\x0ftimeout_seconds\x18\x03 \x01(\x05\x12\x19\n\x11response_fallback\x18\x04 \x01(\x08\x12\x19\n\x0csession_name\x18\x05 \x01(\tH\x00\x88\x01\x01\x12 \n\x13session_ttl_minutes\x18\x06 \x01(\x05H\x01\x88\x01\x01\x42\x0f\n\r_session_nameB\x16\n\x14_session_ttl_minutes\"\x1e\n\x1cGetFlareSolverrConfigRequest\"_\n\x1dGetFlareSolverrConfigResponse\x12>\n\x06\x63onfig\x18\x01 \x01(\x0b\x32..mangarr.tachibridge.config.FlareSolverrConfig\"^\n\x1cSetFlareSolverrConfigRequest\x12>\n\x06\x63onfig\x18\x01 \x01(\x0b\x32..mangarr.tachibridge.config.FlareSolverrConfig\"?\n\x1dSetFlareSolverrConfigResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\r\n\x05\x65rror\x18\x02 \x01(\t\"\xb0\x01\n\x0bProxyConfig\x12\x10\n\x08hostname\x18\x01 \x01(\t\x12\x0c\n\x04port\x18\x02 \x01(\x05\x12\x15\n\x08username\x18\x03 \x01(\tH\x00\x88\x01\x01\x12\x15\n\x08password\x18\x04 \x01(\tH\x01\x88\x01\x01\x12\x19\n\x11ignored_addresses\x18\x05 \x01(\t\x12\x1e\n\x16\x62ypass_local_addresses\x18\x06 \x01(\x08\x42\x0b\n\t_usernameB\x0b\n\t_password\"\x17\n\x15GetProxyConfigRequest\"Q\n\x16GetProxyConfigResponse\x12\x37\n\x06\x63onfig\x18\x01 \x01(\x0b\x32\'.mangarr.tachibridge.config.ProxyConfig\"P\n\x15SetProxyConfigRequest\x12\x37\n\x06\x63onfig\x18\x01 \x01(\x0b\x32\'.mangarr.tachibridge.config.ProxyConfig\"8\n\x16SetProxyConfigResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\r\n\x05\x65rror\x18\x02 \x01(\t\"C\n\x18SetExtensionProxyRequest\x12\x14\n\x0cpackage_name\x18\x01 \x01(\t\x12\x11\n\tuse_proxy\x18\x02 \x01(\x08\";\n\x19SetExtensionProxyResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\r\n\x05\x65rror\x18\x02 \x01(\tB!\n\x1amangarr.tachibridge.configP\x01Z\x01.b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -46,4 +46,18 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_SETFLARESOLVERRCONFIGREQUEST']._serialized_end=589
   _globals['_SETFLARESOLVERRCONFIGRESPONSE']._serialized_start=591
   _globals['_SETFLARESOLVERRCONFIGRESPONSE']._serialized_end=654
+  _globals['_PROXYCONFIG']._serialized_start=657
+  _globals['_PROXYCONFIG']._serialized_end=833
+  _globals['_GETPROXYCONFIGREQUEST']._serialized_start=835
+  _globals['_GETPROXYCONFIGREQUEST']._serialized_end=858
+  _globals['_GETPROXYCONFIGRESPONSE']._serialized_start=860
+  _globals['_GETPROXYCONFIGRESPONSE']._serialized_end=941
+  _globals['_SETPROXYCONFIGREQUEST']._serialized_start=943
+  _globals['_SETPROXYCONFIGREQUEST']._serialized_end=1023
+  _globals['_SETPROXYCONFIGRESPONSE']._serialized_start=1025
+  _globals['_SETPROXYCONFIGRESPONSE']._serialized_end=1081
+  _globals['_SETEXTENSIONPROXYREQUEST']._serialized_start=1083
+  _globals['_SETEXTENSIONPROXYREQUEST']._serialized_end=1150
+  _globals['_SETEXTENSIONPROXYRESPONSE']._serialized_start=1152
+  _globals['_SETEXTENSIONPROXYRESPONSE']._serialized_end=1211
 # @@protoc_insertion_point(module_scope)

@@ -5,7 +5,7 @@ import re
 import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, quote, urljoin, urlparse
 
 import httpx
 from loguru import logger
@@ -132,6 +132,32 @@ def _chapter_number_key(value: float | None) -> float | None:
     return round(value, 4)
 
 
+def _resolve_libgroup_chapter_url_for_bridge(chapter_url: str) -> str:
+    raw = (chapter_url or "").strip()
+    prefix = "mangarr-libgroup://"
+    if not raw.startswith(prefix):
+        return raw
+
+    payload = raw.removeprefix(prefix)
+    slug, _, query = payload.partition("?")
+    slug = slug.strip().lstrip("/")
+    if not slug:
+        return raw
+
+    params = parse_qs(query, keep_blank_values=True)
+    volume = (params.get("v", [None])[0] or "").strip()
+    number = (params.get("n", [None])[0] or "").strip()
+    if not volume or not number:
+        return raw
+
+    branch_id = (params.get("b", [None])[0] or "").strip()
+    branch_part = f"&branch_id={quote(branch_id, safe='')}" if branch_id else ""
+    return (
+        f"/{slug}/chapter?"
+        f"{branch_part}&volume={quote(volume, safe='')}&number={quote(number, safe='')}"
+    )
+
+
 def _short_error(exc: Exception) -> str:
     text = str(exc).strip()
     return text[:500] if text else exc.__class__.__name__
@@ -220,6 +246,7 @@ class DownloadService:
         self.session = session
         self._download_root_cache: Path | None = None
         self._source_image_base_cache: dict[str, str | None] = {}
+        self._source_request_headers_cache: dict[str, dict[str, str] | None] = {}
 
     async def get_overview(self) -> DownloadOverviewResource:
         monitored_titles = int(
@@ -2178,23 +2205,25 @@ class DownloadService:
 
         output_dir = self._chapter_dir(title=title, variant=variant, chapter=chapter)
         source_url_base = await self._resolve_source_image_base_url(variant.source_id)
+        source_request_headers = await self._resolve_source_request_headers(variant.source_id)
 
         try:
+            bridge_chapter_url = _resolve_libgroup_chapter_url_for_bridge(chapter.chapter_url)
             preflight_error = await self._preflight_mangalib_chapter_pages_unavailable(
                 source_id=variant.source_id,
-                chapter_url=chapter.chapter_url,
+                chapter_url=bridge_chapter_url,
             )
             if preflight_error:
                 raise RuntimeError(preflight_error)
             try:
                 pages = await tachibridge.fetch_chapter_pages(
                     source_id=variant.source_id,
-                    chapter_url=chapter.chapter_url,
+                    chapter_url=bridge_chapter_url,
                 )
             except BridgeAPIError as exc:
                 normalized = await self._normalize_mangalib_pages_error(
                     source_id=variant.source_id,
-                    chapter_url=chapter.chapter_url,
+                    chapter_url=bridge_chapter_url,
                     error_text=str(exc),
                 )
                 if normalized:
@@ -2250,6 +2279,7 @@ class DownloadService:
                         client=client,
                         url=remote_url,
                         output_path=file_path,
+                        request_headers=source_request_headers,
                     )
 
                     if content_type:
@@ -2312,6 +2342,7 @@ class DownloadService:
         client: httpx.AsyncClient,
         url: str,
         output_path: Path,
+        request_headers: dict[str, str] | None = None,
     ) -> tuple[str | None, int]:
         retries = max(settings.downloads.page_retry_count, 0)
         last_exc: Exception | None = None
@@ -2320,7 +2351,12 @@ class DownloadService:
             tmp_path = output_path.with_suffix(f"{output_path.suffix}.part")
             request_timeout = settings.downloads.request_timeout_seconds + (attempt * 10)
             try:
-                async with client.stream("GET", url, timeout=request_timeout) as response:
+                async with client.stream(
+                    "GET",
+                    url,
+                    timeout=request_timeout,
+                    headers=request_headers,
+                ) as response:
                     response.raise_for_status()
                     content_type = response.headers.get("content-type")
                     bytes_written = 0
@@ -2770,6 +2806,10 @@ class DownloadService:
         try:
             prefs = await ExtensionService(self.session).list_source_preferences(source_id)
             pref_by_key = {pref.key: pref.current_value for pref in prefs.preferences}
+            site_id = self._infer_mangalib_site_id(
+                source_name=prefs.name,
+                preferences=prefs.preferences,
+            )
             preferred_bases = self._extract_url_preference_bases(prefs.preferences)
             if preferred_bases:
                 resolved = preferred_bases[0]
@@ -2783,6 +2823,7 @@ class DownloadService:
                 mangalib_base = await self._fetch_mangalib_image_server_url(
                     api_domain=api_domain,
                     image_server=image_server,
+                    site_id=site_id,
                 )
                 if mangalib_base:
                     resolved = mangalib_base
@@ -2792,6 +2833,50 @@ class DownloadService:
         if resolved:
             resolved = resolved.strip().rstrip("/") or None
         self._source_image_base_cache[source_id] = resolved
+        return resolved
+
+    async def _resolve_source_request_headers(
+        self,
+        source_id: str | None,
+    ) -> dict[str, str] | None:
+        if not source_id:
+            return None
+        if source_id in self._source_request_headers_cache:
+            return self._source_request_headers_cache[source_id]
+
+        resolved: dict[str, str] | None = None
+        try:
+            prefs = await ExtensionService(self.session).list_source_preferences(source_id)
+            pref_by_key = {pref.key: pref.current_value for pref in prefs.preferences}
+
+            referer_candidate = ""
+            for pref in prefs.preferences:
+                key = (pref.key or "").strip().lower()
+                if key in {"домен", "domain"}:
+                    referer_candidate = str(pref.current_value or pref.default_value or "").strip()
+                    if referer_candidate:
+                        break
+
+            if not referer_candidate:
+                referer_candidate = str(pref_by_key.get("MangaLibApiDomain") or "").strip()
+
+            if not referer_candidate:
+                bases = self._extract_url_preference_bases(prefs.preferences)
+                if bases:
+                    referer_candidate = bases[0]
+
+            parsed = urlparse(referer_candidate)
+            if parsed.scheme and parsed.netloc:
+                origin = f"{parsed.scheme}://{parsed.netloc}"
+                resolved = {
+                    "Referer": f"{origin}/",
+                    "Origin": origin,
+                    "Accept": "image/avif,image/webp,image/*,*/*;q=0.8",
+                }
+        except Exception:
+            resolved = None
+
+        self._source_request_headers_cache[source_id] = resolved
         return resolved
 
     async def _preflight_mangalib_chapter_pages_unavailable(
@@ -2922,6 +3007,7 @@ class DownloadService:
         *,
         api_domain: str,
         image_server: str,
+        site_id: int | None = None,
     ) -> str | None:
         api_base = api_domain.rstrip("/")
         constants_url = f"{api_base}/api/constants"
@@ -2942,6 +3028,7 @@ class DownloadService:
             return None
 
         normalized_server = image_server.strip().lower()
+        fallback_match: str | None = None
         for entry in servers:
             if not isinstance(entry, dict):
                 continue
@@ -2952,8 +3039,51 @@ class DownloadService:
             if not (parsed.scheme and parsed.netloc):
                 continue
             entry_id = str(entry.get("id") or "").strip().lower()
-            if entry_id == normalized_server:
-                return f"{parsed.scheme}://{parsed.netloc}"
+            if entry_id != normalized_server:
+                continue
+
+            resolved_base = f"{parsed.scheme}://{parsed.netloc}"
+            site_ids = entry.get("site_ids")
+            if (
+                site_id is not None
+                and isinstance(site_ids, list)
+                and any(
+                    str(item).strip().isdigit() and int(str(item).strip()) == site_id
+                    for item in site_ids
+                    if isinstance(item, int | str)
+                )
+            ):
+                return resolved_base
+            if fallback_match is None:
+                fallback_match = resolved_base
+        return fallback_match
+
+    @staticmethod
+    def _infer_mangalib_site_id(
+        source_name: str | None,
+        preferences: list[SourcePreference],
+    ) -> int | None:
+        name = (source_name or "").strip().lower()
+        if "hentai" in name:
+            return 4
+        if "yaoi" in name:
+            return 3
+        if "manga" in name:
+            return 1
+
+        domain_value = ""
+        for pref in preferences:
+            key = (pref.key or "").strip().lower()
+            if key == "домен":
+                domain_value = str(pref.current_value or pref.default_value or "").strip().lower()
+                break
+
+        if "hentai" in domain_value:
+            return 4
+        if "slashlib" in domain_value or "yaoi" in domain_value:
+            return 3
+        if "mangalib" in domain_value:
+            return 1
         return None
 
     @staticmethod
@@ -2987,6 +3117,11 @@ class DownloadService:
 
         candidate = DownloadService._sanitize_comma_encoded_url((page_url or "").strip()) or (page_url or "").strip()
         if not candidate:
+            return remote_url
+
+        parsed_remote = urlparse(remote_url)
+        remote_is_absolute = bool(parsed_remote.scheme and parsed_remote.netloc)
+        if remote_is_absolute and (candidate.startswith("/") or candidate.startswith("//")):
             return remote_url
 
         parsed = urlparse(f"https:{candidate}" if candidate.startswith("//") else candidate)

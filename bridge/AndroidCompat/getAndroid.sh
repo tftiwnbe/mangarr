@@ -8,7 +8,7 @@
 
 # This is a bash script to create android.jar stubs
 
-for dep in "curl" "base64" "zip"; do
+for dep in "curl" "base64" "zip" "jar"; do
   which $dep >/dev/null 2>&1 || {
     echo >&2 "Error: This script needs $dep installed."
     abort=yes
@@ -38,7 +38,56 @@ rm -rf "tmp"
 mkdir -p "tmp"
 pushd "tmp"
 
-curl "https://android.googlesource.com/platform/prebuilts/sdk/+/6cd31be5e4e25901aadf838120d71a79b46d9add/30/public/android.jar?format=TEXT" | base64 --decode >android.jar
+ANDROID_GOOGLESOURCE_URL="https://android.googlesource.com/platform/prebuilts/sdk/+/6cd31be5e4e25901aadf838120d71a79b46d9add/30/public/android.jar?format=TEXT"
+ANDROID_PLATFORM_ZIP_URL="https://dl.google.com/android/repository/platform-30_r03.zip"
+
+download_from_googlesource() {
+  local output_jar="$1"
+  local encoded_file="android.jar.b64"
+
+  curl -fL \
+    --retry 8 \
+    --retry-all-errors \
+    --retry-delay 3 \
+    --connect-timeout 15 \
+    --max-time 180 \
+    "$ANDROID_GOOGLESOURCE_URL" \
+    -o "$encoded_file" || return 1
+
+  base64 --decode "$encoded_file" >"$output_jar" || return 1
+  [ -s "$output_jar" ] || return 1
+  return 0
+}
+
+download_from_platform_zip() {
+  local output_jar="$1"
+  local zip_file="platform-30.zip"
+  local extracted_path="android-11/android.jar"
+
+  curl -fL \
+    --retry 6 \
+    --retry-all-errors \
+    --retry-delay 3 \
+    --connect-timeout 15 \
+    --max-time 240 \
+    "$ANDROID_PLATFORM_ZIP_URL" \
+    -o "$zip_file" || return 1
+
+  jar xf "$zip_file" "$extracted_path" || return 1
+  [ -f "$extracted_path" ] || return 1
+  mv "$extracted_path" "$output_jar"
+  [ -s "$output_jar" ] || return 1
+  return 0
+}
+
+if ! download_from_googlesource "android.jar"; then
+  echo "Primary Android.jar source failed, trying platform ZIP fallback..."
+  rm -f android.jar
+  if ! download_from_platform_zip "android.jar"; then
+    echo "Error: unable to download Android.jar from all configured sources."
+    exit 1
+  fi
+fi
 
 # We need to remove any stub classes that we have implementations for
 echo "Patching JAR..."

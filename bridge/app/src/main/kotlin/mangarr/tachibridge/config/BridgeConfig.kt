@@ -14,9 +14,22 @@ data class BridgeConfig(
     val extensions: List<InstalledExtension> = emptyList(),
     @SerialName("source_prefs")
     val sourcePreferences: Map<String, Map<String, PreferenceValue>> = emptyMap(),
+    val proxy: Proxy = Proxy(),
     @SerialName("flare_solverr")
     val flareSolverr: FlareSolverr = FlareSolverr(),
 ) {
+    @Serializable
+    data class Proxy(
+        val hostname: String = "",
+        val port: Int = 0,
+        val username: String? = null,
+        val password: String? = null,
+        @SerialName("ignored_addresses")
+        val ignoredAddresses: String = "",
+        @SerialName("bypass_local_addresses")
+        val bypassLocalAddresses: Boolean = true,
+    )
+
     @Serializable
     data class FlareSolverr(
         val enabled: Boolean = false,

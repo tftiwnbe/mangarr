@@ -29,10 +29,12 @@
 		getFlareSolverrSettings,
 		getDownloadSettings,
 		getJobsSettings,
+		getProxySettings,
 		runCleanupNow,
 		updateFlareSolverrSettings,
 		updateDownloadSettings,
-		updateJobsSettings
+		updateJobsSettings,
+		updateProxySettings
 	} from '$lib/api/settings';
 	import { Button } from '$lib/elements/button';
 	import { Icon } from '$lib/elements/icon';
@@ -117,6 +119,17 @@
 	let flareSettingsError = $state<string | null>(null);
 	let flareSettingsSuccess = $state(false);
 
+	let proxyHostname = $state('');
+	let proxyPort = $state(0);
+	let proxyUsername = $state('');
+	let proxyPassword = $state('');
+	let proxyIgnoredAddresses = $state('');
+	let proxyBypassLocalAddresses = $state(true);
+	let proxySettingsLoading = $state(true);
+	let proxySettingsSaving = $state(false);
+	let proxySettingsError = $state<string | null>(null);
+	let proxySettingsSuccess = $state(false);
+
 	onMount(async () => {
 		try {
 			user = await getMe();
@@ -126,7 +139,8 @@
 				loadDownloadSettings(),
 				loadIntegrationApiKeys(),
 				loadJobsSettings(),
-				loadFlareSolverrSettings()
+				loadFlareSolverrSettings(),
+				loadProxySettings()
 			]);
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Failed to load profile';
@@ -225,6 +239,24 @@
 				cause instanceof Error ? cause.message : 'Failed to load FlareSolverr settings';
 		} finally {
 			flareSettingsLoading = false;
+		}
+	}
+
+	async function loadProxySettings() {
+		proxySettingsLoading = true;
+		proxySettingsError = null;
+		try {
+			const settings = await getProxySettings();
+			proxyHostname = settings.hostname;
+			proxyPort = settings.port;
+			proxyUsername = settings.username ?? '';
+			proxyPassword = settings.password ?? '';
+			proxyIgnoredAddresses = settings.ignored_addresses;
+			proxyBypassLocalAddresses = settings.bypass_local_addresses;
+		} catch (cause) {
+			proxySettingsError = cause instanceof Error ? cause.message : 'Failed to load proxy settings';
+		} finally {
+			proxySettingsLoading = false;
 		}
 	}
 
@@ -580,6 +612,42 @@
 				cause instanceof Error ? cause.message : 'Failed to save FlareSolverr settings';
 		} finally {
 			flareSettingsSaving = false;
+		}
+	}
+
+	async function handleSaveProxySettings() {
+		if (proxySettingsSaving) return;
+		proxySettingsSaving = true;
+		proxySettingsError = null;
+		proxySettingsSuccess = false;
+		try {
+			const hostname = proxyHostname.trim();
+			const port = Math.max(0, Math.min(65535, Math.round(proxyPort || 0)));
+			if (hostname && port === 0) {
+				throw new Error('Proxy port is required when hostname is set');
+			}
+
+			const updated = await updateProxySettings({
+				hostname,
+				port,
+				username: proxyUsername.trim() || null,
+				password: proxyPassword.trim() || null,
+				ignored_addresses: proxyIgnoredAddresses.trim(),
+				bypass_local_addresses: proxyBypassLocalAddresses
+			});
+
+			proxyHostname = updated.hostname;
+			proxyPort = updated.port;
+			proxyUsername = updated.username ?? '';
+			proxyPassword = updated.password ?? '';
+			proxyIgnoredAddresses = updated.ignored_addresses;
+			proxyBypassLocalAddresses = updated.bypass_local_addresses;
+			proxySettingsSuccess = true;
+			setTimeout(() => (proxySettingsSuccess = false), 3000);
+		} catch (cause) {
+			proxySettingsError = cause instanceof Error ? cause.message : 'Failed to save proxy settings';
+		} finally {
+			proxySettingsSaving = false;
 		}
 	}
 </script>
@@ -1198,6 +1266,85 @@
 						{/if}
 						{#if jobsCleanupInfo}
 							<p class="text-xs text-[var(--text-muted)] animate-fade-in">{jobsCleanupInfo}</p>
+						{/if}
+					{/if}
+				</section>
+
+				<div class="h-px bg-[var(--void-3)]"></div>
+
+				<!-- Proxy -->
+				<section class="flex flex-col gap-4">
+					<div class="flex flex-col gap-1">
+						<h2 class="text-sm font-medium text-[var(--text-soft)]">proxy</h2>
+						<p class="text-xs text-[var(--text-ghost)]">
+							Configure shared HTTP proxy settings used when proxy is enabled for an extension.
+						</p>
+					</div>
+
+					{#if proxySettingsLoading}
+						<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
+					{:else}
+						<Input label="Proxy hostname" bind:value={proxyHostname} placeholder="proxy.example.com" />
+
+						<div class="flex flex-col gap-1.5">
+							<label class="text-label" for="proxy-port">Proxy port</label>
+							<input
+								id="proxy-port"
+								type="number"
+								min="0"
+								max="65535"
+								class="settings-input"
+								value={proxyPort}
+								oninput={(event) => {
+									const raw = Number((event.currentTarget as HTMLInputElement).value);
+									proxyPort = Number.isFinite(raw) ? raw : 0;
+								}}
+							/>
+						</div>
+
+						<Input label="Proxy username (optional)" bind:value={proxyUsername} />
+						<Input label="Proxy password (optional)" bind:value={proxyPassword} type="password" />
+						<Input
+							label="Proxy ignored addresses"
+							bind:value={proxyIgnoredAddresses}
+							placeholder="*.hmphin.space;localhost"
+						/>
+						<p class="text-xs text-[var(--text-dim)]">
+							Use <code>;</code> as separator and <code>*</code> for wildcard matching.
+						</p>
+
+						<label class="flex items-center gap-3 py-1 text-sm text-[var(--text)] cursor-pointer select-none">
+							<input
+								type="checkbox"
+								class="h-5 w-5 accent-[var(--void-8)]"
+								checked={proxyBypassLocalAddresses}
+								onchange={(event) => {
+									proxyBypassLocalAddresses = (event.currentTarget as HTMLInputElement).checked;
+								}}
+							/>
+							Bypass proxy for local addresses
+						</label>
+
+						<div class="flex gap-2">
+							<Button
+								variant="outline"
+								size="sm"
+								onclick={handleSaveProxySettings}
+								disabled={proxySettingsSaving}
+								loading={proxySettingsSaving}
+							>
+								{$_('common.save').toLowerCase()}
+							</Button>
+							<Button variant="ghost" size="sm" onclick={loadProxySettings}>
+								{$_('common.refresh').toLowerCase()}
+							</Button>
+						</div>
+
+						{#if proxySettingsError}
+							<p class="text-xs text-[var(--error)] animate-fade-in">{proxySettingsError}</p>
+						{/if}
+						{#if proxySettingsSuccess}
+							<p class="text-xs text-[var(--success)] animate-fade-in">Proxy settings saved</p>
 						{/if}
 					{/if}
 				</section>

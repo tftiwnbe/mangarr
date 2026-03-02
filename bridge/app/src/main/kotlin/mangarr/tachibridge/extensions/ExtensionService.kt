@@ -14,8 +14,15 @@ import mangarr.tachibridge.config.ConfigManager
 import mangarr.tachibridge.config.FlareSolverrConfig
 import mangarr.tachibridge.config.GetFlareSolverrConfigRequest
 import mangarr.tachibridge.config.GetFlareSolverrConfigResponse
+import mangarr.tachibridge.config.GetProxyConfigRequest
+import mangarr.tachibridge.config.GetProxyConfigResponse
+import mangarr.tachibridge.config.ProxyConfig
+import mangarr.tachibridge.config.SetExtensionProxyRequest
+import mangarr.tachibridge.config.SetExtensionProxyResponse
 import mangarr.tachibridge.config.SetFlareSolverrConfigRequest
 import mangarr.tachibridge.config.SetFlareSolverrConfigResponse
+import mangarr.tachibridge.config.SetProxyConfigRequest
+import mangarr.tachibridge.config.SetProxyConfigResponse
 import mangarr.tachibridge.config.SetRepoUrlRequest
 import mangarr.tachibridge.config.SetRepoUrlResponse
 import mangarr.tachibridge.repo.ExtensionRepoService
@@ -292,6 +299,69 @@ class ExtensionBridgeService(
         } catch (e: Exception) {
             logger.error(e) { "Failed to set FlareSolverr config" }
             SetFlareSolverrConfigResponse
+                .newBuilder()
+                .setSuccess(false)
+                .setError(e.message ?: "Unknown error")
+                .build()
+        }
+
+    override suspend fun getProxyConfig(request: GetProxyConfigRequest): GetProxyConfigResponse {
+        val config = ConfigManager.config.proxy
+        return GetProxyConfigResponse
+            .newBuilder()
+            .setConfig(
+                ProxyConfig
+                    .newBuilder()
+                    .setHostname(config.hostname)
+                    .setPort(config.port)
+                    .setIgnoredAddresses(config.ignoredAddresses)
+                    .setBypassLocalAddresses(config.bypassLocalAddresses)
+                    .apply {
+                        config.username?.let { setUsername(it) }
+                        config.password?.let { setPassword(it) }
+                    }.build(),
+            ).build()
+    }
+
+    override suspend fun setProxyConfig(request: SetProxyConfigRequest): SetProxyConfigResponse =
+        try {
+            val config = request.config
+            ConfigManager.setProxyConfig(
+                mangarr.tachibridge.config.BridgeConfig.Proxy(
+                    hostname = config.hostname.trim(),
+                    port = config.port,
+                    username = if (config.hasUsername()) config.username else null,
+                    password = if (config.hasPassword()) config.password else null,
+                    ignoredAddresses = config.ignoredAddresses.trim(),
+                    bypassLocalAddresses = config.bypassLocalAddresses,
+                ),
+            )
+            SetProxyConfigResponse
+                .newBuilder()
+                .setSuccess(true)
+                .build()
+        } catch (e: Exception) {
+            logger.error(e) { "Failed to set proxy config" }
+            SetProxyConfigResponse
+                .newBuilder()
+                .setSuccess(false)
+                .setError(e.message ?: "Unknown error")
+                .build()
+        }
+
+    override suspend fun setExtensionProxy(request: SetExtensionProxyRequest): SetExtensionProxyResponse =
+        try {
+            ConfigManager.setExtensionProxy(
+                packageName = request.packageName,
+                useProxy = request.useProxy,
+            )
+            SetExtensionProxyResponse
+                .newBuilder()
+                .setSuccess(true)
+                .build()
+        } catch (e: Exception) {
+            logger.error(e) { "Failed to set extension proxy" }
+            SetExtensionProxyResponse
                 .newBuilder()
                 .setSuccess(false)
                 .setError(e.message ?: "Unknown error")
