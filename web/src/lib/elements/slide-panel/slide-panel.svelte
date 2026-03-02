@@ -28,32 +28,32 @@
 {#if open}
 	<!-- Backdrop -->
 	<div
-		class="fixed inset-0 z-50 bg-[var(--void-0)]/80 backdrop-blur-sm transition-opacity animate-fade-in"
+		class="fixed inset-0 z-50 bg-[var(--void-0)]/85 backdrop-blur-sm animate-fade-in"
 		onclick={handleBackdropClick}
 		role="presentation"
 	>
 		<!-- Panel -->
 		<div
-			class="absolute right-0 top-0 h-full w-full max-w-md border-l border-[var(--line)] bg-[var(--void-1)] shadow-[-4px_0_32px_rgba(0,0,0,0.5)] animate-slide-in-right"
+			class="absolute right-0 top-0 h-full w-full max-w-sm bg-[var(--void-0)] animate-slide-in-right"
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="slide-panel-title"
 		>
 			<!-- Header -->
-			<div class="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
-				<h2 id="slide-panel-title" class="text-sm font-medium text-[var(--text)]">{title}</h2>
+			<div class="flex h-11 items-center justify-between px-4">
+				<h2 id="slide-panel-title" class="text-xs text-[var(--text-muted)] uppercase tracking-wider">{title}</h2>
 				<button
 					type="button"
-					class="flex h-8 w-8 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)] hover:bg-[var(--void-3)]"
+					class="flex h-8 w-8 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
 					onclick={onclose}
 					aria-label="Close panel"
 				>
-					<Icon name="x" size={18} />
+					<Icon name="x" size={16} />
 				</button>
 			</div>
 
 			<!-- Content -->
-			<div class="h-[calc(100%-57px)] overflow-y-auto p-4">
+			<div class="h-[calc(100%-44px)] overflow-y-auto px-4 pb-4 no-scrollbar">
 				{#if children}
 					{@render children()}
 				{/if}
@@ -82,10 +82,10 @@
 	}
 
 	.animate-fade-in {
-		animation: fade-in 0.15s ease-out;
+		animation: fade-in 0.12s ease-out;
 	}
 
 	.animate-slide-in-right {
-		animation: slide-in-right 0.2s ease-out;
+		animation: slide-in-right 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 	}
 </style>

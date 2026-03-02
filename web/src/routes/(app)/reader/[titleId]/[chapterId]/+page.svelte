@@ -345,7 +345,7 @@
 		if (mode !== 'vertical' || pages.length === 0) return;
 		const pageNodes = document.querySelectorAll<HTMLElement>('[data-reader-page-index]');
 		if (pageNodes.length === 0) return;
-		const topAnchor = 72;
+		const topAnchor = 40;
 		let bestPageIndex = pages[currentPageIndex]?.page_index ?? pages[0]?.page_index ?? 0;
 		let bestDistance = Number.POSITIVE_INFINITY;
 		for (const node of pageNodes) {
@@ -792,7 +792,7 @@ function openChapter(chapter: number | null): void {
 <svelte:window onkeydown={handleKeydown} />
 
 <div
-	class="flex flex-col gap-4 pt-16 sm:pt-12"
+	class="relative min-h-svh bg-[var(--void-0)] overscroll-none"
 	role="presentation"
 	onpointerdown={handleReaderPointerDown}
 	onpointermove={handleReaderPointerMove}
@@ -800,9 +800,20 @@ function openChapter(chapter: number | null): void {
 	onpointercancel={handleReaderPointerCancel}
 	onkeydown={handleReaderSurfaceKeydown}
 >
+	<!-- Progress bar — always visible, thin line at very top -->
+	{#if pages.length > 0}
+		<div class="fixed inset-x-0 top-0 z-50 h-0.5 bg-[var(--void-2)]">
+			<div
+				class="h-full bg-[var(--void-7)] transition-[width] duration-150"
+				style="width: {((currentPageIndex + 1) / pages.length) * 100}%"
+			></div>
+		</div>
+	{/if}
+
+	<!-- Header hover zone (desktop) -->
 	{#if !isTouchDevice}
 		<div
-			class="fixed inset-x-0 top-0 z-30 h-14"
+			class="fixed inset-x-0 top-0 z-30 h-10"
 			role="presentation"
 			aria-hidden="true"
 			onmouseenter={handleHeaderHoverZoneEnter}
@@ -810,73 +821,102 @@ function openChapter(chapter: number | null): void {
 		></div>
 	{/if}
 
+	<!-- Floating header — minimal: back, title, page count -->
 	<div
 		bind:this={readerHeaderElement}
-		class="fixed inset-x-0 top-0 z-40 border-b border-[var(--line)] bg-[var(--void-0)]/95 px-3 py-2 backdrop-blur transition-all duration-200 {readerHeaderVisible ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0 pointer-events-none'}"
+		class="fixed inset-x-0 top-0 z-40 bg-[var(--void-0)]/90 backdrop-blur-sm transition-transform duration-200
+			{readerHeaderVisible ? 'translate-y-0' : '-translate-y-full pointer-events-none'}"
 		role="banner"
 		onmouseenter={handleHeaderMouseEnter}
 		onmouseleave={handleHeaderMouseLeave}
 	>
-		<div class="mx-auto flex w-full max-w-5xl items-center justify-between gap-2">
-			<div class="flex min-w-0 flex-1 items-center gap-2">
+		<div class="flex h-10 items-center justify-between px-2">
+			<!-- Left: back + title (title is a link on all viewports) -->
+			<div class="flex min-w-0 flex-1 items-center gap-1.5">
 				<Button variant="ghost" size="icon-sm" href={canonicalTitlePath ?? '/library'}>
-					<Icon name="chevron-left" size={20} />
+					<Icon name="chevron-left" size={18} />
 				</Button>
-				<div class="min-w-0">
-					<p class="line-clamp-1 text-sm text-[var(--text-muted)]">
-						{readerTitleName || $_('reader.title')}
-					</p>
-					{#if currentChapterMeta?.name}
-						<p class="line-clamp-1 text-xs text-[var(--text-ghost)]">{currentChapterMeta.name}</p>
-					{/if}
-				</div>
-			</div>
-			<div class="flex shrink-0 items-center gap-1">
-				<Button variant="ghost" size="icon-sm" onclick={() => (showChapterPanel = true)} title={$_('reader.openChapters')} aria-label={$_('reader.openChapters')}>
-					<Icon name="list" size={16} />
-				</Button>
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					onclick={openCommentsPanel}
-					title={$_('reader.openComments')}
-					aria-label={$_('reader.openComments')}
+				<a
+					href={canonicalTitlePath ?? '/library'}
+					class="truncate text-xs text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
 				>
-					<Icon name="message-square" size={16} />
-				</Button>
-				{#if !hasAnyTitleStatus}
+					{readerTitleName || $_('reader.title')}
+				</a>
+			</div>
+
+			<!-- Desktop-only: chapter nav + actions in the header -->
+			{#if pages.length > 0}
+				<div class="hidden md:flex items-center gap-0.5 mx-2">
 					<Button
-						variant="outline"
-						size="sm"
+						variant="ghost"
+						size="icon-sm"
+						onclick={() => openChapter(prevChapterId)}
+						disabled={!prevChapterId}
+						title={$_('reader.prevChapter')}
+						aria-label={$_('reader.prevChapter')}
+					>
+						<Icon name="skip-back" size={16} />
+					</Button>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						onclick={() => (showChapterPanel = true)}
+						title={$_('reader.openChapters')}
+						aria-label="Open chapter list"
+					>
+						<Icon name="list" size={16} />
+					</Button>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						onclick={openCommentsPanel}
+						title={$_('reader.openComments')}
+						aria-label="Open comments"
+					>
+						<Icon name="message-square" size={16} />
+					</Button>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						onclick={() => (mode = mode === 'vertical' ? 'horizontal' : 'vertical')}
+						title={mode === 'vertical' ? $_('reader.horizontal') : $_('reader.vertical')}
+						aria-label={mode === 'vertical' ? $_('reader.horizontal') : $_('reader.vertical')}
+					>
+						<Icon name={mode === 'vertical' ? 'maximize' : 'minimize'} size={16} />
+					</Button>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						onclick={() => openChapter(nextChapterId)}
+						disabled={!nextChapterId}
+						title={$_('reader.nextChapter')}
+						aria-label={$_('reader.nextChapter')}
+					>
+						<Icon name="skip-forward" size={16} />
+					</Button>
+				</div>
+			{/if}
+
+			<!-- Right: reading status shortcut + page counter -->
+			<div class="flex shrink-0 items-center gap-0.5">
+				{#if !hasAnyTitleStatus && reader}
+					<Button
+						variant="ghost"
+						size="icon-sm"
 						onclick={bookmarkAsReading}
-						disabled={bookmarkingReading || !reader}
+						disabled={bookmarkingReading}
+						title={$_('title.addToLibrary')}
+						aria-label={$_('title.addToLibrary')}
 					>
 						{#if bookmarkingReading}
 							<Icon name="loader" size={14} class="animate-spin" />
 						{:else}
-							<Icon name="plus" size={14} />
+							<Icon name="bookmark-plus" size={14} />
 						{/if}
-						{$_('title.addToLibrary')}
 					</Button>
 				{/if}
-				<Button
-					variant={mode === 'vertical' ? 'default' : 'ghost'}
-					size="sm"
-					class="hidden sm:inline-flex"
-					onclick={() => (mode = 'vertical')}
-				>
-					{$_('reader.vertical')}
-				</Button>
-				<Button
-					variant={mode === 'horizontal' ? 'default' : 'ghost'}
-					size="sm"
-					class="hidden sm:inline-flex"
-					onclick={() => (mode = 'horizontal')}
-				>
-					{$_('reader.horizontal')}
-				</Button>
 				{#if pages.length > 0}
-					<span class="hidden text-[11px] text-[var(--text-ghost)] sm:inline">
+					<span class="tabular-nums text-[11px] text-[var(--text-ghost)] pr-1">
 						{currentPageIndex + 1}/{pages.length}
 					</span>
 				{/if}
@@ -884,73 +924,28 @@ function openChapter(chapter: number | null): void {
 		</div>
 	</div>
 
-	{#if bookmarkError}
-		<div
-			class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-3 py-2 text-xs text-[var(--error)]"
-		>
-			{bookmarkError}
-		</div>
-	{/if}
-
+	<!-- Content area -->
 	{#if isLoading}
-		<div class="flex flex-col items-center gap-4 py-20">
-			<Icon name="loader" size={24} class="animate-spin text-[var(--text-muted)]" />
-			<p class="text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
+		<div class="flex min-h-svh items-center justify-center">
+			<Icon name="loader" size={20} class="animate-spin text-[var(--text-ghost)]" />
 		</div>
 	{:else if error}
-		<div class="flex flex-col items-center gap-4 py-20 text-center">
-			<div
-				class="flex h-16 w-16 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]"
-			>
-				<Icon name="alert-circle" size={24} class="text-[var(--error)]" />
-			</div>
+		<div class="flex min-h-svh flex-col items-center justify-center gap-4 px-6 text-center">
+			<Icon name="alert-circle" size={24} class="text-[var(--text-ghost)]" />
 			<div>
-				<p class="text-[var(--text)]">{$_('reader.failed')}</p>
-				<p class="mt-1 text-sm text-[var(--text-ghost)]">{error}</p>
+				<p class="text-sm text-[var(--text-muted)]">{$_('reader.failed')}</p>
+				<p class="mt-1 text-xs text-[var(--text-ghost)]">{error}</p>
 			</div>
 		</div>
 	{:else if pages.length === 0}
-		<div class="flex flex-col items-center gap-4 py-20 text-center">
-			<div
-				class="flex h-16 w-16 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]"
-			>
-				<Icon name="file" size={24} class="text-[var(--text-ghost)]" />
-			</div>
-			<div>
-				<p class="text-[var(--text)]">{$_('reader.noPages')}</p>
-				<p class="mt-1 text-sm text-[var(--text-ghost)]">{$_('reader.noPagesDescription')}</p>
-			</div>
+		<div class="flex min-h-svh flex-col items-center justify-center gap-4 px-6 text-center">
+			<Icon name="file" size={24} class="text-[var(--text-ghost)]" />
+			<p class="text-sm text-[var(--text-muted)]">{$_('reader.noPages')}</p>
 		</div>
 	{:else}
-		<div class="flex flex-wrap items-center justify-between gap-2 text-sm text-[var(--text-muted)]">
-			<div class="flex items-center gap-1">
-				<Button
-					variant="ghost"
-					size="sm"
-					onclick={() => openChapter(prevChapterId)}
-					disabled={!prevChapterId}
-				>
-					<Icon name="skip-back" size={14} />
-					{$_('reader.prevChapter')}
-				</Button>
-				<Button
-					variant="ghost"
-					size="sm"
-					onclick={() => openChapter(nextChapterId)}
-					disabled={!nextChapterId}
-				>
-					{$_('reader.nextChapter')}
-					<Icon name="skip-forward" size={14} />
-				</Button>
-			</div>
-			<p class="text-[var(--text-ghost)]">
-				{$_('reader.page')}
-				{currentPageIndex + 1} / {pages.length}
-			</p>
-		</div>
-
+		<!-- Vertical continuous scroll -->
 		{#if mode === 'vertical'}
-			<div class="mx-auto flex w-full max-w-4xl flex-col gap-1">
+			<div class="flex flex-col pt-10 md:mx-auto md:max-w-3xl">
 				{#each pages as readerPage (readerPage.id)}
 					<div
 						use:lazyLoadPage={{ pageId: readerPage.id }}
@@ -961,53 +956,152 @@ function openChapter(chapter: number | null): void {
 								src={resolvePageUrl(readerPage)}
 								alt="{$_('reader.page')} {readerPage.page_index + 1}"
 								decoding="async"
-								class="w-full border border-[var(--line)] bg-[var(--void-2)] object-contain"
+								class="w-full bg-[var(--void-1)] object-contain"
 							/>
 						{:else}
-							<div class="aspect-[2/3] w-full border border-[var(--line)] bg-[var(--void-2)]"></div>
+							<div class="aspect-[2/3] w-full bg-[var(--void-1)]"></div>
 						{/if}
 					</div>
 				{/each}
 			</div>
+
+		<!-- Horizontal paged view -->
 		{:else if currentPage}
-			<div class="mx-auto flex w-full max-w-4xl flex-col gap-4">
+			<div class="relative flex min-h-svh items-center justify-center md:px-8">
 				<img
 					src={resolvePageUrl(currentPage)}
 					alt="{$_('reader.page')} {currentPage.page_index + 1}"
-					class="mx-auto max-h-[calc(100svh-12rem)] w-auto max-w-full border border-[var(--line)] bg-[var(--void-2)] object-contain"
+					class="max-h-svh w-auto max-w-full bg-[var(--void-1)] object-contain"
 				/>
-				<div class="flex items-center justify-between">
-					<Button variant="outline" onclick={prevPage} disabled={!canPrevPage}>
-						<Icon name="chevron-left" size={16} />
-						{$_('reader.prevPage')}
-					</Button>
-					<Button variant="outline" onclick={nextPage} disabled={!canNextPage}>
-						{$_('reader.nextPage')}
-						<Icon name="chevron-right" size={16} />
-					</Button>
-				</div>
+				<!-- Tap zones for paging on touch -->
+				{#if isTouchDevice}
+					<button
+						type="button"
+						class="absolute inset-y-0 left-0 w-1/3 z-20"
+						aria-label={$_('reader.prevPage')}
+						onclick={prevPage}
+					></button>
+					<button
+						type="button"
+						class="absolute inset-y-0 right-0 w-1/3 z-20"
+						aria-label={$_('reader.nextPage')}
+						onclick={nextPage}
+					></button>
+				{/if}
 			</div>
 		{/if}
 
-		<div class="mt-4 flex items-center justify-center gap-2 border-t border-[var(--line)] pt-4">
-			<Button
-				variant="outline"
-				size="sm"
-				onclick={() => openChapter(prevChapterId)}
-				disabled={!prevChapterId}
-			>
-				<Icon name="skip-back" size={14} />
-				{$_('reader.prevChapter')}
-			</Button>
-			<Button
-				variant="outline"
-				size="sm"
-				onclick={() => openChapter(nextChapterId)}
-				disabled={!nextChapterId}
-			>
-				{$_('reader.nextChapter')}
-				<Icon name="skip-forward" size={14} />
-			</Button>
+		<!-- End of chapter -->
+		<div class="flex flex-col items-center gap-6 px-6 py-16">
+			{#if currentChapterMeta?.name}
+				<p class="text-xs text-[var(--text-ghost)]">{currentChapterMeta.name}</p>
+			{/if}
+
+			<div class="flex items-center gap-3">
+				{#if prevChapterId}
+					<Button
+						variant="outline"
+						size="sm"
+						onclick={() => openChapter(prevChapterId)}
+					>
+						<Icon name="chevron-left" size={14} />
+						{$_('reader.prevChapter')}
+					</Button>
+				{/if}
+				{#if nextChapterId}
+					<Button
+						variant="outline"
+						size="sm"
+						onclick={() => openChapter(nextChapterId)}
+					>
+						{$_('reader.nextChapter')}
+						<Icon name="chevron-right" size={14} />
+					</Button>
+				{/if}
+			</div>
+
+			{#if !hasAnyTitleStatus}
+				<Button
+					variant="outline"
+					size="sm"
+					onclick={bookmarkAsReading}
+					disabled={bookmarkingReading || !reader}
+				>
+					{#if bookmarkingReading}
+						<Icon name="loader" size={14} class="animate-spin" />
+					{:else}
+						<Icon name="plus" size={14} />
+					{/if}
+					{$_('title.addToLibrary')}
+				</Button>
+			{/if}
+
+			{#if bookmarkError}
+				<p class="text-xs text-[var(--error)]">{bookmarkError}</p>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- Floating bottom bar — chapter nav + actions (mobile only) -->
+	{#if pages.length > 0}
+		<div
+			class="fixed inset-x-0 bottom-0 z-40 bg-[var(--void-0)]/90 backdrop-blur-sm transition-transform duration-200
+				md:hidden
+				{readerHeaderVisible ? 'translate-y-0' : 'translate-y-full pointer-events-none'}"
+		>
+			<div class="flex h-11 items-center justify-between px-2">
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					onclick={() => openChapter(prevChapterId)}
+					disabled={!prevChapterId}
+					title={$_('reader.prevChapter')}
+					aria-label={$_('reader.prevChapter')}
+				>
+					<Icon name="skip-back" size={16} />
+				</Button>
+
+				<div class="flex items-center gap-1">
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						onclick={() => (showChapterPanel = true)}
+						title={$_('reader.openChapters')}
+						aria-label={$_('reader.openChapters')}
+					>
+						<Icon name="list" size={16} />
+					</Button>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						onclick={openCommentsPanel}
+						title={$_('reader.openComments')}
+						aria-label={$_('reader.openComments')}
+					>
+						<Icon name="message-square" size={16} />
+					</Button>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						onclick={() => (mode = mode === 'vertical' ? 'horizontal' : 'vertical')}
+						title={mode === 'vertical' ? $_('reader.horizontal') : $_('reader.vertical')}
+						aria-label={mode === 'vertical' ? $_('reader.horizontal') : $_('reader.vertical')}
+					>
+						<Icon name={mode === 'vertical' ? 'maximize' : 'minimize'} size={16} />
+					</Button>
+				</div>
+
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					onclick={() => openChapter(nextChapterId)}
+					disabled={!nextChapterId}
+					title={$_('reader.nextChapter')}
+					aria-label={$_('reader.nextChapter')}
+				>
+					<Icon name="skip-forward" size={16} />
+				</Button>
+			</div>
 		</div>
 	{/if}
 </div>
@@ -1019,21 +1113,21 @@ function openChapter(chapter: number | null): void {
 		showChapterPanel = false;
 	}}
 >
-	<div class="flex flex-col gap-1">
+	<div class="flex flex-col">
 		{#if chapterList.length === 0}
-			<p class="text-sm text-[var(--text-ghost)]">{$_('common.noResults')}</p>
+			<p class="py-8 text-center text-xs text-[var(--text-ghost)]">{$_('common.noResults')}</p>
 		{:else}
 			{#each chapterList as chapter (chapter.id)}
+				{@const isCurrent = reader?.chapter_id === chapter.id}
 				<button
 					type="button"
-					class="flex items-center justify-between gap-2 border px-2.5 py-2 text-left text-xs transition-colors {reader?.chapter_id === chapter.id ? 'border-[var(--text)] bg-[var(--void-3)] text-[var(--text)]' : 'border-[var(--line)] bg-[var(--void-2)] text-[var(--text-muted)] hover:border-[var(--void-6)]'}"
+					class="flex items-center justify-between gap-3 px-2 py-2.5 text-left text-xs transition-colors
+						{isCurrent ? 'text-[var(--text)] bg-[var(--void-3)]' : 'text-[var(--text-ghost)] hover:text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
 					onclick={() => openChapter(chapter.id)}
 				>
-					<div class="min-w-0 flex-1">
-						<p class="truncate font-medium">{chapter.name}</p>
-					</div>
+					<p class="min-w-0 flex-1 truncate {isCurrent ? 'text-[var(--text)]' : ''}">{chapter.name}</p>
 					{#if chapter.number !== null}
-						<span class="shrink-0 text-[10px] text-[var(--text-ghost)]">#{chapter.number}</span>
+						<span class="shrink-0 tabular-nums text-[10px] text-[var(--text-ghost)]">{chapter.number}</span>
 					{/if}
 				</button>
 			{/each}
@@ -1048,88 +1142,96 @@ function openChapter(chapter: number | null): void {
 		showCommentsPanel = false;
 	}}
 >
-	<div class="flex flex-col gap-3">
-		{#if commentsError}
-			<p class="text-xs text-[var(--error)]">{commentsError}</p>
-		{/if}
-
-		{#if chapterCommentsLoading}
-			<div class="flex items-center justify-center py-6">
-				<Icon name="loader" size={16} class="animate-spin text-[var(--text-muted)]" />
-			</div>
-		{:else if sortedChapterComments.length === 0}
-			<p class="text-xs text-[var(--text-ghost)]">{$_('reader.noComments')}</p>
-		{:else}
-			<div class="flex flex-col gap-1.5">
-				{#each sortedChapterComments as comment (comment.id)}
-					<div class="border border-[var(--line)] bg-[var(--void-2)] px-2.5 py-2">
-						<div class="mb-1 flex items-center justify-between gap-2 text-[10px] text-[var(--text-ghost)]">
-							<button
-								type="button"
-								class="truncate text-left hover:text-[var(--text)]"
-								onclick={() => jumpToPageIndex(comment.page_index)}
-								title={$_('reader.jumpToPage')}
-							>
-								{$_('reader.page')} {comment.page_index + 1}
-							</button>
-							<span>{formatTimestamp(comment.created_at)}</span>
-						</div>
-						<p class="whitespace-pre-wrap text-xs text-[var(--text)]">{comment.message}</p>
-						<div class="mt-2 flex items-center justify-end gap-1.5">
-							<Button variant="ghost" size="sm" onclick={() => startEditComment(comment)}>
-								{$_('common.edit')}
-							</Button>
-							<Button
-								variant="ghost"
-								size="sm"
-								onclick={() => removeComment(comment.id)}
-								disabled={deletingCommentId === comment.id}
-							>
-								{#if deletingCommentId === comment.id}
-									<Icon name="loader" size={12} class="animate-spin" />
-								{/if}
-								{$_('common.delete')}
-							</Button>
-						</div>
-					</div>
-				{/each}
-			</div>
-		{/if}
-
-		<div class="border border-[var(--line)] bg-[var(--void-2)] p-2.5">
-			<div class="mb-2 flex items-center justify-between gap-2">
-				<Button
-					variant="ghost"
-					size="sm"
-					onclick={() => (commentsSortMode = commentsSortMode === 'time' ? 'page' : 'time')}
-				>
-					<Icon name="clock" size={14} />
-					{commentsSortMode === 'time' ? $_('reader.sortByTime') : $_('reader.sortByPage')}
-				</Button>
+	<div class="flex flex-col gap-4">
+		<!-- Compose -->
+		<div class="flex flex-col gap-2">
+			<textarea
+				class="min-h-20 w-full bg-[var(--void-2)] px-3 py-2 text-xs text-[var(--text)] placeholder:text-[var(--text-ghost)] focus:outline-none"
+				placeholder={$_('reader.commentPlaceholder')}
+				bind:value={commentDraft}
+			></textarea>
+			<div class="flex items-center justify-between">
+				<p class="text-[10px] text-[var(--text-ghost)]">
+					{$_('reader.commentAutoPage', { values: { page: (currentPage?.page_index ?? 0) + 1 } })}
+				</p>
 				<div class="flex items-center gap-1.5">
 					{#if editingCommentId !== null}
 						<Button variant="ghost" size="sm" onclick={startNewComment}>
 							{$_('common.cancel')}
 						</Button>
 					{/if}
-					<Button variant="outline" size="sm" onclick={saveComment} disabled={commentSubmitting}>
+					<Button variant="ghost" size="sm" onclick={saveComment} disabled={commentSubmitting}>
 						{#if commentSubmitting}
-							<Icon name="loader" size={14} class="animate-spin" />
+							<Icon name="loader" size={12} class="animate-spin" />
 						{:else}
-							<Icon name="plus" size={14} />
+							<Icon name="plus" size={12} />
 						{/if}
 						{$_('reader.comment')}
 					</Button>
 				</div>
 			</div>
-			<textarea
-				class="min-h-24 w-full border border-[var(--line)] bg-[var(--void-1)] px-2 py-1.5 text-sm text-[var(--text)] focus:border-[var(--void-6)] focus:outline-none"
-				placeholder={$_('reader.commentPlaceholder')}
-				bind:value={commentDraft}
-			></textarea>
-			<p class="mt-1 text-[10px] text-[var(--text-ghost)]">
-				{$_('reader.commentAutoPage', { values: { page: (currentPage?.page_index ?? 0) + 1 } })}
-			</p>
 		</div>
+
+		{#if commentsError}
+			<p class="text-xs text-[var(--error)]">{commentsError}</p>
+		{/if}
+
+		<!-- Sort toggle -->
+		<button
+			type="button"
+			class="flex items-center gap-1.5 text-[10px] text-[var(--text-ghost)] hover:text-[var(--text-muted)] transition-colors"
+			onclick={() => (commentsSortMode = commentsSortMode === 'time' ? 'page' : 'time')}
+		>
+			<Icon name="clock" size={12} />
+			{commentsSortMode === 'time' ? $_('reader.sortByTime') : $_('reader.sortByPage')}
+		</button>
+
+		<!-- Comments list -->
+		{#if chapterCommentsLoading}
+			<div class="flex items-center justify-center py-8">
+				<Icon name="loader" size={16} class="animate-spin text-[var(--text-ghost)]" />
+			</div>
+		{:else if sortedChapterComments.length === 0}
+			<p class="py-8 text-center text-xs text-[var(--text-ghost)]">{$_('reader.noComments')}</p>
+		{:else}
+			<div class="flex flex-col gap-3">
+				{#each sortedChapterComments as comment (comment.id)}
+					<div class="flex flex-col gap-1.5">
+						<div class="flex items-center justify-between text-[10px] text-[var(--text-ghost)]">
+							<button
+								type="button"
+								class="hover:text-[var(--text-muted)] transition-colors"
+								onclick={() => jumpToPageIndex(comment.page_index)}
+								title={$_('reader.jumpToPage')}
+							>
+								p.{comment.page_index + 1}
+							</button>
+							<span>{formatTimestamp(comment.created_at)}</span>
+						</div>
+						<p class="whitespace-pre-wrap text-xs text-[var(--text-soft)]">{comment.message}</p>
+						<div class="flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
+							<button
+								type="button"
+								class="hover:text-[var(--text-muted)] transition-colors"
+								onclick={() => startEditComment(comment)}
+							>
+								{$_('common.edit')}
+							</button>
+							<button
+								type="button"
+								class="hover:text-[var(--text-muted)] transition-colors"
+								onclick={() => removeComment(comment.id)}
+								disabled={deletingCommentId === comment.id}
+							>
+								{#if deletingCommentId === comment.id}
+									<Icon name="loader" size={10} class="inline animate-spin" />
+								{/if}
+								{$_('common.delete')}
+							</button>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
 	</div>
 </SlidePanel>

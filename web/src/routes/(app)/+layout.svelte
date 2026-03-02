@@ -56,40 +56,42 @@
 </script>
 
 <div class="relative min-h-svh bg-[var(--void-0)]">
-	<!-- Space background -->
-	<div class="pointer-events-none fixed inset-0">
-		<!-- Subtle grid -->
-		<div
-			class="absolute inset-0 opacity-[0.02]"
-			style="
-				background-image:
-					linear-gradient(rgba(200, 200, 220, 0.6) 1px, transparent 1px),
-					linear-gradient(90deg, rgba(200, 200, 220, 0.6) 1px, transparent 1px);
-				background-size: 50px 50px;
-			"
-		></div>
+	<!-- Space background (hidden in reader for clean void canvas) -->
+	{#if !isReaderRoute}
+		<div class="pointer-events-none fixed inset-0">
+			<!-- Subtle grid -->
+			<div
+				class="absolute inset-0 opacity-[0.02]"
+				style="
+					background-image:
+						linear-gradient(rgba(200, 200, 220, 0.6) 1px, transparent 1px),
+						linear-gradient(90deg, rgba(200, 200, 220, 0.6) 1px, transparent 1px);
+					background-size: 50px 50px;
+				"
+			></div>
 
-		<!-- Sparse stars -->
-		<StarField count={25} />
+			<!-- Sparse stars -->
+			<StarField count={25} />
 
-		<!-- Orbital ring -->
-		<div
-			class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-[1400px] w-[1400px] animate-spin-slow"
-			style="animation-duration: 200s;"
-		>
-			<svg viewBox="0 0 200 200" class="h-full w-full">
-				<ellipse
-					cx="100"
-					cy="100"
-					rx="95"
-					ry="28"
-					fill="none"
-					stroke="rgba(140, 140, 160, 0.08)"
-					stroke-width="0.5"
-				/>
-			</svg>
+			<!-- Orbital ring -->
+			<div
+				class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-[1400px] w-[1400px] animate-spin-slow"
+				style="animation-duration: 200s;"
+			>
+				<svg viewBox="0 0 200 200" class="h-full w-full">
+					<ellipse
+						cx="100"
+						cy="100"
+						rx="95"
+						ry="28"
+						fill="none"
+						stroke="rgba(140, 140, 160, 0.08)"
+						stroke-width="0.5"
+					/>
+				</svg>
+			</div>
 		</div>
-	</div>
+	{/if}
 
 	{#if isCheckingAuth}
 		<div class="flex min-h-svh items-center justify-center">
@@ -100,11 +102,17 @@
 		</div>
 	{:else if isAuthenticated}
 		<!-- Main content -->
-		<main class="relative z-10 pb-20 md:pb-6">
-			<div class="mx-auto w-full max-w-5xl px-4 py-6 md:px-6 md:py-8">
+		{#if isReaderRoute}
+			<main class="relative z-10">
 				{@render children()}
-			</div>
-		</main>
+			</main>
+		{:else}
+			<main class="relative z-10 pb-20 md:pb-6">
+				<div class="mx-auto w-full max-w-5xl px-4 py-6 md:px-6 md:py-8">
+					{@render children()}
+				</div>
+			</main>
+		{/if}
 
 		<!-- Bottom navigation (mobile) -->
 		{#if !isReaderRoute && !$panelOverlayOpen}
@@ -127,7 +135,7 @@
 		{/if}
 
 		<!-- Desktop sidebar -->
-		<aside class="fixed inset-y-0 left-0 z-40 hidden w-16 flex-col border-r border-[var(--line)] bg-[var(--void-1)] md:flex">
+		<aside class="fixed inset-y-0 left-0 z-40 hidden w-16 flex-col border-r border-[var(--line)] bg-[var(--void-1)] {isReaderRoute ? '' : 'md:flex'}">
 			<div class="flex flex-1 flex-col items-center gap-1 py-4">
 				{#each navItems as item}
 					{@const isActive = currentPath.startsWith(item.href)}
