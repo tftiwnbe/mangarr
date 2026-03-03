@@ -6,6 +6,8 @@ from app.config import settings
 from app.core.errors import BridgeAPIError
 from app.features.library.jobs import get_last_cleanup_run_at, run_unassigned_cleanup
 from app.models import (
+    ContentLanguagesResource,
+    ContentLanguagesUpdate,
     DownloadSettingsResource,
     DownloadSettingsUpdate,
     FlareSolverrSettingsResource,
@@ -188,6 +190,18 @@ class SettingsService:
     async def get_proxy_settings() -> ProxySettingsResource:
         config = await tachibridge.fetch_proxy_config()
         return ProxySettingsResource(**config)
+
+    @staticmethod
+    def get_content_languages() -> ContentLanguagesResource:
+        return ContentLanguagesResource(preferred=list(settings.content_languages.preferred))
+
+    @staticmethod
+    def update_content_languages(
+        payload: ContentLanguagesUpdate,
+    ) -> ContentLanguagesResource:
+        settings.content_languages.preferred = [lang.lower() for lang in payload.preferred]
+        settings.save_settings()
+        return SettingsService.get_content_languages()
 
     @staticmethod
     async def update_proxy_settings(

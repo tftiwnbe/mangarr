@@ -3,6 +3,8 @@ from fastapi import APIRouter, Depends
 from app.core.deps import CurrentUserDep, require_authenticated_user
 from app.features.settings.service import SettingsService
 from app.models import (
+    ContentLanguagesResource,
+    ContentLanguagesUpdate,
     DownloadSettingsResource,
     DownloadSettingsUpdate,
     FlareSolverrSettingsResource,
@@ -85,3 +87,13 @@ async def update_proxy_settings(
         payload=payload,
         current_user=current_user,
     )
+
+
+@router.get("/content-languages", response_model=ContentLanguagesResource)
+async def get_content_languages():
+    return SettingsService.get_content_languages()
+
+
+@router.put("/content-languages", response_model=ContentLanguagesResource)
+async def update_content_languages(payload: ContentLanguagesUpdate):
+    return SettingsService.update_content_languages(payload=payload)

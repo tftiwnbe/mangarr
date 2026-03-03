@@ -72,3 +72,11 @@ class ProxySettingsUpdate(SQLModel):
     password: str | None = None
     ignored_addresses: str | None = None
     bypass_local_addresses: bool | None = None
+
+
+class ContentLanguagesResource(SQLModel):
+    preferred: list[str] = Field(default_factory=list)
+
+
+class ContentLanguagesUpdate(SQLModel):
+    preferred: list[str]

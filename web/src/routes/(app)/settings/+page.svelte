@@ -26,6 +26,10 @@
 		type LibraryUserStatusResource
 	} from '$lib/api/library';
 	import {
+		updateExtensionRepository,
+		listInstalledExtensions
+	} from '$lib/api/extensions';
+	import {
 		getFlareSolverrSettings,
 		getDownloadSettings,
 		getJobsSettings,
@@ -40,8 +44,23 @@
 	import { Icon } from '$lib/elements/icon';
 	import { Input } from '$lib/elements/input';
 	import { _ } from '$lib/i18n';
+	import {
+		contentLanguages,
+		loadContentLanguages,
+		setContentLanguages,
+		getKnownContentLanguages,
+		setKnownContentLanguages
+	} from '$lib/stores/content-languages';
 
 	type SettingsTab = 'account' | 'library' | 'system' | 'about';
+
+	// ── Extensions settings ────────────────────────────────────────────────
+	let extensionRepoUrl = $state('');
+	let extensionRepoSaving = $state(false);
+	let extensionRepoError = $state<string | null>(null);
+	let extensionRepoSuccess = $state(false);
+	let knownLangs = $state<string[]>([]);
+	let extensionRepoLoading = $state(true);
 
 	let user = $state<UserProfile | null>(null);
 	let loading = $state(true);
@@ -140,7 +159,9 @@
 				loadIntegrationApiKeys(),
 				loadJobsSettings(),
 				loadFlareSolverrSettings(),
-				loadProxySettings()
+				loadProxySettings(),
+				loadExtensionSettings(),
+				loadContentLanguages()
 			]);
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Failed to load profile';
@@ -258,6 +279,64 @@
 		} finally {
 			proxySettingsLoading = false;
 		}
+	}
+
+	async function loadExtensionSettings() {
+		extensionRepoLoading = true;
+		try {
+			// Load known languages from localStorage first (fast initial render)
+			knownLangs = getKnownContentLanguages();
+
+			// Refresh from installed extension sources (more granular than repo-level langs)
+			const installed = await listInstalledExtensions().catch(() => []);
+			if (installed.length > 0) {
+				const sourceLangs = installed.flatMap((e) => e.sources.map((s) => s.lang));
+				setKnownContentLanguages(sourceLangs);
+				knownLangs = getKnownContentLanguages();
+			}
+		} catch {
+			// Non-critical, just use cached known langs
+		} finally {
+			extensionRepoLoading = false;
+		}
+	}
+
+	async function handleSaveExtensionRepo() {
+		if (!extensionRepoUrl.trim() || extensionRepoSaving) return;
+		extensionRepoSaving = true;
+		extensionRepoError = null;
+		extensionRepoSuccess = false;
+
+		try {
+			const result = await updateExtensionRepository({ url: extensionRepoUrl.trim() });
+			const langs = result.map((e) => e.lang);
+			setKnownContentLanguages(langs);
+			knownLangs = getKnownContentLanguages();
+			extensionRepoSuccess = true;
+			setTimeout(() => (extensionRepoSuccess = false), 3000);
+		} catch (cause) {
+			extensionRepoError = cause instanceof Error ? cause.message : 'Failed to update repository';
+		} finally {
+			extensionRepoSaving = false;
+		}
+	}
+
+	async function handleToggleContentLang(lang: string) {
+		const current = $contentLanguages;
+		const lower = lang.toLowerCase();
+		if (current.includes(lower)) {
+			await setContentLanguages(current.filter((l) => l !== lower));
+		} else {
+			await setContentLanguages([...current, lower]);
+		}
+	}
+
+	async function handleSelectAllLangs() {
+		await setContentLanguages([...knownLangs]);
+	}
+
+	async function handleClearLangs() {
+		await setContentLanguages([]);
 	}
 
 	async function handleChangePassword(event: SubmitEvent) {
@@ -1055,6 +1134,94 @@
 		<!-- ═══════════════════ SYSTEM ═══════════════════ -->
 		{:else if activeTab === 'system'}
 			<div class="flex flex-col gap-8">
+				<!-- Extensions -->
+				<section class="flex flex-col gap-4">
+					<div class="flex flex-col gap-1">
+						<h2 class="text-sm font-medium text-[var(--text-soft)]">extensions</h2>
+						<p class="text-xs text-[var(--text-ghost)]">manage extension repository and content language preferences</p>
+					</div>
+
+					{#if extensionRepoLoading}
+						<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
+					{:else}
+						<Input
+							label="repository url"
+							bind:value={extensionRepoUrl}
+							placeholder="https://raw.githubusercontent.com/..."
+						/>
+
+						<div class="flex gap-2">
+							<Button
+								variant="outline"
+								size="sm"
+								onclick={handleSaveExtensionRepo}
+								disabled={!extensionRepoUrl.trim() || extensionRepoSaving}
+								loading={extensionRepoSaving}
+							>
+								update repository
+							</Button>
+						</div>
+
+						{#if extensionRepoError}
+							<p class="text-xs text-[var(--error)] animate-fade-in">{extensionRepoError}</p>
+						{/if}
+						{#if extensionRepoSuccess}
+							<p class="text-xs text-[var(--success)] animate-fade-in">repository updated</p>
+						{/if}
+
+						<!-- Content languages -->
+						<div class="flex flex-col gap-2 pt-2">
+							<div class="flex items-baseline justify-between">
+								<span class="text-label">content languages</span>
+								<div class="flex gap-3">
+									<button
+										type="button"
+										class="text-[10px] text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
+										onclick={handleSelectAllLangs}
+									>
+										select all
+									</button>
+									<button
+										type="button"
+										class="text-[10px] text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
+										onclick={handleClearLangs}
+									>
+										clear
+									</button>
+								</div>
+							</div>
+							<p class="text-[11px] text-[var(--text-ghost)]">
+								{$contentLanguages.length === 0
+									? 'no filter — showing all sources'
+									: `${$contentLanguages.length} language${$contentLanguages.length === 1 ? '' : 's'} selected`}
+							</p>
+							{#if knownLangs.length > 0}
+								<div class="flex flex-wrap gap-1.5 pt-1">
+									{#each knownLangs as lang}
+										{@const isSelected = $contentLanguages.includes(lang)}
+										<button
+											type="button"
+											class="h-7 min-w-[32px] px-2.5 text-[10px] uppercase tracking-wider transition-all
+												{isSelected
+												? 'bg-[var(--void-4)] text-[var(--text)]'
+												: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
+											onclick={() => handleToggleContentLang(lang)}
+										>
+											{lang}
+										</button>
+									{/each}
+								</div>
+							{:else}
+								<p class="text-[11px] text-[var(--text-ghost)]">
+									no languages known yet — visit the extensions page first
+								</p>
+							{/if}
+						</div>
+					{/if}
+				</section>
+
+				<div class="h-px bg-[var(--void-3)]"></div>
+
 				<!-- Downloads -->
 				<section class="flex flex-col gap-4">
 					<div class="flex flex-col gap-1">

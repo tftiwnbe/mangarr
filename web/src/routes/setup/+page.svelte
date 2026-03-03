@@ -3,7 +3,11 @@
 	import { onMount } from 'svelte';
 
 	import { getMe } from '$lib/api/auth';
-	import { listInstalledExtensions, updateExtensionRepository } from '$lib/api/extensions';
+	import {
+		listInstalledExtensions,
+		updateExtensionRepository,
+		type RepoExtensionResource
+	} from '$lib/api/extensions';
 	import { clearAuthSession, getStoredApiKey } from '$lib/api/session';
 	import { Button } from '$lib/elements/button';
 	import { Input } from '$lib/elements/input';
@@ -16,6 +20,10 @@
 		locale,
 		type SupportedLocale
 	} from '$lib/i18n';
+	import {
+		setContentLanguages,
+		setKnownContentLanguages
+	} from '$lib/stores/content-languages';
 
 	let step = $state(1);
 	let repoUrl = $state('');
@@ -23,6 +31,19 @@
 	let error = $state<string | null>(null);
 	let checkingAuth = $state(true);
 	let mounted = $state(false);
+
+	// Step 2: content languages
+	let repoExtensions = $state<RepoExtensionResource[]>([]);
+	let selectedContentLangs = $state<Set<string>>(new Set());
+
+	const availableContentLangs = $derived.by(() => {
+		const langs = new Set(repoExtensions.map((e) => e.lang.toLowerCase()));
+		return [...langs].sort((a, b) => {
+			if (a === 'multi') return -1;
+			if (b === 'multi') return 1;
+			return a.localeCompare(b);
+		});
+	});
 
 	// Default repository URL suggestion
 	const defaultRepoUrl = 'https://raw.githubusercontent.com/your-org/extensions/main/index.json';
@@ -63,13 +84,35 @@
 		error = null;
 
 		try {
-			await updateExtensionRepository({ url: repoUrl.trim() });
+			const result = await updateExtensionRepository({ url: repoUrl.trim() });
+			repoExtensions = result;
+			// Persist known languages
+			setKnownContentLanguages(result.map((e) => e.lang));
 			step = 2;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to configure repository';
 		} finally {
 			loading = false;
 		}
+	}
+
+	function handleToggleContentLang(lang: string) {
+		const next = new Set(selectedContentLangs);
+		if (next.has(lang)) {
+			next.delete(lang);
+		} else {
+			next.add(lang);
+		}
+		selectedContentLangs = next;
+	}
+
+	async function handleContentLangsComplete() {
+		await setContentLanguages([...selectedContentLangs]);
+		step = 3;
+	}
+
+	function handleSelectAllContentLangs() {
+		selectedContentLangs = new Set(availableContentLangs);
 	}
 
 	function handleLanguageSelect(lang: SupportedLocale) {
@@ -170,7 +213,19 @@
 						? 'bg-[var(--void-5)] text-[var(--text)] border border-[var(--void-6)]'
 						: 'bg-[var(--void-3)] text-[var(--text-ghost)] border border-[var(--line)]'}"
 				>
-					2
+					{#if step > 2}
+						<Icon name="check" size={12} />
+					{:else}
+						2
+					{/if}
+				</div>
+				<div class="h-px w-8 bg-[var(--line)]"></div>
+				<div
+					class="flex h-7 w-7 items-center justify-center text-xs font-medium transition-colors {step >= 3
+						? 'bg-[var(--void-5)] text-[var(--text)] border border-[var(--void-6)]'
+						: 'bg-[var(--void-3)] text-[var(--text-ghost)] border border-[var(--line)]'}"
+				>
+					3
 				</div>
 			</div>
 
@@ -218,13 +273,75 @@
 							<button
 								type="button"
 								class="text-center text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
-								onclick={() => (step = 2)}
+								onclick={() => (step = 3)}
 							>
 								{$_('setup.skipForNow').toLowerCase()}
 							</button>
 						</form>
 					{:else if step === 2}
-						<!-- Step 2: Language -->
+						<!-- Step 2: Content Languages -->
+						<div class="mb-6 text-center">
+							<div class="mx-auto mb-3 flex h-10 w-10 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]">
+								<Icon name="globe" size={18} class="text-[var(--text-muted)]" />
+							</div>
+							<h2 class="text-base font-medium text-[var(--text)]">content languages</h2>
+							<p class="mt-1 text-xs text-[var(--text-ghost)]">select which languages you want to see in your sources</p>
+						</div>
+
+						{#if availableContentLangs.length > 0}
+							<div class="flex items-center justify-between mb-3">
+								<span class="text-[11px] text-[var(--text-ghost)]">
+									{selectedContentLangs.size === 0
+										? 'none selected — all will be shown'
+										: `${selectedContentLangs.size} selected`}
+								</span>
+								<button
+									type="button"
+									class="text-[10px] text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
+									onclick={handleSelectAllContentLangs}
+								>
+									select all
+								</button>
+							</div>
+
+							<div class="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto no-scrollbar">
+								{#each availableContentLangs as lang}
+									{@const isSelected = selectedContentLangs.has(lang)}
+									<button
+										type="button"
+										class="h-8 min-w-[36px] px-2.5 text-[10px] uppercase tracking-wider transition-all
+											{isSelected
+											? 'bg-[var(--void-5)] text-[var(--text)] border border-[var(--void-6)]'
+											: 'text-[var(--text-ghost)] border border-[var(--line)] hover:text-[var(--text-muted)] hover:border-[var(--void-5)]'}"
+										onclick={() => handleToggleContentLang(lang)}
+									>
+										{lang}
+									</button>
+								{/each}
+							</div>
+						{:else}
+							<p class="text-xs text-[var(--text-ghost)] text-center py-4">
+								no repository configured — skip to continue
+							</p>
+						{/if}
+
+						<Button
+							size="lg"
+							class="mt-6 w-full justify-center"
+							onclick={handleContentLangsComplete}
+						>
+							{$_('common.next').toLowerCase()}
+						</Button>
+
+						<button
+							type="button"
+							class="mt-3 w-full text-center text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
+							onclick={() => (step = 3)}
+						>
+							{$_('setup.skipForNow').toLowerCase()}
+						</button>
+					{:else if step === 3}
+						<!-- Step 3: UI Language -->
 						<div class="mb-6 text-center">
 							<h2 class="text-base font-medium text-[var(--text)]">{$_('setup.languageTitle').toLowerCase()}</h2>
 							<p class="mt-1 text-xs text-[var(--text-ghost)]">{$_('setup.languageDescription').toLowerCase()}</p>

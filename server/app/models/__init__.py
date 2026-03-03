@@ -86,6 +86,8 @@ from app.models.library import (
     ReaderPageResource,
 )
 from app.models.settings import (
+    ContentLanguagesResource,
+    ContentLanguagesUpdate,
     DownloadSettingsResource,
     DownloadSettingsUpdate,
     FlareSolverrSettingsResource,
@@ -120,6 +122,8 @@ from app.models.users import (
 )
 
 __all__ = [
+    "ContentLanguagesResource",
+    "ContentLanguagesUpdate",
     "ExploreCacheItem",
     "ExploreCachePage",
     "ExploreCategory",

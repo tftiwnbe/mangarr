@@ -85,3 +85,22 @@ export async function updateProxySettings(
 		'Unable to update proxy settings'
 	);
 }
+
+export type ContentLanguagesResource = { preferred: string[] };
+export type ContentLanguagesUpdate = { preferred: string[] };
+
+export async function getContentLanguages(): Promise<ContentLanguagesResource> {
+	return expectData(
+		await (httpClient as any).GET('/api/v2/settings/content-languages'),
+		'Unable to load content language settings'
+	);
+}
+
+export async function updateContentLanguages(
+	payload: ContentLanguagesUpdate
+): Promise<ContentLanguagesResource> {
+	return expectData(
+		await (httpClient as any).PUT('/api/v2/settings/content-languages', { body: payload }),
+		'Unable to update content language settings'
+	);
+}

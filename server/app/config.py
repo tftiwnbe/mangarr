@@ -96,6 +96,10 @@ class PublicConfig(MangarrBaseSettings):
     initialized: bool = False
 
 
+class ContentLanguagesConfig(MangarrBaseSettings):
+    preferred: list[str] = Field(default_factory=list)
+
+
 # -----------------------------------------------------
 # Main Settings model
 # -----------------------------------------------------
@@ -107,6 +111,7 @@ class Settings(MangarrBaseSettings):
     jobs: JobsConfig = JobsConfig()
     log: LogConfig = LogConfig()
     public: PublicConfig = PublicConfig()
+    content_languages: ContentLanguagesConfig = ContentLanguagesConfig()
 
     @classmethod
     def settings_customise_sources(

@@ -8,6 +8,7 @@
 	import { Icon } from '$lib/elements/icon';
 	import { StarField } from '$lib/elements/starfield';
 	import { _ } from '$lib/i18n';
+	import { loadContentLanguages } from '$lib/stores/content-languages';
 	import { panelOverlayOpen } from '$lib/stores/ui';
 
 	let { children } = $props();
@@ -45,6 +46,8 @@
 			try {
 				await getMe();
 				isAuthenticated = true;
+				// Sync content language preferences from server (best-effort)
+				void loadContentLanguages();
 			} catch {
 				clearAuthSession();
 				await navigateToLogin();
