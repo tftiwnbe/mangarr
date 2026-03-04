@@ -20,6 +20,7 @@
 	import { Button } from '$lib/elements/button';
 	import { Input } from '$lib/elements/input';
 	import { Icon } from '$lib/elements/icon';
+	import { Switch } from '$lib/elements/switch';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
 	import { panelOverlayOpen } from '$lib/stores/ui';
@@ -787,37 +788,13 @@
 													>
 														<Icon name="settings" size={14} />
 													</button>
-													<button
-														type="button"
-														class="flex h-5 w-9 shrink-0 items-center px-0.5 transition-colors
-															{source.enabled
-															? 'justify-end bg-[var(--void-5)]'
-															: 'justify-start bg-[var(--void-4)]'}"
-														onclick={() =>
-															handleToggleSource(
-																source.id,
-																!source.enabled
-															)}
+													<Switch
+														checked={source.enabled}
 														disabled={isToggling}
-													>
-														{#if isToggling}
-															<div
-																class="flex h-4 w-4 items-center justify-center bg-[var(--void-6)]"
-															>
-																<Icon
-																	name="loader"
-																	size={10}
-																	class="animate-spin text-[var(--text-ghost)]"
-																/>
-															</div>
-														{:else}
-															<div
-																class="h-4 w-4 transition-colors {source.enabled
-																	? 'bg-[var(--text)]'
-																	: 'bg-[var(--void-6)]'}"
-															></div>
-														{/if}
-													</button>
+														loading={isToggling}
+														onCheckedChange={(enabled) =>
+															void handleToggleSource(source.id, enabled)}
+													/>
 												</div>
 											{/each}
 										{/if}
@@ -828,34 +805,13 @@
 										<span class="flex-1 text-xs text-[var(--text-muted)]"
 											>proxy</span
 										>
-										<button
-											type="button"
-											class="flex h-5 w-9 shrink-0 items-center px-0.5 transition-colors
-												{ext.use_proxy
-												? 'justify-end bg-[var(--void-5)]'
-												: 'justify-start bg-[var(--void-4)]'}"
-											onclick={() =>
-												handleToggleProxy(ext.pkg, !ext.use_proxy)}
+										<Switch
+											checked={ext.use_proxy}
 											disabled={isTogglingProxy}
-										>
-											{#if isTogglingProxy}
-												<div
-													class="flex h-4 w-4 items-center justify-center bg-[var(--void-6)]"
-												>
-													<Icon
-														name="loader"
-														size={10}
-														class="animate-spin text-[var(--text-ghost)]"
-													/>
-												</div>
-											{:else}
-												<div
-													class="h-4 w-4 transition-colors {ext.use_proxy
-														? 'bg-[var(--text)]'
-														: 'bg-[var(--void-6)]'}"
-												></div>
-											{/if}
-										</button>
+											loading={isTogglingProxy}
+											onCheckedChange={(enabled) =>
+												void handleToggleProxy(ext.pkg, enabled)}
+										/>
 									</div>
 
 									<!-- Uninstall -->
@@ -1022,21 +978,12 @@
 							</div>
 							{#if pref.type === 'toggle'}
 								{@const val = getCurrentValue(pref) as boolean}
-								<button
-									type="button"
-									class="flex h-5 w-9 items-center px-0.5 shrink-0 transition-colors
-										{val
-										? 'justify-end bg-[var(--void-5)]'
-										: 'justify-start bg-[var(--void-4)]'}"
-									onclick={() => handlePreferenceChange(pref.key, !val)}
+								<Switch
+									checked={val}
 									disabled={!pref.enabled}
-								>
-									<div
-										class="h-4 w-4 transition-colors {val
-											? 'bg-[var(--text)]'
-											: 'bg-[var(--void-6)]'}"
-									></div>
-								</button>
+									onCheckedChange={(enabled) =>
+										handlePreferenceChange(pref.key, enabled)}
+								/>
 							{/if}
 						</div>
 

@@ -14,6 +14,8 @@
 	import { Button } from '$lib/elements/button';
 	import { Icon } from '$lib/elements/icon';
 	import { LazyImage } from '$lib/elements/lazy-image';
+	import { Select } from '$lib/elements/select';
+	import { Switch } from '$lib/elements/switch';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { downloadsDashboardStore, runDownloadCycle } from '$lib/stores/downloads';
 	import type { DownloadStatus, DownloadTaskItem } from '$lib/utils/download-mappers';
@@ -711,26 +713,15 @@
 								></div>
 							</div>
 						</a>
-						<!-- Toggle action (same pattern as extensions page) -->
-						<button
-							type="button"
-							class="flex h-5 w-9 shrink-0 items-center self-center px-0.5 transition-colors {item.enabled
-								? 'justify-end bg-[var(--success)]/20'
-								: 'justify-start bg-[var(--void-5)]'}"
-							onclick={() => toggleMonitoring(item.titleId, !item.enabled)}
+						<!-- Toggle action -->
+						<Switch
+							checked={item.enabled}
 							disabled={profileActionTitleId === item.titleId}
-							title={item.enabled ? $_('extensions.disable') : $_('extensions.enable')}
-						>
-							{#if profileActionTitleId === item.titleId}
-								<div class="flex h-4 w-4 items-center justify-center bg-[var(--void-6)]">
-									<Icon name="loader" size={10} class="animate-spin text-[var(--text-ghost)]" />
-								</div>
-							{:else}
-								<div
-									class="h-4 w-4 {item.enabled ? 'bg-[var(--success)]' : 'bg-[var(--void-6)]'}"
-								></div>
-							{/if}
-						</button>
+							loading={profileActionTitleId === item.titleId}
+							variant="success"
+							class="self-center"
+							onCheckedChange={(enabled) => void toggleMonitoring(item.titleId, enabled)}
+						/>
 					</div>
 				{/each}
 			</div>
@@ -854,32 +845,22 @@
 				<p class="mb-2 text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
 					{$_('downloads.importDialogSourceLabel')}
 				</p>
-				<div class="relative">
-					<select
-						class="w-full h-11 pl-3 pr-8 appearance-none bg-[var(--void-2)] border border-[var(--void-4)] text-sm text-[var(--text)] transition-colors hover:border-[var(--void-5)] focus:border-[var(--void-6)] focus:outline-none disabled:opacity-40 disabled:pointer-events-none"
-						value={importDialogSourceId}
-						onchange={(event) => {
-							importDialogSourceId = (event.currentTarget as HTMLSelectElement).value;
-							importDialogCandidates = [];
-							importDialogSelectedTitleUrl = null;
-							importDialogSearchError = null;
-							importSearchRequestId += 1;
-							importDialogSearching = false;
-							if (importDialogSourceId.trim() && importDialogQuery.trim()) {
-								void runImportSearch();
-							}
-						}}
-						disabled={sourcesLoading || importDialogSubmitting}
-					>
-						<option value="">{$_('downloads.selectSource')}</option>
-						{#each availableSources as source (source.id)}
-							<option value={source.id}>{sourceLabel(source)}</option>
-						{/each}
-					</select>
-					<div class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-ghost)]">
-						<Icon name="chevron-down" size={12} />
-					</div>
-				</div>
+				<Select
+					bind:value={importDialogSourceId}
+					options={availableSources.map((s) => ({ value: s.id, label: sourceLabel(s) }))}
+					placeholder={$_('downloads.selectSource')}
+					disabled={sourcesLoading || importDialogSubmitting}
+					onValueChange={() => {
+						importDialogCandidates = [];
+						importDialogSelectedTitleUrl = null;
+						importDialogSearchError = null;
+						importSearchRequestId += 1;
+						importDialogSearching = false;
+						if (importDialogSourceId.trim() && importDialogQuery.trim()) {
+							void runImportSearch();
+						}
+					}}
+				/>
 			</div>
 
 			<!-- Search -->
