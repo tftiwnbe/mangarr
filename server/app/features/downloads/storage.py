@@ -11,13 +11,19 @@ CHAPTER_METADATA_FILENAME = "mangarr-chapter-info.json"
 
 
 def chapter_archive_path(chapter_dir: Path) -> Path:
-    return chapter_dir.with_suffix(CHAPTER_ARCHIVE_SUFFIX)
+    name = chapter_dir.name
+    if name.lower().endswith(CHAPTER_ARCHIVE_SUFFIX):
+        return chapter_dir
+    return chapter_dir.with_name(f"{name}{CHAPTER_ARCHIVE_SUFFIX}")
 
 
 def find_chapter_archive_path(chapter_dir: Path) -> Path | None:
     preferred = chapter_archive_path(chapter_dir)
     if preferred.is_file():
         return preferred
+    legacy = chapter_dir.with_suffix(CHAPTER_ARCHIVE_SUFFIX)
+    if legacy != preferred and legacy.is_file():
+        return legacy
     return None
 
 
@@ -161,5 +167,5 @@ def extract_chapter_pages(chapter_dir: Path) -> bool:
             with handle.open(info, mode="r") as source, destination.open("wb") as target:
                 shutil.copyfileobj(source, target, length=128 * 1024)
 
-    chapter_archive_path(chapter_dir).unlink(missing_ok=True)
+    archive.unlink(missing_ok=True)
     return True

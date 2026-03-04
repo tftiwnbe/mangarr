@@ -15,7 +15,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.bridge import tachibridge
 from app.config import settings
 from app.core.errors import BridgeAPIError
-from app.features.downloads.storage import compress_chapter_pages, extract_chapter_pages
+from app.features.downloads.storage import (
+    chapter_archive_path,
+    compress_chapter_pages,
+    extract_chapter_pages,
+)
 from app.features.extensions import ExtensionService
 from app.models import (
     DownloadProfile,
@@ -2498,7 +2502,7 @@ class LibraryService:
                 continue
             if candidate.is_dir():
                 return candidate
-            if candidate.with_suffix(".cbz").is_file():
+            if chapter_archive_path(candidate).is_file():
                 return candidate
             if candidate.is_file() and candidate.suffix.lower() == ".cbz":
                 return candidate.with_suffix("")

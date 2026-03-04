@@ -18,6 +18,7 @@ from app.config import settings
 from app.core.database import sessionmanager
 from app.core.errors import BridgeAPIError
 from app.features.downloads.storage import (
+    chapter_archive_path,
     chapter_has_payload,
     chapter_payload_size_bytes,
     compress_chapter_pages,
@@ -2118,7 +2119,7 @@ class DownloadService:
                 if absolute_candidate.suffix.lower() == ".cbz":
                     return absolute_candidate.with_suffix("")
                 return absolute_candidate.parent
-            if absolute_candidate.with_suffix(".cbz").is_file():
+            if chapter_archive_path(absolute_candidate).is_file():
                 return absolute_candidate
 
         relative_candidates: list[str] = []
@@ -2159,7 +2160,7 @@ class DownloadService:
                     if candidate.suffix.lower() == ".cbz":
                         return candidate.with_suffix("")
                     return candidate.parent
-                if candidate.with_suffix(".cbz").is_file():
+                if chapter_archive_path(candidate).is_file():
                     return candidate
         return None
 
@@ -3682,17 +3683,70 @@ class DownloadService:
         chapter_number = _coerce_positive_float(chapter.chapter_number) or _chapter_number_from_text(
             chapter.name
         )
-        chapter_id_segment = str(chapter.id) if chapter.id is not None else "0"
         chapter_number_segment = _format_chapter_number_segment(chapter_number)
-        chapter_segment = (
-            f"{chapter_number_segment}-{chapter_id_segment}"
-            if chapter_number_segment
-            else chapter_id_segment
-        )
-        chapter_segment = _safe_segment(chapter_segment, f"chapter-{chapter.id}")
 
         base_dir = self._downloads_root() / source_segment / title_segment
+        chapter_segment = self._chapter_download_segment(
+            chapter=chapter,
+            chapter_number_segment=chapter_number_segment,
+        )
+        chapter_segment = self._unique_chapter_download_segment(
+            base_dir=base_dir,
+            preferred_segment=chapter_segment,
+            chapter_url=chapter.chapter_url,
+        )
         return base_dir / chapter_segment
+
+    @staticmethod
+    def _chapter_download_segment(
+        chapter: LibraryChapter,
+        chapter_number_segment: str | None,
+    ) -> str:
+        if chapter_number_segment:
+            return _safe_segment(chapter_number_segment, "chapter")
+
+        from_name = _safe_segment((chapter.name or "").strip(), "")
+        if from_name:
+            return from_name
+        if chapter.id is not None:
+            return f"chapter-{chapter.id}"
+        return "chapter"
+
+    @staticmethod
+    def _chapter_download_entry_exists(chapter_dir: Path) -> bool:
+        if chapter_dir.is_dir():
+            return True
+        return chapter_archive_path(chapter_dir).is_file()
+
+    @staticmethod
+    def _chapter_download_entry_matches_url(
+        chapter_dir: Path,
+        chapter_url: str | None,
+    ) -> bool:
+        expected_url = (chapter_url or "").strip()
+        if not expected_url:
+            return False
+        payload = read_chapter_metadata(chapter_dir)
+        existing_url = _payload_str(payload, "chapter", "url")
+        return bool(existing_url and existing_url == expected_url)
+
+    def _unique_chapter_download_segment(
+        self,
+        base_dir: Path,
+        preferred_segment: str,
+        chapter_url: str | None,
+    ) -> str:
+        segment = preferred_segment
+        counter = 2
+        stem = preferred_segment[:72].rstrip(" ._-") or "chapter"
+        while True:
+            candidate = base_dir / segment
+            if not self._chapter_download_entry_exists(candidate):
+                return segment
+            if self._chapter_download_entry_matches_url(candidate, chapter_url):
+                return segment
+            segment = f"{stem}-{counter}"
+            counter += 1
 
     @staticmethod
     def _chapter_order_oldest_first():

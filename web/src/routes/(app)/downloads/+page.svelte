@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
-	import { listSources, type SourceSummary } from '$lib/api/explore';
+	import { listSources, searchFeed, type SourceSummary } from '$lib/api/explore';
 	import {
 		importExternalDownloadTitle,
 		reconcileDownloads,
@@ -13,10 +13,12 @@
 	import { Icon } from '$lib/elements/icon';
 	import { Input } from '$lib/elements/input';
 	import { LazyImage } from '$lib/elements/lazy-image';
+	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { downloadsDashboardStore, runDownloadCycle } from '$lib/stores/downloads';
 	import type { DownloadStatus, DownloadTaskItem } from '$lib/utils/download-mappers';
 	import { _ } from '$lib/i18n';
 	import { buildTitlePath } from '$lib/utils/routes';
+	import { panelOverlayOpen } from '$lib/stores/ui';
 
 	type TabValue = 'active' | 'history' | 'monitored';
 
@@ -30,8 +32,29 @@
 	let importingExternalKey = $state<string | null>(null);
 	let availableSources = $state<SourceSummary[]>([]);
 	let sourcesLoading = $state(false);
-	let sourceByExternalKey = $state<Record<string, string>>({});
 	let actionsExpanded = $state(false);
+	let importDialogItem = $state<DownloadExternalTitleResource | null>(null);
+	$effect(() => {
+		panelOverlayOpen.set(importDialogItem !== null);
+		return () => panelOverlayOpen.set(false);
+	});
+	let importDialogSourceId = $state('');
+	let importDialogQuery = $state('');
+	let importDialogSearchError = $state<string | null>(null);
+	let importDialogCandidates = $state<ImportCandidate[]>([]);
+	let importDialogSearching = $state(false);
+	let importDialogSelectedTitleUrl = $state<string | null>(null);
+	let importDialogSubmitting = $state(false);
+	let importSearchRequestId = $state(0);
+
+	type ImportCandidate = {
+		title: string;
+		titleUrl: string;
+		thumbnailUrl: string;
+		sourceName: string;
+		sourceLang: string | null;
+	};
+	type ExploreSearchItem = Awaited<ReturnType<typeof searchFeed>>['items'][number];
 
 	const dashboard = $derived($downloadsDashboardStore.data);
 	const isLoading = $derived($downloadsDashboardStore.isLoading);
@@ -106,8 +129,178 @@
 		}
 	}
 
-	function setManualSource(externalKey: string, sourceId: string) {
-		sourceByExternalKey = { ...sourceByExternalKey, [externalKey]: sourceId };
+	function sourceLabel(source: SourceSummary): string {
+		return `${source.name}${source.lang ? ` [${source.lang}]` : ''}`;
+	}
+
+	function normalizeImportText(value: string): string {
+		return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+	}
+
+	function buildImportCandidates(items: ExploreSearchItem[], sourceId: string): ImportCandidate[] {
+		const candidates: ImportCandidate[] = [];
+		const seen = new Set<string>();
+		for (const item of items) {
+			const sourceLink =
+				item.links.find((entry) => (entry.source.id ?? '').trim() === sourceId) ?? item.links[0];
+			const titleUrl = sourceLink?.title_url?.trim() ?? '';
+			if (!titleUrl || seen.has(titleUrl)) continue;
+			seen.add(titleUrl);
+			candidates.push({
+				title: item.title,
+				titleUrl,
+				thumbnailUrl: item.thumbnail_url ?? '',
+				sourceName: sourceLink?.source.name ?? '',
+				sourceLang: sourceLink?.source.lang ?? null
+			});
+		}
+		return candidates;
+	}
+
+	function pickImportCandidate(
+		candidates: ImportCandidate[],
+		query: string,
+		preferredTitleUrl: string | null
+	): string | null {
+		if (preferredTitleUrl && candidates.some((entry) => entry.titleUrl === preferredTitleUrl)) {
+			return preferredTitleUrl;
+		}
+		const normalizedQuery = normalizeImportText(query);
+		if (normalizedQuery) {
+			const exact = candidates.find((entry) => normalizeImportText(entry.title) === normalizedQuery);
+			if (exact) return exact.titleUrl;
+			const partial = candidates.find((entry) => normalizeImportText(entry.title).includes(normalizedQuery));
+			if (partial) return partial.titleUrl;
+		}
+		return candidates[0]?.titleUrl ?? null;
+	}
+
+	function resolveInitialImportSourceId(item: DownloadExternalTitleResource): string {
+		const direct = (item.source_id ?? '').trim();
+		if (direct) return direct;
+
+		const sourceName = item.source_name.trim().toLowerCase();
+		const sourceLang = (item.source_lang ?? '').trim().toLowerCase();
+		if (!sourceName || sourceName === 'unknown source' || sourceName === 'local') {
+			return '';
+		}
+
+		const strict = availableSources.find(
+			(source) =>
+				source.name.trim().toLowerCase() === sourceName &&
+				(source.lang ?? '').trim().toLowerCase() === sourceLang
+		);
+		if (strict) return strict.id;
+
+		const byNameOnly = availableSources.find(
+			(source) => source.name.trim().toLowerCase() === sourceName
+		);
+		return byNameOnly?.id ?? '';
+	}
+
+	async function runImportSearch() {
+		const sourceId = importDialogSourceId.trim();
+		const query = importDialogQuery.trim();
+		importSearchRequestId += 1;
+		const requestId = importSearchRequestId;
+		if (!sourceId) {
+			importDialogSearchError = $_('downloads.selectSourceToImport');
+			importDialogCandidates = [];
+			importDialogSelectedTitleUrl = null;
+			importDialogSearching = false;
+			return;
+		}
+		if (!query) {
+			importDialogSearchError = $_('downloads.importDialogTitleRequired');
+			importDialogCandidates = [];
+			importDialogSelectedTitleUrl = null;
+			importDialogSearching = false;
+			return;
+		}
+
+		importDialogSearching = true;
+		importDialogSearchError = null;
+		try {
+			const feed = await searchFeed({
+				query,
+				source_id: sourceId,
+				page: 1,
+				limit: 20
+			});
+			if (requestId !== importSearchRequestId) return;
+			const candidates = buildImportCandidates(feed.items, sourceId);
+			const fallbackTitleUrl =
+				importDialogItem?.source_id?.trim() === sourceId
+					? (importDialogItem.title_url ?? '').trim() || null
+					: null;
+			if (fallbackTitleUrl && !candidates.some((entry) => entry.titleUrl === fallbackTitleUrl)) {
+				const source = availableSources.find((entry) => entry.id === sourceId);
+				candidates.unshift({
+					title: importDialogItem?.title ?? query,
+					titleUrl: fallbackTitleUrl,
+					thumbnailUrl: '',
+					sourceName: source?.name ?? importDialogItem?.source_name ?? '',
+					sourceLang: source?.lang ?? importDialogItem?.source_lang ?? null
+				});
+			}
+			importDialogCandidates = candidates;
+			importDialogSelectedTitleUrl = pickImportCandidate(candidates, query, fallbackTitleUrl);
+			if (candidates.length === 0) {
+				importDialogSearchError = $_('downloads.importDialogNoMatches');
+			}
+		} catch (error) {
+			if (requestId !== importSearchRequestId) return;
+			importDialogCandidates = [];
+			importDialogSelectedTitleUrl = null;
+			importDialogSearchError =
+				error instanceof Error ? error.message : $_('downloads.importDialogSearchFailed');
+		} finally {
+			if (requestId !== importSearchRequestId) return;
+			importDialogSearching = false;
+		}
+	}
+
+	async function openImportDialog(item: DownloadExternalTitleResource) {
+		importDialogItem = item;
+		importDialogSourceId = resolveInitialImportSourceId(item);
+		importDialogQuery = item.title;
+		importDialogSearchError = null;
+		importDialogCandidates = [];
+		importDialogSelectedTitleUrl = (item.title_url ?? '').trim() || null;
+		importDialogSubmitting = false;
+		importSearchRequestId += 1;
+		if (importDialogSourceId) {
+			await runImportSearch();
+		}
+	}
+
+	function closeImportDialog() {
+		if (importDialogSubmitting) return;
+		importDialogItem = null;
+		importDialogSourceId = '';
+		importDialogQuery = '';
+		importDialogSearchError = null;
+		importDialogCandidates = [];
+		importDialogSearching = false;
+		importDialogSelectedTitleUrl = null;
+		importDialogSubmitting = false;
+		importSearchRequestId += 1;
+	}
+
+	async function submitImportDialog() {
+		if (!importDialogItem) return;
+		const sourceId = importDialogSourceId.trim();
+		if (!sourceId) {
+			importDialogSearchError = $_('downloads.selectSourceToImport');
+			return;
+		}
+		importDialogSubmitting = true;
+		try {
+			await handleImportExternalTitle(importDialogItem, sourceId, importDialogSelectedTitleUrl);
+			closeImportDialog();
+		} finally {
+			importDialogSubmitting = false;
+		}
 	}
 
 	async function handleRunMonitor() {
@@ -134,7 +327,8 @@
 
 	async function handleImportExternalTitle(
 		item: DownloadExternalTitleResource,
-		sourceIdOverride?: string | null
+		sourceIdOverride?: string | null,
+		titleUrlOverride?: string | null
 	) {
 		if (importingExternalKey === item.key) return;
 		const sourceId = sourceIdOverride?.trim() || item.source_id?.trim() || '';
@@ -142,13 +336,14 @@
 			reconcileError = $_('downloads.selectSourceToImport');
 			return;
 		}
+		const titleUrl = titleUrlOverride?.trim() || item.title_url?.trim() || null;
 		importingExternalKey = item.key;
 		reconcileError = null;
 		try {
 			await importExternalDownloadTitle({
 				source_id: sourceId,
 				title: item.title,
-				title_url: item.title_url,
+				title_url: titleUrl,
 				path: item.path
 			});
 			reconcileResult = await reconcileDownloads({
@@ -368,9 +563,9 @@
 
 	<!-- Reconcile results -->
 	{#if reconcileResult || reconcileLoading || reconcileError}
-		<div class="flex flex-col gap-3">
+		<div class="flex flex-col gap-4">
 			{#if reconcileResult}
-				<p class="text-xs text-[var(--text-muted)]">
+				<p class="text-[10px] tracking-wide text-[var(--text-ghost)]">
 					{$_('downloads.reconcileSummary', {
 						values: {
 							fixed: reconcileResult.reconciled_missing_chapters,
@@ -379,12 +574,17 @@
 					})}
 				</p>
 			{/if}
-			<Input
-				type="search"
-				placeholder={$_('downloads.externalSearchPlaceholder')}
-				bind:value={externalSearch}
-				class="h-9 text-sm"
-			/>
+			<div class="relative">
+				<div class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-ghost)]">
+					<Icon name="search" size={13} />
+				</div>
+				<input
+					type="search"
+					placeholder={$_('downloads.externalSearchPlaceholder')}
+					bind:value={externalSearch}
+					class="h-11 w-full bg-[var(--void-2)] border border-[var(--void-4)] pl-9 pr-3 text-sm text-[var(--text)] placeholder:text-[var(--text-ghost)] transition-colors hover:border-[var(--void-5)] focus:border-[var(--void-6)] focus:outline-none"
+				/>
+			</div>
 			{#if reconcileLoading}
 				<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
 			{:else if reconcileResult}
@@ -393,71 +593,31 @@
 				{:else}
 					<div class="flex flex-col">
 						{#each filteredExternalTitles as item (item.key)}
-							<div
-								class="flex items-center justify-between gap-3 border-b border-[var(--void-3)] py-2.5"
-							>
-								<div class="min-w-0">
+							<div class="flex items-center justify-between gap-4 border-b border-[var(--void-3)] py-3.5">
+								<div class="min-w-0 flex-1">
 									<p class="line-clamp-1 text-sm text-[var(--text)]">{item.title}</p>
-									<p class="mt-0.5 text-[10px] text-[var(--text-ghost)]">
-										{item.source_name}{#if item.source_lang}
-											[{item.source_lang}]{/if} · {item.chapters_count}
-										{$_('title.chapters').toLowerCase()}
-									</p>
-									{#if item.reason}
-										<p class="mt-0.5 line-clamp-1 text-[10px] text-[var(--text-ghost)]">
-											{item.reason}
-										</p>
-									{/if}
+									<div class="mt-1 flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
+										<span>{item.source_name}{#if item.source_lang}&thinsp;[{item.source_lang}]{/if}</span>
+										<span class="opacity-30">·</span>
+										<span class="tabular-nums">{item.chapters_count} ch</span>
+										{#if item.reason}
+											<span class="opacity-30">·</span>
+											<span class="line-clamp-1 opacity-70">{item.reason}</span>
+										{/if}
+									</div>
 								</div>
-								<div class="shrink-0">
-									{#if item.importable}
-										<Button
-											variant="ghost"
-											size="sm"
-											onclick={() => handleImportExternalTitle(item)}
-											disabled={importingExternalKey === item.key}
-											loading={importingExternalKey === item.key}
-										>
-											{item.in_library ? $_('downloads.linkChapters') : $_('downloads.importTitle')}
-										</Button>
-									{:else if !item.source_id}
-										<div class="flex items-center gap-2">
-											<select
-												class="h-8 min-w-[9rem] border border-[var(--line)] bg-[var(--void-2)] px-2 text-xs text-[var(--text)]"
-												value={sourceByExternalKey[item.key] ?? ''}
-												onchange={(event) =>
-													setManualSource(
-														item.key,
-														(event.currentTarget as HTMLSelectElement).value
-													)}
-												disabled={sourcesLoading || availableSources.length === 0}
-											>
-												<option value="">{$_('downloads.selectSource')}</option>
-												{#each availableSources as source (source.id)}
-													<option value={source.id}
-														>{source.name}{source.lang ? ` [${source.lang}]` : ''}</option
-													>
-												{/each}
-											</select>
-											<Button
-												variant="ghost"
-												size="sm"
-												onclick={() =>
-													handleImportExternalTitle(item, sourceByExternalKey[item.key] ?? null)}
-												disabled={!sourceByExternalKey[item.key] ||
-													importingExternalKey === item.key ||
-													sourcesLoading}
-												loading={importingExternalKey === item.key}
-											>
-												{$_('downloads.importTitle')}
-											</Button>
-										</div>
+								<button
+									type="button"
+									class="shrink-0 text-[10px] tracking-widest uppercase text-[var(--text-ghost)] transition-colors hover:text-[var(--text)] disabled:opacity-30 disabled:pointer-events-none"
+									onclick={() => openImportDialog(item)}
+									disabled={importingExternalKey === item.key}
+								>
+									{#if importingExternalKey === item.key}
+										<Icon name="loader" size={12} class="animate-spin" />
 									{:else}
-										<span class="text-xs text-[var(--text-ghost)]"
-											>{$_('downloads.notImportable')}</span
-										>
+										{item.in_library ? $_('downloads.linkChapters') : $_('downloads.importTitle')}
 									{/if}
-								</div>
+								</button>
 							</div>
 						{/each}
 					</div>
@@ -680,3 +840,160 @@
 		{/if}
 	{/if}
 </div>
+
+<SlidePanel
+	open={importDialogItem !== null}
+	title={$_('downloads.importDialogTitle')}
+	onclose={closeImportDialog}
+>
+	{#if importDialogItem}
+		<div class="flex flex-col">
+
+			<!-- Title context -->
+			<div class="pb-5 mb-5 border-b border-[var(--void-3)]">
+				<p class="text-base font-medium text-[var(--text)] leading-snug line-clamp-2">
+					{importDialogItem.title}
+				</p>
+				<div class="mt-2 flex items-baseline gap-2 text-[10px] text-[var(--text-ghost)]">
+					<span class="tabular-nums">{importDialogItem.chapters_count} {$_('title.chapters').toLowerCase()}</span>
+					<span class="opacity-30">·</span>
+					<span class="line-clamp-1 opacity-60 break-all">{importDialogItem.path}</span>
+				</div>
+			</div>
+
+			<!-- Source selector -->
+			<div class="mb-5">
+				<p class="mb-2 text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
+					{$_('downloads.importDialogSourceLabel')}
+				</p>
+				<div class="relative">
+					<select
+						class="w-full h-11 pl-3 pr-8 appearance-none bg-[var(--void-2)] border border-[var(--void-4)] text-sm text-[var(--text)] transition-colors hover:border-[var(--void-5)] focus:border-[var(--void-6)] focus:outline-none disabled:opacity-40 disabled:pointer-events-none"
+						value={importDialogSourceId}
+						onchange={(event) => {
+							importDialogSourceId = (event.currentTarget as HTMLSelectElement).value;
+							importDialogCandidates = [];
+							importDialogSelectedTitleUrl = null;
+							importDialogSearchError = null;
+							importSearchRequestId += 1;
+							importDialogSearching = false;
+							if (importDialogSourceId.trim() && importDialogQuery.trim()) {
+								void runImportSearch();
+							}
+						}}
+						disabled={sourcesLoading || importDialogSubmitting}
+					>
+						<option value="">{$_('downloads.selectSource')}</option>
+						{#each availableSources as source (source.id)}
+							<option value={source.id}>{sourceLabel(source)}</option>
+						{/each}
+					</select>
+					<div class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-ghost)]">
+						<Icon name="chevron-down" size={12} />
+					</div>
+				</div>
+			</div>
+
+			<!-- Search -->
+			<div class="mb-5">
+				<p class="mb-2 text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
+					{$_('downloads.importDialogSearchLabel')}
+				</p>
+				<div class="flex gap-2">
+					<input
+						type="text"
+						class="h-11 flex-1 min-w-0 bg-[var(--void-2)] border border-[var(--void-4)] px-3 text-sm text-[var(--text)] placeholder:text-[var(--text-ghost)] transition-colors hover:border-[var(--void-5)] focus:border-[var(--void-6)] focus:outline-none disabled:opacity-40 disabled:pointer-events-none"
+						placeholder={$_('downloads.importDialogSearchPlaceholder')}
+						bind:value={importDialogQuery}
+						onkeydown={(event) => {
+							if (event.key !== 'Enter') return;
+							event.preventDefault();
+							void runImportSearch();
+						}}
+						disabled={importDialogSubmitting}
+					/>
+					<button
+						type="button"
+						class="h-11 w-11 shrink-0 flex items-center justify-center border border-[var(--void-4)] text-[var(--text-ghost)] transition-colors hover:text-[var(--text)] hover:border-[var(--void-6)] disabled:opacity-30 disabled:pointer-events-none"
+						onclick={runImportSearch}
+						disabled={!importDialogSourceId.trim() || importDialogSearching || importDialogSubmitting}
+						title={$_('common.search')}
+					>
+						{#if importDialogSearching}
+							<Icon name="loader" size={14} class="animate-spin" />
+						{:else}
+							<Icon name="search" size={14} />
+						{/if}
+					</button>
+				</div>
+			</div>
+
+			<!-- Error -->
+			{#if importDialogSearchError}
+				<p class="mb-4 text-[10px] text-[var(--error)]">{importDialogSearchError}</p>
+			{/if}
+
+			<!-- Candidates -->
+			{#if importDialogSearching && importDialogCandidates.length === 0}
+				<div class="flex items-center justify-center py-8">
+					<Icon name="loader" size={16} class="animate-spin text-[var(--text-ghost)]" />
+				</div>
+			{:else if importDialogCandidates.length > 0}
+				<div class="flex flex-col -mx-4 mb-5">
+					{#each importDialogCandidates as candidate (`${candidate.titleUrl}`)}
+						{@const isSelected = importDialogSelectedTitleUrl === candidate.titleUrl}
+						<button
+							type="button"
+							class="flex items-center gap-3 px-4 py-3.5 text-left border-b border-[var(--void-3)] transition-all {isSelected ? 'bg-[var(--void-2)]' : 'hover:bg-[var(--void-3)]'}"
+							onclick={() => (importDialogSelectedTitleUrl = candidate.titleUrl)}
+						>
+							{#if candidate.thumbnailUrl}
+								<LazyImage
+									src={candidate.thumbnailUrl}
+									alt={candidate.title}
+									class="h-16 w-11 shrink-0 transition-opacity {isSelected ? 'opacity-100' : 'opacity-40'}"
+								/>
+							{:else}
+								<div class="h-16 w-11 shrink-0 flex items-center justify-center bg-[var(--void-3)] transition-opacity {isSelected ? 'opacity-100' : 'opacity-40'}">
+									<Icon name="book-open" size={14} class="text-[var(--text-ghost)]" />
+								</div>
+							{/if}
+							<div class="min-w-0 flex-1 transition-opacity {isSelected ? 'opacity-100' : 'opacity-50'}">
+								<p class="line-clamp-2 text-sm {isSelected ? 'text-[var(--text)]' : 'text-[var(--text-muted)]'}">{candidate.title}</p>
+								<p class="mt-1 text-[10px] text-[var(--text-ghost)]">
+									{candidate.sourceName}{#if candidate.sourceLang}&thinsp;[{candidate.sourceLang}]{/if}
+								</p>
+							</div>
+							<div class="shrink-0 w-0.5 self-stretch transition-all {isSelected ? 'bg-[var(--text-muted)]' : 'bg-transparent'}"></div>
+						</button>
+					{/each}
+				</div>
+			{:else if importDialogSourceId.trim() && importDialogQuery.trim() && !importDialogSearchError}
+				<p class="mb-5 text-xs text-[var(--text-ghost)]">{$_('downloads.importDialogNoMatches')}</p>
+			{/if}
+
+			<!-- Hint -->
+			<p class="mb-5 text-[10px] leading-relaxed text-[var(--text-ghost)]">
+				{$_('downloads.importDialogFallbackHint')}
+			</p>
+
+			<!-- Actions -->
+			<div class="flex gap-2">
+				<Button variant="ghost" size="sm" onclick={closeImportDialog} disabled={importDialogSubmitting}>
+					{$_('common.cancel')}
+				</Button>
+				<Button
+					variant="solid"
+					size="sm"
+					class="flex-1"
+					onclick={submitImportDialog}
+					disabled={!importDialogSourceId.trim() || importDialogSubmitting}
+					loading={importDialogSubmitting}
+				>
+					{$_('downloads.importDialogConfirm')}
+				</Button>
+			</div>
+
+		</div>
+	{/if}
+</SlidePanel>
