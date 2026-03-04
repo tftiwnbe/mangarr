@@ -54,9 +54,8 @@ _SAFE_SEGMENT_RE = re.compile(r"[^a-zA-Z0-9._ -]+")
 _NORMALIZE_TEXT_RE = re.compile(r"[\W_]+", re.UNICODE)
 _HASH_SUFFIX_RE = re.compile(r"\s+--\s+[0-9a-f]{6,}$", re.IGNORECASE)
 _LANG_SUFFIX_RE = re.compile(r"\s+\[([a-z]{2,5}(?:-[a-z0-9]{2,5})?)\]$", re.IGNORECASE)
-_CHAPTER_PREFIX_RE = re.compile(r"^(?:ch\d+(?:_\d+)?|pos\d+)\s+", re.IGNORECASE)
 _LEADING_INDEX_RE = re.compile(r"^\d+\s*[-_.]\s*")
-_CHAPTER_DIR_HINT_RE = re.compile(r"^\d+\s*[-_.]")
+_CHAPTER_DIR_HINT_RE = re.compile(r"^\d+(?:\.\d+)?$")
 _CHAPTER_NUMBER_RE = re.compile(
     r"(?:^|[\s\[(])ch(?:apter)?[.\s:_-]*(\d+(?:\.\d+)?)",
     re.IGNORECASE,
@@ -124,12 +123,32 @@ def _chapter_number_from_text(value: str | None) -> float | None:
         return None
 
 
-def _chapter_number_key(value: float | None) -> float | None:
+def _coerce_positive_float(value: object) -> float | None:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return numeric if numeric > 0 else None
+
+
+def _chapter_number_key(value: float | None) -> str | None:
     if value is None:
         return None
     if value <= 0:
         return None
-    return round(value, 4)
+    return _format_chapter_number_segment(value)
+
+
+def _format_chapter_number_segment(value: object) -> str | None:
+    try:
+        numeric = float(value)  # tolerate DB values stored as strings
+    except (TypeError, ValueError):
+        return None
+    if numeric <= 0:
+        return None
+    if numeric.is_integer():
+        return str(int(numeric))
+    return str(numeric)
 
 
 def _resolve_libgroup_chapter_url_for_bridge(chapter_url: str) -> str:
@@ -1802,11 +1821,9 @@ class DownloadService:
             )
         ).all()
         by_chapter_url = {chapter.chapter_url: chapter for chapter in chapter_rows}
-        by_chapter_name: dict[str, list[LibraryChapter]] = {}
-        by_chapter_number: dict[float, list[LibraryChapter]] = {}
+        by_chapter_number: dict[str, list[LibraryChapter]] = {}
         for chapter in chapter_rows:
-            by_chapter_name.setdefault(_normalize_text(chapter.name), []).append(chapter)
-            number = chapter.chapter_number if chapter.chapter_number > 0 else _chapter_number_from_text(
+            number = _coerce_positive_float(chapter.chapter_number) or _chapter_number_from_text(
                 chapter.name
             )
             key = _chapter_number_key(number)
@@ -1822,15 +1839,8 @@ class DownloadService:
             chapter_url = self._meta_nested_str(chapter_meta, "chapter", "chapter_url")
 
             chapter = by_chapter_url.get(chapter_url or "")
-            if chapter is None:
-                chapter_name = _CHAPTER_PREFIX_RE.sub(
-                    "", _strip_leading_index(_strip_hash_suffix(chapter_dir.name))
-                ).strip()
-                matches = by_chapter_name.get(_normalize_text(chapter_name), [])
-                chapter = matches[0] if len(matches) == 1 else None
-            if chapter is None:
-                chapter_number = _chapter_number_from_text(chapter_dir.name)
-                key = _chapter_number_key(chapter_number)
+            if chapter is None and _CHAPTER_DIR_HINT_RE.fullmatch(chapter_dir.name):
+                key = _chapter_number_key(float(chapter_dir.name))
                 if key is not None:
                     matches = by_chapter_number.get(key, [])
                     chapter = matches[0] if len(matches) == 1 else None
@@ -3443,9 +3453,22 @@ class DownloadService:
 
         title_segment = _safe_segment(variant.title or title.title, f"title-{title.id}")
 
-        chapter_segment = _safe_segment(chapter.name, f"chapter-{chapter.id}")
+        chapter_number = _coerce_positive_float(chapter.chapter_number) or _chapter_number_from_text(
+            chapter.name
+        )
+        chapter_id_segment = str(chapter.id) if chapter.id is not None else "0"
+        chapter_segment = _format_chapter_number_segment(chapter_number) or chapter_id_segment
+        chapter_segment = _safe_segment(chapter_segment, f"chapter-{chapter.id}")
 
-        return self._downloads_root() / source_segment / title_segment / chapter_segment
+        base_dir = self._downloads_root() / source_segment / title_segment
+        candidate = base_dir / chapter_segment
+        if candidate.exists() and chapter.id is not None:
+            existing_meta = self._read_json(candidate / ".mangarr-chapter.json")
+            existing_url = self._meta_nested_str(existing_meta, "chapter", "chapter_url")
+            if existing_url and existing_url != chapter.chapter_url:
+                fallback_segment = _safe_segment(f"{chapter_segment}-{chapter_id_segment}", f"chapter-{chapter.id}")
+                return base_dir / fallback_segment
+        return candidate
 
     @staticmethod
     def _chapter_order_oldest_first():
