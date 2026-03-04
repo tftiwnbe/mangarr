@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 
@@ -76,7 +77,7 @@
 	}
 
 	function getExtensionFilters(sourceList: SourceSummary[]): ExtensionFilter[] {
-		const grouped = new Map<string, ExtensionFilter>();
+		const grouped = new SvelteMap<string, ExtensionFilter>();
 
 		for (const source of sourceList) {
 			const existing = grouped.get(source.extension_pkg);
@@ -166,7 +167,7 @@
 	}
 
 	function itemMergeSignatures(item: ExploreFeed['items'][number]): string[] {
-		const signatures = new Set<string>();
+		const signatures = new SvelteSet<string>();
 		for (const link of item.links) {
 			const extensionPkg = normalizeSignatureToken(link.source.extension_pkg);
 			const sourceId = normalizeSignatureToken(link.source.id);
@@ -192,7 +193,7 @@
 		incoming: ExploreFeed['items'][number]['links']
 	): ExploreFeed['items'][number]['links'] {
 		const merged = [...existing];
-		const seen = new Set(existing.map((link) => linkMergeKey(link)));
+		const seen = new SvelteSet(existing.map((link) => linkMergeKey(link)));
 		for (const link of incoming) {
 			const key = linkMergeKey(link);
 			if (seen.has(key)) continue;
@@ -222,7 +223,7 @@
 
 	function dedupeFeedItems(items: ExploreFeed['items']): ExploreFeed['items'] {
 		const merged: ExploreFeed['items'] = [];
-		const signatureToIndex = new Map<string, number>();
+		const signatureToIndex = new SvelteMap<string, number>();
 		for (const item of items) {
 			const signatures = itemMergeSignatures(item);
 			let existingIndex: number | undefined;
@@ -342,7 +343,7 @@
 			if (Date.now() - parsed.savedAt > EXPLORE_STATE_MAX_AGE_MS) return;
 
 			searchQuery = typeof parsed.searchQuery === 'string' ? parsed.searchQuery : '';
-			appliedSearchFiltersBySource = new Map(
+			appliedSearchFiltersBySource = new SvelteMap(
 				Object.entries(parsed.appliedSearchFiltersBySource ?? {})
 			);
 			hasScrollIntent = Boolean(parsed.hasScrollIntent);
@@ -368,7 +369,7 @@
 	}
 
 	async function loadAssignedLibraryTitleIds() {
-		const nextIds = new Set<number>();
+		const nextIds = new SvelteSet<number>();
 		let offset = 0;
 
 		try {
@@ -484,13 +485,13 @@
 		searchFiltersLoading = true;
 		searchFiltersError = null;
 		searchFiltersData = null;
-		pendingSearchFilterChanges = new Map();
+		pendingSearchFilterChanges = new SvelteMap();
 
 		try {
 			searchFiltersData = await getSearchFilters({ source_id: sourceId });
 			const applied = appliedSearchFiltersBySource.get(sourceId);
 			if (applied) {
-				pendingSearchFilterChanges = new Map(Object.entries(applied));
+				pendingSearchFilterChanges = new SvelteMap(Object.entries(applied));
 			}
 		} catch (e) {
 			searchFiltersError = e instanceof Error ? e.message : 'Failed to load search filters';
@@ -503,18 +504,18 @@
 		searchFiltersOpen = false;
 		searchFiltersData = null;
 		searchFiltersError = null;
-		pendingSearchFilterChanges = new Map();
+		pendingSearchFilterChanges = new SvelteMap();
 	}
 
 	function handleSearchFilterChange(key: string, value: unknown) {
 		pendingSearchFilterChanges.set(key, value);
-		pendingSearchFilterChanges = new Map(pendingSearchFilterChanges);
+		pendingSearchFilterChanges = new SvelteMap(pendingSearchFilterChanges);
 	}
 
 	function clearAppliedSearchFilters() {
 		if (!selectedSourceId) return;
 		appliedSearchFiltersBySource.delete(selectedSourceId);
-		appliedSearchFiltersBySource = new Map(appliedSearchFiltersBySource);
+		appliedSearchFiltersBySource = new SvelteMap(appliedSearchFiltersBySource);
 	}
 
 	function getCurrentSearchFilterValue(
@@ -546,7 +547,7 @@
 				Object.fromEntries(pendingSearchFilterChanges.entries())
 			);
 		}
-		appliedSearchFiltersBySource = new Map(appliedSearchFiltersBySource);
+		appliedSearchFiltersBySource = new SvelteMap(appliedSearchFiltersBySource);
 		closeSearchFilters();
 
 		if (isSearching) {
@@ -596,8 +597,9 @@
 			if (requestId !== activeFeedRequestId) return;
 			error = e instanceof Error ? e.message : 'Failed to load feed';
 		} finally {
-			if (requestId !== activeFeedRequestId) return;
-			loading = false;
+			if (requestId === activeFeedRequestId) {
+				loading = false;
+			}
 		}
 	}
 
@@ -625,8 +627,9 @@
 			if (requestId !== activeFeedRequestId) return;
 			error = e instanceof Error ? e.message : 'Failed to load more titles';
 		} finally {
-			if (requestId !== activeFeedRequestId) return;
-			loadingMore = false;
+			if (requestId === activeFeedRequestId) {
+				loadingMore = false;
+			}
 		}
 	}
 
@@ -664,8 +667,9 @@
 			if (requestId !== activeFeedRequestId) return;
 			error = e instanceof Error ? e.message : 'Search failed';
 		} finally {
-			if (requestId !== activeFeedRequestId) return;
-			loading = false;
+			if (requestId === activeFeedRequestId) {
+				loading = false;
+			}
 		}
 	}
 
@@ -1118,7 +1122,7 @@
 	<!-- Grid -->
 	{#if loading && !feed}
 		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-			{#each Array(18) as _, i}
+			{#each Array(18) as _, i (i)}
 				<div class="flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)]">
 					<div
 						class="aspect-[2/3] animate-pulse bg-[var(--void-4)]"

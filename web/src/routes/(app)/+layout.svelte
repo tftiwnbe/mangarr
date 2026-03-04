@@ -121,7 +121,7 @@
 		{#if !isReaderRoute && !$panelOverlayOpen}
 			<nav class="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--line)] bg-[var(--void-1)]/95 backdrop-blur-sm md:hidden">
 				<div class="flex items-center justify-around">
-					{#each navItems as item}
+					{#each navItems as item (item.href)}
 						{@const isActive = currentPath.startsWith(item.href)}
 						<a
 							href={item.href}
@@ -140,7 +140,7 @@
 		<!-- Desktop sidebar -->
 		<aside class="fixed inset-y-0 left-0 z-40 hidden w-16 flex-col border-r border-[var(--line)] bg-[var(--void-1)] {isReaderRoute ? '' : 'md:flex'}">
 			<div class="flex flex-1 flex-col items-center gap-1 py-4">
-				{#each navItems as item}
+				{#each navItems as item (item.href)}
 					{@const isActive = currentPath.startsWith(item.href)}
 					<a
 						href={item.href}

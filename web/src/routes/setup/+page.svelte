@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SvelteSet } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 
@@ -97,7 +98,7 @@
 	}
 
 	function handleToggleContentLang(lang: string) {
-		const next = new Set(selectedContentLangs);
+		const next = new SvelteSet(selectedContentLangs);
 		if (next.has(lang)) {
 			next.delete(lang);
 		} else {
@@ -144,7 +145,7 @@
 		></div>
 
 		<!-- Stars -->
-		{#each Array(40) as _, i}
+		{#each Array(40) as _, i (i)}
 			<div
 				class="absolute rounded-full bg-white animate-pulse-glow"
 				style="
@@ -305,7 +306,7 @@
 							</div>
 
 							<div class="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto no-scrollbar">
-								{#each availableContentLangs as lang}
+								{#each availableContentLangs as lang (lang)}
 									{@const isSelected = selectedContentLangs.has(lang)}
 									<button
 										type="button"
@@ -348,7 +349,7 @@
 						</div>
 
 						<div class="flex flex-col gap-2">
-							{#each SUPPORTED_LOCALES as lang}
+							{#each SUPPORTED_LOCALES as lang (lang)}
 								<button
 									type="button"
 									class="flex w-full items-center gap-3 border p-3 text-left transition-all hover:bg-[var(--void-3)] {$locale === lang

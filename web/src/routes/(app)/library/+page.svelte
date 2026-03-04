@@ -164,7 +164,7 @@
 	<!-- Skeleton grid -->
 	{#if loading}
 		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-			{#each Array(18) as _, i}
+			{#each Array(18) as _, i (i)}
 				<div class="flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)]">
 					<div
 						class="aspect-[2/3] animate-pulse bg-[var(--void-4)]"

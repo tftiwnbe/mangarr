@@ -125,7 +125,7 @@
 		></div>
 
 		<!-- Stars -->
-		{#each Array(50) as _, i}
+		{#each Array(50) as _, i (i)}
 			<div
 				class="absolute rounded-full bg-white animate-pulse-glow"
 				style="

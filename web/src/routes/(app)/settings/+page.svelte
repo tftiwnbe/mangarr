@@ -1210,7 +1210,7 @@
 							</p>
 							{#if knownLangs.length > 0}
 								<div class="flex flex-wrap gap-1.5 pt-1">
-									{#each knownLangs as lang}
+									{#each knownLangs as lang (lang)}
 										{@const isSelected = $contentLanguages.includes(lang)}
 										<button
 											type="button"

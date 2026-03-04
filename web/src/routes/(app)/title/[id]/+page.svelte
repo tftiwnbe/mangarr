@@ -34,7 +34,6 @@
 	let activeTab = $state<'info' | 'chapters' | 'comments'>('info');
 	let statuses = $state<LibraryUserStatusResource[]>([]);
 	let collections = $state<LibraryCollectionResource[]>([]);
-	let prefsLoading = $state(true);
 	let prefsError = $state<string | null>(null);
 	let prefsSuccess = $state(false);
 	let selectedStatusId = $state<number | null>(null);
@@ -440,7 +439,6 @@
 	}
 
 	async function loadPreferenceOptions() {
-		prefsLoading = true;
 		prefsError = null;
 		try {
 			const [loadedStatuses, loadedCollections] = await Promise.all([
@@ -451,8 +449,6 @@
 			collections = loadedCollections;
 		} catch (error) {
 			prefsError = error instanceof Error ? error.message : 'Failed to load library preferences';
-		} finally {
-			prefsLoading = false;
 		}
 	}
 

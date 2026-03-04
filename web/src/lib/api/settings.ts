@@ -2,6 +2,10 @@ import { httpClient } from './client';
 import { expectData } from './errors';
 import type { components } from './v2';
 
+// Some endpoints are not yet in the generated OpenAPI types
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const untypedClient = httpClient as any;
+
 export type DownloadSettingsResource = components['schemas']['DownloadSettingsResource'];
 export type DownloadSettingsUpdate = components['schemas']['DownloadSettingsUpdate'];
 export type JobsSettingsResource = components['schemas']['JobsSettingsResource'];
@@ -59,7 +63,7 @@ export async function runCleanupNow(): Promise<JobsCleanupRunResource> {
 
 export async function getFlareSolverrSettings(): Promise<FlareSolverrSettingsResource> {
 	return expectData(
-		await (httpClient as any).GET('/api/v2/settings/flaresolverr'),
+		await untypedClient.GET('/api/v2/settings/flaresolverr'),
 		'Unable to load FlareSolverr settings'
 	);
 }
@@ -68,20 +72,20 @@ export async function updateFlareSolverrSettings(
 	payload: FlareSolverrSettingsUpdate
 ): Promise<FlareSolverrSettingsResource> {
 	return expectData(
-		await (httpClient as any).PUT('/api/v2/settings/flaresolverr', { body: payload }),
+		await untypedClient.PUT('/api/v2/settings/flaresolverr', { body: payload }),
 		'Unable to update FlareSolverr settings'
 	);
 }
 
 export async function getProxySettings(): Promise<ProxySettingsResource> {
-	return expectData(await (httpClient as any).GET('/api/v2/settings/proxy'), 'Unable to load proxy settings');
+	return expectData(await untypedClient.GET('/api/v2/settings/proxy'), 'Unable to load proxy settings');
 }
 
 export async function updateProxySettings(
 	payload: ProxySettingsUpdate
 ): Promise<ProxySettingsResource> {
 	return expectData(
-		await (httpClient as any).PUT('/api/v2/settings/proxy', { body: payload }),
+		await untypedClient.PUT('/api/v2/settings/proxy', { body: payload }),
 		'Unable to update proxy settings'
 	);
 }
@@ -91,7 +95,7 @@ export type ContentLanguagesUpdate = { preferred: string[] };
 
 export async function getContentLanguages(): Promise<ContentLanguagesResource> {
 	return expectData(
-		await (httpClient as any).GET('/api/v2/settings/content-languages'),
+		await untypedClient.GET('/api/v2/settings/content-languages'),
 		'Unable to load content language settings'
 	);
 }
@@ -100,7 +104,7 @@ export async function updateContentLanguages(
 	payload: ContentLanguagesUpdate
 ): Promise<ContentLanguagesResource> {
 	return expectData(
-		await (httpClient as any).PUT('/api/v2/settings/content-languages', { body: payload }),
+		await untypedClient.PUT('/api/v2/settings/content-languages', { body: payload }),
 		'Unable to update content language settings'
 	);
 }

@@ -1,5 +1,5 @@
 const NON_ALNUM_RE = /[^a-z0-9]+/g;
-const CHAPTER_NUMBER_RE = /(?:^|[\s\[(])ch(?:apter)?[.\s:_-]*(\d+(?:\.\d+)?)/i;
+const CHAPTER_NUMBER_RE = /(?:^|[\s[(])ch(?:apter)?[.\s:_-]*(\d+(?:\.\d+)?)/i;
 const NUMBER_FALLBACK_RE = /(\d+(?:\.\d+)?)/;
 const CHAPTER_PARAM_RE = /^ch(\d+(?:\.\d+)?)$/i;
 const CHAPTER_ID_PARAM_RE = /^c(\d+)$/i;

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import { slide } from 'svelte/transition';
 
 	import {
@@ -232,7 +233,7 @@
 		sourceSettingsLoading = true;
 		sourceSettingsError = null;
 		sourceSettingsData = null;
-		pendingPreferenceChanges = new Map();
+		pendingPreferenceChanges = new SvelteMap();
 		advancedOpen = false;
 		try {
 			const resolved = await getSourcePreferences(sourceId);
@@ -249,7 +250,7 @@
 		sourceSettingsOpen = false;
 		sourceSettingsData = null;
 		sourceSettingsError = null;
-		pendingPreferenceChanges = new Map();
+		pendingPreferenceChanges = new SvelteMap();
 		advancedOpen = false;
 		authImportText = '';
 		authImportSaving = false;
@@ -259,7 +260,7 @@
 
 	function handlePreferenceChange(key: string, value: unknown) {
 		pendingPreferenceChanges.set(key, value);
-		pendingPreferenceChanges = new Map(pendingPreferenceChanges);
+		pendingPreferenceChanges = new SvelteMap(pendingPreferenceChanges);
 	}
 
 	async function saveSourceSettings() {
@@ -271,7 +272,7 @@
 		);
 		try {
 			sourceSettingsData = await updateSourcePreferences(sourceSettingsData.source_id, updates);
-			pendingPreferenceChanges = new Map();
+			pendingPreferenceChanges = new SvelteMap();
 		} catch (e) {
 			sourceSettingsError = e instanceof Error ? e.message : 'Failed to save preferences';
 		} finally {
@@ -551,7 +552,7 @@
 
 	<!-- ── Tab bar ──────────────────────────────────────────────────────── -->
 	<div class="flex gap-6">
-		{#each ['installed', 'available'] as tab}
+		{#each ['installed', 'available'] as tab (tab)}
 			{@const isActive = activeTab === tab}
 			{@const count = tab === 'installed' ? installedExtensions.length : availableExtensions.length}
 			<button
@@ -607,7 +608,7 @@
 	<!-- ── Language filter chips (available tab) ────────────────────────── -->
 	{#if activeTab === 'available' && availableLangs.length > 2}
 		<div class="flex items-center gap-0.5 overflow-x-auto no-scrollbar -mx-1 px-1 py-1">
-			{#each availableLangs.slice(0, 24) as lang}
+			{#each availableLangs.slice(0, 24) as lang (lang)}
 				{@const isActive = (lang === 'all' && !selectedLang) || selectedLang === lang}
 				<button
 					type="button"
@@ -633,7 +634,7 @@
 	<!-- ── Loading ──────────────────────────────────────────────────────── -->
 	{#if loading}
 		<div class="flex flex-col gap-4 pt-4">
-			{#each Array(3) as _, i}
+			{#each Array(3) as _, i (i)}
 				<div class="px-1 opacity-0 animate-slide-up" style="animation-delay: {i * 80}ms; animation-fill-mode: forwards">
 					<div class="flex items-center gap-4">
 						<div

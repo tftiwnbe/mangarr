@@ -9,9 +9,10 @@
 		type DownloadExternalTitleResource,
 		type DownloadReconcileResource
 	} from '$lib/api/downloads';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+
 	import { Button } from '$lib/elements/button';
 	import { Icon } from '$lib/elements/icon';
-	import { Input } from '$lib/elements/input';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { downloadsDashboardStore, runDownloadCycle } from '$lib/stores/downloads';
@@ -32,7 +33,6 @@
 	let importingExternalKey = $state<string | null>(null);
 	let availableSources = $state<SourceSummary[]>([]);
 	let sourcesLoading = $state(false);
-	let actionsExpanded = $state(false);
 	let importDialogItem = $state<DownloadExternalTitleResource | null>(null);
 	$effect(() => {
 		panelOverlayOpen.set(importDialogItem !== null);
@@ -59,18 +59,9 @@
 	const dashboard = $derived($downloadsDashboardStore.data);
 	const isLoading = $derived($downloadsDashboardStore.isLoading);
 	const numberFormatter = new Intl.NumberFormat();
-	const sourceNameById = $derived.by(() => {
-		const map = new Map<string, string>();
-		for (const source of availableSources) {
-			const key = source.id?.trim();
-			if (!key) continue;
-			const label = `${source.name}${source.lang ? ` [${source.lang}]` : ''}`.trim() || key;
-			map.set(key, label);
-		}
-		return map;
-	});
+
 	const monitoredByTitleId = $derived.by(() => {
-		const map = new Map<number, (typeof dashboard.monitoredTitles)[number]>();
+		const map = new SvelteMap<number, (typeof dashboard.monitoredTitles)[number]>();
 		for (const item of dashboard.monitoredTitles) {
 			map.set(item.titleId, item);
 		}
@@ -139,7 +130,7 @@
 
 	function buildImportCandidates(items: ExploreSearchItem[], sourceId: string): ImportCandidate[] {
 		const candidates: ImportCandidate[] = [];
-		const seen = new Set<string>();
+		const seen = new SvelteSet<string>();
 		for (const item of items) {
 			const sourceLink =
 				item.links.find((entry) => (entry.source.id ?? '').trim() === sourceId) ?? item.links[0];
@@ -255,8 +246,9 @@
 			importDialogSearchError =
 				error instanceof Error ? error.message : $_('downloads.importDialogSearchFailed');
 		} finally {
-			if (requestId !== importSearchRequestId) return;
-			importDialogSearching = false;
+			if (requestId === importSearchRequestId) {
+				importDialogSearching = false;
+			}
 		}
 	}
 
@@ -436,10 +428,6 @@
 		return [];
 	}
 
-	function displaySources(sourceIds: string[]): string[] {
-		return sourceIds.map((sourceId) => sourceNameById.get(sourceId) ?? sourceId);
-	}
-
 	function activePlannedProgress(task: DownloadTaskItem): {
 		percent: number;
 		downloaded: number | null;
@@ -543,7 +531,7 @@
 	<!-- Stats strip -->
 	{#if dashboard.overview.length > 0}
 		<div class="flex items-start justify-between px-1">
-			{#each dashboard.overview as stat}
+			{#each dashboard.overview as stat (stat.key)}
 				<div class="flex flex-col gap-0.5">
 					<span class="text-lg font-medium text-[var(--text)] tabular-nums">
 						{overviewValue(stat.key, stat.value)}

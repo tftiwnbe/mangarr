@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import {
 		createLibraryChapterComment,
 		deleteLibraryChapterComment,
@@ -98,18 +99,6 @@
 		if (!readerTitleName) return withReaderParent(`/title/${resolvedTitleId}`);
 		return withReaderParent(buildTitlePath(resolvedTitleId, readerTitleName));
 	});
-	const canonicalReaderPath = $derived.by(() => {
-		if (!reader || !readerTitleName) return null;
-		return withReaderParent(
-			buildReaderPath({
-				titleId: reader.library_title_id,
-				titleName: readerTitleName,
-				chapterId: reader.chapter_id,
-				chapterName: currentChapterMeta?.name ?? null,
-				chapterNumber: null
-			})
-		);
-	});
 
 	const pages = $derived.by(() => {
 		if (!reader) return [];
@@ -162,8 +151,8 @@
 		return inferChapterNumber(chapter.name);
 	}
 
-	function chapterMetaMap(chapters: LibraryChapterResource[]): Map<number, ChapterMeta> {
-		const mapped = new Map<number, ChapterMeta>();
+	function chapterMetaMap(chapters: LibraryChapterResource[]): SvelteMap<number, ChapterMeta> {
+		const mapped = new SvelteMap<number, ChapterMeta>();
 		for (const chapter of chapters) {
 			mapped.set(chapter.id, {
 				name: chapter.name,
@@ -206,7 +195,7 @@
 
 	function markPagesLoaded(pageIds: number[]): void {
 		let changed = false;
-		const next = new Set(loadedPageIds);
+		const next = new SvelteSet(loadedPageIds);
 		for (const pageId of pageIds) {
 			if (!next.has(pageId)) {
 				next.add(pageId);
