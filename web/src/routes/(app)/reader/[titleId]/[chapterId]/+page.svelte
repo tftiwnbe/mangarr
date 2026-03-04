@@ -21,9 +21,11 @@
 		type LibraryReaderChapterResource
 	} from '$lib/api/library';
 	import { Button } from '$lib/elements/button';
+	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
 	import { Icon } from '$lib/elements/icon';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
+	import { panelOverlayOpen } from '$lib/stores/ui';
 	import {
 		buildReaderPath,
 		buildTitlePath,
@@ -60,6 +62,7 @@
 	let editingCommentId = $state<number | null>(null);
 	let commentSubmitting = $state(false);
 	let deletingCommentId = $state<number | null>(null);
+	let deleteCommentConfirmId = $state<number | null>(null);
 
 	let readerHeaderVisible = $state(true);
 	let readerHeaderElement = $state<HTMLDivElement | null>(null);
@@ -681,6 +684,11 @@
 		void loadCommentsForChapter(chapterId);
 	});
 
+	$effect(() => {
+		panelOverlayOpen.set(showChapterPanel || showCommentsPanel);
+		return () => panelOverlayOpen.set(false);
+	});
+
 	function resolvePageUrl(readerPage: (typeof pages)[number]): string {
 		if (readerPage.local_path) {
 			return getLibraryFileUrl(readerPage.local_path);
@@ -1208,8 +1216,8 @@ function openChapter(chapter: number | null): void {
 							</button>
 							<button
 								type="button"
-								class="hover:text-[var(--text-muted)] transition-colors"
-								onclick={() => removeComment(comment.id)}
+								class="hover:text-[var(--error)] transition-colors"
+								onclick={() => (deleteCommentConfirmId = comment.id)}
 								disabled={deletingCommentId === comment.id}
 							>
 								{#if deletingCommentId === comment.id}
@@ -1224,3 +1232,19 @@ function openChapter(chapter: number | null): void {
 		{/if}
 	</div>
 </SlidePanel>
+
+<ConfirmDialog
+	open={deleteCommentConfirmId !== null}
+	title="Delete comment"
+	description="This will permanently delete this comment."
+	confirmLabel="delete"
+	variant="danger"
+	loading={deletingCommentId !== null}
+	onConfirm={async () => {
+		if (deleteCommentConfirmId !== null) {
+			await removeComment(deleteCommentConfirmId);
+			deleteCommentConfirmId = null;
+		}
+	}}
+	onCancel={() => (deleteCommentConfirmId = null)}
+/>

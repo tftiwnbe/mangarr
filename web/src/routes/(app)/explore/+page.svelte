@@ -25,6 +25,7 @@
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { previewItemStore } from '$lib/stores/explore';
+	import { panelOverlayOpen } from '$lib/stores/ui';
 	import { _ } from '$lib/i18n';
 	import { buildTitlePath } from '$lib/utils/routes';
 
@@ -263,6 +264,10 @@
 	let searchQuery = $state('');
 	let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 	let searchFiltersOpen = $state(false);
+	$effect(() => {
+		panelOverlayOpen.set(searchFiltersOpen);
+		return () => panelOverlayOpen.set(false);
+	});
 	let searchFiltersLoading = $state(false);
 	let searchFiltersData = $state<ExploreSearchFilters | null>(null);
 	let searchFiltersError = $state<string | null>(null);
@@ -907,98 +912,94 @@
 
 	<!-- Search tab controls -->
 	{#if activeTab === 'search'}
-		<div class="flex flex-col gap-2">
+		<div class="flex flex-col gap-4">
+			<!-- Search input -->
 			<div class="relative">
-				<Icon
-					name="search"
-					size={16}
-					class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-ghost)]"
-				/>
-				<Input
+				<div class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-ghost)]">
+					<Icon name="search" size={14} />
+				</div>
+				<input
 					type="search"
 					placeholder={$_('explore.searchPlaceholder')}
 					bind:value={searchQuery}
 					oninput={onSearchInput}
-					class="pl-10"
+					class="h-11 w-full bg-[var(--void-2)] border border-[var(--void-4)] pl-9 pr-9 text-sm text-[var(--text)] placeholder:text-[var(--text-ghost)] transition-colors hover:border-[var(--void-5)] focus:border-[var(--void-6)] focus:outline-none"
 				/>
 				{#if searchQuery.trim()}
 					<button
 						type="button"
-						class="absolute top-1/2 right-3 -translate-y-1/2 text-[var(--text-ghost)] hover:text-[var(--text-muted)]"
+						class="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-ghost)] hover:text-[var(--text-muted)] transition-colors"
 						onclick={() => {
 							searchQuery = '';
 							void handleSearch('');
 						}}
 					>
-						<Icon name="x" size={16} />
+						<Icon name="x" size={14} />
 					</button>
 				{/if}
 			</div>
+
+			<!-- Source strip -->
 			{#if sources.length > 0}
-				<div class="flex flex-col gap-2">
+				<div class="flex flex-col gap-2.5">
+					<!-- Label row with filter action -->
 					<div class="flex items-center justify-between">
-						<p class="text-xs text-[var(--text-ghost)]">{$_('explore.selectSource')}</p>
+						<span class="text-[10px] uppercase tracking-widest text-[var(--text-ghost)]">
+							{$_('explore.selectSource')}
+						</span>
 						{#if hasSourceFilterSelected}
 							<button
 								type="button"
-								class="text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
-								onclick={clearSourceFilter}
+								class="flex items-center gap-1.5 text-[10px] text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
+								onclick={() => selectedSource && openSearchFilters(selectedSource.id)}
 							>
-								{$_('common.clear')}
+								<Icon name="filter" size={10} />
+								{$_('explore.advancedFilters')}
+								{#if hasAppliedSearchFilters}
+									<span class="text-[var(--text-muted)]">· {appliedSearchFilterCount}</span>
+								{/if}
 							</button>
 						{/if}
 					</div>
-					<div
-						class="max-h-32 overflow-auto border border-[var(--line)] bg-[var(--void-2)] p-2"
-					>
-						<div class="flex flex-wrap gap-2">
-							<button
-								type="button"
-								class="inline-flex items-center gap-1 border px-2.5 py-1 text-xs transition-colors {!hasSourceFilterSelected
-									? 'border-[var(--text)] bg-[var(--void-2)] text-[var(--text)]'
-									: 'border-[var(--line)] text-[var(--text-ghost)] hover:border-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-								onclick={clearSourceFilter}
-							>
-								{$_('explore.allSources')}
-							</button>
-							{#each sources as source (source.id)}
-								<button
-									type="button"
-									class="inline-flex items-center gap-1 border px-2.5 py-1 text-xs transition-colors {selectedSourceId ===
-									source.id
-										? 'border-[var(--text)] bg-[var(--void-2)] text-[var(--text)]'
-										: 'border-[var(--line)] text-[var(--text-ghost)] hover:border-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-									onclick={() => setSourceFilter(source.id)}
-								>
-									{source.name}
-									{#if source.lang}
-										[{source.lang}]
-									{/if}
-								</button>
-							{/each}
-						</div>
-					</div>
-					<div class="flex items-center gap-2">
-						<Button
-							variant="outline"
-							size="sm"
-							onclick={() => selectedSource && openSearchFilters(selectedSource.id)}
-							disabled={!hasSourceFilterSelected}
-							class="shrink-0"
+
+					<!-- Horizontal chip row -->
+					<div class="flex gap-1.5 overflow-x-auto no-scrollbar">
+						<button
+							type="button"
+							class="shrink-0 h-7 px-3 text-[10px] uppercase tracking-wider transition-colors {!hasSourceFilterSelected
+								? 'bg-[var(--void-4)] text-[var(--text)]'
+								: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
+							onclick={clearSourceFilter}
 						>
-							<Icon name="filter" size={14} />
-							{$_('explore.advancedFilters')}
-						</Button>
-						{#if hasAppliedSearchFilters}
+							{$_('explore.allSources')}
+						</button>
+						{#each sources as source (source.id)}
 							<button
 								type="button"
-								class="text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
+								class="shrink-0 h-7 px-3 text-[10px] uppercase tracking-wider transition-colors {selectedSourceId === source.id
+									? 'bg-[var(--void-4)] text-[var(--text)]'
+									: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
+								onclick={() => setSourceFilter(source.id)}
+							>
+								{source.name}{source.lang ? ` [${source.lang}]` : ''}
+							</button>
+						{/each}
+					</div>
+
+					<!-- Applied filters clear -->
+					{#if hasAppliedSearchFilters}
+						<div class="flex items-center gap-2">
+							<div class="h-px flex-1 bg-[var(--void-3)]"></div>
+							<button
+								type="button"
+								class="flex items-center gap-1 text-[10px] text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 								onclick={clearAppliedSearchFilters}
 							>
-								{$_('common.clear')} ({appliedSearchFilterCount})
+								<Icon name="x" size={10} />
+								{$_('common.clear')} {appliedSearchFilterCount} {appliedSearchFilterCount === 1 ? 'filter' : 'filters'}
 							</button>
-						{/if}
-					</div>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>

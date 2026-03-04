@@ -18,6 +18,7 @@
 		type SourcePreferenceUpdate
 	} from '$lib/api/extensions';
 	import { Button } from '$lib/elements/button';
+	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
 	import { Input } from '$lib/elements/input';
 	import { Icon } from '$lib/elements/icon';
 	import { Switch } from '$lib/elements/switch';
@@ -49,6 +50,7 @@
 	// ── Action loading states ───────────────────────────────────────────────
 	let installingPkg = $state<string | null>(null);
 	let uninstallingPkg = $state<string | null>(null);
+	let uninstallConfirmPkg = $state<string | null>(null);
 	let togglingSourceId = $state<string | null>(null);
 	let togglingProxyPkg = $state<string | null>(null);
 
@@ -818,7 +820,7 @@
 									<button
 										type="button"
 										class="self-start text-[11px] text-[var(--text-ghost)] transition-colors hover:text-[var(--error)]"
-										onclick={() => handleUninstall(ext.pkg)}
+										onclick={() => (uninstallConfirmPkg = ext.pkg)}
 										disabled={isUninstalling}
 									>
 										{#if isUninstalling}
@@ -1172,3 +1174,21 @@
 		{/if}
 	{/if}
 </SlidePanel>
+
+
+<ConfirmDialog
+	open={uninstallConfirmPkg !== null}
+	title="Uninstall extension"
+	description="This will remove the extension and all its sources. This action cannot be undone."
+	confirmLabel="uninstall"
+	variant="danger"
+	loading={uninstallingPkg !== null}
+	onConfirm={async () => {
+		if (uninstallConfirmPkg !== null) {
+			const pkg = uninstallConfirmPkg;
+			uninstallConfirmPkg = null;
+			await handleUninstall(pkg);
+		}
+	}}
+	onCancel={() => (uninstallConfirmPkg = null)}
+/>
