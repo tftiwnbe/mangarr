@@ -17,6 +17,15 @@ from app.bridge import tachibridge
 from app.config import settings
 from app.core.database import sessionmanager
 from app.core.errors import BridgeAPIError
+from app.features.downloads.storage import (
+    chapter_has_payload,
+    chapter_payload_size_bytes,
+    compress_chapter_pages,
+    extract_chapter_pages,
+    list_chapter_image_files,
+    read_chapter_metadata,
+    write_chapter_metadata,
+)
 from app.features.extensions import ExtensionService
 from app.models import (
     DownloadOverviewResource,
@@ -190,6 +199,19 @@ def _as_utc(value: datetime | None) -> datetime | None:
     return value.astimezone(timezone.utc)
 
 
+def _payload_str(payload: dict | None, *keys: str) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    current: object = payload
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    if isinstance(current, str) and current.strip():
+        return current.strip()
+    return None
+
+
 def _parse_variant_ids_json(value: str | None) -> list[int]:
     if not value:
         return []
@@ -260,6 +282,8 @@ class DownloadService:
     _monitor_lock = asyncio.Lock()
     _worker_lock = asyncio.Lock()
     _enqueue_lock = asyncio.Lock()
+    _compression_backlog_lock = asyncio.Lock()
+    _metadata_cleanup_lock = asyncio.Lock()
 
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -1224,6 +1248,210 @@ class DownloadService:
 
             return WorkerRunResponse(processed_tasks=len(claimed_task_ids))
 
+    @classmethod
+    async def run_compress_backlog_once_isolated(
+        cls,
+        batch_size: int | None = None,
+    ) -> int:
+        async with sessionmanager.session() as session:
+            service = cls(session)
+            return await service.run_compress_backlog_once(batch_size=batch_size)
+
+    async def run_compress_backlog_once(self, batch_size: int | None = None) -> int:
+        if not settings.downloads.compress_downloaded_chapters:
+            return 0
+
+        async with self._compression_backlog_lock:
+            keep_ids = await self._chapters_to_keep_uncompressed_for_reader()
+            stmt = (
+                select(LibraryChapter)
+                .where(
+                    LibraryChapter.is_downloaded == True,  # noqa: E712
+                    LibraryChapter.download_path.is_not(None),
+                )
+                .order_by(
+                    LibraryChapter.variant_id,
+                    *self._chapter_order_oldest_first(),
+                )
+            )
+            if batch_size is not None and batch_size > 0:
+                stmt = stmt.limit(batch_size)
+
+            rows = (await self.session.exec(stmt)).all()
+            chapters = list(rows)
+            if not chapters:
+                return 0
+
+            compressed = 0
+            for chapter in chapters:
+                if chapter.id is None or int(chapter.id) in keep_ids:
+                    continue
+                chapter_dir = self._resolve_download_dir(chapter.download_path)
+                if chapter_dir is None:
+                    continue
+                try:
+                    changed = await asyncio.to_thread(
+                        self._compress_chapter_download,
+                        chapter_dir,
+                    )
+                except Exception:
+                    _service_logger.warning(
+                        "Backlog compression failed for chapter_id={} path='{}'",
+                        chapter.id,
+                        chapter_dir,
+                    )
+                    continue
+                if changed:
+                    compressed += 1
+
+            return compressed
+
+    @classmethod
+    async def run_uncompress_backlog_once_isolated(
+        cls,
+        batch_size: int | None = None,
+    ) -> int:
+        async with sessionmanager.session() as session:
+            service = cls(session)
+            return await service.run_uncompress_backlog_once(batch_size=batch_size)
+
+    async def run_uncompress_backlog_once(self, batch_size: int | None = None) -> int:
+        async with self._compression_backlog_lock:
+            stmt = (
+                select(LibraryChapter)
+                .where(
+                    LibraryChapter.is_downloaded == True,  # noqa: E712
+                    LibraryChapter.download_path.is_not(None),
+                )
+                .order_by(
+                    LibraryChapter.variant_id,
+                    *self._chapter_order_oldest_first(),
+                )
+            )
+            if batch_size is not None and batch_size > 0:
+                stmt = stmt.limit(batch_size)
+
+            rows = (await self.session.exec(stmt)).all()
+            chapters = list(rows)
+            if not chapters:
+                return 0
+
+            unpacked = 0
+            for chapter in chapters:
+                chapter_dir = self._resolve_download_dir(chapter.download_path)
+                if chapter_dir is None:
+                    continue
+                try:
+                    changed = await asyncio.to_thread(
+                        extract_chapter_pages,
+                        chapter_dir,
+                    )
+                except Exception:
+                    _service_logger.warning(
+                        "Backlog uncompress failed for chapter_id={} path='{}'",
+                        chapter.id,
+                        chapter_dir,
+                    )
+                    continue
+                if changed:
+                    unpacked += 1
+
+            return unpacked
+
+    @classmethod
+    async def run_metadata_cleanup_once_isolated(cls) -> int:
+        async with sessionmanager.session() as session:
+            service = cls(session)
+            return await service.run_metadata_cleanup_once()
+
+    async def run_metadata_cleanup_once(self) -> int:
+        async with self._metadata_cleanup_lock:
+            root = self._downloads_root()
+            removed = 0
+            targets = {
+                ".mangarr-source.json",
+                ".mangarr-title.json",
+                ".mangarr-chapter.json",
+            }
+            for file_path in root.rglob("*"):
+                if not file_path.is_file():
+                    continue
+                if file_path.name not in targets:
+                    continue
+                try:
+                    await asyncio.to_thread(file_path.unlink, missing_ok=True)
+                    removed += 1
+                except Exception:
+                    _service_logger.warning(
+                        "Failed to remove legacy metadata file '{}'",
+                        file_path,
+                    )
+            return removed
+
+    async def _chapters_to_keep_uncompressed_for_reader(self) -> set[int]:
+        rows = (
+            await self.session.exec(
+                select(
+                    LibraryChapter.id,
+                    LibraryChapter.variant_id,
+                    LibraryChapter.reader_updated_at,
+                    LibraryChapter.reader_page_index,
+                )
+                .where(
+                    LibraryChapter.is_downloaded == True,  # noqa: E712
+                    LibraryChapter.download_path.is_not(None),
+                )
+                .order_by(
+                    LibraryChapter.variant_id,
+                    *self._chapter_order_oldest_first(),
+                )
+            )
+        ).all()
+        if not rows:
+            return set()
+
+        by_variant: dict[int, list[tuple[int, datetime | None, int | None]]] = {}
+        for chapter_id, variant_id, reader_updated_at, reader_page_index in rows:
+            if chapter_id is None or variant_id is None:
+                continue
+            by_variant.setdefault(int(variant_id), []).append(
+                (
+                    int(chapter_id),
+                    _as_utc(reader_updated_at),
+                    (
+                        int(reader_page_index)
+                        if reader_page_index is not None
+                        else None
+                    ),
+                )
+            )
+
+        keep_ids: set[int] = set()
+        for items in by_variant.values():
+            current_index: int | None = None
+            latest_updated_at: datetime | None = None
+            for index, (_, updated_at, _) in enumerate(items):
+                if updated_at is None:
+                    continue
+                if latest_updated_at is None or updated_at > latest_updated_at:
+                    latest_updated_at = updated_at
+                    current_index = index
+
+            if current_index is None:
+                for index, (_, _, page_index) in enumerate(items):
+                    if page_index is not None and page_index >= 0:
+                        current_index = index
+
+            if current_index is None:
+                continue
+
+            keep_ids.add(items[current_index][0])
+            next_index = current_index + 1
+            if next_index < len(items):
+                keep_ids.add(items[next_index][0])
+
+        return keep_ids
+
     async def reconcile_downloads(
         self,
         query: str | None = None,
@@ -1408,7 +1636,7 @@ class DownloadService:
         changed = 0
         for chapter in chapters:
             chapter_dir = self._resolve_download_dir(chapter.download_path)
-            has_files = bool(chapter_dir and self._list_image_files(chapter_dir))
+            has_files = bool(chapter_dir and chapter_has_payload(chapter_dir))
             if has_files:
                 continue
 
@@ -1533,16 +1761,11 @@ class DownloadService:
         by_source_id: dict[str, Source],
         source_ids_by_name_lang: dict[tuple[str, str], list[str]],
     ) -> tuple[str | None, str, str | None]:
-        source_meta = self._read_json(source_dir / ".mangarr-source.json")
         inferred_source_name, inferred_source_lang = _split_name_lang(source_dir.name)
 
-        source_id = self._meta_str(source_meta, "source_id")
-        source_name = self._meta_str(source_meta, "source_name") or inferred_source_name
-        source_lang = (
-            self._meta_str(source_meta, "source_lang")
-            or inferred_source_lang
-            or ""
-        )
+        source_id: str | None = None
+        source_name = inferred_source_name
+        source_lang = inferred_source_lang or ""
         source_lang = source_lang.strip().lower() or None
 
         if not source_id:
@@ -1569,21 +1792,12 @@ class DownloadService:
         by_source_url: dict[tuple[str, str], int],
         by_source_title: dict[str, set[str]],
     ) -> DownloadExternalTitleResource | None:
-        title_meta = self._read_json(title_dir / ".mangarr-title.json")
         inferred_title = _strip_leading_index(_split_name_lang(title_dir.name)[0])
-        title_name = (
-            self._meta_nested_str(title_meta, "variant", "title")
-            or self._meta_nested_str(title_meta, "library_title", "title")
-            or inferred_title
-        )
+        inferred = self._infer_metadata_from_chapters(title_dir)
+        source_id = source_id or inferred[0]
+        title_url = inferred[1]
+        title_name = inferred[2] or inferred_title
         title_name = _strip_hash_suffix(title_name).strip()
-        title_url = self._meta_nested_str(title_meta, "variant", "title_url")
-
-        inferred_source_id, inferred_title_url = self._infer_metadata_from_chapters(title_dir)
-        if not source_id:
-            source_id = inferred_source_id
-        if not title_url:
-            title_url = inferred_title_url
 
         source_model = by_source_id.get(source_id or "")
         if source_model is not None:
@@ -1597,7 +1811,7 @@ class DownloadService:
         else:
             in_library = False
 
-        chapters_count = self._count_chapter_dirs(title_dir)
+        chapters_count = self._count_chapter_entries(title_dir)
         if chapters_count <= 0:
             return None
         rel_path = str(title_dir.relative_to(root).as_posix())
@@ -1622,28 +1836,36 @@ class DownloadService:
             reason=reason,
         )
 
-    def _infer_metadata_from_chapters(self, title_dir: Path) -> tuple[str | None, str | None]:
+    def _infer_metadata_from_chapters(
+        self,
+        title_dir: Path,
+    ) -> tuple[str | None, str | None, str | None]:
         source_ids: set[str] = set()
         title_urls: set[str] = set()
-
-        for chapter_dir in self._iter_chapter_dirs(title_dir):
-            chapter_meta = self._read_json(chapter_dir / ".mangarr-chapter.json")
-            if not chapter_meta:
+        title_names: set[str] = set()
+        for chapter_entry in self._iter_chapter_entries(title_dir):
+            chapter_root = (
+                chapter_entry.with_suffix("")
+                if chapter_entry.is_file() and chapter_entry.suffix.lower() == ".cbz"
+                else chapter_entry
+            )
+            payload = read_chapter_metadata(chapter_root)
+            if not payload:
                 continue
-
-            source_id = self._meta_str(chapter_meta, "source_id")
+            source_id = _payload_str(payload, "source", "id")
             if source_id:
                 source_ids.add(source_id)
-
-            title_url = self._meta_str(chapter_meta, "title_url") or self._meta_nested_str(
-                chapter_meta, "chapter", "title_url"
-            )
+            title_url = _payload_str(payload, "title", "url")
             if title_url:
                 title_urls.add(title_url)
-
-        inferred_source_id = next(iter(source_ids)) if len(source_ids) == 1 else None
-        inferred_title_url = next(iter(title_urls)) if len(title_urls) == 1 else None
-        return inferred_source_id, inferred_title_url
+            title_name = _payload_str(payload, "title", "name")
+            if title_name:
+                title_names.add(title_name)
+        return (
+            next(iter(source_ids)) if len(source_ids) == 1 else None,
+            next(iter(title_urls)) if len(title_urls) == 1 else None,
+            next(iter(title_names)) if len(title_names) == 1 else None,
+        )
 
     async def _resolve_missing_title_urls(
         self,
@@ -1834,16 +2056,34 @@ class DownloadService:
         now = _now_utc()
         linked = 0
         linked_ids: set[int] = set()
-        for chapter_dir in self._iter_chapter_dirs(title_dir):
-            chapter_meta = self._read_json(chapter_dir / ".mangarr-chapter.json")
-            chapter_url = self._meta_nested_str(chapter_meta, "chapter", "chapter_url")
+        for chapter_entry in self._iter_chapter_entries(title_dir):
+            chapter_dir = (
+                chapter_entry.with_suffix("")
+                if chapter_entry.is_file() and chapter_entry.suffix.lower() == ".cbz"
+                else chapter_entry
+            )
+            chapter: LibraryChapter | None = None
+            chapter_meta = read_chapter_metadata(chapter_dir)
+            chapter_url = _payload_str(chapter_meta, "chapter", "url")
+            if chapter_url:
+                chapter = by_chapter_url.get(chapter_url)
 
-            chapter = by_chapter_url.get(chapter_url or "")
-            if chapter is None and _CHAPTER_DIR_HINT_RE.fullmatch(chapter_dir.name):
-                key = _chapter_number_key(float(chapter_dir.name))
+            chapter_number = _payload_str(chapter_meta, "chapter", "number")
+            if chapter is None:
+                numeric = _coerce_positive_float(chapter_number)
+                if numeric is None:
+                    numeric = _coerce_positive_float(chapter_dir.name) or _chapter_number_from_text(
+                        chapter_dir.name
+                    )
+            else:
+                numeric = None
+            if numeric is not None:
+                key = _chapter_number_key(numeric)
                 if key is not None:
                     matches = by_chapter_number.get(key, [])
                     chapter = matches[0] if len(matches) == 1 else None
+            if chapter is None and len(by_chapter_url) == 1:
+                chapter = next(iter(by_chapter_url.values()))
             if chapter is None or chapter.id is None or int(chapter.id) in linked_ids:
                 continue
 
@@ -1871,11 +2111,15 @@ class DownloadService:
 
         normalized = raw.replace("\\", "/").strip()
         absolute_candidate = Path(normalized)
-        if absolute_candidate.is_absolute() and absolute_candidate.exists():
+        if absolute_candidate.is_absolute():
             if absolute_candidate.is_dir():
                 return absolute_candidate
             if absolute_candidate.is_file():
+                if absolute_candidate.suffix.lower() == ".cbz":
+                    return absolute_candidate.with_suffix("")
                 return absolute_candidate.parent
+            if absolute_candidate.with_suffix(".cbz").is_file():
+                return absolute_candidate
 
         relative_candidates: list[str] = []
 
@@ -1909,12 +2153,14 @@ class DownloadService:
                     candidate.relative_to(resolved_root)
                 except ValueError:
                     continue
-                if not candidate.exists():
-                    continue
                 if candidate.is_dir():
                     return candidate
                 if candidate.is_file():
+                    if candidate.suffix.lower() == ".cbz":
+                        return candidate.with_suffix("")
                     return candidate.parent
+                if candidate.with_suffix(".cbz").is_file():
+                    return candidate
         return None
 
     def _relative_download_path(
@@ -1946,13 +2192,7 @@ class DownloadService:
         chapter_dir = self._resolve_download_dir(download_path)
         if chapter_dir is None:
             return 0
-        total = 0
-        for file_path in self._list_image_files(chapter_dir):
-            try:
-                total += int(file_path.stat().st_size)
-            except OSError:
-                continue
-        return total
+        return chapter_payload_size_bytes(chapter_dir)
 
     async def _calculate_downloaded_size_stats(
         self,
@@ -1995,10 +2235,11 @@ class DownloadService:
         chapters_with_size = 0
         per_title: dict[int, list[int]] = {}
         fallback_size_cache: dict[str, int] = {}
+        force_disk_size = bool(settings.downloads.compress_downloaded_chapters)
         for chapter_id, title_id, download_path in chapter_rows:
             if chapter_id is None or title_id is None:
                 continue
-            chapter_size = size_by_chapter_id.get(int(chapter_id), 0)
+            chapter_size = 0 if force_disk_size else size_by_chapter_id.get(int(chapter_id), 0)
             if chapter_size <= 0:
                 path_key = (download_path or "").strip()
                 if path_key:
@@ -2025,13 +2266,12 @@ class DownloadService:
 
     @staticmethod
     def _list_image_files(path: Path) -> list[Path]:
-        if not path.exists() or not path.is_dir():
-            return []
-        return [
-            item
-            for item in path.rglob("*")
-            if item.is_file() and item.suffix.lower() in _IMAGE_SUFFIXES
-        ]
+        return list_chapter_image_files(path)
+
+    @staticmethod
+    def _compress_chapter_download(chapter_dir: Path) -> bool:
+        level = max(0, min(int(settings.downloads.compression_level), 9))
+        return compress_chapter_pages(chapter_dir, compression_level=level)
 
     def _iter_source_dirs(self, root: Path):
         has_standalone_titles = False
@@ -2061,77 +2301,49 @@ class DownloadService:
     def _looks_like_title_root(path: Path) -> bool:
         if not path.is_dir():
             return False
-        if (path / ".mangarr-title.json").is_file():
-            return True
         chapters_root = path / "chapters"
         if chapters_root.is_dir():
             return True
         chapter_hint_count = 0
         for child in path.iterdir():
-            if not child.is_dir() or child.name.startswith("."):
+            if child.name.startswith("."):
                 continue
-            if (child / ".mangarr-chapter.json").is_file():
+            if child.is_file() and child.suffix.lower() == ".cbz":
                 return True
+            if not child.is_dir():
+                continue
             has_subdirs = any(
                 grand.is_dir() and not grand.name.startswith(".")
                 for grand in child.iterdir()
             )
-            for file_path in child.iterdir():
-                if not file_path.is_file():
-                    continue
-                if file_path.suffix.lower() in _IMAGE_SUFFIXES:
-                    return True
-            if not has_subdirs and _CHAPTER_DIR_HINT_RE.match(child.name):
+            has_images = any(
+                file_path.is_file() and file_path.suffix.lower() in _IMAGE_SUFFIXES
+                for file_path in child.iterdir()
+            )
+            if has_images:
+                return True
+            if (not has_subdirs) and _CHAPTER_DIR_HINT_RE.match(child.name):
                 chapter_hint_count += 1
         return chapter_hint_count >= 2
 
     @staticmethod
-    def _iter_chapter_dirs(title_dir: Path):
+    def _iter_chapter_entries(title_dir: Path):
         chapters_root = title_dir / "chapters"
         if chapters_root.is_dir():
             base = chapters_root
         else:
             base = title_dir
         for child in base.iterdir():
-            if not child.is_dir() or child.name.startswith("."):
+            if child.name.startswith("."):
                 continue
-            yield child
+            if child.is_dir():
+                yield child
+                continue
+            if child.is_file() and child.suffix.lower() == ".cbz":
+                yield child
 
-    def _count_chapter_dirs(self, title_dir: Path) -> int:
-        return sum(1 for _ in self._iter_chapter_dirs(title_dir))
-
-    @staticmethod
-    def _read_json(path: Path) -> dict | None:
-        if not path.is_file():
-            return None
-        try:
-            loaded = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict):
-                return loaded
-        except Exception:
-            return None
-        return None
-
-    @staticmethod
-    def _meta_str(payload: dict | None, key: str) -> str | None:
-        if not payload:
-            return None
-        value = payload.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-        return None
-
-    @staticmethod
-    def _meta_nested_str(payload: dict | None, section: str, key: str) -> str | None:
-        if not payload:
-            return None
-        nested = payload.get(section)
-        if not isinstance(nested, dict):
-            return None
-        value = nested.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-        return None
+    def _count_chapter_entries(self, title_dir: Path) -> int:
+        return sum(1 for _ in self._iter_chapter_entries(title_dir))
 
     async def _requeue_stale_downloading_tasks(self) -> int:
         stale_after_seconds = max(settings.downloads.worker_interval_seconds * 3, 30)
@@ -2322,18 +2534,32 @@ class DownloadService:
             self.session.add(chapter)
 
             try:
-                await self._write_download_metadata(
+                await asyncio.to_thread(
+                    self._write_chapter_metadata_file,
+                    chapter_dir=output_dir,
                     title=title,
                     variant=variant,
                     chapter=chapter,
-                    chapter_dir=output_dir,
                     page_count=downloaded_pages,
                 )
             except Exception:
                 _service_logger.warning(
-                    "Unable to write download metadata for chapter_id={}",
+                    "Unable to write chapter metadata for chapter_id={}",
                     chapter.id,
                 )
+
+            if settings.downloads.compress_downloaded_chapters:
+                try:
+                    await asyncio.to_thread(
+                        self._compress_chapter_download,
+                        output_dir,
+                    )
+                except Exception:
+                    _service_logger.warning(
+                        "Unable to compress downloaded chapter_id={} at '{}'",
+                        chapter.id,
+                        output_dir,
+                    )
 
             await self._mark_task_completed(task.id, output_dir=chapter.download_path)
         except Exception as exc:
@@ -3457,18 +3683,16 @@ class DownloadService:
             chapter.name
         )
         chapter_id_segment = str(chapter.id) if chapter.id is not None else "0"
-        chapter_segment = _format_chapter_number_segment(chapter_number) or chapter_id_segment
+        chapter_number_segment = _format_chapter_number_segment(chapter_number)
+        chapter_segment = (
+            f"{chapter_number_segment}-{chapter_id_segment}"
+            if chapter_number_segment
+            else chapter_id_segment
+        )
         chapter_segment = _safe_segment(chapter_segment, f"chapter-{chapter.id}")
 
         base_dir = self._downloads_root() / source_segment / title_segment
-        candidate = base_dir / chapter_segment
-        if candidate.exists() and chapter.id is not None:
-            existing_meta = self._read_json(candidate / ".mangarr-chapter.json")
-            existing_url = self._meta_nested_str(existing_meta, "chapter", "chapter_url")
-            if existing_url and existing_url != chapter.chapter_url:
-                fallback_segment = _safe_segment(f"{chapter_segment}-{chapter_id_segment}", f"chapter-{chapter.id}")
-                return base_dir / fallback_segment
-        return candidate
+        return base_dir / chapter_segment
 
     @staticmethod
     def _chapter_order_oldest_first():
@@ -3479,74 +3703,37 @@ class DownloadService:
             LibraryChapter.id,
         )
 
-    async def _write_download_metadata(
-        self,
+    @staticmethod
+    def _write_chapter_metadata_file(
+        chapter_dir: Path,
         title: LibraryTitle,
         variant: LibraryTitleVariant,
         chapter: LibraryChapter,
-        chapter_dir: Path,
         page_count: int,
     ) -> None:
-        title_dir = chapter_dir.parent
-        source_dir = title_dir.parent
-
-        source_meta = {
-            "schema": "mangarr.download.source.v1",
+        payload = {
+            "schema": "mangarr.chapter.metadata.v1",
             "generated_at": _now_utc().isoformat(),
-            "source_id": variant.source_id,
-            "source_name": variant.source_name,
-            "source_lang": variant.source_lang,
-        }
-        title_meta = {
-            "schema": "mangarr.download.title.v1",
-            "generated_at": _now_utc().isoformat(),
-            "library_title": {
-                "canonical_key": title.canonical_key,
-                "title": title.title,
-                "author": title.author,
+            "source": {
+                "id": variant.source_id,
+                "name": variant.source_name,
+                "lang": variant.source_lang,
             },
-            "variant": {
-                "source_id": variant.source_id,
-                "source_name": variant.source_name,
-                "source_lang": variant.source_lang,
-                "title": variant.title,
-                "title_url": variant.title_url,
+            "title": {
+                "name": variant.title or title.title,
+                "url": variant.title_url,
             },
-        }
-        chapter_meta = {
-            "schema": "mangarr.download.chapter.v1",
-            "generated_at": _now_utc().isoformat(),
-            "source_id": variant.source_id,
-            "source_lang": variant.source_lang,
-            "title_url": variant.title_url,
             "chapter": {
-                "chapter_url": chapter.chapter_url,
+                "url": chapter.chapter_url,
                 "name": chapter.name,
-                "chapter_number": chapter.chapter_number,
+                "number": str(chapter.chapter_number),
                 "scanlator": chapter.scanlator,
                 "uploaded_at": chapter.date_upload.isoformat(),
                 "downloaded_at": _now_utc().isoformat(),
                 "pages": page_count,
             },
         }
-
-        await asyncio.to_thread(self._write_json_atomic, source_dir / ".mangarr-source.json", source_meta)
-        await asyncio.to_thread(self._write_json_atomic, title_dir / ".mangarr-title.json", title_meta)
-        await asyncio.to_thread(
-            self._write_json_atomic,
-            chapter_dir / ".mangarr-chapter.json",
-            chapter_meta,
-        )
-
-    @staticmethod
-    def _write_json_atomic(path: Path, payload: dict) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = path.with_suffix(path.suffix + ".tmp")
-        tmp_path.write_text(
-            json.dumps(payload, ensure_ascii=True, indent=2),
-            encoding="utf-8",
-        )
-        tmp_path.replace(path)
+        write_chapter_metadata(chapter_dir, payload)
 
     @classmethod
     def _to_profile_resource(cls, profile: DownloadProfile) -> DownloadProfileResource:

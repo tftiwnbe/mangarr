@@ -15,6 +15,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.bridge import tachibridge
 from app.config import settings
 from app.core.errors import BridgeAPIError
+from app.features.downloads.storage import compress_chapter_pages, extract_chapter_pages
 from app.features.extensions import ExtensionService
 from app.models import (
     DownloadProfile,
@@ -2497,10 +2498,16 @@ class LibraryService:
                 continue
             if candidate.is_dir():
                 return candidate
+            if candidate.with_suffix(".cbz").is_file():
+                return candidate
+            if candidate.is_file() and candidate.suffix.lower() == ".cbz":
+                return candidate.with_suffix("")
         return None
 
     @staticmethod
     def _list_downloaded_page_files(chapter_dir: Path) -> list[Path]:
+        if not chapter_dir.exists() or not chapter_dir.is_dir():
+            return []
         files = [path for path in chapter_dir.iterdir() if path.is_file() and path.suffix.lower() in _IMAGE_SUFFIXES]
 
         def _sort_key(path: Path) -> tuple[int, str]:
@@ -2520,6 +2527,58 @@ class LibraryService:
             return int(match.group(1))
         return fallback
 
+    @classmethod
+    def _ensure_downloaded_chapter_uncompressed(cls, chapter: LibraryChapter) -> bool:
+        if not chapter.is_downloaded or not chapter.download_path:
+            return False
+        chapter_dir = cls._resolve_chapter_download_dir(chapter.download_path)
+        if chapter_dir is None:
+            return False
+        try:
+            return extract_chapter_pages(chapter_dir)
+        except Exception:
+            return False
+
+    @classmethod
+    def _compress_downloaded_chapter(cls, chapter: LibraryChapter) -> bool:
+        if not settings.downloads.compress_downloaded_chapters:
+            return False
+        if not chapter.is_downloaded or not chapter.download_path:
+            return False
+        chapter_dir = cls._resolve_chapter_download_dir(chapter.download_path)
+        if chapter_dir is None:
+            return False
+        try:
+            level = max(0, min(int(settings.downloads.compression_level), 9))
+            return compress_chapter_pages(chapter_dir, compression_level=level)
+        except Exception:
+            return False
+
+    async def _prepare_chapters_for_reader(
+        self,
+        chapter: LibraryChapter,
+        prev_chapter_id: int | None,
+        next_chapter_id: int | None,
+    ) -> None:
+        if chapter.is_downloaded:
+            await asyncio.to_thread(self._ensure_downloaded_chapter_uncompressed, chapter)
+
+        if settings.downloads.compress_downloaded_chapters and prev_chapter_id is not None:
+            prev_chapter = await self.session.get(LibraryChapter, prev_chapter_id)
+            if prev_chapter is not None and prev_chapter.is_downloaded:
+                asyncio.create_task(
+                    asyncio.to_thread(self._compress_downloaded_chapter, prev_chapter)
+                )
+
+        if next_chapter_id is None:
+            return
+        next_chapter = await self.session.get(LibraryChapter, next_chapter_id)
+        if next_chapter is None or not next_chapter.is_downloaded:
+            return
+        asyncio.create_task(
+            asyncio.to_thread(self._ensure_downloaded_chapter_uncompressed, next_chapter)
+        )
+
     async def get_chapter_reader(
         self,
         chapter_id: int,
@@ -2529,7 +2588,6 @@ class LibraryService:
         if chapter is None:
             raise BridgeAPIError(404, f"Library chapter not found: {chapter_id}")
 
-        pages = await self.get_chapter_pages(chapter_id=chapter_id, refresh=refresh)
         variant = await self.session.get(LibraryTitleVariant, chapter.variant_id)
         source_id = variant.source_id if variant is not None else None
         source_url_base = await self._resolve_source_image_base_url(source_id)
@@ -2554,6 +2612,13 @@ class LibraryService:
                 prev_chapter_id = chapter_ids[index - 1]
             if index + 1 < len(chapter_ids):
                 next_chapter_id = chapter_ids[index + 1]
+
+        await self._prepare_chapters_for_reader(
+            chapter=chapter,
+            prev_chapter_id=prev_chapter_id,
+            next_chapter_id=next_chapter_id,
+        )
+        pages = await self.get_chapter_pages(chapter_id=chapter_id, refresh=refresh)
 
         reader_pages: list[ReaderPageResource] = []
         for page in pages:

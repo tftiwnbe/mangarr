@@ -1,5 +1,8 @@
+import asyncio
 import shutil
 from pathlib import Path
+
+from loguru import logger
 
 from app.bridge import tachibridge
 from app.config import settings
@@ -19,6 +22,8 @@ from app.models import (
     ProxySettingsUpdate,
     User,
 )
+
+_settings_logger = logger.bind(module="settings.service")
 
 
 class SettingsService:
@@ -51,6 +56,8 @@ class SettingsService:
             root_dir=str(root),
             parallel_downloads=settings.downloads.parallel_downloads,
             failed_chapter_retry_delay_seconds=settings.downloads.failed_chapter_retry_delay_seconds,
+            compress_downloaded_chapters=settings.downloads.compress_downloaded_chapters,
+            compression_level=settings.downloads.compression_level,
             total_bytes=int(usage.total),
             used_bytes=int(usage.used),
             free_bytes=int(usage.free),
@@ -64,10 +71,13 @@ class SettingsService:
         if not current_user.is_admin:
             raise BridgeAPIError(403, "Only admins can update download settings")
 
+        was_compression_enabled = bool(settings.downloads.compress_downloaded_chapters)
         if (
             payload.root_dir is None
             and payload.parallel_downloads is None
             and payload.failed_chapter_retry_delay_seconds is None
+            and payload.compress_downloaded_chapters is None
+            and payload.compression_level is None
         ):
             raise BridgeAPIError(400, "No download settings changes provided")
 
@@ -86,9 +96,84 @@ class SettingsService:
             settings.downloads.failed_chapter_retry_delay_seconds = int(
                 payload.failed_chapter_retry_delay_seconds
             )
+        if payload.compress_downloaded_chapters is not None:
+            settings.downloads.compress_downloaded_chapters = bool(
+                payload.compress_downloaded_chapters
+            )
+        if payload.compression_level is not None:
+            settings.downloads.compression_level = int(payload.compression_level)
 
         settings.save_settings()
+        is_compression_enabled = bool(settings.downloads.compress_downloaded_chapters)
+        if (not was_compression_enabled) and is_compression_enabled:
+            SettingsService._schedule_existing_downloads_compression()
+        elif was_compression_enabled and (not is_compression_enabled):
+            SettingsService._schedule_existing_downloads_uncompression()
+        SettingsService._schedule_legacy_download_metadata_cleanup()
         return SettingsService.get_download_settings()
+
+    @staticmethod
+    def _schedule_existing_downloads_compression() -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(SettingsService._compress_existing_downloads_backlog())
+
+    @staticmethod
+    def _schedule_existing_downloads_uncompression() -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(SettingsService._uncompress_existing_downloads_backlog())
+
+    @staticmethod
+    def _schedule_legacy_download_metadata_cleanup() -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(SettingsService._cleanup_legacy_download_metadata())
+
+    @staticmethod
+    async def _compress_existing_downloads_backlog() -> None:
+        from app.features.downloads.service import DownloadService
+
+        try:
+            compressed = await DownloadService.run_compress_backlog_once_isolated()
+            _settings_logger.info(
+                "Compressed existing downloaded chapters in backlog: {}",
+                compressed,
+            )
+        except Exception:
+            _settings_logger.exception("Existing download backlog compression failed")
+
+    @staticmethod
+    async def _uncompress_existing_downloads_backlog() -> None:
+        from app.features.downloads.service import DownloadService
+
+        try:
+            unpacked = await DownloadService.run_uncompress_backlog_once_isolated()
+            _settings_logger.info(
+                "Unpacked existing downloaded chapters in backlog: {}",
+                unpacked,
+            )
+        except Exception:
+            _settings_logger.exception("Existing download backlog uncompression failed")
+
+    @staticmethod
+    async def _cleanup_legacy_download_metadata() -> None:
+        from app.features.downloads.service import DownloadService
+
+        try:
+            removed = await DownloadService.run_metadata_cleanup_once_isolated()
+            _settings_logger.info(
+                "Removed legacy download metadata files: {}",
+                removed,
+            )
+        except Exception:
+            _settings_logger.exception("Legacy download metadata cleanup failed")
 
     @staticmethod
     async def get_jobs_settings() -> JobsSettingsResource:

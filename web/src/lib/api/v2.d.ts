@@ -1311,6 +1311,16 @@ export interface components {
 			 */
 			failed_chapter_retry_delay_seconds: number;
 			/**
+			 * Compress Downloaded Chapters
+			 * @default false
+			 */
+			compress_downloaded_chapters: boolean;
+			/**
+			 * Compression Level
+			 * @default 6
+			 */
+			compression_level: number;
+			/**
 			 * Total Bytes
 			 * @default 0
 			 */
@@ -1334,6 +1344,10 @@ export interface components {
 			parallel_downloads?: number | null;
 			/** Failed Chapter Retry Delay Seconds */
 			failed_chapter_retry_delay_seconds?: number | null;
+			/** Compress Downloaded Chapters */
+			compress_downloaded_chapters?: boolean | null;
+			/** Compression Level */
+			compression_level?: number | null;
 		};
 		/**
 		 * DownloadStrategy

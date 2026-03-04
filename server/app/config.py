@@ -71,6 +71,8 @@ class DownloadsConfig(MangarrBaseSettings):
     worker_interval_seconds: int = 10
     worker_batch_size: int = 2
     parallel_downloads: int = 2
+    compress_downloaded_chapters: bool = False
+    compression_level: int = 6
     max_attempts: int = 4
     request_timeout_seconds: float = 30.0
     page_retry_count: int = 2
