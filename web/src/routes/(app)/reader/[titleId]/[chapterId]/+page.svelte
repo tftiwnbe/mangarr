@@ -49,6 +49,7 @@
 	let chapterList = $state<ChapterListItem[]>([]);
 	let currentPageIndex = $state(0);
 	let loadedPageIds = $state<Set<number>>(new Set());
+	let paintedPageIds = $state<SvelteSet<number>>(new SvelteSet());
 	let bookmarkingReading = $state(false);
 	let bookmarkError = $state<string | null>(null);
 	let commentsError = $state<string | null>(null);
@@ -210,6 +211,10 @@
 		}
 	}
 
+	function markPagePainted(pageId: number): void {
+		paintedPageIds.add(pageId);
+	}
+
 	function lazyLoadPage(node: HTMLElement, options: { pageId: number }) {
 		let { pageId } = options;
 		if (loadedPageIds.has(pageId) || typeof IntersectionObserver === 'undefined') {
@@ -234,7 +239,7 @@
 			},
 			{
 				root: null,
-				rootMargin: '1200px 0px',
+				rootMargin: '200px 0px',
 				threshold: 0.01
 			}
 		);
@@ -540,6 +545,7 @@
 			reader = null;
 			error = $_('reader.invalidChapter');
 			loadedPageIds = new Set();
+			paintedPageIds = new SvelteSet();
 			return;
 		}
 
@@ -554,6 +560,7 @@
 		chapterMetaById = new Map();
 		chapterList = [];
 		loadedPageIds = new Set();
+		paintedPageIds = new SvelteSet();
 		chapterComments = [];
 		editingCommentId = null;
 		commentDraft = '';
@@ -639,8 +646,10 @@
 			return;
 		}
 		scheduleVerticalPageSync();
-		const start = Math.max(0, currentPageIndex - 1);
-		const end = Math.min(pages.length - 1, currentPageIndex + 2);
+		// Eagerly preload current page and the next one only.
+		// Pages further ahead are handled by the IntersectionObserver as the user scrolls.
+		const start = currentPageIndex;
+		const end = Math.min(pages.length - 1, currentPageIndex + 1);
 		const pageIds: number[] = [];
 		for (let idx = start; idx <= end; idx += 1) {
 			pageIds.push(pages[idx].id);
@@ -947,16 +956,24 @@ function openChapter(chapter: number | null): void {
 					<div
 						use:lazyLoadPage={{ pageId: readerPage.id }}
 						data-reader-page-index={readerPage.page_index}
+						class="relative"
 					>
+						<!-- Placeholder holds layout space until image has fully painted.
+						     Keeping it alive prevents height collapsing to 0 while the
+						     img is loading, which would cause scroll-anchor jumps. -->
+						{#if !paintedPageIds.has(readerPage.id)}
+							<div class="aspect-[2/3] w-full bg-[var(--void-1)]"></div>
+						{/if}
 						{#if loadedPageIds.has(readerPage.id)}
 							<img
 								src={resolvePageUrl(readerPage)}
 								alt="{$_('reader.page')} {readerPage.page_index + 1}"
 								decoding="async"
-								class="w-full bg-[var(--void-1)] object-contain"
+								class="bg-[var(--void-1)] object-contain {paintedPageIds.has(readerPage.id)
+									? 'w-full'
+									: 'absolute inset-0 opacity-0'}"
+								onload={() => markPagePainted(readerPage.id)}
 							/>
-						{:else}
-							<div class="aspect-[2/3] w-full bg-[var(--void-1)]"></div>
 						{/if}
 					</div>
 				{/each}
