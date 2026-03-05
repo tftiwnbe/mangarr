@@ -61,6 +61,13 @@ from app.models import (
 )
 
 _service_logger = logger.bind(module="downloads.service")
+
+# Lazy import to avoid circular dependency at module load time.
+def _ws_broadcast(event: dict) -> None:
+    from app.core.ws import ws_manager  # noqa: PLC0415
+    loop = asyncio.get_event_loop()
+    if not loop.is_closed():
+        loop.create_task(ws_manager.broadcast(event))
 _SAFE_SEGMENT_RE = re.compile(r"[^a-zA-Z0-9._ -]+")
 _NORMALIZE_TEXT_RE = re.compile(r"[\W_]+", re.UNICODE)
 _HASH_SUFFIX_RE = re.compile(r"\s+--\s+[0-9a-f]{6,}$", re.IGNORECASE)
@@ -1217,6 +1224,7 @@ class DownloadService:
                     enqueued=enqueued_total,
                     duration_ms=round((_time.monotonic() - _t0) * 1000),
                 ).info("monitor.run")
+                _ws_broadcast({"event": "monitor.run", "enqueued": enqueued_total})
             return result
 
     async def run_worker_once(self, batch_size: int | None = None) -> WorkerRunResponse:
@@ -1263,6 +1271,9 @@ class DownloadService:
                     tasks=processed,
                     duration_ms=round((_time.monotonic() - _t0) * 1000),
                 ).info("worker.run")
+                # Note: individual task.done events are broadcast inside _log_task;
+                # this worker.run event signals the batch finished.
+                _ws_broadcast({"event": "worker.run", "tasks": processed})
             return WorkerRunResponse(processed_tasks=processed)
 
     @classmethod
@@ -2452,6 +2463,13 @@ class DownloadService:
                 duration_ms=round((_time.monotonic() - _t0) * 1000),
                 status=status,
             ).log("WARNING" if status in ("failed", "cancelled") else "INFO", "task.done")
+            _ws_broadcast({
+                "event": "task.done",
+                "task_id": int(task.id) if task.id is not None else None,
+                "chapter_id": task.chapter_id,
+                "title_id": task.library_title_id,
+                "status": status,
+            })
 
         chapter = await self.session.get(LibraryChapter, task.chapter_id)
         if chapter is None:

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from time import time
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
@@ -15,9 +15,11 @@ from sqlmodel import func, select
 from app.bridge import tachibridge
 from app.config import settings
 from app.core.database import run_migrations, sessionmanager
+from app.core.deps import get_current_user
 from app.core.errors import BridgeAPIError
 from app.core.logging import setup_logger
 from app.core.scheduler import scheduler
+from app.core.ws import ws_manager
 from app.features.auth import AuthService, auth_router
 from app.features.covers import covers_router
 from app.features.explore import explore_router
@@ -107,6 +109,35 @@ async def handle_unexpected_error(_: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled application error")
     detail = str(exc).strip() or exc.__class__.__name__
     return JSONResponse(status_code=500, content={"detail": detail})
+
+
+@app.websocket("/api/v2/ws")
+async def websocket_endpoint(
+    ws: WebSocket,
+    api_key: str | None = Query(None),
+):
+    """Authenticated real-time event stream (JSON messages)."""
+    async with sessionmanager.session() as db:
+        try:
+            await get_current_user(
+                db,
+                x_api_key=None,
+                authorization=None,
+                query_api_key=api_key,
+            )
+        except Exception:
+            await ws.close(code=1008, reason="Unauthorized")
+            return
+
+    await ws_manager.connect(ws)
+    try:
+        # Keep the connection alive; clients may send pings but we don't require it.
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await ws_manager.disconnect(ws)
 
 
 _ACCESS_SAMPLE_RATE = 0.05   # fraction of normal requests to keep

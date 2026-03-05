@@ -18,6 +18,7 @@
 	import { Switch } from '$lib/elements/switch';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { downloadsDashboardStore, runDownloadCycle } from '$lib/stores/downloads';
+	import { wsManager } from '$lib/stores/ws';
 	import type { DownloadStatus, DownloadTaskItem } from '$lib/utils/download-mappers';
 	import { _ } from '$lib/i18n';
 	import { buildTitlePath } from '$lib/utils/routes';
@@ -99,11 +100,35 @@
 	onMount(() => {
 		void downloadsDashboardStore.load();
 		void loadSources();
+
+		// Refresh immediately on download events; debounce so bursts merge.
+		let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+		function scheduleRefresh() {
+			if (document.hidden) return;
+			if (debounceTimer !== null) return;
+			debounceTimer = setTimeout(() => {
+				debounceTimer = null;
+				void downloadsDashboardStore.refresh();
+			}, 800);
+		}
+
+		const unsubscribeDone = wsManager.on('task.done', scheduleRefresh);
+		const unsubscribeMonitor = wsManager.on('monitor.run', scheduleRefresh);
+		const unsubscribeWorker = wsManager.on('worker.run', scheduleRefresh);
+
+		// Fallback poll every 60 s in case the WS is disconnected.
 		const interval = setInterval(() => {
 			if (document.hidden) return;
 			void downloadsDashboardStore.refresh();
-		}, 15_000);
-		return () => clearInterval(interval);
+		}, 60_000);
+
+		return () => {
+			clearInterval(interval);
+			if (debounceTimer !== null) clearTimeout(debounceTimer);
+			unsubscribeDone();
+			unsubscribeMonitor();
+			unsubscribeWorker();
+		};
 	});
 
 	async function loadSources() {

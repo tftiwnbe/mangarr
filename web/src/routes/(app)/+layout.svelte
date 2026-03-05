@@ -10,6 +10,7 @@
 	import { _ } from '$lib/i18n';
 	import { loadContentLanguages } from '$lib/stores/content-languages';
 	import { panelOverlayOpen } from '$lib/stores/ui';
+	import { wsManager } from '$lib/stores/ws';
 
 	let { children } = $props();
 	let isCheckingAuth = $state(true);
@@ -48,8 +49,11 @@
 				isAuthenticated = true;
 				// Sync content language preferences from server (best-effort)
 				void loadContentLanguages();
+				// Open persistent WebSocket for real-time events
+				wsManager.connect();
 			} catch {
 				clearAuthSession();
+				wsManager.disconnect();
 				await navigateToLogin();
 			} finally {
 				isCheckingAuth = false;
