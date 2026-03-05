@@ -30,7 +30,7 @@
 		buildReaderPath,
 		buildTitlePath,
 		inferChapterNumber,
-		parseIdFromRouteParam,
+		parseTitleRouteParam,
 		parseReaderChapterParam
 	} from '$lib/utils/routes';
 
@@ -82,7 +82,7 @@
 
 	const titleIdParam = $derived(page.params.titleId);
 	const chapterIdParam = $derived(page.params.chapterId);
-	const titleId = $derived(parseIdFromRouteParam(titleIdParam) ?? NaN);
+	const titleId = $derived(parseTitleRouteParam(titleIdParam) ?? NaN);
 	const chapterRef = $derived(parseReaderChapterParam(chapterIdParam));
 	const readerParentRoute = $derived.by<ReaderParentRoute>(() =>
 		page.url.searchParams.get('from') === 'explore' ? 'explore' : 'library'

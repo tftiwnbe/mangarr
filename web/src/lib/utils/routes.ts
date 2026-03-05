@@ -1,19 +1,56 @@
+import anyAscii from 'any-ascii';
+
 const NON_ALNUM_RE = /[^a-z0-9]+/g;
 const CHAPTER_NUMBER_RE = /(?:^|[\s[(])ch(?:apter)?[.\s:_-]*(\d+(?:\.\d+)?)/i;
 const NUMBER_FALLBACK_RE = /(\d+(?:\.\d+)?)/;
 const CHAPTER_PARAM_RE = /^ch(\d+(?:\.\d+)?)$/i;
 const CHAPTER_ID_PARAM_RE = /^c(\d+)$/i;
 
+// ---------------------------------------------------------------------------
+// ID obfuscation — keeps sequential DB integers out of public URLs.
+// Algorithm: XOR with mask → reverse 24 bits → base-36.
+// Fully reversible (both steps are self-inverse), no DB lookup needed.
+// Handles IDs up to 16 777 215 (2^24 − 1), well above any realistic library size.
+// ---------------------------------------------------------------------------
+const _ENC_MASK = 0x96f5a2;
+
+function _rev24(x: number): number {
+	let r = 0;
+	for (let i = 0; i < 24; i++, x >>= 1) r = (r << 1) | (x & 1);
+	return r;
+}
+
+export function encodeId(id: number): string {
+	return _rev24((id ^ _ENC_MASK) & 0xffffff).toString(36);
+}
+
+export function decodeId(s: string): number | null {
+	const n = parseInt(s, 36);
+	if (!Number.isFinite(n) || n < 0 || n > 0xffffff) return null;
+	const id = _rev24(n) ^ _ENC_MASK;
+	return id > 0 ? id : null;
+}
+
+// ---------------------------------------------------------------------------
+
 function normalizeWhitespace(value: string): string {
 	return value.trim().replace(/\s+/g, ' ');
 }
 
 export function slugifySegment(value: string, fallback = 'item'): string {
-	const normalized = normalizeWhitespace(value).toLowerCase();
-	const slug = normalized.replace(NON_ALNUM_RE, '-').replace(/^-+|-+$/g, '');
+	const ascii = anyAscii(normalizeWhitespace(value)).toLowerCase();
+	const slug = ascii.replace(NON_ALNUM_RE, '-').replace(/^-+|-+$/g, '');
 	return slug || fallback;
 }
 
+/** Parse an obfuscated title ID from a route param like "7dwrd--bleach". */
+export function parseTitleRouteParam(value: string | null | undefined): number | null {
+	if (!value) return null;
+	const segment = value.split('--')[0];
+	return decodeId(segment);
+}
+
+/** Parse a raw integer from a route param — used for chapter IDs (c42, ch5). */
 export function parseIdFromRouteParam(value: string | null | undefined): number | null {
 	if (!value) return null;
 	const match = value.match(/^(\d+)/);
@@ -37,8 +74,9 @@ export function formatChapterNumber(value: number | null | undefined): string | 
 }
 
 export function buildTitlePath(titleId: number, titleName: string): string {
-	const slug = slugifySegment(titleName, `title-${titleId}`);
-	return `/title/${titleId}--${slug}`;
+	const encoded = encodeId(titleId);
+	const slug = slugifySegment(titleName, `t-${encoded}`);
+	return `/title/${encoded}--${slug}`;
 }
 
 export function inferChapterNumber(chapterName: string): number | null {
@@ -64,7 +102,8 @@ export function buildReaderPath(params: {
 	chapterName?: string | null;
 	chapterNumber?: number | null;
 }): string {
-	const titleSlug = `${params.titleId}--${slugifySegment(params.titleName, `title-${params.titleId}`)}`;
+	const encoded = encodeId(params.titleId);
+	const titleSlug = `${encoded}--${slugifySegment(params.titleName, `t-${encoded}`)}`;
 	const chapterNumber = formatChapterNumber(params.chapterNumber ?? null);
 	const chapterSegment = chapterNumber ? `ch${chapterNumber}` : `c${params.chapterId}`;
 	return `/reader/${titleSlug}/${chapterSegment}`;

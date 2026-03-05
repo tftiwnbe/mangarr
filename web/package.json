@@ -54,6 +54,7 @@
 		"@fontsource-variable/jetbrains-mono": "^5.2.8",
 		"@fontsource-variable/plus-jakarta-sans": "^5.2.8",
 		"@fontsource/space-mono": "^5.2.9",
+		"any-ascii": "^0.3.3",
 		"openapi-fetch": "^0.15.0",
 		"svelte-i18n": "^4.0.1"
 	}

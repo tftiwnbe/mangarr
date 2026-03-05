@@ -26,7 +26,7 @@
 	import { _ } from '$lib/i18n';
 	import { libraryTitleDetailStore } from '$lib/stores/library';
 	import { panelOverlayOpen } from '$lib/stores/ui';
-	import { buildReaderPath, buildTitlePath, parseIdFromRouteParam } from '$lib/utils/routes';
+	import { buildReaderPath, buildTitlePath, parseTitleRouteParam } from '$lib/utils/routes';
 	import { mapLibraryChapterResources, type TitleChapterItem } from '$lib/utils/title-mappers';
 
 	let showFullDescription = $state(false);
@@ -88,7 +88,7 @@
 	}
 
 	const routeTitleParam = $derived(page.params.id);
-	const routeTitleId = $derived(parseIdFromRouteParam(routeTitleParam) ?? NaN);
+	const routeTitleId = $derived(parseTitleRouteParam(routeTitleParam) ?? NaN);
 	const titleParentRoute = $derived.by<TitleParentRoute>(() =>
 		page.url.searchParams.get('from') === 'explore' ? 'explore' : 'library'
 	);
