@@ -24,6 +24,8 @@ from app.models import (
 )
 
 _settings_logger = logger.bind(module="settings.service")
+# Serialises concurrent settings mutations + saves so the config file is never torn.
+_settings_lock = asyncio.Lock()
 
 
 class SettingsService:
@@ -64,14 +66,13 @@ class SettingsService:
         )
 
     @staticmethod
-    def update_download_settings(
+    async def update_download_settings(
         payload: DownloadSettingsUpdate,
         current_user: User,
     ) -> DownloadSettingsResource:
         if not current_user.is_admin:
             raise BridgeAPIError(403, "Only admins can update download settings")
 
-        was_compression_enabled = bool(settings.downloads.compress_downloaded_chapters)
         if (
             payload.root_dir is None
             and payload.parallel_downloads is None
@@ -81,30 +82,34 @@ class SettingsService:
         ):
             raise BridgeAPIError(400, "No download settings changes provided")
 
-        if payload.root_dir is not None:
-            candidate = Path(payload.root_dir).expanduser()
-            if not candidate.is_absolute():
-                candidate = (settings.app.config_dir / candidate).resolve()
-            else:
-                candidate = candidate.resolve()
-            candidate.mkdir(parents=True, exist_ok=True)
-            settings.downloads.root_dir = candidate
+        async with _settings_lock:
+            was_compression_enabled = bool(settings.downloads.compress_downloaded_chapters)
 
-        if payload.parallel_downloads is not None:
-            settings.downloads.parallel_downloads = int(payload.parallel_downloads)
-        if payload.failed_chapter_retry_delay_seconds is not None:
-            settings.downloads.failed_chapter_retry_delay_seconds = int(
-                payload.failed_chapter_retry_delay_seconds
-            )
-        if payload.compress_downloaded_chapters is not None:
-            settings.downloads.compress_downloaded_chapters = bool(
-                payload.compress_downloaded_chapters
-            )
-        if payload.compression_level is not None:
-            settings.downloads.compression_level = int(payload.compression_level)
+            if payload.root_dir is not None:
+                candidate = Path(payload.root_dir).expanduser()
+                if not candidate.is_absolute():
+                    candidate = (settings.app.config_dir / candidate).resolve()
+                else:
+                    candidate = candidate.resolve()
+                candidate.mkdir(parents=True, exist_ok=True)
+                settings.downloads.root_dir = candidate
 
-        settings.save_settings()
-        is_compression_enabled = bool(settings.downloads.compress_downloaded_chapters)
+            if payload.parallel_downloads is not None:
+                settings.downloads.parallel_downloads = int(payload.parallel_downloads)
+            if payload.failed_chapter_retry_delay_seconds is not None:
+                settings.downloads.failed_chapter_retry_delay_seconds = int(
+                    payload.failed_chapter_retry_delay_seconds
+                )
+            if payload.compress_downloaded_chapters is not None:
+                settings.downloads.compress_downloaded_chapters = bool(
+                    payload.compress_downloaded_chapters
+                )
+            if payload.compression_level is not None:
+                settings.downloads.compression_level = int(payload.compression_level)
+
+            settings.save_settings()
+            is_compression_enabled = bool(settings.downloads.compress_downloaded_chapters)
+
         if (not was_compression_enabled) and is_compression_enabled:
             SettingsService._schedule_existing_downloads_compression()
         elif was_compression_enabled and (not is_compression_enabled):
@@ -198,24 +203,24 @@ class SettingsService:
         if not updates:
             raise BridgeAPIError(400, "No job settings changes provided")
 
-        if "cleanup_unassigned_enabled" in updates:
-            settings.jobs.cleanup_unassigned_enabled = bool(
-                updates["cleanup_unassigned_enabled"]
-            )
-        if "cleanup_unassigned_interval_days" in updates:
-            settings.jobs.cleanup_unassigned_interval_days = int(
-                updates["cleanup_unassigned_interval_days"]
-            )
-        if "cleanup_unassigned_older_than_days" in updates:
-            settings.jobs.cleanup_unassigned_older_than_days = int(
-                updates["cleanup_unassigned_older_than_days"]
-            )
-        if "cleanup_unassigned_batch_limit" in updates:
-            settings.jobs.cleanup_unassigned_batch_limit = int(
-                updates["cleanup_unassigned_batch_limit"]
-            )
-
-        settings.save_settings()
+        async with _settings_lock:
+            if "cleanup_unassigned_enabled" in updates:
+                settings.jobs.cleanup_unassigned_enabled = bool(
+                    updates["cleanup_unassigned_enabled"]
+                )
+            if "cleanup_unassigned_interval_days" in updates:
+                settings.jobs.cleanup_unassigned_interval_days = int(
+                    updates["cleanup_unassigned_interval_days"]
+                )
+            if "cleanup_unassigned_older_than_days" in updates:
+                settings.jobs.cleanup_unassigned_older_than_days = int(
+                    updates["cleanup_unassigned_older_than_days"]
+                )
+            if "cleanup_unassigned_batch_limit" in updates:
+                settings.jobs.cleanup_unassigned_batch_limit = int(
+                    updates["cleanup_unassigned_batch_limit"]
+                )
+            settings.save_settings()
         return await SettingsService.get_jobs_settings()
 
     @staticmethod
@@ -281,11 +286,15 @@ class SettingsService:
         return ContentLanguagesResource(preferred=list(settings.content_languages.preferred))
 
     @staticmethod
-    def update_content_languages(
+    async def update_content_languages(
         payload: ContentLanguagesUpdate,
+        current_user: User,
     ) -> ContentLanguagesResource:
-        settings.content_languages.preferred = [lang.lower() for lang in payload.preferred]
-        settings.save_settings()
+        if not current_user.is_admin:
+            raise BridgeAPIError(403, "Only admins can update content language settings")
+        async with _settings_lock:
+            settings.content_languages.preferred = [lang.lower() for lang in payload.preferred]
+            settings.save_settings()
         return SettingsService.get_content_languages()
 
     @staticmethod

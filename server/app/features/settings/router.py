@@ -36,7 +36,7 @@ async def update_download_settings(
     payload: DownloadSettingsUpdate,
     current_user: CurrentUserDep,
 ):
-    return SettingsService.update_download_settings(payload=payload, current_user=current_user)
+    return await SettingsService.update_download_settings(payload=payload, current_user=current_user)
 
 
 @router.get("/jobs", response_model=JobsSettingsResource)
@@ -155,5 +155,8 @@ async def get_content_languages():
 
 
 @router.put("/content-languages", response_model=ContentLanguagesResource)
-async def update_content_languages(payload: ContentLanguagesUpdate):
-    return SettingsService.update_content_languages(payload=payload)
+async def update_content_languages(
+    payload: ContentLanguagesUpdate,
+    current_user: CurrentUserDep,
+):
+    return await SettingsService.update_content_languages(payload=payload, current_user=current_user)

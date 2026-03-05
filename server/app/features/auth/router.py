@@ -1,4 +1,8 @@
-from fastapi import APIRouter, Depends, status
+import time
+from collections import defaultdict
+from threading import Lock
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.core.deps import CurrentUserDep, DBSessionDep
 from app.features.auth.service import AuthService
@@ -17,6 +21,41 @@ from app.models import (
 )
 
 router = APIRouter(prefix="/api/v2/auth", tags=["auth"])
+
+# ---------------------------------------------------------------------------
+# Simple in-memory login rate limiter (per client IP)
+# ---------------------------------------------------------------------------
+_RATE_WINDOW = 15 * 60   # 15-minute sliding window
+_RATE_MAX_FAILS = 10     # max failed attempts before lockout
+
+_rate_lock = Lock()
+_rate_failures: dict[str, list[float]] = defaultdict(list)
+
+
+def _get_client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _check_rate_limit(ip: str) -> None:
+    now = time.monotonic()
+    with _rate_lock:
+        window = _rate_failures[ip]
+        window[:] = [t for t in window if now - t < _RATE_WINDOW]
+        if len(window) >= _RATE_MAX_FAILS:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many failed login attempts — try again later",
+            )
+
+
+def _record_failure(ip: str) -> None:
+    with _rate_lock:
+        _rate_failures[ip].append(time.monotonic())
+
+
+def _clear_failures(ip: str) -> None:
+    with _rate_lock:
+        _rate_failures.pop(ip, None)
 
 
 async def get_service(db: DBSessionDep) -> AuthService:
@@ -45,9 +84,18 @@ async def setup_status(
 @router.post("/login", response_model=LoginResponse)
 async def login(
     payload: LoginRequest,
+    request: Request,
     service: AuthService = Depends(get_service),
 ):
-    return await service.login(payload)
+    ip = _get_client_ip(request)
+    _check_rate_limit(ip)
+    try:
+        result = await service.login(payload)
+    except HTTPException:
+        _record_failure(ip)
+        raise
+    _clear_failures(ip)
+    return result
 
 
 @router.get("/me", response_model=UserProfileResource)

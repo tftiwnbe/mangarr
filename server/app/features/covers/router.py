@@ -3,16 +3,18 @@ import hashlib
 import ipaddress
 import json
 import socket
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from app.config import settings
+from app.core.deps import require_authenticated_user
 
 router = APIRouter(prefix="/api/v2/covers", tags=["covers"])
 
@@ -84,9 +86,12 @@ class CoverCacheMeta:
         return self.expires_at > _now_utc()
 
 
+_LOCK_POOL_MAX = 512  # evict oldest when pool grows beyond this
+
+
 class CoverCacheService:
     _locks_guard = asyncio.Lock()
-    _locks: dict[str, asyncio.Lock] = {}
+    _locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
 
     def __init__(self) -> None:
         self.root = settings.app.config_dir / "cache" / "covers"
@@ -97,7 +102,16 @@ class CoverCacheService:
             lock = cls._locks.get(key)
             if lock is None:
                 lock = asyncio.Lock()
+                # Evict oldest unlocked entry when pool is full
+                if len(cls._locks) >= _LOCK_POOL_MAX:
+                    for oldest_key, oldest_lock in cls._locks.items():
+                        if not oldest_lock.locked():
+                            del cls._locks[oldest_key]
+                            break
                 cls._locks[key] = lock
+            else:
+                # Move to end (most recently used)
+                cls._locks.move_to_end(key)
             return lock
 
     @staticmethod
@@ -270,7 +284,7 @@ class CoverCacheService:
 cover_cache = CoverCacheService()
 
 
-@router.get("/proxy")
+@router.get("/proxy", dependencies=[Depends(require_authenticated_user)])
 async def proxy_cover(url: str = Query(..., min_length=1)):
     file_path, meta = await cover_cache.get_cover(url)
     headers = {"Cache-Control": _CACHE_CONTROL}

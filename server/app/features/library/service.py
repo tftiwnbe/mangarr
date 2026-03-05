@@ -811,39 +811,47 @@ class LibraryService:
         if not candidates:
             return 0
 
+        candidate_ids = [int(t.id) for t in candidates if t.id is not None]
+
+        # Bulk: which candidate titles belong to at least one collection?
+        in_collection_ids: set[int] = {
+            int(r)
+            for r in (
+                await self.session.exec(
+                    select(LibraryCollectionTitle.library_title_id).where(
+                        LibraryCollectionTitle.library_title_id.in_(candidate_ids)
+                    )
+                )
+            ).all()
+            if r is not None
+        }
+
+        # Bulk: which candidate titles have an *enabled* download profile?
+        enabled_profile_ids: set[int] = {
+            int(title_id)
+            for title_id, enabled in (
+                await self.session.exec(
+                    select(
+                        DownloadProfile.library_title_id,
+                        DownloadProfile.enabled,
+                    ).where(DownloadProfile.library_title_id.in_(candidate_ids))
+                )
+            ).all()
+            if enabled and title_id is not None
+        }
+
         deletable_ids: list[int] = []
         for title in candidates:
             if title.id is None:
                 continue
             title_id = int(title.id)
-
             # Keep titles that user touched in another way.
             if title.user_rating is not None:
                 continue
-
-            collection_count = int(
-                (
-                    await self.session.exec(
-                        select(func.count(LibraryCollectionTitle.id)).where(
-                            LibraryCollectionTitle.library_title_id == title_id
-                        )
-                    )
-                ).one()
-                or 0
-            )
-            if collection_count > 0:
+            if title_id in in_collection_ids:
                 continue
-
-            profile = (
-                await self.session.exec(
-                    select(DownloadProfile).where(
-                        DownloadProfile.library_title_id == title_id
-                    )
-                )
-            ).first()
-            if profile is not None and profile.enabled:
+            if title_id in enabled_profile_ids:
                 continue
-
             deletable_ids.append(title_id)
 
         if not deletable_ids:
@@ -1021,19 +1029,25 @@ class LibraryService:
                 title_url=request.title_url,
             )
         except Exception:
-            pass
+            _library_logger.opt(exception=True).warning(
+                "auto_link_same_extension failed title_id={}", int(library_title.id)
+            )
 
         try:
             await self._auto_link_related_variants(title_id=int(library_title.id))
         except Exception:
             # Import should succeed even if follow-up matching fails.
-            pass
+            _library_logger.opt(exception=True).warning(
+                "auto_link_related failed title_id={}", int(library_title.id)
+            )
 
         # Best-effort strict merge for duplicates created by manual imports.
         try:
             await self._auto_merge_duplicate_titles(title_id=int(library_title.id))
         except Exception:
-            pass
+            _library_logger.opt(exception=True).warning(
+                "auto_merge_duplicates failed title_id={}", int(library_title.id)
+            )
 
         result = LibraryImportResponse(
             library_title_id=int(library_title.id),

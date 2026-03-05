@@ -1649,39 +1649,46 @@ class DownloadService:
         if not chapters:
             return 0
 
-        now = _now_utc()
-        changed = 0
-        for chapter in chapters:
-            chapter_dir = self._resolve_download_dir(chapter.download_path)
-            has_files = bool(chapter_dir and chapter_has_payload(chapter_dir))
-            if has_files:
-                continue
+        # First pass: identify chapters whose files are missing on disk (sync I/O, no DB).
+        bad_chapters = [
+            chapter for chapter in chapters
+            if not (
+                (chapter_dir := self._resolve_download_dir(chapter.download_path))
+                and chapter_has_payload(chapter_dir)
+            )
+        ]
+        if not bad_chapters:
+            return 0
 
+        # Bulk-load all pages for bad chapters in a single query.
+        bad_ids = [int(c.id) for c in bad_chapters if c.id is not None]
+        page_rows = (
+            await self.session.exec(
+                select(LibraryChapterPage).where(
+                    LibraryChapterPage.chapter_id.in_(bad_ids)
+                )
+            )
+        ).all()
+        pages_by_chapter: dict[int, list[LibraryChapterPage]] = {}
+        for page in page_rows:
+            pages_by_chapter.setdefault(int(page.chapter_id), []).append(page)
+
+        now = _now_utc()
+        for chapter in bad_chapters:
             chapter.is_downloaded = False
             chapter.downloaded_at = None
             chapter.download_path = None
             chapter.download_error = "Downloaded files missing on disk"
             chapter.updated_at = now
             self.session.add(chapter)
-
-            page_rows = (
-                await self.session.exec(
-                    select(LibraryChapterPage).where(
-                        LibraryChapterPage.chapter_id == int(chapter.id)
-                    )
-                )
-            ).all()
-            for page in page_rows:
+            for page in pages_by_chapter.get(int(chapter.id), []):
                 page.local_path = None
                 page.local_size = None
                 page.fetched_at = now
                 self.session.add(page)
 
-            changed += 1
-
-        if changed:
-            await self.session.commit()
-        return changed
+        await self.session.commit()
+        return len(bad_chapters)
 
     async def _scan_external_download_titles(
         self,
@@ -2262,11 +2269,15 @@ class DownloadService:
                 if path_key:
                     cached_size = fallback_size_cache.get(path_key)
                     if cached_size is None:
-                        cached_size = self._chapter_size_from_disk(download_path)
+                        cached_size = await asyncio.to_thread(
+                            self._chapter_size_from_disk, download_path
+                        )
                         fallback_size_cache[path_key] = cached_size
                     chapter_size = cached_size
                 else:
-                    chapter_size = self._chapter_size_from_disk(download_path)
+                    chapter_size = await asyncio.to_thread(
+                        self._chapter_size_from_disk, download_path
+                    )
             if chapter_size <= 0:
                 continue
 
@@ -2514,10 +2525,6 @@ class DownloadService:
                 downloaded_pages = 0
 
                 for page in pages:
-                    if await self._is_title_paused(int(title.id)):
-                        await self._mark_task_requeued(task.id, reason="Paused")
-                        _log_task("requeued", pages=downloaded_pages, error="Paused mid-download")
-                        return
                     remote_url = self._resolve_remote_page_url(
                         image_url=page.image_url,
                         page_url=page.url,
@@ -2864,7 +2871,6 @@ class DownloadService:
         title.updated_at = now
         title.last_refreshed_at = now
 
-        variant.source_name = variant.source_name
         variant.title = details.title
         variant.thumbnail_url = details.thumbnail_url or ""
         variant.description = details.description
@@ -3034,9 +3040,15 @@ class DownloadService:
 
         selected: list[int] = []
         cutoff = profile.start_from
+        if cutoff is not None and cutoff.tzinfo is None:
+            cutoff = cutoff.replace(tzinfo=timezone.utc)
         for chapter in chapters:
-            if cutoff and chapter.date_upload < cutoff:
-                continue
+            if cutoff is not None and chapter.date_upload is not None:
+                upload = chapter.date_upload
+                if upload.tzinfo is None:
+                    upload = upload.replace(tzinfo=timezone.utc)
+                if upload < cutoff:
+                    continue
             if chapter.id is not None:
                 selected.append(int(chapter.id))
         return selected

@@ -126,14 +126,19 @@ class ExtensionService:
 
     async def list_installed_extensions(self) -> list[ExtensionResource]:
         extensions = await self._list_extensions(installed=True)
-        resources: list[ExtensionResource] = [
-            ExtensionResource(
-                **extension.model_dump(),
-                sources=(await self._list_extension_sources(extension.pkg)),
-            )
-            for extension in extensions
+        if not extensions:
+            return []
+        pkgs = [e.pkg for e in extensions]
+        all_sources = (
+            await self.session.exec(select(Source).where(Source.extension_pkg.in_(pkgs)))
+        ).all()
+        sources_by_pkg: dict[str, list[Source]] = {}
+        for src in all_sources:
+            sources_by_pkg.setdefault(src.extension_pkg, []).append(src)
+        return [
+            ExtensionResource(**ext.model_dump(), sources=sources_by_pkg.get(ext.pkg, []))
+            for ext in extensions
         ]
-        return resources
 
     async def install_extension(self, extension_pkg: str) -> ExtensionResource:
         extension, sources = await tachibridge.install_extension(extension_pkg)
@@ -200,16 +205,22 @@ class ExtensionService:
         supports_latest: bool | None = None,
     ) -> list[tuple[Extension, Source]]:
         extensions = await self._list_extensions(installed=installed)
+        if not extensions:
+            return []
+        pkgs = [e.pkg for e in extensions]
+        stmt = select(Source).where(Source.extension_pkg.in_(pkgs))
+        if enabled is not None:
+            stmt = stmt.where(Source.enabled == enabled)
+        if supports_latest is not None:
+            stmt = stmt.where(Source.supports_latest == supports_latest)
+        all_sources = (await self.session.exec(stmt)).all()
+        sources_by_pkg: dict[str, list[Source]] = {}
+        for src in all_sources:
+            sources_by_pkg.setdefault(src.extension_pkg, []).append(src)
         result: list[tuple[Extension, Source]] = []
-
         for extension in extensions:
-            sources = await self._list_extension_sources(
-                extension.pkg,
-                enabled=enabled,
-                supports_latest=supports_latest,
-            )
-            result.extend((extension, source) for source in sources)
-
+            for src in sources_by_pkg.get(extension.pkg, []):
+                result.append((extension, src))
         return result
 
     async def toggle_source(self, source_id: str, enabled: bool) -> Source:

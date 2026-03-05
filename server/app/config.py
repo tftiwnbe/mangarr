@@ -153,4 +153,3 @@ def get_settings() -> Settings:
 
 # Initialize settings
 settings = Settings()
-settings.save_settings()

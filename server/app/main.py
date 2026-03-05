@@ -132,16 +132,22 @@ async def log_requests(request: Request, call_next):
     else:
         sample_rate = round(1 / _ACCESS_SAMPLE_RATE)
 
-    level = "WARNING" if response.status_code >= 500 else "INFO"
-    logger.bind(
-        access=True,
+    is_server_error = response.status_code >= 500
+    level = "WARNING" if is_server_error else "INFO"
+    # 5xx errors go to console/main log (no access tag); others are access-log-only
+    log_extra: dict = dict(
         method=request.method,
         path=request.url.path,
         status=response.status_code,
         duration_ms=process_time_ms,
         client=host,
         sample_rate=sample_rate,
-    ).log(level, f"{request.method} {request.url.path} → {response.status_code} ({process_time_ms}ms)")
+    )
+    if not is_server_error:
+        log_extra["access"] = True
+    logger.bind(**log_extra).log(
+        level, f"{request.method} {request.url.path} → {response.status_code} ({process_time_ms}ms)"
+    )
     return response
 
 

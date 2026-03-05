@@ -308,21 +308,27 @@ class ExploreService:
             latest_sources = [source for source in sources if source.supports_latest]
 
             for page in range(1, max_pages + 1):
-                for source in sources:
-                    await self._refresh_source_page(
-                        section="popular",
-                        source_id=source.id,
-                        page=page,
-                        force=True,
-                    )
-
-                for source in latest_sources:
-                    await self._refresh_source_page(
-                        section="latest",
-                        source_id=source.id,
-                        page=page,
-                        force=True,
-                    )
+                await asyncio.gather(
+                    *[
+                        self._refresh_source_page(
+                            section="popular",
+                            source_id=source.id,
+                            page=page,
+                            force=True,
+                        )
+                        for source in sources
+                    ],
+                    *[
+                        self._refresh_source_page(
+                            section="latest",
+                            source_id=source.id,
+                            page=page,
+                            force=True,
+                        )
+                        for source in latest_sources
+                    ],
+                    return_exceptions=True,
+                )
 
             _explore_logger.bind(
                 sources=len(sources),
