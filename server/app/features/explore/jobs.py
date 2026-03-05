@@ -7,7 +7,7 @@ from app.features.explore.service import ExploreService
 job_logger = logger.bind(module="explore.jobs")
 
 
-@scheduler.interval(seconds=300)
+@scheduler.interval(seconds=300, label="Explore Cache")
 async def refresh_explore_cache_job() -> None:
     """Refresh first pages of explore feeds for enabled sources."""
     try:

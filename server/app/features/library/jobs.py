@@ -64,7 +64,7 @@ async def run_unassigned_cleanup(force: bool = False) -> tuple[bool, int, dateti
     return True, deleted, now
 
 
-@scheduler.interval(seconds=24 * 60 * 60)
+@scheduler.interval(seconds=24 * 60 * 60, label="Library Cleanup")
 async def cleanup_unassigned_library_titles_job() -> None:
     try:
         await run_unassigned_cleanup(force=False)

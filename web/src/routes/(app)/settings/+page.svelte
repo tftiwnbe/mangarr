@@ -34,11 +34,16 @@
 		getDownloadSettings,
 		getJobsSettings,
 		getProxySettings,
+		getSchedulerStatus,
 		runCleanupNow,
+		triggerSchedulerJob,
+		pauseSchedulerJob,
+		resumeSchedulerJob,
 		updateFlareSolverrSettings,
 		updateDownloadSettings,
 		updateJobsSettings,
-		updateProxySettings
+		updateProxySettings,
+		type SchedulerJobResource
 	} from '$lib/api/settings';
 	import { Button } from '$lib/elements/button';
 	import { Icon } from '$lib/elements/icon';
@@ -151,6 +156,12 @@
 	let proxySettingsError = $state<string | null>(null);
 	let proxySettingsSuccess = $state(false);
 
+	// ── Scheduler ──────────────────────────────────────────────────────────
+	let schedulerJobs = $state<SchedulerJobResource[]>([]);
+	let schedulerLoading = $state(false);
+	let schedulerError = $state<string | null>(null);
+	let schedulerActingJob = $state<string | null>(null);
+
 	onMount(async () => {
 		try {
 			user = await getMe();
@@ -163,7 +174,8 @@
 				loadFlareSolverrSettings(),
 				loadProxySettings(),
 				loadExtensionSettings(),
-				loadContentLanguages()
+				loadContentLanguages(),
+				loadSchedulerStatus()
 			]);
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Failed to load profile';
@@ -303,6 +315,80 @@
 		} finally {
 			extensionRepoLoading = false;
 		}
+	}
+
+	async function loadSchedulerStatus() {
+		schedulerLoading = true;
+		schedulerError = null;
+		try {
+			const status = await getSchedulerStatus();
+			schedulerJobs = status.jobs;
+		} catch (cause) {
+			schedulerError = cause instanceof Error ? cause.message : 'Failed to load scheduler';
+		} finally {
+			schedulerLoading = false;
+		}
+	}
+
+	async function handleJobTrigger(jobName: string) {
+		if (schedulerActingJob) return;
+		schedulerActingJob = jobName;
+		schedulerError = null;
+		try {
+			const updated = await triggerSchedulerJob(jobName);
+			schedulerJobs = schedulerJobs.map((j) => (j.name === updated.name ? updated : j));
+		} catch (cause) {
+			schedulerError = cause instanceof Error ? cause.message : 'Failed to trigger job';
+		} finally {
+			schedulerActingJob = null;
+		}
+	}
+
+	async function handleJobPause(jobName: string) {
+		if (schedulerActingJob) return;
+		schedulerActingJob = jobName;
+		schedulerError = null;
+		try {
+			const updated = await pauseSchedulerJob(jobName);
+			schedulerJobs = schedulerJobs.map((j) => (j.name === updated.name ? updated : j));
+		} catch (cause) {
+			schedulerError = cause instanceof Error ? cause.message : 'Failed to pause job';
+		} finally {
+			schedulerActingJob = null;
+		}
+	}
+
+	async function handleJobResume(jobName: string) {
+		if (schedulerActingJob) return;
+		schedulerActingJob = jobName;
+		schedulerError = null;
+		try {
+			const updated = await resumeSchedulerJob(jobName);
+			schedulerJobs = schedulerJobs.map((j) => (j.name === updated.name ? updated : j));
+		} catch (cause) {
+			schedulerError = cause instanceof Error ? cause.message : 'Failed to resume job';
+		} finally {
+			schedulerActingJob = null;
+		}
+	}
+
+	function formatInterval(seconds: number): string {
+		if (seconds < 60) return `${Math.round(seconds)}s`;
+		if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+		if (seconds < 86400) return `${Math.round(seconds / 3600)}h`;
+		return `${Math.round(seconds / 86400)}d`;
+	}
+
+	function formatLastRun(lastRunAt: string | null): string {
+		if (!lastRunAt) return 'never';
+		const date = new Date(lastRunAt);
+		if (isNaN(date.getTime())) return 'never';
+		const diffMs = Date.now() - date.getTime();
+		const diffSec = Math.floor(diffMs / 1000);
+		if (diffSec < 60) return `${diffSec}s ago`;
+		if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+		if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+		return `${Math.floor(diffSec / 86400)}d ago`;
 	}
 
 	async function handleSaveExtensionRepo() {
@@ -1672,14 +1758,122 @@
 
 		<!-- ═══════════════════ ABOUT ═══════════════════ -->
 		{:else}
-			<div class="flex flex-col gap-3">
-				<div class="flex items-baseline justify-between">
-					<span class="text-label">{$_('app.name')}</span>
-					<span class="text-sm text-[var(--text)]">v2.0.0</span>
+			<div class="flex flex-col gap-6">
+				<!-- App info -->
+				<div class="flex flex-col gap-3">
+					<div class="flex items-baseline justify-between">
+						<span class="text-label">{$_('app.name')}</span>
+						<span class="text-sm text-[var(--text)]">v2.0.0</span>
+					</div>
+					<div class="flex items-baseline justify-between">
+						<span class="text-label">{$_('settings.domain')}</span>
+						<span class="text-sm text-[var(--text)]">hmphin.space</span>
+					</div>
 				</div>
-				<div class="flex items-baseline justify-between">
-					<span class="text-label">{$_('settings.domain')}</span>
-					<span class="text-sm text-[var(--text)]">hmphin.space</span>
+
+				<!-- Scheduled jobs -->
+				<div class="flex flex-col gap-0">
+					<div class="flex items-center justify-between mb-3">
+						<span class="text-label">scheduled jobs</span>
+						<button
+							type="button"
+							class="text-[10px] uppercase tracking-widest text-[var(--text-ghost)] hover:text-[var(--text-muted)] transition-colors"
+							onclick={loadSchedulerStatus}
+						>
+							{#if schedulerLoading}
+								<Icon name="loader" size={10} class="inline animate-spin" />
+							{:else}
+								<Icon name="refresh-cw" size={10} class="inline" />
+							{/if}
+						</button>
+					</div>
+
+					{#if schedulerError}
+						<p class="text-xs text-[var(--error)] mb-2">{schedulerError}</p>
+					{/if}
+
+					{#if schedulerLoading && schedulerJobs.length === 0}
+						<div class="flex items-center gap-2 py-4 text-[var(--text-ghost)]">
+							<Icon name="loader" size={12} class="animate-spin" />
+							<span class="text-xs">loading…</span>
+						</div>
+					{:else if schedulerJobs.length === 0}
+						<p class="text-xs text-[var(--text-ghost)] py-4">no jobs registered</p>
+					{:else}
+						{#each schedulerJobs as job (job.name)}
+							{@const isActing = schedulerActingJob === job.name}
+							<div class="flex items-center gap-3 py-3 border-b border-[var(--void-2)] last:border-0">
+								<!-- Job info -->
+								<div class="flex-1 min-w-0">
+									<div class="flex items-center gap-2">
+										<span class="text-xs text-[var(--text-soft)] truncate">{job.label}</span>
+										<!-- Status chip -->
+										{#if job.running}
+											<span class="text-[9px] uppercase tracking-widest text-[var(--success)] shrink-0">running</span>
+										{:else if job.paused}
+											<span class="text-[9px] uppercase tracking-widest text-[var(--text-ghost)] shrink-0">paused</span>
+										{:else}
+											<span class="text-[9px] uppercase tracking-widest text-[var(--text-muted)] shrink-0">idle</span>
+										{/if}
+									</div>
+									<div class="flex items-center gap-2 mt-0.5">
+										<span class="text-[10px] text-[var(--text-ghost)]">every {formatInterval(job.interval_seconds)}</span>
+										<span class="text-[var(--void-4)]">·</span>
+										<span class="text-[10px] text-[var(--text-ghost)]">{formatLastRun(job.last_run_at)}</span>
+									</div>
+								</div>
+
+								<!-- Actions -->
+								<div class="flex items-center gap-1 shrink-0">
+									<!-- Run now -->
+									<button
+										type="button"
+										class="h-7 w-7 flex items-center justify-center text-[var(--text-ghost)] hover:text-[var(--text)] hover:bg-[var(--void-2)] transition-colors disabled:opacity-30"
+										title="run now"
+										disabled={isActing || job.running}
+										onclick={() => void handleJobTrigger(job.name)}
+									>
+										{#if isActing && !job.paused}
+											<Icon name="loader" size={12} class="animate-spin" />
+										{:else}
+											<Icon name="play" size={12} />
+										{/if}
+									</button>
+
+									<!-- Pause / Resume -->
+									{#if job.paused}
+										<button
+											type="button"
+											class="h-7 w-7 flex items-center justify-center text-[var(--text-ghost)] hover:text-[var(--text)] hover:bg-[var(--void-2)] transition-colors disabled:opacity-30"
+											title="resume"
+											disabled={isActing}
+											onclick={() => void handleJobResume(job.name)}
+										>
+											{#if isActing}
+												<Icon name="loader" size={12} class="animate-spin" />
+											{:else}
+												<Icon name="skip-forward" size={12} />
+											{/if}
+										</button>
+									{:else}
+										<button
+											type="button"
+											class="h-7 w-7 flex items-center justify-center text-[var(--text-ghost)] hover:text-[var(--text)] hover:bg-[var(--void-2)] transition-colors disabled:opacity-30"
+											title="pause"
+											disabled={isActing || job.running}
+											onclick={() => void handleJobPause(job.name)}
+										>
+											{#if isActing}
+												<Icon name="loader" size={12} class="animate-spin" />
+											{:else}
+												<Icon name="pause" size={12} />
+											{/if}
+										</button>
+									{/if}
+								</div>
+							</div>
+						{/each}
+					{/if}
 				</div>
 			</div>
 		{/if}

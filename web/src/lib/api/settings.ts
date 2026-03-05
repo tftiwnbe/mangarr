@@ -93,6 +93,16 @@ export async function updateProxySettings(
 export type ContentLanguagesResource = { preferred: string[] };
 export type ContentLanguagesUpdate = { preferred: string[] };
 
+export type SchedulerJobResource = {
+	name: string;
+	label: string;
+	interval_seconds: number;
+	paused: boolean;
+	running: boolean;
+	last_run_at: string | null;
+};
+export type SchedulerStatusResource = { jobs: SchedulerJobResource[] };
+
 export async function getContentLanguages(): Promise<ContentLanguagesResource> {
 	return expectData(
 		await untypedClient.GET('/api/v2/settings/content-languages'),
@@ -106,5 +116,33 @@ export async function updateContentLanguages(
 	return expectData(
 		await untypedClient.PUT('/api/v2/settings/content-languages', { body: payload }),
 		'Unable to update content language settings'
+	);
+}
+
+export async function getSchedulerStatus(): Promise<SchedulerStatusResource> {
+	return expectData(
+		await untypedClient.GET('/api/v2/settings/scheduler'),
+		'Unable to load scheduler status'
+	);
+}
+
+export async function triggerSchedulerJob(jobName: string): Promise<SchedulerJobResource> {
+	return expectData(
+		await untypedClient.POST(`/api/v2/settings/scheduler/${jobName}/trigger`),
+		'Unable to trigger job'
+	);
+}
+
+export async function pauseSchedulerJob(jobName: string): Promise<SchedulerJobResource> {
+	return expectData(
+		await untypedClient.POST(`/api/v2/settings/scheduler/${jobName}/pause`),
+		'Unable to pause job'
+	);
+}
+
+export async function resumeSchedulerJob(jobName: string): Promise<SchedulerJobResource> {
+	return expectData(
+		await untypedClient.POST(`/api/v2/settings/scheduler/${jobName}/resume`),
+		'Unable to resume job'
 	);
 }

@@ -8,7 +8,7 @@ from app.features.downloads.service import DownloadService
 job_logger = logger.bind(module="downloads.jobs")
 
 
-@scheduler.interval(seconds=settings.downloads.monitor_interval_seconds)
+@scheduler.interval(seconds=settings.downloads.monitor_interval_seconds, label="Downloads Monitor")
 async def refresh_monitored_titles_job() -> None:
     """Refresh monitored titles and enqueue new chapters."""
     try:
@@ -19,7 +19,7 @@ async def refresh_monitored_titles_job() -> None:
         job_logger.exception("Monitored title refresh job failed")
 
 
-@scheduler.interval(seconds=settings.downloads.worker_interval_seconds)
+@scheduler.interval(seconds=settings.downloads.worker_interval_seconds, label="Downloads Worker")
 async def downloads_worker_job() -> None:
     """Process queued chapter download tasks."""
     try:

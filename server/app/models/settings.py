@@ -84,3 +84,16 @@ class ContentLanguagesResource(SQLModel):
 
 class ContentLanguagesUpdate(SQLModel):
     preferred: list[str]
+
+
+class SchedulerJobResource(SQLModel):
+    name: str
+    label: str
+    interval_seconds: float
+    paused: bool
+    running: bool
+    last_run_at: str | None = None
+
+
+class SchedulerStatusResource(SQLModel):
+    jobs: list[SchedulerJobResource]

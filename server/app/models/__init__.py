@@ -97,6 +97,8 @@ from app.models.settings import (
     JobsSettingsUpdate,
     ProxySettingsResource,
     ProxySettingsUpdate,
+    SchedulerJobResource,
+    SchedulerStatusResource,
 )
 from app.models.titles import (
     ExtensionSourceTitle,
@@ -145,6 +147,8 @@ __all__ = [
     "JobsCleanupRunResource",
     "JobsSettingsResource",
     "JobsSettingsUpdate",
+    "SchedulerJobResource",
+    "SchedulerStatusResource",
     "DownloadMonitoredTitleResource",
     "DownloadOverviewResource",
     "DownloadProfile",
