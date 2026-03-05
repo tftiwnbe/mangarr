@@ -18,6 +18,7 @@ from app.bridge import tachibridge
 from app.config import settings
 from app.core.database import sessionmanager
 from app.core.errors import BridgeAPIError
+from app.core.utils import commit_with_sqlite_retry, normalize_positive_int_ids, normalize_text
 from app.features.downloads.storage import (
     chapter_archive_path,
     chapter_has_payload,
@@ -69,7 +70,6 @@ def _ws_broadcast(event: dict) -> None:
     if not loop.is_closed():
         loop.create_task(ws_manager.broadcast(event))
 _SAFE_SEGMENT_RE = re.compile(r"[^a-zA-Z0-9._ -]+")
-_NORMALIZE_TEXT_RE = re.compile(r"[\W_]+", re.UNICODE)
 _HASH_SUFFIX_RE = re.compile(r"\s+--\s+[0-9a-f]{6,}$", re.IGNORECASE)
 _LANG_SUFFIX_RE = re.compile(r"\s+\[([a-z]{2,5}(?:-[a-z0-9]{2,5})?)\]$", re.IGNORECASE)
 _LEADING_INDEX_RE = re.compile(r"^\d+\s*[-_.]\s*")
@@ -91,11 +91,7 @@ def _safe_segment(value: str, fallback: str) -> str:
     return cleaned[:80] or fallback
 
 
-def _normalize_text(value: str | None) -> str:
-    if not value:
-        return ""
-    lowered = value.strip().lower()
-    return _NORMALIZE_TEXT_RE.sub(" ", lowered).strip()
+_normalize_text = normalize_text
 
 
 def _strip_hash_suffix(value: str) -> str:
@@ -868,7 +864,7 @@ class DownloadService:
             raise BridgeAPIError(404, f"Library title not found: {title_id}")
 
         profile = await self._get_or_create_profile(title_id)
-        await self.session.commit()
+        await commit_with_sqlite_retry(self.session)
         await self.session.refresh(profile)
         return self._to_profile_resource(profile)
 
@@ -942,7 +938,7 @@ class DownloadService:
 
         profile.updated_at = now
         self.session.add(profile)
-        await self.session.commit()
+        await commit_with_sqlite_retry(self.session)
         await self.session.refresh(profile)
 
         return self._to_profile_resource(profile)
@@ -995,7 +991,7 @@ class DownloadService:
             priority=priority,
             attempt_group_id=None,
         )
-        await self.session.commit()
+        await commit_with_sqlite_retry(self.session)
         if task.id is None:
             raise BridgeAPIError(500, "Failed to enqueue chapter")
         return EnqueueChapterResponse(task_id=int(task.id), status=task.status)
@@ -1039,7 +1035,7 @@ class DownloadService:
                     attempt_group_id = int(task.attempt_group_id)
                 queued += 1
 
-        await self.session.commit()
+        await commit_with_sqlite_retry(self.session)
         return EnqueueTitleResponse(queued=queued)
 
     async def retry_task(self, task_id: int) -> DownloadTaskResource:
@@ -1075,7 +1071,7 @@ class DownloadService:
             error=None,
         )
         await self._finalize_new_task(queued_retry)
-        await self.session.commit()
+        await commit_with_sqlite_retry(self.session)
         await self.session.refresh(queued_retry)
 
         return self._to_task_resource(queued_retry)
@@ -1092,7 +1088,7 @@ class DownloadService:
         task.finished_at = _now_utc()
         task.updated_at = _now_utc()
         self.session.add(task)
-        await self.session.commit()
+        await commit_with_sqlite_retry(self.session)
         await self.session.refresh(task)
 
         return self._to_task_resource(task)
@@ -1131,7 +1127,7 @@ class DownloadService:
                         profile.last_checked_at = now
                         profile.updated_at = now
                         self.session.add(profile)
-                        await self.session.commit()
+                        await commit_with_sqlite_retry(self.session)
                         continue
 
                     variants = await self._resolve_profile_variants(
@@ -1202,13 +1198,13 @@ class DownloadService:
                                         attempt_group_id = int(task.attempt_group_id)
                                     enqueued_total += 1
 
-                    await self.session.commit()
+                    await commit_with_sqlite_retry(self.session)
                 except Exception as exc:
                     profile.last_checked_at = now
                     profile.last_error = _short_error(exc)
                     profile.updated_at = now
                     self.session.add(profile)
-                    await self.session.commit()
+                    await commit_with_sqlite_retry(self.session)
                     _service_logger.exception(
                         "Monitor refresh failed for title_id={}",
                         profile.library_title_id,
@@ -1635,7 +1631,7 @@ class DownloadService:
         title.user_status_id = int(first_status.id)
         title.updated_at = _now_utc()
         self.session.add(title)
-        await self.session.commit()
+        await commit_with_sqlite_retry(self.session)
 
     @classmethod
     async def _process_task_isolated(cls, task_id: int) -> None:
@@ -1698,7 +1694,7 @@ class DownloadService:
                 page.fetched_at = now
                 self.session.add(page)
 
-        await self.session.commit()
+        await commit_with_sqlite_retry(self.session)
         return len(bad_chapters)
 
     async def _scan_external_download_titles(
@@ -2136,7 +2132,7 @@ class DownloadService:
             linked_ids.add(int(chapter.id))
 
         if linked:
-            await self.session.commit()
+            await commit_with_sqlite_retry(self.session)
         return linked
 
     def _resolve_download_dir(self, relative_path: str | None) -> Path | None:
@@ -2407,7 +2403,7 @@ class DownloadService:
             task.started_at = None
             task.updated_at = now
             self.session.add(task)
-        await self.session.commit()
+        await commit_with_sqlite_retry(self.session)
         return len(stale)
 
     async def _claim_next_task(self) -> DownloadTask | None:
@@ -2439,7 +2435,7 @@ class DownloadService:
         task.attempts += 1
         task.error = None
         self.session.add(task)
-        await self.session.commit()
+        await commit_with_sqlite_retry(self.session)
         await self.session.refresh(task)
         return task
 
@@ -2590,7 +2586,7 @@ class DownloadService:
                     task.output_dir = str(output_dir.relative_to(root).as_posix())
                     task.updated_at = _now_utc()
                     self.session.add(task)
-                    await self.session.commit()
+                    await commit_with_sqlite_retry(self.session)
 
             chapter.is_downloaded = True
             chapter.downloaded_at = _now_utc()
@@ -2699,7 +2695,7 @@ class DownloadService:
         task.error = None
         task.output_dir = output_dir
         self.session.add(task)
-        await self.session.commit()
+        await commit_with_sqlite_retry(self.session)
 
     async def _mark_task_failed(self, task_id: int | None, error: str, final: bool) -> None:
         if task_id is None:
@@ -2729,7 +2725,7 @@ class DownloadService:
                 error=None,
             )
             await self._finalize_new_task(queued_retry)
-        await self.session.commit()
+        await commit_with_sqlite_retry(self.session)
 
     def _spawn_retry_task(
         self,
@@ -2833,7 +2829,7 @@ class DownloadService:
         task.finished_at = now
         task.updated_at = now
         self.session.add(task)
-        await self.session.commit()
+        await commit_with_sqlite_retry(self.session)
 
     async def _mark_task_requeued(self, task_id: int | None, reason: str | None = None) -> None:
         if task_id is None:
@@ -2852,7 +2848,7 @@ class DownloadService:
         if reason:
             task.error = reason
         self.session.add(task)
-        await self.session.commit()
+        await commit_with_sqlite_retry(self.session)
 
     async def _is_title_paused(self, title_id: int) -> bool:
         profile = (
@@ -2908,7 +2904,7 @@ class DownloadService:
             chapters=chapters,
             now=now,
         )
-        await self.session.commit()
+        await commit_with_sqlite_retry(self.session)
         return new_chapter_ids
 
     async def _sync_variant_chapters(
@@ -3601,18 +3597,7 @@ class DownloadService:
 
     @staticmethod
     def _normalize_positive_int_ids(values: list[object]) -> list[int]:
-        parsed: list[int] = []
-        seen: set[int] = set()
-        for raw in values:
-            try:
-                value = int(raw)
-            except (TypeError, ValueError):
-                continue
-            if value <= 0 or value in seen:
-                continue
-            seen.add(value)
-            parsed.append(value)
-        return parsed
+        return normalize_positive_int_ids(values)
 
     async def _normalize_profile_variant_ids(
         self,

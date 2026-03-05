@@ -1,9 +1,12 @@
 import time
+import uuid
 from collections import defaultdict
 from threading import Lock
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel
 
+from app.core.cache import InMemoryTTLCache
 from app.core.deps import CurrentUserDep, DBSessionDep
 from app.features.auth.service import AuthService
 from app.models import (
@@ -21,6 +24,14 @@ from app.models import (
 )
 
 router = APIRouter(prefix="/api/v2/auth", tags=["auth"])
+
+# Short-lived tokens for WebSocket authentication (avoids exposing the main API key in URLs)
+ws_token_cache = InMemoryTTLCache()
+_WS_TOKEN_TTL_SECONDS = 30
+
+
+class WsTokenResponse(BaseModel):
+    token: str
 
 # ---------------------------------------------------------------------------
 # Simple in-memory login rate limiter (per client IP)
@@ -142,6 +153,14 @@ async def revoke_api_key(
     service: AuthService = Depends(get_service),
 ):
     await service.revoke_integration_api_key(current_user, key_id)
+
+
+@router.post("/ws-token", response_model=WsTokenResponse)
+async def create_ws_token(current_user: CurrentUserDep) -> WsTokenResponse:
+    """Issue a short-lived one-time token for WebSocket authentication."""
+    token = str(uuid.uuid4())
+    await ws_token_cache.set(token, current_user.id, ttl=_WS_TOKEN_TTL_SECONDS)
+    return WsTokenResponse(token=token)
 
 
 @router.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)

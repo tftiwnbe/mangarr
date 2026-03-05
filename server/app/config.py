@@ -138,12 +138,14 @@ class Settings(MangarrBaseSettings):
         )
 
     def save_settings(self) -> None:
-        """Persist settings back to YAML config file."""
+        """Persist settings back to YAML config file (atomic write)."""
+        import os
         path = self.app.config_path
         data = self.model_dump(exclude={"app"}, mode="json")
-
-        with path.open("w", encoding="utf-8") as f:
+        tmp = path.with_suffix(".yaml.tmp")
+        with tmp.open("w", encoding="utf-8") as f:
             yaml.safe_dump(data, f)
+        os.replace(tmp, path)
 
 
 def get_settings() -> Settings:

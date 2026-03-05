@@ -81,7 +81,7 @@ export function createAsyncResourceStore<T, A extends unknown[]>(
 			return currentState.data;
 		}
 
-		if (inFlight && inFlight.key === argsKey) {
+		if (!force && inFlight && inFlight.key === argsKey) {
 			return inFlight.promise;
 		}
 

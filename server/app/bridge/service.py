@@ -408,9 +408,11 @@ class TachibridgeService:
         source_id: str,
         preferences: dict[str, Any],
     ) -> None:
-        """Set multiple source preferences sequentially."""
-        for key, value in preferences.items():
-            await self.set_source_preference(source_id=source_id, key=key, value=value)
+        """Set multiple source preferences concurrently."""
+        await asyncio.gather(*(
+            self.set_source_preference(source_id=source_id, key=k, value=v)
+            for k, v in preferences.items()
+        ))
 
     # Title Explore
 

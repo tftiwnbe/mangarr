@@ -15,12 +15,12 @@ from sqlmodel import func, select
 from app.bridge import tachibridge
 from app.config import settings
 from app.core.database import run_migrations, sessionmanager
-from app.core.deps import get_current_user
 from app.core.errors import BridgeAPIError
 from app.core.logging import setup_logger
 from app.core.scheduler import scheduler
 from app.core.ws import ws_manager
 from app.features.auth import AuthService, auth_router
+from app.features.auth.router import ws_token_cache
 from app.features.covers import covers_router
 from app.features.explore import explore_router
 from app.features.downloads import downloads_router
@@ -117,17 +117,18 @@ async def websocket_endpoint(
     api_key: str | None = Query(None),
 ):
     """Authenticated real-time event stream (JSON messages)."""
-    async with sessionmanager.session() as db:
-        try:
-            await get_current_user(
-                db,
-                x_api_key=None,
-                authorization=None,
-                query_api_key=api_key,
-            )
-        except Exception:
-            await ws.close(code=1008, reason="Unauthorized")
-            return
+    user = None
+    if api_key is not None:
+        user_id = await ws_token_cache.get(api_key)
+        if user_id is not None:
+            await ws_token_cache.delete(api_key)  # one-time use
+            async with sessionmanager.session() as db:
+                user = await db.get(User, user_id)
+
+    if user is None:
+        logger.bind(reason="unauthorized").warning("ws.auth_failed")
+        await ws.close(code=1008, reason="Unauthorized")
+        return
 
     await ws_manager.connect(ws)
     try:

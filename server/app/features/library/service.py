@@ -9,7 +9,6 @@ from urllib.parse import parse_qs, quote, urljoin, urlparse
 
 import httpx
 from loguru import logger
-from sqlalchemy.exc import OperationalError, PendingRollbackError
 from sqlalchemy import insert
 from sqlmodel import delete, desc, func, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -17,6 +16,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.bridge import tachibridge
 from app.config import settings
 from app.core.errors import BridgeAPIError
+from app.core.utils import commit_with_sqlite_retry, normalize_positive_int_ids, normalize_text
 from app.features.downloads.storage import (
     chapter_archive_path,
     compress_chapter_pages,
@@ -70,7 +70,6 @@ from app.models import (
     Status,
 )
 
-_NORMALIZE_RE = re.compile(r"[\W_]+", re.UNICODE)
 _PAGE_INDEX_RE = re.compile(r"(\d+)")
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"}
 _AUTO_LINK_MAX_SOURCES = 12
@@ -86,11 +85,7 @@ DEFAULT_USER_STATUSES: tuple[tuple[str, str, str, int], ...] = (
 )
 
 
-def _normalize(value: str | None) -> str:
-    if not value:
-        return ""
-    lowered = value.strip().lower()
-    return _NORMALIZE_RE.sub(" ", lowered).strip()
+_normalize = normalize_text
 
 
 def _canonical_key(title: str, author: str | None = None) -> str:
@@ -144,40 +139,12 @@ _library_logger = logger.bind(module="library.service")
 
 
 class LibraryService:
-    _SQLITE_LOCK_RETRY_ATTEMPTS = 5
-    _SQLITE_LOCK_INITIAL_DELAY_SECONDS = 0.25
-
     def __init__(self, session: AsyncSession):
         self.session = session
         self.extension_service = ExtensionService(session)
 
-    @staticmethod
-    def _is_sqlite_locked_error(error: BaseException) -> bool:
-        text = str(getattr(error, "orig", error)).lower()
-        return "database is locked" in text or "sqlite_busy" in text
-
     async def _commit_with_sqlite_retry(self) -> None:
-        delay = self._SQLITE_LOCK_INITIAL_DELAY_SECONDS
-        for attempt in range(self._SQLITE_LOCK_RETRY_ATTEMPTS + 1):
-            try:
-                await self.session.commit()
-                return
-            except OperationalError as exc:
-                if not self._is_sqlite_locked_error(exc):
-                    raise
-                await self.session.rollback()
-                if attempt >= self._SQLITE_LOCK_RETRY_ATTEMPTS:
-                    raise
-                await asyncio.sleep(delay)
-                delay *= 2
-            except PendingRollbackError as exc:
-                if not self._is_sqlite_locked_error(exc):
-                    raise
-                await self.session.rollback()
-                if attempt >= self._SQLITE_LOCK_RETRY_ATTEMPTS:
-                    raise
-                await asyncio.sleep(delay)
-                delay *= 2
+        await commit_with_sqlite_retry(self.session)
 
     async def list_titles(
         self,
@@ -2907,18 +2874,7 @@ class LibraryService:
 
     @staticmethod
     def _normalize_positive_int_ids(values: list[object]) -> list[int]:
-        parsed: list[int] = []
-        seen: set[int] = set()
-        for raw in values:
-            try:
-                value = int(raw)
-            except (TypeError, ValueError):
-                continue
-            if value <= 0 or value in seen:
-                continue
-            seen.add(value)
-            parsed.append(value)
-        return parsed
+        return normalize_positive_int_ids(values)
 
     async def _normalize_monitoring_variant_ids(
         self,

@@ -10,6 +10,7 @@ from sqlmodel import delete, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.bridge import tachibridge
+from app.core.utils import normalize_text
 from app.features.extensions import ExtensionService
 from app.models import (
     ExploreCacheItem,
@@ -26,7 +27,6 @@ from app.models import (
     SourcePreferencesResource,
 )
 
-_NORMALIZE_RE = re.compile(r"[\W_]+", re.UNICODE)
 _UUID_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
     re.IGNORECASE,
@@ -40,11 +40,7 @@ MAX_CATEGORY_ITEMS = 250
 AUTO_LINK_EXPLORE_MAX_ITEMS = 4
 
 
-def _normalize(value: str | None) -> str:
-    if not value:
-        return ""
-    lowered = value.strip().lower()
-    return _NORMALIZE_RE.sub(" ", lowered).strip()
+_normalize = normalize_text
 
 
 def _dedupe_key(title: str, author: str | None = None) -> str:

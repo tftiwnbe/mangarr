@@ -5,6 +5,7 @@ import { ApiError } from './errors';
 import {
 	clearAuthSession,
 	getApiKeyPersistence,
+	getAuthorizationHeader,
 	setCachedUserProfile,
 	setStoredApiKey,
 	type ApiKeyPersistence
@@ -129,4 +130,22 @@ export async function changePassword(payload: ChangePasswordRequest): Promise<vo
 
 export function signOut(): void {
 	clearAuthSession();
+}
+
+/**
+ * Request a short-lived one-time token for WebSocket authentication.
+ * Using this token in the WS URL avoids exposing the main API key in server logs.
+ */
+export async function getWsToken(): Promise<string> {
+	const authHeader = getAuthorizationHeader();
+	if (!authHeader) throw new Error('Not authenticated');
+	const response = await fetch(buildApiUrl('/api/v2/auth/ws-token'), {
+		method: 'POST',
+		headers: { Authorization: authHeader, Accept: 'application/json' }
+	});
+	if (!response.ok) {
+		throw new ApiError(response.status, null, 'Failed to obtain WS token');
+	}
+	const data = (await response.json()) as { token: string };
+	return data.token;
 }

@@ -4,8 +4,8 @@
  * events (task.done, monitor.run, worker.run, …).
  */
 
+import { getWsToken } from '$lib/api/auth';
 import { API_BASE_URL } from '$lib/api/config';
-import { getStoredApiKey } from '$lib/api/session';
 
 export type WsEvent = {
 	event: string;
@@ -18,9 +18,8 @@ type Unsubscribe = () => void;
 const RECONNECT_DELAY_MS = 3_000;
 const WS_PATH = '/api/v2/ws';
 
-function buildWsUrl(): string {
-	const apiKey = getStoredApiKey();
-	const keyParam = apiKey ? `?api_key=${encodeURIComponent(apiKey)}` : '';
+function buildWsUrl(token: string): string {
+	const keyParam = `?api_key=${encodeURIComponent(token)}`;
 	if (API_BASE_URL) {
 		// Convert http(s):// → ws(s)://
 		return API_BASE_URL.replace(/^http/, 'ws') + WS_PATH + keyParam;
@@ -43,7 +42,7 @@ class WebSocketManager {
 	connect(): void {
 		if (this.active) return;
 		this.active = true;
-		this._open();
+		void this._open();
 	}
 
 	/** Close the connection and stop reconnecting (e.g. on logout). */
@@ -70,9 +69,24 @@ class WebSocketManager {
 
 	// ── internals ──────────────────────────────────────────────────────────────
 
-	private _open(): void {
+	private async _open(): Promise<void> {
 		if (!this.active) return;
-		const url = buildWsUrl();
+
+		// Fetch a short-lived token to avoid exposing the main API key in the URL
+		let url: string;
+		try {
+			const token = await getWsToken();
+			url = buildWsUrl(token);
+		} catch {
+			// Token fetch failed (e.g. network error) — retry on normal schedule
+			if (this.active) {
+				this.reconnectTimer = setTimeout(() => void this._open(), RECONNECT_DELAY_MS);
+			}
+			return;
+		}
+
+		if (!this.active) return; // disconnected while awaiting token
+
 		const ws = new WebSocket(url);
 		this.ws = ws;
 
@@ -87,7 +101,8 @@ class WebSocketManager {
 			let data: WsEvent;
 			try {
 				data = JSON.parse(e.data as string) as WsEvent;
-			} catch {
+			} catch (err) {
+				console.warn('[ws] Failed to parse message:', err);
 				return;
 			}
 			this._dispatch(data);
@@ -96,7 +111,7 @@ class WebSocketManager {
 		ws.onclose = () => {
 			this.ws = null;
 			if (this.active) {
-				this.reconnectTimer = setTimeout(() => this._open(), RECONNECT_DELAY_MS);
+				this.reconnectTimer = setTimeout(() => void this._open(), RECONNECT_DELAY_MS);
 			}
 		};
 

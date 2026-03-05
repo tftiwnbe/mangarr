@@ -53,7 +53,7 @@
 				wsManager.connect();
 			} catch {
 				clearAuthSession();
-				wsManager.disconnect();
+				if (isAuthenticated) wsManager.disconnect();
 				await navigateToLogin();
 			} finally {
 				isCheckingAuth = false;
@@ -114,7 +114,7 @@
 				{@render children()}
 			</main>
 		{:else}
-			<main class="relative z-10 pb-20 md:pb-6">
+			<main class="relative z-10 pb-20 md:pb-6 md:pl-16">
 				<div class="mx-auto w-full max-w-5xl px-4 py-6 md:px-6 md:py-8">
 					{@render children()}
 				</div>
@@ -159,9 +159,5 @@
 			</div>
 		</aside>
 
-		<!-- Desktop content offset -->
-		<div class="hidden md:block md:pl-16">
-			<!-- Content is already rendered above, this is just for layout -->
-		</div>
 	{/if}
 </div>

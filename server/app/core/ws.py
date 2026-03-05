@@ -3,7 +3,7 @@ WebSocket connection manager.
 
 Maintains the set of authenticated WebSocket clients and provides a single
 `broadcast()` call that fan-outs JSON events to all of them.  Dead connections
-are silently pruned on the next broadcast.
+are pruned on the next broadcast.
 """
 import asyncio
 import json
@@ -46,7 +46,8 @@ class ConnectionManager:
         for ws in connections:
             try:
                 await ws.send_text(message)
-            except Exception:
+            except Exception as exc:
+                _ws_logger.debug("ws.pruned error={}", type(exc).__name__)
                 dead.append(ws)
         if dead:
             async with self._lock:

@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from app.models import PersistentCacheEntry
 
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import delete
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -108,17 +109,15 @@ class PersistentCache:
         expires_at = _utc_expiry_from_ttl(ttl)
 
         async with self._sessions() as session:
-            entry = await session.get(PersistentCacheEntry, key)
-            if entry is None:
-                entry = PersistentCacheEntry(
-                    key=key,
-                    data=encoded,
-                    expires_at=expires_at,
+            stmt = (
+                sqlite_insert(PersistentCacheEntry)
+                .values(key=key, data=encoded, expires_at=expires_at)
+                .on_conflict_do_update(
+                    index_elements=["key"],
+                    set_={"data": encoded, "expires_at": expires_at},
                 )
-                session.add(entry)
-            else:
-                entry.data = encoded
-                entry.expires_at = expires_at
+            )
+            await session.execute(stmt)
             await session.commit()
 
     async def delete(self, key: str) -> None:
