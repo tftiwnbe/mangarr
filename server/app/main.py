@@ -1,4 +1,5 @@
 import asyncio
+import random
 from contextlib import suppress
 from contextlib import asynccontextmanager
 from time import time
@@ -108,19 +109,40 @@ async def handle_unexpected_error(_: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(status_code=500, content={"detail": detail})
 
 
-if settings.log.access:
+_ACCESS_SAMPLE_RATE = 0.05   # fraction of normal requests to keep
+_ACCESS_SLOW_MS = 1_000      # requests slower than this are always kept
 
-    @app.middleware("http")
-    async def log_requests(request: Request, call_next):
-        start_time = time()
-        response = await call_next(request)
-        host = request.client.host if request.client else "unknown"
-        process_time = (time() - start_time) * 1000
-        logger.bind(access=True).info(
-            f"{host} | {request.method} {request.url.path} "
-            f"→ {response.status_code} ({process_time:.2f}ms)"
-        )
-        return response
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time()
+    response = await call_next(request)
+    host = request.client.host if request.client else "unknown"
+    process_time_ms = round((time() - start_time) * 1000)
+
+    is_error = response.status_code >= 400
+    is_slow = process_time_ms >= _ACCESS_SLOW_MS
+
+    # Always keep errors and slow requests; sample the rest at 5%.
+    # sample_rate field lets consumers reconstruct true counts (rate=1 → exact, rate=N → ×N).
+    if is_error or is_slow:
+        sample_rate = 1
+    elif random.random() >= _ACCESS_SAMPLE_RATE:
+        return response  # drop this request, not sampled
+    else:
+        sample_rate = round(1 / _ACCESS_SAMPLE_RATE)
+
+    level = "WARNING" if response.status_code >= 500 else "INFO"
+    logger.bind(
+        access=True,
+        method=request.method,
+        path=request.url.path,
+        status=response.status_code,
+        duration_ms=process_time_ms,
+        client=host,
+        sample_rate=sample_rate,
+    ).log(level, f"{request.method} {request.url.path} → {response.status_code} ({process_time_ms}ms)")
+    return response
 
 
 app.add_middleware(

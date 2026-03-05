@@ -3,6 +3,7 @@ from difflib import SequenceMatcher
 import json
 import re
 import shutil
+import time as _time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urljoin, urlparse
@@ -1094,6 +1095,7 @@ class DownloadService:
         limit: int = 25,
         seed_existing: bool = False,
     ) -> MonitorRunResponse:
+        _t0 = _time.monotonic()
         async with self._monitor_lock:
             rows = (
                 await self.session.exec(
@@ -1205,12 +1207,20 @@ class DownloadService:
                         profile.library_title_id,
                     )
 
-            return MonitorRunResponse(
+            result = MonitorRunResponse(
                 checked_titles=checked,
                 enqueued_tasks=enqueued_total,
             )
+            if checked > 0 or enqueued_total > 0:
+                _service_logger.bind(
+                    titles_checked=checked,
+                    enqueued=enqueued_total,
+                    duration_ms=round((_time.monotonic() - _t0) * 1000),
+                ).info("monitor.run")
+            return result
 
     async def run_worker_once(self, batch_size: int | None = None) -> WorkerRunResponse:
+        _t0 = _time.monotonic()
         async with self._worker_lock:
             await self._requeue_stale_downloading_tasks()
             limit = batch_size or max(
@@ -1247,7 +1257,13 @@ class DownloadService:
 
                 await asyncio.gather(*(run_one(task_id) for task_id in claimed_task_ids))
 
-            return WorkerRunResponse(processed_tasks=len(claimed_task_ids))
+            processed = len(claimed_task_ids)
+            if processed > 0:
+                _service_logger.bind(
+                    tasks=processed,
+                    duration_ms=round((_time.monotonic() - _t0) * 1000),
+                ).info("worker.run")
+            return WorkerRunResponse(processed_tasks=processed)
 
     @classmethod
     async def run_compress_backlog_once_isolated(
@@ -2406,24 +2422,47 @@ class DownloadService:
         return task
 
     async def _process_task(self, task: DownloadTask) -> None:
+        _t0 = _time.monotonic()
         now = _now_utc()
+
+        def _log_task(status: str, /, pages: int | None = None, error: str | None = None) -> None:
+            _service_logger.bind(
+                task_id=task.id,
+                attempt_group=task.attempt_group_id,
+                attempt=task.attempts,
+                chapter_id=task.chapter_id,
+                title_id=task.library_title_id,
+                source_id=task.source_id,
+                trigger=str(task.trigger.value) if task.trigger else None,
+                title=task.title_name,
+                chapter=task.chapter_name,
+                pages=pages,
+                error=error,
+                duration_ms=round((_time.monotonic() - _t0) * 1000),
+                status=status,
+            ).log("WARNING" if status in ("failed", "cancelled") else "INFO", "task.done")
+
         chapter = await self.session.get(LibraryChapter, task.chapter_id)
         if chapter is None:
             await self._mark_task_cancelled(task.id, "Chapter no longer exists")
+            _log_task("cancelled", error="Chapter no longer exists")
             return
 
         variant = await self.session.get(LibraryTitleVariant, chapter.variant_id)
         title = await self.session.get(LibraryTitle, chapter.library_title_id)
         if variant is None or title is None:
             await self._mark_task_failed(task.id, "Broken chapter references", final=True)
+            _log_task("failed", error="Broken chapter references")
             return
 
         if await self._is_title_paused(int(title.id)):
             await self._mark_task_requeued(task.id, reason="Paused")
+            _log_task("requeued", error="Paused")
             return
 
         if chapter.is_downloaded:
             await self._mark_task_completed(task.id, output_dir=chapter.download_path)
+            _log_task("skipped_already_downloaded")
             return
 
         output_dir = self._chapter_dir(title=title, variant=variant, chapter=chapter)
@@ -2477,6 +2516,7 @@ class DownloadService:
                 for page in pages:
                     if await self._is_title_paused(int(title.id)):
                         await self._mark_task_requeued(task.id, reason="Paused")
+                        _log_task("requeued", pages=downloaded_pages, error="Paused mid-download")
                         return
                     remote_url = self._resolve_remote_page_url(
                         image_url=page.image_url,
@@ -2563,6 +2603,7 @@ class DownloadService:
                     )
 
             await self._mark_task_completed(task.id, output_dir=chapter.download_path)
+            _log_task("completed", pages=downloaded_pages)
         except Exception as exc:
             chapter.is_downloaded = False
             chapter.download_error = _short_error(exc)
@@ -2573,6 +2614,7 @@ class DownloadService:
             if "unavailable in MangaLib API" in (chapter.download_error or ""):
                 final = True
             await self._mark_task_failed(task.id, chapter.download_error, final=final)
+            _log_task("failed", error=chapter.download_error)
 
     async def _download_with_retries(
         self,

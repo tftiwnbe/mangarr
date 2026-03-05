@@ -1,9 +1,11 @@
 import asyncio
 import re
+import time as _time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 from urllib.parse import urlparse
 
+from loguru import logger
 from sqlmodel import delete, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -96,6 +98,9 @@ def _genre_contains_category(genre_value: str | None, category: str | None) -> b
     return any(
         _normalize(part) == normalized_category for part in genre_value.split(",")
     )
+
+
+_explore_logger = logger.bind(module="explore.service")
 
 
 class ExploreService:
@@ -297,6 +302,7 @@ class ExploreService:
         )
 
     async def refresh_enabled_sources_cache(self, max_pages: int = 2) -> None:
+        _t0 = _time.monotonic()
         async with self._refresh_lock:
             sources = await self.list_sources(enabled=True)
             latest_sources = [source for source in sources if source.supports_latest]
@@ -317,6 +323,13 @@ class ExploreService:
                         page=page,
                         force=True,
                     )
+
+            _explore_logger.bind(
+                sources=len(sources),
+                latest_sources=len(latest_sources),
+                max_pages=max_pages,
+                duration_ms=round((_time.monotonic() - _t0) * 1000),
+            ).info("explore.cache_refresh")
 
     async def _cached_feed(
         self,

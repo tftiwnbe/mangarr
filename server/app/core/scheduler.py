@@ -167,15 +167,25 @@ class TaskScheduler:
             timestamp = datetime.now(tz=UTC)
             job.running = True
             executed = False
+            _t0 = loop.time()
             try:
                 executed = True
                 result = job.func()
                 if inspect.isawaitable(result):
                     await result
+                self._logger.bind(
+                    job=job.name,
+                    duration_ms=round((loop.time() - _t0) * 1000),
+                    status="ok",
+                ).info("job.run")
             except asyncio.CancelledError:
                 raise
             except Exception:
-                self._logger.exception("Scheduled job %s failed.", job.name)
+                self._logger.bind(
+                    job=job.name,
+                    duration_ms=round((loop.time() - _t0) * 1000),
+                    status="error",
+                ).exception("job.run")
             finally:
                 job.running = False
                 if executed:

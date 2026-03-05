@@ -1,9 +1,67 @@
+import json
 import logging
 from sys import stdout
+from typing import Callable
 
 from loguru import logger
 
 from app.config import settings
+
+# Extra keys used for log routing/filtering — excluded from output pairs
+_INTERNAL_EXTRA_KEYS = frozenset(
+    {"module", "access", "bridge_logger", "bridge_thread", "bridge_raw", "bridge_stream"}
+)
+
+_BASE_FORMAT = (
+    "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+    "<level>{level: <8}</level> | "
+    "<cyan>{extra[module]}</cyan> | <level>{message}</level>"
+)
+_BASE_FORMAT_DEBUG = (
+    "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+    "<level>{level: <8}</level> | "
+    "<cyan>{name}:{function}:{line}</cyan> | <level>{message}</level>"
+)
+_ACCESS_FORMAT = (
+    "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+    "<level>{level: <8}</level> | "
+    "<level>{message}</level>"
+)
+
+
+def _with_extra(base: str) -> Callable:
+    """Returns a Loguru format callable that appends non-internal extra fields as key=value pairs."""
+
+    def formatter(record: dict) -> str:
+        extra = {k: v for k, v in record["extra"].items() if k not in _INTERNAL_EXTRA_KEYS}
+        if extra:
+            parts = [
+                "{}={}".format(k, str(v).replace("{", "{{").replace("}", "}}"))
+                for k, v in extra.items()
+                if v is not None
+            ]
+            suffix = " | " + " ".join(parts) if parts else ""
+        else:
+            suffix = ""
+        return base + suffix + "\n"
+
+    return formatter
+
+
+def _json_format(record: dict) -> str:
+    """Loguru format callable that produces a NDJSON line with all extra fields at the top level."""
+    data: dict = {
+        "t": record["time"].strftime("%Y-%m-%dT%H:%M:%S.%f"),
+        "lvl": record["level"].name,
+        "mod": record["extra"].get("module", record["name"]),
+        "msg": str(record["message"]),
+    }
+    for k, v in record["extra"].items():
+        if k not in _INTERNAL_EXTRA_KEYS and v is not None:
+            data[k] = v
+    raw = json.dumps(data, default=str)
+    # Escape braces so Loguru's str.format_map() pass doesn't corrupt the JSON
+    return raw.replace("{", "{{").replace("}", "}}") + "\n"
 
 
 def setup_logger():
@@ -16,38 +74,40 @@ def setup_logger():
     log_encoding = "utf-8"
     log_access = settings.log.access
 
-    log_format_info = (
-        "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-        "<level>{level: <8}</level> | "
-        "<cyan>{extra[module]}</cyan> | <level>{message}</level>"
-    )
-    log_format_debug = (
-        "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-        "<level>{level: <8}</level> | "
-        "<cyan>{name}:{function}:{line}</cyan> | <level>{message}</level>"
-    )
-    log_format_access = (
-        "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-        "<level>{level: <8}</level> | "
-        "<level>{message}</level>"
-    )
+    _no_access = lambda record: "access" not in record["extra"]  # noqa: E731
+    _only_access = lambda record: "access" in record["extra"]  # noqa: E731
 
+    # Console — human-readable with key=value extra fields
     logger.add(
         stdout,
         colorize=True,
-        format=log_format_info,
+        format=_with_extra(_BASE_FORMAT),
         level=log_level,
-        filter=lambda record: "access" not in record["extra"],
+        filter=_no_access,
     )
 
+    # Main text log file
     logger.add(
         log_dir / "mangarr.log",
         rotation=log_rotation,
         retention=log_retention,
         encoding=log_encoding,
         level="INFO",
-        format=log_format_info,
-        filter=lambda record: "access" not in record["extra"],
+        format=_with_extra(_BASE_FORMAT),
+        colorize=False,
+        filter=_no_access,
+    )
+
+    # Structured NDJSON log — one JSON object per line, all extra fields at top level
+    logger.add(
+        log_dir / "mangarr.jsonl",
+        rotation=log_rotation,
+        retention=log_retention,
+        encoding=log_encoding,
+        level="INFO",
+        format=_json_format,
+        colorize=False,
+        filter=_no_access,
     )
 
     if log_level == "DEBUG":
@@ -57,10 +117,12 @@ def setup_logger():
             retention=log_retention,
             encoding=log_encoding,
             level="DEBUG",
-            format=log_format_debug,
-            filter=lambda record: "access" not in record["extra"],
+            format=_with_extra(_BASE_FORMAT_DEBUG),
+            colorize=False,
+            filter=_no_access,
         )
 
+    # HTTP access logs — file only, controlled by config (too noisy for console)
     if log_access:
         logger.add(
             log_dir / "mangarr.access.log",
@@ -68,16 +130,9 @@ def setup_logger():
             retention=log_retention,
             encoding=log_encoding,
             level="INFO",
-            format=log_format_access,
-            filter=lambda record: "access" in record["extra"],
-        )
-    if log_access and log_level == "DEBUG":
-        logger.add(
-            stdout,
-            colorize=True,
-            format=log_format_info,
-            level=log_level,
-            filter=lambda record: "access" in record["extra"],
+            format=_with_extra(_ACCESS_FORMAT),
+            colorize=False,
+            filter=_only_access,
         )
 
     # Redirect built-in logging -> Loguru
@@ -102,7 +157,7 @@ def setup_logger():
         logging_logger.handlers = []
         logging_logger.propagate = True
 
-    # Disable Uvicorn’s native access logs to avoid duplication
+    # Disable Uvicorn's native access logs to avoid duplication
     logging.getLogger("uvicorn.access").disabled = True
 
     return logger

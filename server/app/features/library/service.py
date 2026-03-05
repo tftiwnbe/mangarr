@@ -1,12 +1,14 @@
 import asyncio
 import json
 import re
+import time as _time
 from difflib import SequenceMatcher
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urljoin, urlparse
 
 import httpx
+from loguru import logger
 from sqlalchemy.exc import OperationalError, PendingRollbackError
 from sqlalchemy import insert
 from sqlmodel import delete, desc, func, select, update
@@ -136,6 +138,9 @@ def _resolve_libgroup_chapter_url_for_bridge(chapter_url: str) -> str:
         f"/{slug}/chapter?"
         f"{branch_part}&volume={quote(volume, safe='')}&number={quote(number, safe='')}"
     )
+
+
+_library_logger = logger.bind(module="library.service")
 
 
 class LibraryService:
@@ -887,9 +892,14 @@ class LibraryService:
             .values(updated_at=now)
         )
         await self.session.commit()
-        return len(deletable_ids)
+        removed = len(deletable_ids)
+        _library_logger.bind(removed=removed, older_than_days=older_than_days).info(
+            "titles.cleanup"
+        )
+        return removed
 
     async def import_title(self, request: LibraryImportRequest) -> LibraryImportResponse:
+        _t0 = _time.monotonic()
         source = await self._resolve_source(request.source_id)
         details = await self._fetch_title_details_with_fallback(
             source_id=request.source_id,
@@ -1025,10 +1035,19 @@ class LibraryService:
         except Exception:
             pass
 
-        return LibraryImportResponse(
+        result = LibraryImportResponse(
             library_title_id=int(library_title.id),
             created=created,
         )
+        _library_logger.bind(
+            title_id=int(library_title.id),
+            source_id=request.source_id,
+            title=details.title,
+            chapters=len(chapters),
+            created=created,
+            duration_ms=round((_time.monotonic() - _t0) * 1000),
+        ).info("title.imported")
+        return result
 
     async def _fetch_title_details_with_fallback(
         self, source_id: str, title_url: str
