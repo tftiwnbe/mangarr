@@ -124,6 +124,26 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v2/auth/ws-token': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Create Ws Token
+		 * @description Issue a short-lived one-time token for WebSocket authentication.
+		 */
+		post: operations['create_ws_token_api_v2_auth_ws_token_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v2/auth/me/password': {
 		parameters: {
 			query?: never;
@@ -997,6 +1017,94 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v2/library/titles/{title_id}/chapter-progress': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** List Library Title Chapter Progress */
+		get: operations['list_library_title_chapter_progress_api_v2_library_titles__title_id__chapter_progress_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/library/chapters/{chapter_id}/progress': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Get Library Chapter Progress */
+		get: operations['get_library_chapter_progress_api_v2_library_chapters__chapter_id__progress_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		/** Update Library Chapter Progress */
+		patch: operations['update_library_chapter_progress_api_v2_library_chapters__chapter_id__progress_patch'];
+		trace?: never;
+	};
+	'/api/v2/library/titles/{title_id}/comments': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** List Library Title Comments */
+		get: operations['list_library_title_comments_api_v2_library_titles__title_id__comments_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/library/chapters/{chapter_id}/comments': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** List Library Chapter Comments */
+		get: operations['list_library_chapter_comments_api_v2_library_chapters__chapter_id__comments_get'];
+		put?: never;
+		/** Create Library Chapter Comment */
+		post: operations['create_library_chapter_comment_api_v2_library_chapters__chapter_id__comments_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/library/chapter-comments/{comment_id}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		/** Update Library Chapter Comment */
+		put: operations['update_library_chapter_comment_api_v2_library_chapter_comments__comment_id__put'];
+		post?: never;
+		/** Delete Library Chapter Comment */
+		delete: operations['delete_library_chapter_comment_api_v2_library_chapter_comments__comment_id__delete'];
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v2/settings/downloads': {
 		parameters: {
 			query?: never;
@@ -1050,6 +1158,128 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v2/settings/scheduler': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Get Scheduler Status */
+		get: operations['get_scheduler_status_api_v2_settings_scheduler_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/settings/scheduler/{job_name}/trigger': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Trigger Scheduler Job */
+		post: operations['trigger_scheduler_job_api_v2_settings_scheduler__job_name__trigger_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/settings/scheduler/{job_name}/pause': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Pause Scheduler Job */
+		post: operations['pause_scheduler_job_api_v2_settings_scheduler__job_name__pause_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/settings/scheduler/{job_name}/resume': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Resume Scheduler Job */
+		post: operations['resume_scheduler_job_api_v2_settings_scheduler__job_name__resume_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/settings/flaresolverr': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Get Flaresolverr Settings */
+		get: operations['get_flaresolverr_settings_api_v2_settings_flaresolverr_get'];
+		/** Update Flaresolverr Settings */
+		put: operations['update_flaresolverr_settings_api_v2_settings_flaresolverr_put'];
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/settings/proxy': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Get Proxy Settings */
+		get: operations['get_proxy_settings_api_v2_settings_proxy_get'];
+		/** Update Proxy Settings */
+		put: operations['update_proxy_settings_api_v2_settings_proxy_put'];
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	'/api/v2/settings/content-languages': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Get Content Languages */
+		get: operations['get_content_languages_api_v2_settings_content_languages_get'];
+		/** Update Content Languages */
+		put: operations['update_content_languages_api_v2_settings_content_languages_put'];
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1060,6 +1290,16 @@ export interface components {
 			current_password: string;
 			/** New Password */
 			new_password: string;
+		};
+		/** ContentLanguagesResource */
+		ContentLanguagesResource: {
+			/** Preferred */
+			preferred?: string[];
+		};
+		/** ContentLanguagesUpdate */
+		ContentLanguagesUpdate: {
+			/** Preferred */
+			preferred: string[];
 		};
 		/** CreateIntegrationApiKeyRequest */
 		CreateIntegrationApiKeyRequest: {
@@ -1358,6 +1598,10 @@ export interface components {
 		DownloadTaskResource: {
 			/** Id */
 			id: number;
+			/** Attempt Group Id */
+			attempt_group_id: number | null;
+			/** Retry Of Task Id */
+			retry_of_task_id: number | null;
 			/** Library Title Id */
 			library_title_id: number;
 			/** Variant Id */
@@ -1555,6 +1799,48 @@ export interface components {
 			/** Sources */
 			sources: components['schemas']['Source'][];
 		};
+		/** FlareSolverrSettingsResource */
+		FlareSolverrSettingsResource: {
+			/**
+			 * Enabled
+			 * @default false
+			 */
+			enabled: boolean;
+			/**
+			 * Url
+			 * @default http://localhost:8191
+			 */
+			url: string;
+			/**
+			 * Timeout Seconds
+			 * @default 45
+			 */
+			timeout_seconds: number;
+			/**
+			 * Response Fallback
+			 * @default true
+			 */
+			response_fallback: boolean;
+			/** Session Name */
+			session_name?: string | null;
+			/** Session Ttl Minutes */
+			session_ttl_minutes?: number | null;
+		};
+		/** FlareSolverrSettingsUpdate */
+		FlareSolverrSettingsUpdate: {
+			/** Enabled */
+			enabled?: boolean | null;
+			/** Url */
+			url?: string | null;
+			/** Timeout Seconds */
+			timeout_seconds?: number | null;
+			/** Response Fallback */
+			response_fallback?: boolean | null;
+			/** Session Name */
+			session_name?: string | null;
+			/** Session Ttl Minutes */
+			session_ttl_minutes?: number | null;
+		};
 		/** HTTPValidationError */
 		HTTPValidationError: {
 			/** Detail */
@@ -1628,6 +1914,52 @@ export interface components {
 			/** Cleanup Unassigned Batch Limit */
 			cleanup_unassigned_batch_limit?: number | null;
 		};
+		/** LibraryChapterCommentCreate */
+		LibraryChapterCommentCreate: {
+			/**
+			 * Page Index
+			 * @default 0
+			 */
+			page_index: number;
+			/** Message */
+			message: string;
+		};
+		/** LibraryChapterCommentResource */
+		LibraryChapterCommentResource: {
+			/** Id */
+			id: number;
+			/** Chapter Id */
+			chapter_id: number;
+			/** Library Title Id */
+			library_title_id: number;
+			/** Variant Id */
+			variant_id: number;
+			/** Chapter Name */
+			chapter_name: string;
+			/** Chapter Number */
+			chapter_number: number;
+			/** Page Index */
+			page_index: number;
+			/** Message */
+			message: string;
+			/**
+			 * Created At
+			 * Format: date-time
+			 */
+			created_at: string;
+			/**
+			 * Updated At
+			 * Format: date-time
+			 */
+			updated_at: string;
+		};
+		/** LibraryChapterCommentUpdate */
+		LibraryChapterCommentUpdate: {
+			/** Page Index */
+			page_index?: number | null;
+			/** Message */
+			message?: string | null;
+		};
 		/** LibraryChapterPageResource */
 		LibraryChapterPageResource: {
 			/** Id */
@@ -1642,6 +1974,24 @@ export interface components {
 			local_path: string | null;
 			/** Local Size */
 			local_size: number | null;
+		};
+		/** LibraryChapterProgressResource */
+		LibraryChapterProgressResource: {
+			/** Chapter Id */
+			chapter_id: number;
+			/** Page Index */
+			page_index?: number | null;
+			/** Comment */
+			comment?: string | null;
+			/** Updated At */
+			updated_at?: string | null;
+		};
+		/** LibraryChapterProgressUpdate */
+		LibraryChapterProgressUpdate: {
+			/** Page Index */
+			page_index?: number | null;
+			/** Comment */
+			comment?: string | null;
 		};
 		/** LibraryChapterResource */
 		LibraryChapterResource: {
@@ -1672,6 +2022,10 @@ export interface components {
 			download_path: string | null;
 			/** Download Error */
 			download_error: string | null;
+			/** Reader Page Index */
+			reader_page_index?: number | null;
+			/** Reader Updated At */
+			reader_updated_at?: string | null;
 		};
 		/** LibraryCollectionCreate */
 		LibraryCollectionCreate: {
@@ -1790,6 +2144,12 @@ export interface components {
 			prev_chapter_id: number | null;
 			/** Next Chapter Id */
 			next_chapter_id: number | null;
+			/** Reader Page Index */
+			reader_page_index?: number | null;
+			/** Reader Comment */
+			reader_comment?: string | null;
+			/** Reader Updated At */
+			reader_updated_at?: string | null;
 			/** Pages */
 			pages: components['schemas']['ReaderPageResource'][];
 		};
@@ -2029,6 +2389,48 @@ export interface components {
 		 * @enum {string}
 		 */
 		PreferenceType: 'list' | 'toggle' | 'multi_select' | 'text';
+		/** ProxySettingsResource */
+		ProxySettingsResource: {
+			/**
+			 * Hostname
+			 * @default
+			 */
+			hostname: string;
+			/**
+			 * Port
+			 * @default 0
+			 */
+			port: number;
+			/** Username */
+			username?: string | null;
+			/** Password */
+			password?: string | null;
+			/**
+			 * Ignored Addresses
+			 * @default
+			 */
+			ignored_addresses: string;
+			/**
+			 * Bypass Local Addresses
+			 * @default true
+			 */
+			bypass_local_addresses: boolean;
+		};
+		/** ProxySettingsUpdate */
+		ProxySettingsUpdate: {
+			/** Hostname */
+			hostname?: string | null;
+			/** Port */
+			port?: number | null;
+			/** Username */
+			username?: string | null;
+			/** Password */
+			password?: string | null;
+			/** Ignored Addresses */
+			ignored_addresses?: string | null;
+			/** Bypass Local Addresses */
+			bypass_local_addresses?: boolean | null;
+		};
 		/** ReaderPageResource */
 		ReaderPageResource: {
 			/** Id */
@@ -2096,6 +2498,26 @@ export interface components {
 			 */
 			rotated_at: string;
 		};
+		/** SchedulerJobResource */
+		SchedulerJobResource: {
+			/** Name */
+			name: string;
+			/** Label */
+			label: string;
+			/** Interval Seconds */
+			interval_seconds: number;
+			/** Paused */
+			paused: boolean;
+			/** Running */
+			running: boolean;
+			/** Last Run At */
+			last_run_at?: string | null;
+		};
+		/** SchedulerStatusResource */
+		SchedulerStatusResource: {
+			/** Jobs */
+			jobs: components['schemas']['SchedulerJobResource'][];
+		};
 		/** SetupStatusResponse */
 		SetupStatusResponse: {
 			/** Needs Setup */
@@ -2153,6 +2575,11 @@ export interface components {
 			key: string;
 			/** Value */
 			value?: unknown | null;
+			/**
+			 * Delete
+			 * @default false
+			 */
+			delete: boolean;
 		};
 		/** SourcePreferencesResource */
 		SourcePreferencesResource: {
@@ -2209,6 +2636,11 @@ export interface components {
 		WorkerRunResponse: {
 			/** Processed Tasks */
 			processed_tasks: number;
+		};
+		/** WsTokenResponse */
+		WsTokenResponse: {
+			/** Token */
+			token: string;
 		};
 	};
 	responses: never;
@@ -2469,6 +2901,38 @@ export interface operations {
 			};
 		};
 	};
+	create_ws_token_api_v2_auth_ws_token_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['WsTokenResponse'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
 	change_password_api_v2_auth_me_password_post: {
 		parameters: {
 			query?: never;
@@ -2508,7 +2972,10 @@ export interface operations {
 			query: {
 				url: string;
 			};
-			header?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
 			path?: never;
 			cookie?: never;
 		};
@@ -4428,6 +4895,295 @@ export interface operations {
 			};
 		};
 	};
+	list_library_title_chapter_progress_api_v2_library_titles__title_id__chapter_progress_get: {
+		parameters: {
+			query?: {
+				variant_id?: number | null;
+			};
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path: {
+				title_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['LibraryChapterProgressResource'][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	get_library_chapter_progress_api_v2_library_chapters__chapter_id__progress_get: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path: {
+				chapter_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['LibraryChapterProgressResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	update_library_chapter_progress_api_v2_library_chapters__chapter_id__progress_patch: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path: {
+				chapter_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['LibraryChapterProgressUpdate'];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['LibraryChapterProgressResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	list_library_title_comments_api_v2_library_titles__title_id__comments_get: {
+		parameters: {
+			query?: {
+				variant_id?: number | null;
+				newest_first?: boolean;
+			};
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path: {
+				title_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['LibraryChapterCommentResource'][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	list_library_chapter_comments_api_v2_library_chapters__chapter_id__comments_get: {
+		parameters: {
+			query?: {
+				newest_first?: boolean;
+			};
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path: {
+				chapter_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['LibraryChapterCommentResource'][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	create_library_chapter_comment_api_v2_library_chapters__chapter_id__comments_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path: {
+				chapter_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['LibraryChapterCommentCreate'];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			201: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['LibraryChapterCommentResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	update_library_chapter_comment_api_v2_library_chapter_comments__comment_id__put: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path: {
+				comment_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['LibraryChapterCommentUpdate'];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['LibraryChapterCommentResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	delete_library_chapter_comment_api_v2_library_chapter_comments__comment_id__delete: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path: {
+				comment_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
 	get_download_settings_api_v2_settings_downloads_get: {
 		parameters: {
 			query?: never;
@@ -4583,6 +5339,344 @@ export interface operations {
 				};
 				content: {
 					'application/json': components['schemas']['JobsCleanupRunResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	get_scheduler_status_api_v2_settings_scheduler_get: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['SchedulerStatusResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	trigger_scheduler_job_api_v2_settings_scheduler__job_name__trigger_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path: {
+				job_name: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['SchedulerJobResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	pause_scheduler_job_api_v2_settings_scheduler__job_name__pause_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path: {
+				job_name: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['SchedulerJobResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	resume_scheduler_job_api_v2_settings_scheduler__job_name__resume_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path: {
+				job_name: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['SchedulerJobResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	get_flaresolverr_settings_api_v2_settings_flaresolverr_get: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['FlareSolverrSettingsResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	update_flaresolverr_settings_api_v2_settings_flaresolverr_put: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['FlareSolverrSettingsUpdate'];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['FlareSolverrSettingsResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	get_proxy_settings_api_v2_settings_proxy_get: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ProxySettingsResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	update_proxy_settings_api_v2_settings_proxy_put: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['ProxySettingsUpdate'];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ProxySettingsResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	get_content_languages_api_v2_settings_content_languages_get: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ContentLanguagesResource'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	update_content_languages_api_v2_settings_content_languages_put: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['ContentLanguagesUpdate'];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['ContentLanguagesResource'];
 				};
 			};
 			/** @description Validation Error */

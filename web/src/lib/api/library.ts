@@ -1,6 +1,6 @@
 import { httpClient } from './client';
 import { buildApiUrl } from './config';
-import { ApiError, expectData, expectNoContent } from './errors';
+import { expectData, expectNoContent } from './errors';
 import { getStoredApiKey } from './session';
 import type { components } from './v2';
 
@@ -23,40 +23,11 @@ export type LibraryCollectionResource = components['schemas']['LibraryCollection
 export type LibraryCollectionCreate = components['schemas']['LibraryCollectionCreate'];
 export type LibraryCollectionUpdate = components['schemas']['LibraryCollectionUpdate'];
 export type LibraryTitlePreferencesUpdate = components['schemas']['LibraryTitlePreferencesUpdate'];
-export type LibraryChapterProgressResource = {
-	chapter_id: number;
-	page_index: number | null;
-	comment: string | null;
-	updated_at: string | null;
-};
-
-export type LibraryChapterProgressUpdate = {
-	page_index?: number | null;
-	comment?: string | null;
-};
-
-export type LibraryChapterCommentResource = {
-	id: number;
-	chapter_id: number;
-	library_title_id: number;
-	variant_id: number;
-	chapter_name: string;
-	chapter_number: number;
-	page_index: number;
-	message: string;
-	created_at: string;
-	updated_at: string;
-};
-
-export type LibraryChapterCommentCreate = {
-	page_index: number;
-	message: string;
-};
-
-export type LibraryChapterCommentUpdate = {
-	page_index?: number;
-	message?: string;
-};
+export type LibraryChapterProgressResource = components['schemas']['LibraryChapterProgressResource'];
+export type LibraryChapterProgressUpdate = components['schemas']['LibraryChapterProgressUpdate'];
+export type LibraryChapterCommentResource = components['schemas']['LibraryChapterCommentResource'];
+export type LibraryChapterCommentCreate = components['schemas']['LibraryChapterCommentCreate'];
+export type LibraryChapterCommentUpdate = components['schemas']['LibraryChapterCommentUpdate'];
 
 export async function listLibraryTitles(query?: {
 	offset?: number;
@@ -303,177 +274,111 @@ export async function getLibraryChapterReader(
 	);
 }
 
-function getAuthHeaders(): Headers {
-	const headers = new Headers();
-	const apiKey = getStoredApiKey();
-	if (apiKey) {
-		headers.set('Authorization', `Bearer ${apiKey}`);
-	}
-	headers.set('Accept', 'application/json');
-	return headers;
-}
-
-function toApiErrorFromResponse(response: Response, payload: unknown, fallback: string): ApiError {
-	let message = fallback;
-	if (typeof payload === 'string' && payload.trim().length > 0) {
-		message = payload;
-	} else if (
-		payload &&
-		typeof payload === 'object' &&
-		'detail' in payload &&
-		typeof (payload as { detail?: unknown }).detail === 'string'
-	) {
-		message = ((payload as { detail?: string }).detail ?? fallback).trim() || fallback;
-	}
-	return new ApiError(response.status, payload, message);
-}
-
-async function readJsonSafe(response: Response): Promise<unknown> {
-	try {
-		return await response.json();
-	} catch {
-		return null;
-	}
-}
-
 export async function listLibraryTitleChapterProgress(
 	titleId: number,
 	query?: { variant_id?: number | null }
 ): Promise<LibraryChapterProgressResource[]> {
-	let url = buildApiUrl(`/api/v2/library/titles/${titleId}/chapter-progress`);
-	if (query?.variant_id != null) {
-		const separator = url.includes('?') ? '&' : '?';
-		url = `${url}${separator}variant_id=${encodeURIComponent(String(query.variant_id))}`;
-	}
-
-	const response = await fetch(url, {
-		method: 'GET',
-		headers: getAuthHeaders()
-	});
-	const payload = await readJsonSafe(response);
-	if (!response.ok) {
-		throw toApiErrorFromResponse(response, payload, 'Unable to load chapter progress');
-	}
-	return Array.isArray(payload) ? (payload as LibraryChapterProgressResource[]) : [];
+	return expectData(
+		await httpClient.GET('/api/v2/library/titles/{title_id}/chapter-progress', {
+			params: {
+				path: { title_id: titleId },
+				query: { variant_id: query?.variant_id ?? undefined }
+			}
+		}),
+		'Unable to load chapter progress'
+	);
 }
 
 export async function getLibraryChapterProgress(
 	chapterId: number
 ): Promise<LibraryChapterProgressResource> {
-	const response = await fetch(buildApiUrl(`/api/v2/library/chapters/${chapterId}/progress`), {
-		method: 'GET',
-		headers: getAuthHeaders()
-	});
-	const payload = await readJsonSafe(response);
-	if (!response.ok) {
-		throw toApiErrorFromResponse(response, payload, 'Unable to load chapter progress');
-	}
-	return payload as LibraryChapterProgressResource;
+	return expectData(
+		await httpClient.GET('/api/v2/library/chapters/{chapter_id}/progress', {
+			params: { path: { chapter_id: chapterId } }
+		}),
+		'Unable to load chapter progress'
+	);
 }
 
 export async function updateLibraryChapterProgress(
 	chapterId: number,
 	payload: LibraryChapterProgressUpdate
 ): Promise<LibraryChapterProgressResource> {
-	const headers = getAuthHeaders();
-	headers.set('Content-Type', 'application/json');
-	const response = await fetch(buildApiUrl(`/api/v2/library/chapters/${chapterId}/progress`), {
-		method: 'PATCH',
-		headers,
-		body: JSON.stringify(payload)
-	});
-	const body = await readJsonSafe(response);
-	if (!response.ok) {
-		throw toApiErrorFromResponse(response, body, 'Unable to update chapter progress');
-	}
-	return body as LibraryChapterProgressResource;
+	return expectData(
+		await httpClient.PATCH('/api/v2/library/chapters/{chapter_id}/progress', {
+			params: { path: { chapter_id: chapterId } },
+			body: payload
+		}),
+		'Unable to update chapter progress'
+	);
 }
 
 export async function listLibraryTitleComments(
 	titleId: number,
 	query?: { variant_id?: number | null; newest_first?: boolean }
 ): Promise<LibraryChapterCommentResource[]> {
-	let url = buildApiUrl(`/api/v2/library/titles/${titleId}/comments`);
-	const params = new URLSearchParams();
-	if (query?.variant_id != null) {
-		params.set('variant_id', String(query.variant_id));
-	}
-	if (query?.newest_first !== undefined) {
-		params.set('newest_first', String(query.newest_first));
-	}
-	const queryString = params.toString();
-	if (queryString) {
-		url = `${url}${url.includes('?') ? '&' : '?'}${queryString}`;
-	}
-	const response = await fetch(url, { method: 'GET', headers: getAuthHeaders() });
-	const payload = await readJsonSafe(response);
-	if (!response.ok) {
-		throw toApiErrorFromResponse(response, payload, 'Unable to load title comments');
-	}
-	return Array.isArray(payload) ? (payload as LibraryChapterCommentResource[]) : [];
+	return expectData(
+		await httpClient.GET('/api/v2/library/titles/{title_id}/comments', {
+			params: {
+				path: { title_id: titleId },
+				query: {
+					variant_id: query?.variant_id ?? undefined,
+					newest_first: query?.newest_first
+				}
+			}
+		}),
+		'Unable to load title comments'
+	);
 }
 
 export async function listLibraryChapterComments(
 	chapterId: number,
 	query?: { newest_first?: boolean }
 ): Promise<LibraryChapterCommentResource[]> {
-	let url = buildApiUrl(`/api/v2/library/chapters/${chapterId}/comments`);
-	if (query?.newest_first !== undefined) {
-		url = `${url}?newest_first=${encodeURIComponent(String(query.newest_first))}`;
-	}
-	const response = await fetch(url, { method: 'GET', headers: getAuthHeaders() });
-	const payload = await readJsonSafe(response);
-	if (!response.ok) {
-		throw toApiErrorFromResponse(response, payload, 'Unable to load chapter comments');
-	}
-	return Array.isArray(payload) ? (payload as LibraryChapterCommentResource[]) : [];
+	return expectData(
+		await httpClient.GET('/api/v2/library/chapters/{chapter_id}/comments', {
+			params: {
+				path: { chapter_id: chapterId },
+				query: { newest_first: query?.newest_first }
+			}
+		}),
+		'Unable to load chapter comments'
+	);
 }
 
 export async function createLibraryChapterComment(
 	chapterId: number,
 	payload: LibraryChapterCommentCreate
 ): Promise<LibraryChapterCommentResource> {
-	const headers = getAuthHeaders();
-	headers.set('Content-Type', 'application/json');
-	const response = await fetch(buildApiUrl(`/api/v2/library/chapters/${chapterId}/comments`), {
-		method: 'POST',
-		headers,
-		body: JSON.stringify(payload)
-	});
-	const body = await readJsonSafe(response);
-	if (!response.ok) {
-		throw toApiErrorFromResponse(response, body, 'Unable to create chapter comment');
-	}
-	return body as LibraryChapterCommentResource;
+	return expectData(
+		await httpClient.POST('/api/v2/library/chapters/{chapter_id}/comments', {
+			params: { path: { chapter_id: chapterId } },
+			body: payload
+		}),
+		'Unable to create chapter comment'
+	);
 }
 
 export async function updateLibraryChapterComment(
 	commentId: number,
 	payload: LibraryChapterCommentUpdate
 ): Promise<LibraryChapterCommentResource> {
-	const headers = getAuthHeaders();
-	headers.set('Content-Type', 'application/json');
-	const response = await fetch(buildApiUrl(`/api/v2/library/chapter-comments/${commentId}`), {
-		method: 'PUT',
-		headers,
-		body: JSON.stringify(payload)
-	});
-	const body = await readJsonSafe(response);
-	if (!response.ok) {
-		throw toApiErrorFromResponse(response, body, 'Unable to update chapter comment');
-	}
-	return body as LibraryChapterCommentResource;
+	return expectData(
+		await httpClient.PUT('/api/v2/library/chapter-comments/{comment_id}', {
+			params: { path: { comment_id: commentId } },
+			body: payload
+		}),
+		'Unable to update chapter comment'
+	);
 }
 
 export async function deleteLibraryChapterComment(commentId: number): Promise<void> {
-	const response = await fetch(buildApiUrl(`/api/v2/library/chapter-comments/${commentId}`), {
-		method: 'DELETE',
-		headers: getAuthHeaders()
-	});
-	const payload = await readJsonSafe(response);
-	if (!response.ok) {
-		throw toApiErrorFromResponse(response, payload, 'Unable to delete chapter comment');
-	}
+	expectNoContent(
+		await httpClient.DELETE('/api/v2/library/chapter-comments/{comment_id}', {
+			params: { path: { comment_id: commentId } }
+		}),
+		'Unable to delete chapter comment'
+	);
 }
 
 export function getLibraryFileUrl(filePath: string): string {

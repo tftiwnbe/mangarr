@@ -1,7 +1,7 @@
-import type { DownloadDashboardResource, DownloadTaskResource } from '$lib/api/downloads';
+import type { DownloadDashboardResource, DownloadTaskResource, DownloadTaskStatus } from '$lib/api/downloads';
 import { getCachedCoverUrl } from '$lib/api/covers';
 
-export type DownloadStatus = 'downloading' | 'queued' | 'completed' | 'failed' | 'cancelled';
+export type DownloadStatus = DownloadTaskStatus;
 
 export interface DownloadTaskItem {
 	id: string;

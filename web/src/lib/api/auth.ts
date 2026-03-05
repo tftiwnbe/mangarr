@@ -1,11 +1,8 @@
 import { httpClient } from './client';
-import { buildApiUrl } from './config';
 import { expectData, expectNoContent } from './errors';
-import { ApiError } from './errors';
 import {
 	clearAuthSession,
 	getApiKeyPersistence,
-	getAuthorizationHeader,
 	setCachedUserProfile,
 	setStoredApiKey,
 	type ApiKeyPersistence
@@ -22,7 +19,8 @@ export type CreateIntegrationApiKeyResponse = components['schemas']['CreateInteg
 export type UserProfile = components['schemas']['UserProfileResource'];
 export type LoginRequest = components['schemas']['LoginRequest'];
 export type LoginResponse = components['schemas']['LoginResponse'];
-export type SetupStatusResponse = { needs_setup: boolean };
+export type SetupStatusResponse = components['schemas']['SetupStatusResponse'];
+export type WsTokenResponse = components['schemas']['WsTokenResponse'];
 
 export async function registerFirstUser(
 	payload: RegisterFirstUserRequest,
@@ -54,30 +52,10 @@ export async function login(
 }
 
 export async function getSetupStatus(): Promise<SetupStatusResponse> {
-	const response = await fetch(buildApiUrl('/api/v2/auth/setup-status'), {
-		headers: { Accept: 'application/json' }
-	});
-	let payload: unknown = null;
-	try {
-		payload = await response.json();
-	} catch {
-		payload = null;
-	}
-	if (!response.ok) {
-		const message =
-			payload && typeof payload === 'object' && 'detail' in payload
-				? String((payload as { detail?: unknown }).detail ?? 'Unable to load setup status')
-				: 'Unable to load setup status';
-		throw new ApiError(response.status, payload, message);
-	}
-	if (
-		!payload ||
-		typeof payload !== 'object' ||
-		typeof (payload as { needs_setup?: unknown }).needs_setup !== 'boolean'
-	) {
-		throw new ApiError(response.status, payload, 'Invalid setup status response');
-	}
-	return payload as SetupStatusResponse;
+	return expectData(
+		await httpClient.GET('/api/v2/auth/setup-status'),
+		'Unable to load setup status'
+	);
 }
 
 export async function getMe(): Promise<UserProfile> {
@@ -137,15 +115,9 @@ export function signOut(): void {
  * Using this token in the WS URL avoids exposing the main API key in server logs.
  */
 export async function getWsToken(): Promise<string> {
-	const authHeader = getAuthorizationHeader();
-	if (!authHeader) throw new Error('Not authenticated');
-	const response = await fetch(buildApiUrl('/api/v2/auth/ws-token'), {
-		method: 'POST',
-		headers: { Authorization: authHeader, Accept: 'application/json' }
-	});
-	if (!response.ok) {
-		throw new ApiError(response.status, null, 'Failed to obtain WS token');
-	}
-	const data = (await response.json()) as { token: string };
+	const data = expectData(
+		await httpClient.POST('/api/v2/auth/ws-token'),
+		'Failed to obtain WS token'
+	);
 	return data.token;
 }

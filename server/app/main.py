@@ -173,8 +173,11 @@ async def log_requests(request: Request, call_next):
         status=response.status_code,
         duration_ms=process_time_ms,
         client=host,
-        sample_rate=sample_rate,
     )
+    # sample_rate=1 means "exact, not sampled" — the implicit default; omit it to reduce noise.
+    # Only include it when > 1 so consumers can correctly scale up sampled counts.
+    if sample_rate > 1:
+        log_extra["sample_rate"] = sample_rate
     if not is_server_error:
         log_extra["access"] = True
     logger.bind(**log_extra).log(
