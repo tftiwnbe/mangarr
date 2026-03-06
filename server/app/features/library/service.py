@@ -217,6 +217,21 @@ class LibraryService:
         ).all()
         chapters_count = {int(title_id): int(count) for title_id, count in chapters_count_rows}
 
+        last_read_rows = (
+            await self.session.exec(
+                select(
+                    LibraryChapter.library_title_id,
+                    func.max(LibraryChapter.reader_updated_at),
+                )
+                .where(LibraryChapter.library_title_id.in_(title_ids))
+                .where(LibraryChapter.reader_updated_at.is_not(None))
+                .group_by(LibraryChapter.library_title_id)
+            )
+        ).all()
+        last_read_at_by_title_id: dict[int, datetime] = {
+            int(title_id): ts for title_id, ts in last_read_rows if ts is not None
+        }
+
         summaries: list[LibraryTitleSummary] = []
         for title in titles:
             if title.id is None:
@@ -251,6 +266,14 @@ class LibraryService:
                     collections=collections_by_title_id.get(int(title.id), []),
                     variants_count=variants_count.get(int(title.id), 0),
                     chapters_count=chapters_count.get(int(title.id), 0),
+                    added_at=title.created_at,
+                    updated_at=title.updated_at,
+                    last_read_at=last_read_at_by_title_id.get(int(title.id)),
+                    genre=(
+                        preferred_variant.genre
+                        if preferred_variant is not None and preferred_variant.genre
+                        else title.genre
+                    ),
                 )
             )
         return summaries

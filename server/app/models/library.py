@@ -144,6 +144,10 @@ class LibraryTitleSummary(SQLModel):
     collections: list["LibraryCollectionSummary"] = []
     variants_count: int = 0
     chapters_count: int = 0
+    added_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_read_at: datetime | None = None
+    genre: str | None = None
 
 
 class LibraryTitleVariantResource(SQLModel):

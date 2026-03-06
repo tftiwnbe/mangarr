@@ -2285,6 +2285,14 @@ export interface components {
 			 * @default 0
 			 */
 			chapters_count: number;
+			/** Added At */
+			added_at: string;
+			/** Updated At */
+			updated_at: string;
+			/** Last Read At */
+			last_read_at?: string | null;
+			/** Genre */
+			genre?: string | null;
 		};
 		/** LibraryTitleVariantResource */
 		LibraryTitleVariantResource: {
