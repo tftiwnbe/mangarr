@@ -22,7 +22,6 @@ from app.domain.title_identity import (
     fallback_title_from_url,
     resolve_libgroup_chapter_url,
     source_match_score,
-    title_only_key as canonical_title_only_key,
 )
 from app.features.downloads.storage import (
     chapter_archive_path,
@@ -79,8 +78,6 @@ from app.models import (
 
 _PAGE_INDEX_RE = re.compile(r"(\d+)")
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"}
-_AUTO_LINK_MAX_SOURCES = 12
-_AUTO_MERGE_MAX_TITLES = 8
 _MATCH_QUERY_TITLES_MAX = 8
 
 DEFAULT_USER_STATUSES: tuple[tuple[str, str, str, int], ...] = (
@@ -986,22 +983,6 @@ class LibraryService:
         except Exception:
             _library_logger.opt(exception=True).warning(
                 "auto_link_same_extension failed title_id={}", int(library_title.id)
-            )
-
-        try:
-            await self._auto_link_related_variants(title_id=int(library_title.id))
-        except Exception:
-            # Import should succeed even if follow-up matching fails.
-            _library_logger.opt(exception=True).warning(
-                "auto_link_related failed title_id={}", int(library_title.id)
-            )
-
-        # Best-effort strict merge for duplicates created by manual imports.
-        try:
-            await self._auto_merge_duplicate_titles(title_id=int(library_title.id))
-        except Exception:
-            _library_logger.opt(exception=True).warning(
-                "auto_merge_duplicates failed title_id={}", int(library_title.id)
             )
 
         result = LibraryImportResponse(
@@ -3052,25 +3033,6 @@ class LibraryService:
             return None
         return best, best_score
 
-    async def _auto_link_related_variants(self, title_id: int) -> None:
-        matches = await self.list_source_matches(
-            title_id=title_id,
-            lang=None,
-            limit_sources=_AUTO_LINK_MAX_SOURCES,
-            min_score=0.9,
-        )
-        for match in matches:
-            if match.linked_library_title_id is not None:
-                continue
-            try:
-                await self.link_variant(
-                    title_id=title_id,
-                    source_id=match.source_id,
-                    title_url=match.title_url,
-                )
-            except BridgeAPIError:
-                continue
-
     async def _auto_link_same_extension_variants(
         self,
         title_id: int,
@@ -3110,46 +3072,6 @@ class LibraryService:
                     title_id=title_id,
                     source_id=sibling_source_id,
                     title_url=title_url,
-                )
-            except BridgeAPIError:
-                continue
-
-    async def _auto_merge_duplicate_titles(self, title_id: int) -> None:
-        title = await self.session.get(LibraryTitle, title_id)
-        if title is None:
-            return
-
-        canonical_key = (title.canonical_key or "").strip()
-        if not canonical_key:
-            return
-
-        title_only = canonical_title_only_key(canonical_key)
-        if not title_only:
-            return
-
-        candidate_rows = (
-            await self.session.exec(
-                select(LibraryTitle.id)
-                .where(
-                    LibraryTitle.id != title_id,
-                    (
-                        (LibraryTitle.canonical_key == canonical_key)
-                        | (LibraryTitle.canonical_key == title_only)
-                        | (LibraryTitle.canonical_key.like(f"{title_only}|%"))
-                    ),
-                )
-                .order_by(LibraryTitle.id)
-                .limit(_AUTO_MERGE_MAX_TITLES)
-            )
-        ).all()
-        candidate_ids = [int(item) for item in candidate_rows if item is not None]
-        for candidate_id in candidate_ids:
-            if candidate_id == title_id:
-                continue
-            try:
-                await self.merge_titles(
-                    target_title_id=title_id,
-                    source_title_id=candidate_id,
                 )
             except BridgeAPIError:
                 continue
