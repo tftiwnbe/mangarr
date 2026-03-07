@@ -1171,7 +1171,7 @@ class DownloadService:
                 checked_titles=checked,
                 enqueued_tasks=enqueued_total,
             )
-            if checked > 0 or enqueued_total > 0:
+            if enqueued_total > 0:
                 _service_logger.bind(
                     titles_checked=checked,
                     enqueued=enqueued_total,

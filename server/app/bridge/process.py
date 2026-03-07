@@ -140,6 +140,8 @@ class TachibridgeProcess:
                 text = line.decode(errors="replace").rstrip()
                 if stream_name == "stdout":
                     level, bridge_logger, thread, message = parse_bridge_log_line(text)
+                    if "KCEF download progress" in message and level == "INFO":
+                        level = "DEBUG"
                     self._process_logger.bind(
                         bridge_logger=bridge_logger, bridge_thread=thread
                     ).log(level, message)
@@ -156,9 +158,10 @@ class TachibridgeProcess:
                             "KCEF library failed to load. Continuing without JCEF restart."
                         )
                 else:
+                    level = "WARNING" if _looks_like_bridge_error(text) else "DEBUG"
                     self._process_logger.bind(
                         bridge_raw=text, bridge_stream=stream_name
-                    ).warning(text)
+                    ).log(level, text)
         except asyncio.CancelledError:
             pass
 
@@ -237,3 +240,19 @@ class TachibridgeProcess:
                 self._logger.debug("Removed stale KCEF lock: {}", path)
             except Exception as exc:
                 self._logger.warning("Failed to remove KCEF lock {}: {}", path, exc)
+
+
+def _looks_like_bridge_error(line: str) -> bool:
+    lowered = line.lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "exception",
+            "error",
+            "fatal",
+            "unable to",
+            "failed",
+            "traceback",
+            "stack trace",
+        )
+    )

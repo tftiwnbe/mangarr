@@ -205,7 +205,7 @@ class TaskScheduler:
                     job=job.name,
                     duration_ms=duration_ms,
                     status="ok",
-                ).info("job.run")
+                ).debug("job.run")
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
