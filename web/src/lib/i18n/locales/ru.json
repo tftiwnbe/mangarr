@@ -321,7 +321,11 @@
 		"noPreferences": "Нет доступных настроек",
 		"allInstalled": "Все расширения установлены",
 		"noRepoConfigured": "Или репозиторий не настроен",
-		"tryDifferentSearch": "Попробуйте другой запрос"
+		"tryDifferentSearch": "Попробуйте другой запрос",
+		"updatesSearchPlaceholder": "Поиск изменений репозитория...",
+		"noRecentUpdates": "Недавних изменений репозитория нет",
+		"noRecentUpdatesDescription": "Здесь будут показываться новые и обновлённые расширения",
+		"updatesWindow": "{count} недавних изменений"
 	},
 
 	"settings": {

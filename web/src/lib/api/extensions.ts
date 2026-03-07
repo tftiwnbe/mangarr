@@ -3,6 +3,8 @@ import { expectData, expectNoContent } from './errors';
 import type { components } from './v2';
 
 export type ExtensionResource = components['schemas']['ExtensionResource'];
+export type RepoExtensionChangesResource = components['schemas']['RepoExtensionChangesResource'];
+export type RepoExtensionChangeResource = components['schemas']['RepoExtensionChangeResource'];
 export type RepoExtensionResource = components['schemas']['RepoExtensionResource'];
 export type RepositoryUpdate = components['schemas']['RepositoryUpdate'];
 export type SourcePreferenceUpdate = components['schemas']['SourcePreferenceUpdate'] & {
@@ -33,6 +35,16 @@ export async function listInstalledExtensions(): Promise<ExtensionResource[]> {
 	return expectData(
 		await httpClient.GET('/api/v2/extensions/installed'),
 		'Unable to load installed extensions'
+	);
+}
+
+export async function listRepositoryChanges(query?: {
+	days?: number;
+	limit?: number;
+}): Promise<RepoExtensionChangesResource> {
+	return expectData(
+		await httpClient.GET('/api/v2/extensions/repo-changes', { params: { query } }),
+		'Unable to load repository changes'
 	);
 }
 

@@ -6,6 +6,7 @@
 	import {
 		listInstalledExtensions,
 		listAvailableExtensions,
+		listRepositoryChanges,
 		installExtension,
 		uninstallExtension,
 		toggleSourceEnabled,
@@ -13,6 +14,8 @@
 		getSourcePreferences,
 		updateSourcePreferences,
 		type ExtensionResource,
+		type RepoExtensionChangesResource,
+		type RepoExtensionChangeResource,
 		type RepoExtensionResource,
 		type SourcePreferencesResolved,
 		type SourcePreferenceUpdate
@@ -30,14 +33,17 @@
 		setKnownContentLanguages
 	} from '$lib/stores/content-languages';
 
-	type TabValue = 'installed' | 'available';
+	type TabValue = 'installed' | 'available' | 'updates';
 
 	// ── Core state ──────────────────────────────────────────────────────────
 	let installedExtensions = $state<ExtensionResource[]>([]);
 	let availableExtensions = $state<RepoExtensionResource[]>([]);
+	let repoChanges = $state<RepoExtensionChangesResource | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let activeTab = $state<TabValue>('installed');
+	let repoChangesLoading = $state(false);
+	let repoChangesError = $state<string | null>(null);
 
 	// ── Search & filter ─────────────────────────────────────────────────────
 	let searchQuery = $state('');
@@ -72,6 +78,8 @@
 	// ── Progressive rendering (available tab) ───────────────────────────────
 	let renderLimit = $state(30);
 	let sentinelEl = $state<HTMLDivElement | null>(null);
+
+	const repoChangeItems = $derived(repoChanges?.changes ?? []);
 
 	// ── Derived: filtered lists ─────────────────────────────────────────────
 	const filteredInstalled = $derived.by(() => {
@@ -111,11 +119,62 @@
 
 	const visibleAvailable = $derived(filteredAvailable.slice(0, renderLimit));
 
+	const updatesLangs = $derived.by(() => {
+		const langs = new Set(
+			repoChangeItems
+				.map((change) => (change.lang ?? '').toLowerCase())
+				.filter((lang) => lang.length > 0)
+		);
+		return ['all', ...Array.from(langs).sort()];
+	});
+
+	const filteredRepoChanges = $derived.by(() => {
+		let list = repoChangeItems;
+		if (selectedLang && selectedLang !== 'all') {
+			list = list.filter((change) => (change.lang ?? '').toLowerCase() === selectedLang);
+		}
+		if (!trimmedSearch) return list;
+		return list.filter((change) => {
+			const haystack = [
+				change.extension_name ?? '',
+				change.name,
+				change.renamed_to ?? '',
+				change.extension_pkg ?? '',
+				change.commit_message ?? '',
+				change.lang ?? ''
+			]
+				.join(' ')
+				.toLowerCase();
+			return haystack.includes(trimmedSearch);
+		});
+	});
+
 	// ── Helpers ─────────────────────────────────────────────────────────────
 	function getFilteredSources(sources: ExtensionResource['sources']) {
 		const langs = $contentLanguages;
 		if (!langs || langs.length === 0) return sources;
 		return sources.filter((s) => langs.includes(s.lang.toLowerCase()));
+	}
+
+	function changeTitle(change: RepoExtensionChangeResource): string {
+		return change.extension_name ?? change.name;
+	}
+
+	function changeStatusClass(status: RepoExtensionChangeResource['status']): string {
+		if (status === 'updated') return 'text-[var(--success)]';
+		if (status === 'added') return 'text-[var(--text-muted)]';
+		if (status === 'removed') return 'text-[var(--error)]';
+		return 'text-[var(--text-soft)]';
+	}
+
+	function formatChangeAge(committedAt: string): string {
+		const date = new Date(committedAt);
+		if (Number.isNaN(date.getTime())) return 'unknown';
+		const diffSec = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+		if (diffSec < 60) return `${diffSec}s ago`;
+		if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+		if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+		return `${Math.floor(diffSec / 86400)}d ago`;
 	}
 
 	// ── Hide bottom nav when slide panel opens ─────────────────────────────
@@ -126,7 +185,7 @@
 
 	// ── Core handlers ───────────────────────────────────────────────────────
 	onMount(async () => {
-		await loadExtensions();
+		await Promise.all([loadExtensions(), loadRepoChanges()]);
 	});
 
 	async function loadExtensions() {
@@ -150,6 +209,18 @@
 			error = e instanceof Error ? e.message : 'Failed to load extensions';
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function loadRepoChanges() {
+		repoChangesLoading = true;
+		repoChangesError = null;
+		try {
+			repoChanges = await listRepositoryChanges({ days: 3, limit: 120 });
+		} catch (e) {
+			repoChangesError = e instanceof Error ? e.message : 'Failed to load repository changes';
+		} finally {
+			repoChangesLoading = false;
 		}
 	}
 
@@ -509,6 +580,9 @@
 		searchQuery = '';
 		selectedLang = null;
 		expandedPkg = null;
+		if (tab === 'updates' && repoChanges === null && !repoChangesLoading) {
+			void loadRepoChanges();
+		}
 	}
 
 	// Reset progressive render on filter change
@@ -547,18 +621,26 @@
 		<button
 			type="button"
 			class="flex h-8 w-8 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
-			onclick={() => loadExtensions()}
-			disabled={loading}
+			onclick={() => Promise.all([loadExtensions(), loadRepoChanges()])}
+			disabled={loading || repoChangesLoading}
 		>
-			<Icon name="refresh-cw" size={15} class={loading ? 'animate-spin' : ''} />
+			<Icon
+				name="refresh-cw"
+				size={15}
+				class={loading || repoChangesLoading ? 'animate-spin' : ''}
+			/>
 		</button>
 	</div>
 
 	<!-- ── Tab bar ──────────────────────────────────────────────────────── -->
 	<div class="flex gap-6">
-		{#each ['installed', 'available'] as tab (tab)}
+		{#each ['installed', 'available', 'updates'] as tab (tab)}
 			{@const isActive = activeTab === tab}
-			{@const count = tab === 'installed' ? installedExtensions.length : availableExtensions.length}
+			{@const count = tab === 'installed'
+				? installedExtensions.length
+				: tab === 'available'
+					? availableExtensions.length
+					: repoChangeItems.length}
 			<button
 				type="button"
 				class="relative pb-2 text-xs font-medium uppercase tracking-wide transition-colors
@@ -594,7 +676,9 @@
 			type="search"
 			placeholder={activeTab === 'installed'
 				? 'search extensions or sources...'
-				: $_('extensions.searchPlaceholder')}
+				: activeTab === 'updates'
+					? $_('extensions.updatesSearchPlaceholder')
+					: $_('extensions.searchPlaceholder')}
 			bind:value={searchQuery}
 			class="w-full h-9 pl-8 pr-8 bg-transparent text-sm text-[var(--text)] placeholder:text-[var(--text-ghost)] border-b border-[var(--line-soft)] transition-colors focus:border-[var(--void-6)] focus:outline-none"
 		/>
@@ -613,6 +697,22 @@
 	{#if activeTab === 'available' && availableLangs.length > 2}
 		<div class="flex items-center gap-0.5 overflow-x-auto no-scrollbar -mx-1 px-1 py-1">
 			{#each availableLangs.slice(0, 24) as lang (lang)}
+				{@const isActive = (lang === 'all' && !selectedLang) || selectedLang === lang}
+				<button
+					type="button"
+					class="shrink-0 h-7 px-2.5 text-[10px] uppercase tracking-wider transition-colors
+						{isActive
+						? 'text-[var(--text)] bg-[var(--void-3)]'
+						: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+					onclick={() => (selectedLang = lang === 'all' ? null : lang)}
+				>
+					{lang}
+				</button>
+			{/each}
+		</div>
+	{:else if activeTab === 'updates' && updatesLangs.length > 2}
+		<div class="flex items-center gap-0.5 overflow-x-auto no-scrollbar -mx-1 px-1 py-1">
+			{#each updatesLangs.slice(0, 24) as lang (lang)}
 				{@const isActive = (lang === 'all' && !selectedLang) || selectedLang === lang}
 				<button
 					type="button"
@@ -835,6 +935,117 @@
 									</button>
 								</div>
 							</div>
+						{/if}
+					</div>
+				{/each}
+			</div>
+		{/if}
+
+		<!-- ════════════════════════════════════════════════════════════════
+		     UPDATES TAB
+		     ════════════════════════════════════════════════════════════════ -->
+	{:else if activeTab === 'updates'}
+		{#if repoChangesLoading && repoChangeItems.length === 0}
+			<div class="flex items-center justify-center py-20">
+				<Icon name="loader" size={16} class="animate-spin text-[var(--text-ghost)]" />
+			</div>
+		{:else if repoChangesError}
+			<div class="bg-[var(--error-soft)] px-4 py-3 text-xs text-[var(--error)]">
+				{repoChangesError}
+			</div>
+		{:else if repoChanges?.error}
+			<div class="bg-[var(--error-soft)] px-4 py-3 text-xs text-[var(--error)]">
+				{repoChanges.error}
+			</div>
+		{:else if repoChangeItems.length === 0}
+			<div class="flex flex-col items-center gap-5 py-20 text-center">
+				<div class="flex h-16 w-16 items-center justify-center bg-[var(--void-2)]">
+					<Icon name="git-commit-horizontal" size={24} class="text-[var(--text-ghost)]" />
+				</div>
+				<div>
+					<p class="text-sm text-[var(--text)]">{$_('extensions.noRecentUpdates')}</p>
+					<p class="mt-1.5 text-xs text-[var(--text-ghost)]">
+						{$_('extensions.noRecentUpdatesDescription')}
+					</p>
+				</div>
+			</div>
+		{:else if filteredRepoChanges.length === 0}
+			<div class="py-12 text-center">
+				<p class="text-xs text-[var(--text-muted)]">{$_('common.noResults')}</p>
+			</div>
+		{:else}
+			<div class="flex flex-col gap-1">
+				{#if repoChanges}
+					<p class="px-1 text-[10px] uppercase tracking-wider text-[var(--text-ghost)]">
+						{$_('extensions.updatesWindow', { values: { count: filteredRepoChanges.length } })}
+					</p>
+				{/if}
+				{#each filteredRepoChanges as change, i (`${change.commit_sha}:${change.extension_pkg ?? change.name}:${i}`)}
+					<div
+						class="flex items-start gap-4 border-b border-[var(--line-soft)] px-1 py-3.5"
+						style="animation: slide-up var(--duration-slow) var(--ease-out) forwards; animation-delay: {Math.min(i * 20, 300)}ms; opacity: 0"
+					>
+						{#if change.icon}
+							<img src={change.icon} alt="" class="h-10 w-10 shrink-0 object-contain" />
+						{:else}
+							<div class="flex h-10 w-10 shrink-0 items-center justify-center bg-[var(--void-2)]">
+								<Icon name="puzzle" size={16} class="text-[var(--text-ghost)]" />
+							</div>
+						{/if}
+						<div class="min-w-0 flex-1">
+							<div class="flex items-center gap-2">
+								<span class="truncate text-[15px] leading-tight text-[var(--text)]">
+									{changeTitle(change)}
+								</span>
+								<span class="text-[10px] uppercase tracking-wider text-[var(--text-ghost)] shrink-0">
+									{change.lang ?? '??'}
+								</span>
+								<span class="text-[10px] uppercase tracking-wider shrink-0 {changeStatusClass(change.status)}">
+									{change.status}
+								</span>
+								{#if change.installed}
+									<span class="text-[10px] uppercase tracking-wider text-[var(--text-muted)] shrink-0">
+										installed
+									</span>
+								{/if}
+							</div>
+							<p class="mt-1 text-[11px] text-[var(--text-ghost)]">
+								{#if change.status === 'updated' && change.version && change.new_version}
+									v{change.version} -> v{change.new_version}
+								{:else if change.status === 'renamed' && change.renamed_to}
+									{change.name} -> {change.renamed_to}
+								{:else if change.new_version}
+									v{change.new_version}
+								{:else if change.version}
+									v{change.version}
+								{:else}
+									{change.extension_pkg ?? change.commit_sha.slice(0, 7)}
+								{/if}
+							</p>
+							<div class="mt-1 flex flex-wrap items-center gap-x-2 text-[10px] text-[var(--text-ghost)]">
+								<span>{formatChangeAge(change.committed_at)}</span>
+								<span class="opacity-30">·</span>
+								<span>{change.commit_sha.slice(0, 7)}</span>
+								{#if change.commit_message}
+									<span class="opacity-30">·</span>
+									<span class="line-clamp-1">{change.commit_message}</span>
+								{/if}
+							</div>
+						</div>
+						{#if change.extension_pkg && change.known && !change.installed && change.status !== 'removed'}
+							<button
+								type="button"
+								class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)] disabled:pointer-events-none disabled:opacity-40"
+								onclick={() => handleInstall(change.extension_pkg!)}
+								disabled={installingPkg === change.extension_pkg}
+								title={$_('extensions.install')}
+							>
+								{#if installingPkg === change.extension_pkg}
+									<Icon name="loader" size={14} class="animate-spin" />
+								{:else}
+									<Icon name="plus" size={16} />
+								{/if}
+							</button>
 						{/if}
 					</div>
 				{/each}

@@ -235,6 +235,26 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v2/extensions/repo-changes': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Repository Changes
+		 * @description Get recent changes from the active extension repository.
+		 */
+		get: operations['get_repository_changes_api_v2_extensions_repo_changes_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v2/extensions/repository': {
 		parameters: {
 			query?: never;
@@ -2480,6 +2500,67 @@ export interface components {
 			/** Api Key */
 			api_key: string;
 		};
+		/**
+		 * RepoChangeStatus
+		 * @enum {string}
+		 */
+		RepoChangeStatus: 'added' | 'removed' | 'updated' | 'renamed';
+		/** RepoExtensionChangeResource */
+		RepoExtensionChangeResource: {
+			status: components['schemas']['RepoChangeStatus'];
+			/** Extension Pkg */
+			extension_pkg?: string | null;
+			/** Name */
+			name: string;
+			/** Extension Name */
+			extension_name?: string | null;
+			/** Lang */
+			lang?: string | null;
+			/** Version */
+			version?: string | null;
+			/** New Version */
+			new_version?: string | null;
+			/** Renamed To */
+			renamed_to?: string | null;
+			/** Renamed To Pkg */
+			renamed_to_pkg?: string | null;
+			/**
+			 * Installed
+			 * @default false
+			 */
+			installed: boolean;
+			/**
+			 * Known
+			 * @default false
+			 */
+			known: boolean;
+			/** Icon */
+			icon?: string | null;
+			/** Commit Sha */
+			commit_sha: string;
+			/** Commit Message */
+			commit_message?: string | null;
+			/** Committed At */
+			committed_at: string;
+		};
+		/** RepoExtensionChangesResource */
+		RepoExtensionChangesResource: {
+			/** Repo Url */
+			repo_url: string;
+			/** Tracked Path */
+			tracked_path: string;
+			/** Since */
+			since: string;
+			/** Fetched At */
+			fetched_at: string;
+			/** Error */
+			error?: string | null;
+			/**
+			 * Changes
+			 * @default []
+			 */
+			changes: components['schemas']['RepoExtensionChangeResource'][];
+		};
 		/** RepoExtensionResource */
 		RepoExtensionResource: {
 			/** Pkg */
@@ -3118,6 +3199,41 @@ export interface operations {
 				};
 				content: {
 					'application/json': components['schemas']['ExtensionResource'][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	get_repository_changes_api_v2_extensions_repo_changes_get: {
+		parameters: {
+			query?: {
+				days?: number;
+				limit?: number;
+			};
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['RepoExtensionChangesResource'];
 				};
 			};
 			/** @description Validation Error */

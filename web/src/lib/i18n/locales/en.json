@@ -321,7 +321,11 @@
 		"noPreferences": "No preferences available",
 		"allInstalled": "All extensions installed",
 		"noRepoConfigured": "Or no repository configured",
-		"tryDifferentSearch": "Try a different search term"
+		"tryDifferentSearch": "Try a different search term",
+		"updatesSearchPlaceholder": "Search repository changes...",
+		"noRecentUpdates": "No recent repository changes",
+		"noRecentUpdatesDescription": "Recent extension additions and updates will appear here",
+		"updatesWindow": "{count} recent changes"
 	},
 
 	"settings": {
