@@ -41,6 +41,21 @@ pushd "tmp"
 ANDROID_GOOGLESOURCE_URL="https://android.googlesource.com/platform/prebuilts/sdk/+/6cd31be5e4e25901aadf838120d71a79b46d9add/30/public/android.jar?format=TEXT"
 ANDROID_PLATFORM_ZIP_URL="https://dl.google.com/android/repository/platform-30_r03.zip"
 
+decode_base64_file() {
+  local input_file="$1"
+  local output_file="$2"
+
+  if base64 --decode <"$input_file" >"$output_file" 2>/dev/null; then
+    return 0
+  fi
+
+  if base64 -D -i "$input_file" -o "$output_file" 2>/dev/null; then
+    return 0
+  fi
+
+  return 1
+}
+
 download_from_googlesource() {
   local output_jar="$1"
   local encoded_file="android.jar.b64"
@@ -54,7 +69,7 @@ download_from_googlesource() {
     "$ANDROID_GOOGLESOURCE_URL" \
     -o "$encoded_file" || return 1
 
-  base64 --decode "$encoded_file" >"$output_jar" || return 1
+  decode_base64_file "$encoded_file" "$output_jar" || return 1
   [ -s "$output_jar" ] || return 1
   return 0
 }
