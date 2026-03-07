@@ -203,7 +203,7 @@ class TachibridgeProcess:
                 return jar_candidates[-1]
 
         raise RuntimeError(
-            "Tachibridge JAR not found. Run 'make bridge' to build it."
+            "Tachibridge JAR not found. Run 'just bridge' to build it."
         )
 
     def _build_env(self, config_dir: Path) -> dict[str, str] | None:
