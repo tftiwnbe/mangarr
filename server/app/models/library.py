@@ -151,6 +151,16 @@ class LibraryTitleSummary(SQLModel):
     genre: str | None = None
 
 
+class LibraryVariantAvailabilityResource(SQLModel):
+    state: str = "unknown"
+    chapter_count: int = 0
+    starts_from_chapter_one: bool = False
+    has_major_gaps: bool = False
+    first_chapter_number: float | None = None
+    last_chapter_number: float | None = None
+    global_last_chapter_number: float | None = None
+
+
 class LibraryTitleVariantResource(SQLModel):
     id: int
     source_id: str
@@ -164,6 +174,7 @@ class LibraryTitleVariantResource(SQLModel):
     author: str | None = None
     genre: str | None = None
     status: int = 0
+    availability: LibraryVariantAvailabilityResource | None = None
 
 
 class LibraryTitleResource(SQLModel):

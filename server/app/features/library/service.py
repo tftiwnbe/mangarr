@@ -68,6 +68,7 @@ from app.models import (
     LibraryTitleResource,
     LibraryTitleSummary,
     LibraryTitleVariant,
+    LibraryVariantAvailabilityResource,
     LibraryTitleVariantResource,
     LibraryUserStatus,
     LibraryUserStatusCreate,
@@ -263,6 +264,10 @@ class LibraryService:
             title_id=title_id,
             variants=variants,
         )
+        variant_availability = await self._build_variant_availability(
+            title_id=title_id,
+            variants=variants,
+        )
         preferred_variant = next(
             (
                 variant
@@ -321,7 +326,14 @@ class LibraryService:
             collections=collections,
             updates_enabled=monitoring_enabled,
             watched_variant_ids=monitoring_variant_ids,
-            variants=[self._to_variant_resource(variant) for variant in variants],
+            variants=[
+                self._to_variant_resource(
+                    variant,
+                    availability=variant_availability.get(int(variant.id)),
+                )
+                for variant in variants
+                if variant.id is not None
+            ],
         )
 
     async def list_user_statuses(self) -> list[LibraryUserStatusResource]:
@@ -3442,8 +3454,104 @@ class LibraryService:
             is_default=status.is_default,
         )
 
+    async def _build_variant_availability(
+        self,
+        title_id: int,
+        variants: list[LibraryTitleVariant],
+    ) -> dict[int, LibraryVariantAvailabilityResource]:
+        variant_ids = [int(variant.id) for variant in variants if variant.id is not None]
+        if not variant_ids:
+            return {}
+
+        rows = (
+            await self.session.exec(
+                select(
+                    LibraryChapter.variant_id,
+                    LibraryChapter.chapter_number,
+                ).where(
+                    LibraryChapter.library_title_id == title_id,
+                    LibraryChapter.variant_id.in_(variant_ids),
+                )
+            )
+        ).all()
+
+        chapter_count_by_variant = {variant_id: 0 for variant_id in variant_ids}
+        chapter_numbers_by_variant: dict[int, list[float]] = {
+            variant_id: []
+            for variant_id in variant_ids
+        }
+
+        for variant_id, chapter_number in rows:
+            normalized_variant_id = int(variant_id)
+            chapter_count_by_variant[normalized_variant_id] = (
+                chapter_count_by_variant.get(normalized_variant_id, 0) + 1
+            )
+            number = float(chapter_number or 0.0)
+            if number > 0.0:
+                chapter_numbers_by_variant.setdefault(normalized_variant_id, []).append(number)
+
+        highest_by_variant = {
+            variant_id: (
+                max(numbers)
+                if numbers
+                else None
+            )
+            for variant_id, numbers in chapter_numbers_by_variant.items()
+        }
+        global_highest = max(
+            (
+                value
+                for value in highest_by_variant.values()
+                if value is not None
+            ),
+            default=None,
+        )
+
+        availability_by_variant: dict[int, LibraryVariantAvailabilityResource] = {}
+        for variant_id in variant_ids:
+            chapter_count = chapter_count_by_variant.get(variant_id, 0)
+            unique_numbers = sorted(set(chapter_numbers_by_variant.get(variant_id, [])))
+
+            first_number = unique_numbers[0] if unique_numbers else None
+            last_number = unique_numbers[-1] if unique_numbers else None
+            starts_from_chapter_one = first_number is not None and first_number <= 1.05
+            has_major_gaps = any(
+                (next_number - current_number) > 1.25
+                for current_number, next_number in zip(unique_numbers, unique_numbers[1:])
+            )
+
+            if chapter_count == 0:
+                state = "unknown"
+            elif not unique_numbers:
+                state = "partial"
+            elif not starts_from_chapter_one or has_major_gaps:
+                state = "partial"
+            elif (
+                global_highest is not None
+                and last_number is not None
+                and (last_number + 0.05) < global_highest
+            ):
+                state = "behind"
+            else:
+                state = "full"
+
+            availability_by_variant[variant_id] = LibraryVariantAvailabilityResource(
+                state=state,
+                chapter_count=chapter_count,
+                starts_from_chapter_one=starts_from_chapter_one,
+                has_major_gaps=has_major_gaps,
+                first_chapter_number=first_number,
+                last_chapter_number=last_number,
+                global_last_chapter_number=global_highest,
+            )
+
+        return availability_by_variant
+
     @staticmethod
-    def _to_variant_resource(variant: LibraryTitleVariant) -> LibraryTitleVariantResource:
+    def _to_variant_resource(
+        variant: LibraryTitleVariant,
+        availability: LibraryVariantAvailabilityResource | None = None,
+    ) -> LibraryTitleVariantResource:
         return LibraryTitleVariantResource(
             id=int(variant.id),
             source_id=variant.source_id,
@@ -3457,6 +3565,7 @@ class LibraryService:
             author=variant.author,
             genre=variant.genre,
             status=variant.status,
+            availability=availability,
         )
 
     @staticmethod

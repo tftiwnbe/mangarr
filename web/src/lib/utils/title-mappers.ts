@@ -52,6 +52,24 @@ interface TitleVariantItem {
 	genre?: string;
 	status?: TitleStatus;
 	cover?: string;
+	availability?: {
+		state: VariantAvailabilityState;
+		chapterCount: number;
+		startsFromChapterOne: boolean;
+		hasMajorGaps: boolean;
+		firstChapterNumber?: number;
+		lastChapterNumber?: number;
+		globalLastChapterNumber?: number;
+	};
+}
+
+type VariantAvailabilityState = 'full' | 'behind' | 'partial' | 'unknown';
+
+function normalizeVariantAvailabilityState(value: string | null | undefined): VariantAvailabilityState {
+	if (value === 'full' || value === 'behind' || value === 'partial' || value === 'unknown') {
+		return value;
+	}
+	return 'unknown';
 }
 
 export interface TitleCollectionItem {
@@ -171,6 +189,19 @@ export function mapLibrarySummaryToTitleCard(item: LibraryTitleSummary): TitleCa
 }
 
 function mapVariant(variant: LibraryTitleResource['variants'][number]): TitleVariantItem {
+	const availability =
+		variant.availability && typeof variant.availability.state === 'string'
+			? {
+					state: normalizeVariantAvailabilityState(variant.availability.state),
+					chapterCount: variant.availability.chapter_count ?? 0,
+					startsFromChapterOne: variant.availability.starts_from_chapter_one ?? false,
+					hasMajorGaps: variant.availability.has_major_gaps ?? false,
+					firstChapterNumber: variant.availability.first_chapter_number ?? undefined,
+					lastChapterNumber: variant.availability.last_chapter_number ?? undefined,
+					globalLastChapterNumber:
+						variant.availability.global_last_chapter_number ?? undefined
+				}
+			: undefined;
 	return {
 		id: variant.id,
 		sourceId: variant.source_id,
@@ -183,7 +214,8 @@ function mapVariant(variant: LibraryTitleResource['variants'][number]): TitleVar
 		author: variant.author ?? undefined,
 		genre: variant.genre ?? undefined,
 		status: normalizeStatus(variant.status),
-		cover: normalizeCover(variant.thumbnail_url)
+		cover: normalizeCover(variant.thumbnail_url),
+		availability
 	};
 }
 

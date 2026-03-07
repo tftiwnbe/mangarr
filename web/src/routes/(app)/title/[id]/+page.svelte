@@ -442,6 +442,50 @@
 		};
 	}
 
+	function formatChapterMetric(value: number | undefined): string | null {
+		if (value === undefined || !Number.isFinite(value) || value <= 0) return null;
+		return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '');
+	}
+
+	function variantAvailabilityLabel(
+		variant: (typeof visibleVariants)[number]
+	): string | null {
+		const availability = variant.availability;
+		if (!availability) return null;
+
+		if (availability.state === 'full') {
+			return 'full';
+		}
+		if (availability.state === 'partial') {
+			return availability.hasMajorGaps ? 'partial (gaps)' : 'partial';
+		}
+		if (availability.state === 'behind') {
+			const last = formatChapterMetric(availability.lastChapterNumber);
+			const global = formatChapterMetric(availability.globalLastChapterNumber);
+			if (last && global) {
+				return `behind ${last}/${global}`;
+			}
+			return 'behind';
+		}
+		return 'unknown';
+	}
+
+	function variantAvailabilityClass(
+		variant: (typeof visibleVariants)[number]
+	): string {
+		const state = variant.availability?.state ?? 'unknown';
+		if (state === 'full') {
+			return 'text-[var(--success)]';
+		}
+		if (state === 'behind') {
+			return 'text-[var(--void-7)]';
+		}
+		if (state === 'partial') {
+			return 'text-[var(--text-soft)]';
+		}
+		return 'text-[var(--void-6)]';
+	}
+
 	function chooseReadingVariant(variantId: number) {
 		if (selectedVariantId === variantId) return;
 		selectedVariantId = variantId;
@@ -1171,6 +1215,7 @@
 					<span class="text-label">{$_('title.sources')}</span>
 					<div class="flex flex-col">
 						{#each visibleVariants as variant (variant.id)}
+							{@const availabilityLabel = variantAvailabilityLabel(variant)}
 							<button
 								type="button"
 								class="flex items-center gap-3 py-2.5 text-left text-xs transition-colors {variant.id === selectedVariantId
@@ -1182,6 +1227,11 @@
 									<span>{variant.sourceName || variant.sourceId}</span>
 									{#if variant.id === selectedVariantId}
 										<span class="ml-2 text-[var(--void-6)]">{$_('title.readingNow')}</span>
+									{/if}
+									{#if availabilityLabel}
+										<span class="ml-2 text-[10px] {variantAvailabilityClass(variant)}">
+											{availabilityLabel}
+										</span>
 									{/if}
 									<p class="mt-0.5 truncate text-[var(--void-6)]">{variant.title}</p>
 								</div>

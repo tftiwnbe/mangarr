@@ -2364,6 +2364,37 @@ export interface components {
 			 * @default 0
 			 */
 			status: number;
+			/** Availability */
+			availability?: components['schemas']['LibraryVariantAvailabilityResource'] | null;
+		};
+		/** LibraryVariantAvailabilityResource */
+		LibraryVariantAvailabilityResource: {
+			/**
+			 * State
+			 * @default unknown
+			 */
+			state: string;
+			/**
+			 * Chapter Count
+			 * @default 0
+			 */
+			chapter_count: number;
+			/**
+			 * Starts From Chapter One
+			 * @default false
+			 */
+			starts_from_chapter_one: boolean;
+			/**
+			 * Has Major Gaps
+			 * @default false
+			 */
+			has_major_gaps: boolean;
+			/** First Chapter Number */
+			first_chapter_number?: number | null;
+			/** Last Chapter Number */
+			last_chapter_number?: number | null;
+			/** Global Last Chapter Number */
+			global_last_chapter_number?: number | null;
 		};
 		/** LibraryUserStatusCreate */
 		LibraryUserStatusCreate: {
