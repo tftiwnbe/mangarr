@@ -1028,7 +1028,8 @@ export interface paths {
 		get: operations['list_library_title_chapter_progress_api_v2_library_titles__title_id__chapter_progress_get'];
 		put?: never;
 		post?: never;
-		delete?: never;
+		/** Reset Library Title Progress */
+		delete: operations['reset_library_title_progress_api_v2_library_titles__title_id__chapter_progress_delete'];
 		options?: never;
 		head?: never;
 		patch?: never;
@@ -1045,7 +1046,8 @@ export interface paths {
 		get: operations['get_library_chapter_progress_api_v2_library_chapters__chapter_id__progress_get'];
 		put?: never;
 		post?: never;
-		delete?: never;
+		/** Reset Library Chapter Progress */
+		delete: operations['reset_library_chapter_progress_api_v2_library_chapters__chapter_id__progress_delete'];
 		options?: never;
 		head?: never;
 		/** Update Library Chapter Progress */
@@ -4939,6 +4941,38 @@ export interface operations {
 			};
 		};
 	};
+	reset_library_title_progress_api_v2_library_titles__title_id__chapter_progress_delete: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path: {
+				title_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
 	get_library_chapter_progress_api_v2_library_chapters__chapter_id__progress_get: {
 		parameters: {
 			query?: never;
@@ -4961,6 +4995,38 @@ export interface operations {
 				content: {
 					'application/json': components['schemas']['LibraryChapterProgressResource'];
 				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	reset_library_chapter_progress_api_v2_library_chapters__chapter_id__progress_delete: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path: {
+				chapter_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
 			};
 			/** @description Validation Error */
 			422: {

@@ -8,6 +8,7 @@
 		listLibraryTitleComments,
 		listLibraryTitleChapterProgress,
 		listLibraryCollections,
+		resetLibraryTitleProgress,
 		listLibrarySourceMatches,
 		listLibraryStatuses,
 		listLibraryTitleChapters,
@@ -21,6 +22,7 @@
 	} from '$lib/api/library';
 	import { listSources } from '$lib/api/explore';
 	import { Button } from '$lib/elements/button';
+	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
 	import { Icon } from '$lib/elements/icon';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { SlidePanel } from '$lib/elements/slide-panel';
@@ -67,6 +69,8 @@
 	let saveTimer: ReturnType<typeof setTimeout> | null = null;
 	let readerProgressByChapter = $state<Record<number, number>>({});
 	let readerProgressUpdatedAtByChapter = $state<Record<number, string>>({});
+	let resetProgressConfirmOpen = $state(false);
+	let resetProgressLoading = $state(false);
 	const structuredChapterPattern =
 		/^\s*(?:\d+\s*[-_.]\s*)?(?:(?:vol(?:ume)?\.?\s*(\d+(?:\.\d+)?))\s*)?(?:ch(?:apter)?\.?\s*(\d+(?:\.\d+)?))(?:\s*[-:–]\s*(.*))?\s*$/i;
 	function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -250,7 +254,7 @@
 				const byChapter: Record<number, number> = {};
 				const updatedByChapter: Record<number, string> = {};
 				for (const row of progressRows) {
-					if (row.page_index !== null) {
+					if (row.page_index !== null && row.page_index !== undefined) {
 						byChapter[row.chapter_id] = row.page_index;
 					}
 					if (row.updated_at) {
@@ -547,6 +551,25 @@
 		}
 	}
 
+	async function resetReadingProgress() {
+		if (!title) return;
+		resetProgressLoading = true;
+		prefsError = null;
+		try {
+			const libraryTitleId = title.libraryId;
+			await resetLibraryTitleProgress(libraryTitleId);
+			readerProgressByChapter = {};
+			readerProgressUpdatedAtByChapter = {};
+			await libraryTitleDetailStore.refresh(libraryTitleId);
+			prefsSuccess = true;
+		} catch (error) {
+			prefsError = error instanceof Error ? error.message : $_('title.resetProgressFailed');
+		} finally {
+			resetProgressLoading = false;
+			resetProgressConfirmOpen = false;
+		}
+	}
+
 	function toggleCollection(collectionId: number) {
 		if (selectedStatusId === null) return;
 		if (selectedCollectionIds.includes(collectionId)) {
@@ -742,6 +765,15 @@
 								{progressedChapterCount}/{orderedChaptersForReading.length}
 							</span>
 						</div>
+						{#if hasAnyReadingProgress}
+							<button
+								type="button"
+								class="self-start text-[11px] text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
+								onclick={() => (resetProgressConfirmOpen = true)}
+							>
+								{$_('title.resetProgress')}
+							</button>
+						{/if}
 					{/if}
 				</div>
 			</div>
@@ -801,6 +833,15 @@
 								{progressedChapterCount}/{orderedChaptersForReading.length}
 							</span>
 						</div>
+						{#if hasAnyReadingProgress}
+							<button
+								type="button"
+								class="self-start text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
+								onclick={() => (resetProgressConfirmOpen = true)}
+							>
+								{$_('title.resetProgress')}
+							</button>
+						{/if}
 					{/if}
 				</div>
 
@@ -1231,4 +1272,15 @@
 			{/if}
 		</div>
 	</SlidePanel>
+
+	<ConfirmDialog
+		open={resetProgressConfirmOpen}
+		title={$_('title.resetProgressConfirmTitle')}
+		description={$_('title.resetProgressConfirmDescription')}
+		confirmLabel={$_('title.resetProgress')}
+		variant="danger"
+		loading={resetProgressLoading}
+		onConfirm={resetReadingProgress}
+		onCancel={() => (resetProgressConfirmOpen = false)}
+	/>
 {/if}

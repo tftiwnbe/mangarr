@@ -290,6 +290,22 @@ async def update_library_chapter_progress(
     return await service.update_chapter_progress(chapter_id=chapter_id, payload=payload)
 
 
+@router.delete("/chapters/{chapter_id}/progress", status_code=204)
+async def reset_library_chapter_progress(
+    chapter_id: int,
+    service: LibraryService = Depends(get_service),
+):
+    await service.reset_chapter_progress(chapter_id=chapter_id)
+
+
+@router.delete("/titles/{title_id}/chapter-progress", status_code=204)
+async def reset_library_title_progress(
+    title_id: int,
+    service: LibraryService = Depends(get_service),
+):
+    await service.reset_title_progress(title_id=title_id)
+
+
 @router.get(
     "/titles/{title_id}/comments",
     response_model=list[LibraryChapterCommentResource],

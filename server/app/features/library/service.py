@@ -1330,6 +1330,62 @@ class LibraryService:
             updated_at=chapter.reader_updated_at,
         )
 
+    async def reset_chapter_progress(self, chapter_id: int) -> None:
+        chapter = await self.session.get(LibraryChapter, chapter_id)
+        if chapter is None:
+            raise BridgeAPIError(404, f"Library chapter not found: {chapter_id}")
+
+        if (
+            chapter.reader_page_index is None
+            and chapter.reader_comment is None
+            and chapter.reader_updated_at is None
+            and not chapter.is_read
+        ):
+            return
+
+        chapter.is_read = False
+        chapter.reader_page_index = None
+        chapter.reader_comment = None
+        chapter.reader_updated_at = None
+        chapter.updated_at = datetime.now(timezone.utc)
+        self.session.add(chapter)
+        await self._commit_with_sqlite_retry()
+
+    async def reset_title_progress(self, title_id: int) -> None:
+        title = await self.session.get(LibraryTitle, title_id)
+        if title is None:
+            raise BridgeAPIError(404, f"Library title not found: {title_id}")
+
+        rows = (
+            await self.session.exec(
+                select(LibraryChapter).where(LibraryChapter.library_title_id == title_id)
+            )
+        ).all()
+        chapters = list(rows)
+        if not chapters:
+            return
+
+        now = datetime.now(timezone.utc)
+        changed = False
+        for chapter in chapters:
+            if (
+                chapter.reader_page_index is None
+                and chapter.reader_comment is None
+                and chapter.reader_updated_at is None
+                and not chapter.is_read
+            ):
+                continue
+            chapter.is_read = False
+            chapter.reader_page_index = None
+            chapter.reader_comment = None
+            chapter.reader_updated_at = None
+            chapter.updated_at = now
+            self.session.add(chapter)
+            changed = True
+
+        if changed:
+            await self._commit_with_sqlite_retry()
+
     async def list_source_matches(
         self,
         title_id: int,

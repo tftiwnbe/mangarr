@@ -313,6 +313,24 @@ export async function updateLibraryChapterProgress(
 	);
 }
 
+export async function resetLibraryChapterProgress(chapterId: number): Promise<void> {
+	expectNoContent(
+		await httpClient.DELETE('/api/v2/library/chapters/{chapter_id}/progress', {
+			params: { path: { chapter_id: chapterId } }
+		}),
+		'Unable to reset chapter progress'
+	);
+}
+
+export async function resetLibraryTitleProgress(titleId: number): Promise<void> {
+	expectNoContent(
+		await httpClient.DELETE('/api/v2/library/titles/{title_id}/chapter-progress', {
+			params: { path: { title_id: titleId } }
+		}),
+		'Unable to reset title progress'
+	);
+}
+
 export async function listLibraryTitleComments(
 	titleId: number,
 	query?: { variant_id?: number | null; newest_first?: boolean }
