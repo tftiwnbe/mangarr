@@ -14,6 +14,7 @@ from fastapi import WebSocket
 from loguru import logger
 
 _ws_logger = logger.bind(module="core.ws")
+_SEND_TIMEOUT_SECONDS = 1.5
 
 
 class ConnectionManager:
@@ -40,15 +41,18 @@ class ConnectionManager:
         if not self._connections:
             return
         message = json.dumps(event, default=str)
-        dead: list[WebSocket] = []
         async with self._lock:
             connections = list(self._connections)
-        for ws in connections:
+
+        async def send_one(ws: WebSocket) -> WebSocket | None:
             try:
-                await ws.send_text(message)
+                await asyncio.wait_for(ws.send_text(message), timeout=_SEND_TIMEOUT_SECONDS)
+                return None
             except Exception as exc:
                 _ws_logger.debug("ws.pruned error={}", type(exc).__name__)
-                dead.append(ws)
+                return ws
+
+        dead = [ws for ws in await asyncio.gather(*(send_one(ws) for ws in connections)) if ws]
         if dead:
             async with self._lock:
                 for ws in dead:

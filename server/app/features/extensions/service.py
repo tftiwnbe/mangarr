@@ -19,6 +19,22 @@ class ExtensionService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    async def _get_extension_or_raise(self, pkg: str) -> Extension:
+        extension = (
+            await self.session.exec(select(Extension).where(Extension.pkg == pkg))
+        ).first()
+        if not extension:
+            raise ValueError(f"Extension {pkg} not found")
+        return extension
+
+    async def _get_sources_by_ids(self, source_ids: list[str]) -> dict[str, Source]:
+        if not source_ids:
+            return {}
+        rows = (
+            await self.session.exec(select(Source).where(Source.id.in_(source_ids)))
+        ).all()
+        return {source.id: source for source in rows}
+
     async def _replace_all_extensions(
         self, repo_index_url: str, new_repo_extensions: list[RepoExtension]
     ) -> list[Extension]:
@@ -82,10 +98,7 @@ class ExtensionService:
         return list(sources)
 
     async def _update_extension(self, pkg: str, updates: UpdateExtension) -> Extension:
-        stmt = select(Extension).where(Extension.pkg == pkg)
-        extension = (await self.session.exec(stmt)).first()
-        if not extension:
-            raise ValueError(f"Extension {pkg} not found")
+        extension = await self._get_extension_or_raise(pkg)
 
         for key, value in updates.model_dump(exclude_unset=True).items():
             if hasattr(extension, key):
@@ -143,25 +156,25 @@ class ExtensionService:
     async def install_extension(self, extension_pkg: str) -> ExtensionResource:
         extension, sources = await tachibridge.install_extension(extension_pkg)
 
+        source_ids = [installed_source.id for installed_source in sources]
+        sources_by_id = await self._get_sources_by_ids(source_ids)
         updated_sources: list[Source] = []
-
         for installed_source in sources:
-            source_update = UpdateSource(
-                supports_latest=installed_source.supports_latest
-            )
-            updated_source = await self._update_source(
-                installed_source.id, source_update
-            )
-            updated_sources.append(updated_source)
+            source = sources_by_id.get(installed_source.id)
+            if source is None:
+                raise ValueError(f"Source {installed_source.id} not found")
+            source.supports_latest = installed_source.supports_latest
+            self.session.add(source)
+            updated_sources.append(source)
 
         max_priority = await self._get_max_extension_priority()
-        extension_update = UpdateExtension(
-            installed=True,
-            priority=max_priority + 1,
-            sources_has_prefs=extension.sources_has_prefs,
-        )
-        extension = await self._update_extension(extension_pkg, extension_update)
-        return ExtensionResource(**extension.model_dump(), sources=updated_sources)
+        extension_row = await self._get_extension_or_raise(extension_pkg)
+        extension_row.installed = True
+        extension_row.priority = max_priority + 1
+        extension_row.sources_has_prefs = extension.sources_has_prefs
+        self.session.add(extension_row)
+        await self.session.commit()
+        return ExtensionResource(**extension_row.model_dump(), sources=updated_sources)
 
     async def uninstall_extension(self, extension_pkg: str) -> Extension:
         await tachibridge.uninstall_extension(extension_pkg)
@@ -172,11 +185,21 @@ class ExtensionService:
     async def update_extensions_priority(
         self, extensions_by_priority: list[str]
     ) -> list[Extension]:
+        rows = (
+            await self.session.exec(
+                select(Extension).where(Extension.pkg.in_(extensions_by_priority))
+            )
+        ).all()
+        extensions_by_pkg = {extension.pkg: extension for extension in rows}
         updated_extensions: list[Extension] = []
         for index, pkg in enumerate(extensions_by_priority):
-            extension_update = UpdateExtension(priority=index + 1)
-            extension = await self._update_extension(pkg, extension_update)
+            extension = extensions_by_pkg.get(pkg)
+            if extension is None:
+                raise ValueError(f"Extension {pkg} not found")
+            extension.priority = index + 1
+            self.session.add(extension)
             updated_extensions.append(extension)
+        await self.session.commit()
         return updated_extensions
 
     async def toggle_extension_proxy(

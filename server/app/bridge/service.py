@@ -71,11 +71,11 @@ class TachibridgeService:
         await self._connection.close()
         await self._process.stop()
 
-    async def is_healthy(self) -> bool:
+    async def is_healthy(self, timeout: float = 2.0) -> bool:
         """Check if the bridge is healthy."""
         if not self._process.is_running():
             return False
-        return await self._connection.check_health()
+        return await self._connection.check_health(timeout=timeout)
 
     async def _ensure_process_stable(self, grace_period: float = 2.0) -> None:
         """Ensure the launched process survives initial startup window."""

@@ -58,7 +58,9 @@ async def get_current_user(
 
     auth_session = (
         await db.exec(
-            select(AuthSession).where(
+            select(User)
+            .join(AuthSession, AuthSession.user_id == User.id)
+            .where(
                 AuthSession.token_hash == hashed_credential,
                 AuthSession.revoked_at.is_(None),
                 or_(AuthSession.expires_at.is_(None), AuthSession.expires_at > now),
@@ -66,22 +68,20 @@ async def get_current_user(
         )
     ).first()
     if auth_session is not None:
-        user = (await db.exec(select(User).where(User.id == auth_session.user_id))).first()
-        if user is not None:
-            return user
+        return auth_session
 
     integration_key = (
         await db.exec(
-            select(IntegrationApiKey).where(
+            select(User)
+            .join(IntegrationApiKey, IntegrationApiKey.user_id == User.id)
+            .where(
                 IntegrationApiKey.key_hash == hashed_credential,
                 IntegrationApiKey.revoked_at.is_(None),
             )
         )
     ).first()
     if integration_key is not None:
-        user = (await db.exec(select(User).where(User.id == integration_key.user_id))).first()
-        if user is not None:
-            return user
+        return integration_key
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

@@ -22,6 +22,7 @@ from app.core.ws import ws_manager
 from app.features.auth import AuthService, auth_router
 from app.features.auth.router import ws_token_cache
 from app.features.covers import covers_router
+from app.features.covers.router import cover_cache
 from app.features.explore import explore_router
 from app.features.downloads import downloads_router
 from app.features.extensions import extensions_router
@@ -78,6 +79,7 @@ async def lifespan(_app: FastAPI):
         try:
             await tachibridge.stop()
         finally:
+            await cover_cache.close()
             if sessionmanager.engine is not None:
                 await sessionmanager.close()
 

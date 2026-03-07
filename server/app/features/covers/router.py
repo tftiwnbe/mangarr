@@ -95,6 +95,24 @@ class CoverCacheService:
 
     def __init__(self) -> None:
         self.root = settings.app.config_dir / "cache" / "covers"
+        self._client: httpx.AsyncClient | None = None
+        self._client_lock = asyncio.Lock()
+
+    async def close(self) -> None:
+        async with self._client_lock:
+            if self._client is None:
+                return
+            await self._client.aclose()
+            self._client = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        async with self._client_lock:
+            if self._client is None:
+                self._client = httpx.AsyncClient(
+                    timeout=_CLIENT_TIMEOUT,
+                    follow_redirects=True,
+                )
+            return self._client
 
     @classmethod
     async def _lock_for(cls, key: str) -> asyncio.Lock:
@@ -206,11 +224,8 @@ class CoverCacheService:
         if current_meta and current_meta.last_modified:
             headers["If-Modified-Since"] = current_meta.last_modified
 
-        async with httpx.AsyncClient(
-            timeout=_CLIENT_TIMEOUT,
-            follow_redirects=True,
-        ) as client:
-            response = await client.get(url, headers=headers)
+        client = await self._get_client()
+        response = await client.get(url, headers=headers)
 
         if response.status_code == 304 and current_meta and file_path.is_file():
             refreshed = CoverCacheMeta(

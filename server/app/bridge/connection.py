@@ -46,7 +46,7 @@ class TachibridgeConnection:
                     self._channel = None
                     self._stub = None
 
-    async def check_health(self, timeout: float = 20.0) -> bool:
+    async def check_health(self, timeout: float = 2.0) -> bool:
         """Perform a health check against the bridge."""
         try:
             stub = await self.get_stub()
