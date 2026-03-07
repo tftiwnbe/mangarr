@@ -1,9 +1,11 @@
+from app.bridge.metrics import bridge_page_metrics
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.deps import CurrentUserDep, require_authenticated_user
 from app.core.scheduler import scheduler
 from app.features.settings.service import SettingsService
 from app.models import (
+    BridgePageMetricsResource,
     ContentLanguagesResource,
     ContentLanguagesUpdate,
     DownloadSettingsResource,
@@ -62,8 +64,19 @@ async def run_jobs_cleanup_now(current_user: CurrentUserDep):
 
 @router.get("/scheduler", response_model=SchedulerStatusResource)
 async def get_scheduler_status():
+    metrics_snapshot = bridge_page_metrics.snapshot()
     jobs = [SchedulerJobResource(**j) for j in scheduler.get_status()]
-    return SchedulerStatusResource(jobs=jobs)
+    return SchedulerStatusResource(
+        jobs=jobs,
+        bridge_page_metrics=BridgePageMetricsResource(
+            page_fetch_attempts=metrics_snapshot.page_fetch_attempts,
+            page_fetch_not_found=metrics_snapshot.page_fetch_not_found,
+            page_fetch_recovery_attempts=metrics_snapshot.page_fetch_recovery_attempts,
+            page_fetch_recovered=metrics_snapshot.page_fetch_recovered,
+            page_fetch_recovery_failed=metrics_snapshot.page_fetch_recovery_failed,
+            last_recovery_at=metrics_snapshot.last_recovery_at,
+        ),
+    )
 
 
 @router.post("/scheduler/{job_name}/trigger", response_model=SchedulerJobResource)

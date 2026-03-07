@@ -43,7 +43,8 @@
 		updateDownloadSettings,
 		updateJobsSettings,
 		updateProxySettings,
-		type SchedulerJobResource
+		type SchedulerJobResource,
+		type SchedulerStatusResource
 	} from '$lib/api/settings';
 	import { Button } from '$lib/elements/button';
 	import { Icon } from '$lib/elements/icon';
@@ -156,7 +157,9 @@
 	let proxySettingsSuccess = $state(false);
 
 	// ── Scheduler ──────────────────────────────────────────────────────────
+	type BridgePageMetrics = NonNullable<SchedulerStatusResource['bridge_page_metrics']>;
 	let schedulerJobs = $state<SchedulerJobResource[]>([]);
+	let schedulerBridgeMetrics = $state<BridgePageMetrics | null>(null);
 	let schedulerLoading = $state(false);
 	let schedulerError = $state<string | null>(null);
 	let schedulerActingJob = $state<string | null>(null);
@@ -321,6 +324,7 @@
 		try {
 			const status = await getSchedulerStatus();
 			schedulerJobs = status.jobs;
+			schedulerBridgeMetrics = status.bridge_page_metrics ?? null;
 		} catch (cause) {
 			schedulerError = cause instanceof Error ? cause.message : 'Failed to load scheduler';
 		} finally {
@@ -1774,6 +1778,15 @@
 
 					{#if schedulerError}
 						<p class="text-xs text-[var(--error)] mb-2">{schedulerError}</p>
+					{/if}
+
+					{#if schedulerBridgeMetrics}
+						<div class="mb-3 grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] text-[var(--text-ghost)]">
+							<span>page fetches: {schedulerBridgeMetrics.page_fetch_attempts}</span>
+							<span>404s: {schedulerBridgeMetrics.page_fetch_not_found}</span>
+							<span>recoveries: {schedulerBridgeMetrics.page_fetch_recovered}</span>
+							<span>recovery failed: {schedulerBridgeMetrics.page_fetch_recovery_failed}</span>
+						</div>
 					{/if}
 
 					{#if schedulerLoading && schedulerJobs.length === 0}

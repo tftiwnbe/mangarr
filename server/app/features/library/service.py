@@ -1,10 +1,8 @@
-import asyncio
-import json
 import re
 import time as _time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urljoin, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 import httpx
 from loguru import logger
@@ -13,6 +11,7 @@ from sqlmodel import delete, desc, func, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.bridge import tachibridge
+from app.bridge.metrics import bridge_page_metrics
 from app.config import settings
 from app.core.errors import BridgeAPIError
 from app.core.utils import commit_with_sqlite_retry, normalize_positive_int_ids, normalize_text
@@ -20,11 +19,12 @@ from app.domain.download_profiles import (
     parse_selected_variant_ids,
     serialize_selected_variant_ids,
 )
+from app.domain.chapter_matching import choose_replacement_chapter_url
 from app.domain.title_identity import (
     author_match_score,
     canonical_title_key,
     fallback_title_from_url,
-    resolve_libgroup_chapter_url,
+    resolve_source_chapter_url,
     source_match_score,
 )
 from app.features.downloads.storage import (
@@ -74,6 +74,7 @@ from app.models import (
     LibraryUserStatusCreate,
     LibraryUserStatusResource,
     LibraryUserStatusUpdate,
+    Page,
     ReaderPageResource,
     Source,
     SourceChapter,
@@ -2370,7 +2371,7 @@ class LibraryService:
             variant = await self.session.get(LibraryTitleVariant, chapter.variant_id)
             if variant is None:
                 raise BridgeAPIError(500, f"Library chapter has no variant: {chapter_id}")
-            bridge_chapter_url = resolve_libgroup_chapter_url(chapter.chapter_url)
+            bridge_chapter_url = resolve_source_chapter_url(chapter.chapter_url)
             preflight_error = await self._preflight_mangalib_chapter_pages_unavailable(
                 source_id=variant.source_id,
                 chapter_url=bridge_chapter_url,
@@ -2378,19 +2379,41 @@ class LibraryService:
             if preflight_error:
                 raise BridgeAPIError(409, preflight_error)
             try:
+                bridge_page_metrics.record_fetch_attempt()
                 pages = await tachibridge.fetch_chapter_pages(
                     source_id=variant.source_id,
                     chapter_url=bridge_chapter_url,
                 )
             except BridgeAPIError as exc:
-                normalized = await self._normalize_mangalib_pages_error(
-                    source_id=variant.source_id,
-                    chapter_url=bridge_chapter_url,
-                    error_text=str(exc),
-                )
-                if normalized:
-                    raise BridgeAPIError(409, normalized) from exc
-                raise
+                if exc.status_code == 404:
+                    bridge_page_metrics.record_not_found()
+                    recovered_pages = await self._recover_chapter_pages_from_fresh_url(
+                        chapter=chapter,
+                        variant=variant,
+                        attempted_chapter_url=bridge_chapter_url,
+                    )
+                    if recovered_pages is not None:
+                        bridge_page_metrics.record_recovered()
+                        pages = recovered_pages
+                    else:
+                        bridge_page_metrics.record_recovery_failed()
+                        normalized = await self._normalize_mangalib_pages_error(
+                            source_id=variant.source_id,
+                            chapter_url=bridge_chapter_url,
+                            error_text=str(exc),
+                        )
+                        if normalized:
+                            raise BridgeAPIError(409, normalized) from exc
+                        raise
+                else:
+                    normalized = await self._normalize_mangalib_pages_error(
+                        source_id=variant.source_id,
+                        chapter_url=bridge_chapter_url,
+                        error_text=str(exc),
+                    )
+                    if normalized:
+                        raise BridgeAPIError(409, normalized) from exc
+                    raise
             if not pages:
                 raise BridgeAPIError(
                     409,
@@ -2453,6 +2476,61 @@ class LibraryService:
             for page in cached_pages
             if page.id is not None
         ]
+
+    async def _recover_chapter_pages_from_fresh_url(
+        self,
+        chapter: LibraryChapter,
+        variant: LibraryTitleVariant,
+        attempted_chapter_url: str,
+    ) -> list[Page] | None:
+        bridge_page_metrics.record_recovery_attempt()
+        try:
+            source_chapters = await tachibridge.fetch_title_chapters(
+                source_id=variant.source_id,
+                title_url=variant.title_url,
+            )
+        except BridgeAPIError:
+            return None
+
+        replacement_url = choose_replacement_chapter_url(
+            current_url=chapter.chapter_url,
+            current_name=chapter.name,
+            current_number=chapter.chapter_number,
+            current_scanlator=chapter.scanlator,
+            source_chapters=source_chapters,
+        )
+        if not replacement_url:
+            return None
+
+        resolved_replacement = resolve_source_chapter_url(replacement_url)
+        if not resolved_replacement or resolved_replacement == attempted_chapter_url:
+            return None
+
+        try:
+            bridge_page_metrics.record_fetch_attempt()
+            pages = await tachibridge.fetch_chapter_pages(
+                source_id=variant.source_id,
+                chapter_url=resolved_replacement,
+            )
+        except BridgeAPIError:
+            return None
+
+        if not pages:
+            return None
+
+        previous_url = chapter.chapter_url
+        chapter.chapter_url = replacement_url
+        chapter.updated_at = datetime.now(timezone.utc)
+        self.session.add(chapter)
+        await self._commit_with_sqlite_retry()
+
+        _library_logger.bind(
+            chapter_id=chapter.id,
+            source_id=variant.source_id,
+            previous_url=previous_url,
+            recovered_url=replacement_url,
+        ).info("chapter.pages_recovered")
+        return pages
 
     async def _ensure_downloaded_pages_cache(
         self,

@@ -90,6 +90,7 @@ from app.models.library import (
     ReaderPageResource,
 )
 from app.models.settings import (
+    BridgePageMetricsResource,
     ContentLanguagesResource,
     ContentLanguagesUpdate,
     DownloadSettingsResource,
@@ -130,6 +131,7 @@ from app.models.users import (
 __all__ = [
     "ContentLanguagesResource",
     "ContentLanguagesUpdate",
+    "BridgePageMetricsResource",
     "ExploreCacheItem",
     "ExploreCachePage",
     "ExploreCategory",

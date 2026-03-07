@@ -4,6 +4,7 @@ import re
 import shutil
 import time as _time
 from datetime import datetime, timedelta, timezone
+from difflib import SequenceMatcher
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
@@ -14,6 +15,7 @@ from sqlmodel import delete, desc, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.bridge import tachibridge
+from app.bridge.metrics import bridge_page_metrics
 from app.config import settings
 from app.core.database import sessionmanager
 from app.core.errors import BridgeAPIError
@@ -22,7 +24,8 @@ from app.domain.download_profiles import (
     parse_selected_variant_ids,
     serialize_selected_variant_ids,
 )
-from app.domain.title_identity import resolve_libgroup_chapter_url
+from app.domain.chapter_matching import choose_replacement_chapter_url
+from app.domain.title_identity import resolve_source_chapter_url
 from app.features.covers.local_store import library_cover_route, persist_library_cover
 from app.features.downloads.storage import (
     chapter_archive_path,
@@ -58,6 +61,7 @@ from app.models import (
     LibraryChapter,
     LibraryChapterPage,
     LibraryImportRequest,
+    Page,
     LibraryTitle,
     LibraryUserStatus,
     LibraryTitleVariant,
@@ -2380,7 +2384,7 @@ class DownloadService:
         source_request_headers = await self._resolve_source_request_headers(variant.source_id)
 
         try:
-            bridge_chapter_url = resolve_libgroup_chapter_url(chapter.chapter_url)
+            bridge_chapter_url = resolve_source_chapter_url(chapter.chapter_url)
             preflight_error = await self._preflight_mangalib_chapter_pages_unavailable(
                 source_id=variant.source_id,
                 chapter_url=bridge_chapter_url,
@@ -2388,19 +2392,41 @@ class DownloadService:
             if preflight_error:
                 raise RuntimeError(preflight_error)
             try:
+                bridge_page_metrics.record_fetch_attempt()
                 pages = await tachibridge.fetch_chapter_pages(
                     source_id=variant.source_id,
                     chapter_url=bridge_chapter_url,
                 )
             except BridgeAPIError as exc:
-                normalized = await self._normalize_mangalib_pages_error(
-                    source_id=variant.source_id,
-                    chapter_url=bridge_chapter_url,
-                    error_text=str(exc),
-                )
-                if normalized:
-                    raise RuntimeError(normalized) from exc
-                raise
+                if exc.status_code == 404:
+                    bridge_page_metrics.record_not_found()
+                    recovered_pages = await self._recover_chapter_pages_from_fresh_url(
+                        chapter=chapter,
+                        variant=variant,
+                        attempted_chapter_url=bridge_chapter_url,
+                    )
+                    if recovered_pages is not None:
+                        bridge_page_metrics.record_recovered()
+                        pages = recovered_pages
+                    else:
+                        bridge_page_metrics.record_recovery_failed()
+                        normalized = await self._normalize_mangalib_pages_error(
+                            source_id=variant.source_id,
+                            chapter_url=bridge_chapter_url,
+                            error_text=str(exc),
+                        )
+                        if normalized:
+                            raise RuntimeError(normalized) from exc
+                        raise
+                else:
+                    normalized = await self._normalize_mangalib_pages_error(
+                        source_id=variant.source_id,
+                        chapter_url=bridge_chapter_url,
+                        error_text=str(exc),
+                    )
+                    if normalized:
+                        raise RuntimeError(normalized) from exc
+                    raise
             if not pages:
                 raise RuntimeError("Chapter has no pages")
 
@@ -3151,6 +3177,61 @@ class DownloadService:
             chapter_url=chapter_url,
         )
         return preflight_error or "Chapter pages are unavailable in MangaLib API"
+
+    async def _recover_chapter_pages_from_fresh_url(
+        self,
+        chapter: LibraryChapter,
+        variant: LibraryTitleVariant,
+        attempted_chapter_url: str,
+    ) -> list[Page] | None:
+        bridge_page_metrics.record_recovery_attempt()
+        try:
+            source_chapters = await tachibridge.fetch_title_chapters(
+                source_id=variant.source_id,
+                title_url=variant.title_url,
+            )
+        except BridgeAPIError:
+            return None
+
+        replacement_url = choose_replacement_chapter_url(
+            current_url=chapter.chapter_url,
+            current_name=chapter.name,
+            current_number=chapter.chapter_number,
+            current_scanlator=chapter.scanlator,
+            source_chapters=source_chapters,
+        )
+        if not replacement_url:
+            return None
+
+        resolved_replacement = resolve_source_chapter_url(replacement_url)
+        if not resolved_replacement or resolved_replacement == attempted_chapter_url:
+            return None
+
+        try:
+            bridge_page_metrics.record_fetch_attempt()
+            pages = await tachibridge.fetch_chapter_pages(
+                source_id=variant.source_id,
+                chapter_url=resolved_replacement,
+            )
+        except BridgeAPIError:
+            return None
+
+        if not pages:
+            return None
+
+        previous_url = chapter.chapter_url
+        chapter.chapter_url = replacement_url
+        chapter.updated_at = _now_utc()
+        self.session.add(chapter)
+        await self._commit_with_sqlite_retry()
+
+        _service_logger.bind(
+            chapter_id=chapter.id,
+            source_id=variant.source_id,
+            previous_url=previous_url,
+            recovered_url=replacement_url,
+        ).info("chapter.pages_recovered")
+        return pages
 
     @staticmethod
     def _extract_url_preference_bases(preferences: list[SourcePreference]) -> list[str]:

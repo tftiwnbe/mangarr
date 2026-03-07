@@ -1,5 +1,6 @@
 import re
 from difflib import SequenceMatcher
+from typing import Callable
 from urllib.parse import parse_qs, quote, urlparse
 
 from app.core.utils import normalize_text
@@ -63,7 +64,7 @@ def fallback_title_from_url(title_url: str) -> str:
     return " ".join(part.capitalize() for part in slug.split())
 
 
-def resolve_libgroup_chapter_url(chapter_url: str) -> str:
+def _decode_libgroup_chapter_url(chapter_url: str) -> str:
     raw = (chapter_url or "").strip()
     prefix = "mangarr-libgroup://"
     if not raw.startswith(prefix):
@@ -87,6 +88,21 @@ def resolve_libgroup_chapter_url(chapter_url: str) -> str:
         f"/{slug}/chapter?"
         f"{branch_part}&volume={quote(volume, safe='')}&number={quote(number, safe='')}"
     )
+
+
+def resolve_source_chapter_url(chapter_url: str) -> str:
+    raw = (chapter_url or "").strip()
+    if not raw.startswith("mangarr-"):
+        return raw
+
+    scheme = raw.split("://", 1)[0].strip().lower()
+    decoders: dict[str, Callable[[str], str]] = {
+        "mangarr-libgroup": _decode_libgroup_chapter_url,
+    }
+    decoder = decoders.get(scheme)
+    if decoder is None:
+        return raw
+    return decoder(raw)
 
 
 def source_match_score(

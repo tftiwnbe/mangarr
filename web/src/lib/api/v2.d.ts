@@ -2598,6 +2598,21 @@ export interface components {
 			 */
 			rotated_at: string;
 		};
+		/** BridgePageMetricsResource */
+		BridgePageMetricsResource: {
+			/** Page Fetch Attempts */
+			page_fetch_attempts?: number;
+			/** Page Fetch Not Found */
+			page_fetch_not_found?: number;
+			/** Page Fetch Recovery Attempts */
+			page_fetch_recovery_attempts?: number;
+			/** Page Fetch Recovered */
+			page_fetch_recovered?: number;
+			/** Page Fetch Recovery Failed */
+			page_fetch_recovery_failed?: number;
+			/** Last Recovery At */
+			last_recovery_at?: string | null;
+		};
 		/** SchedulerJobResource */
 		SchedulerJobResource: {
 			/** Name */
@@ -2625,6 +2640,8 @@ export interface components {
 		SchedulerStatusResource: {
 			/** Jobs */
 			jobs: components['schemas']['SchedulerJobResource'][];
+			/** Bridge Page Metrics */
+			bridge_page_metrics?: components['schemas']['BridgePageMetricsResource'] | null;
 		};
 		/** SetupStatusResponse */
 		SetupStatusResponse: {

@@ -97,5 +97,15 @@ class SchedulerJobResource(SQLModel):
     last_error: str | None = None
 
 
+class BridgePageMetricsResource(SQLModel):
+    page_fetch_attempts: int = 0
+    page_fetch_not_found: int = 0
+    page_fetch_recovery_attempts: int = 0
+    page_fetch_recovered: int = 0
+    page_fetch_recovery_failed: int = 0
+    last_recovery_at: str | None = None
+
+
 class SchedulerStatusResource(SQLModel):
     jobs: list[SchedulerJobResource]
+    bridge_page_metrics: BridgePageMetricsResource | None = None
