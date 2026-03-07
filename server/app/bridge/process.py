@@ -151,6 +151,10 @@ class TachibridgeProcess:
                     level, bridge_logger, thread, message = parse_bridge_log_line(text)
                     if "KCEF download progress" in message and level == "INFO":
                         level = "DEBUG"
+                    if _is_benign_chromium_dbus_message(message):
+                        level = "DEBUG"
+                    if "Chromium Version =" in message and level in {"INFO", "WARNING"}:
+                        level = "DEBUG"
                     self._process_logger.bind(
                         bridge_logger=bridge_logger, bridge_thread=thread
                     ).log(level, message)
@@ -175,6 +179,8 @@ class TachibridgeProcess:
                         )
                 else:
                     level = "WARNING" if _looks_like_bridge_error(text) else "DEBUG"
+                    if _is_benign_chromium_dbus_message(text):
+                        level = "DEBUG"
                     self._process_logger.bind(
                         bridge_raw=text, bridge_stream=stream_name
                     ).log(level, text)
@@ -270,5 +276,19 @@ def _looks_like_bridge_error(line: str) -> bool:
             "failed",
             "traceback",
             "stack trace",
+        )
+    )
+
+
+def _is_benign_chromium_dbus_message(line: str) -> bool:
+    lowered = line.lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "dbus/bus.cc:408",
+            "dbus/object_proxy.cc:590",
+            "failed to connect to socket /run/dbus/system_bus_socket",
+            "failed to call method: org.freedesktop.dbus.namehasowner",
+            "could not parse server address: unknown address type",
         )
     )
