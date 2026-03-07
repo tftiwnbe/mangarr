@@ -80,12 +80,16 @@ async def trigger_scheduler_job(job_name: str, _: CurrentUserDep):
         paused=job.paused,
         running=job.running,
         last_run_at=job.last_run_at,
+        next_run_at=job.next_run_at,
+        last_status=job.last_status,
+        last_duration_ms=job.last_duration_ms,
+        last_error=job.last_error,
     )
 
 
 @router.post("/scheduler/{job_name}/pause", response_model=SchedulerJobResource)
 async def pause_scheduler_job(job_name: str, _: CurrentUserDep):
-    if not scheduler.pause_job(job_name):
+    if not await scheduler.pause_job(job_name):
         raise HTTPException(status_code=404, detail=f"Job '{job_name}' not found")
     job = scheduler.find_job(job_name)
     if not job:
@@ -97,12 +101,16 @@ async def pause_scheduler_job(job_name: str, _: CurrentUserDep):
         paused=job.paused,
         running=job.running,
         last_run_at=job.last_run_at,
+        next_run_at=job.next_run_at,
+        last_status=job.last_status,
+        last_duration_ms=job.last_duration_ms,
+        last_error=job.last_error,
     )
 
 
 @router.post("/scheduler/{job_name}/resume", response_model=SchedulerJobResource)
 async def resume_scheduler_job(job_name: str, _: CurrentUserDep):
-    if not scheduler.resume_job(job_name):
+    if not await scheduler.resume_job(job_name):
         raise HTTPException(status_code=404, detail=f"Job '{job_name}' not found")
     job = scheduler.find_job(job_name)
     if not job:
@@ -114,6 +122,10 @@ async def resume_scheduler_job(job_name: str, _: CurrentUserDep):
         paused=job.paused,
         running=job.running,
         last_run_at=job.last_run_at,
+        next_run_at=job.next_run_at,
+        last_status=job.last_status,
+        last_duration_ms=job.last_duration_ms,
+        last_error=job.last_error,
     )
 
 

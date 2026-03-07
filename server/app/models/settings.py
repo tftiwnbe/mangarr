@@ -91,6 +91,10 @@ class SchedulerJobResource(SQLModel):
     paused: bool
     running: bool
     last_run_at: str | None = None
+    next_run_at: str | None = None
+    last_status: str | None = None
+    last_duration_ms: int | None = None
+    last_error: str | None = None
 
 
 class SchedulerStatusResource(SQLModel):
