@@ -22,6 +22,7 @@ from app.models import (
     ExploreSourceLink,
     ExploreTitleDetailsCache,
     ExploreTitleDetailsResource,
+    ExtensionSourceTitle,
     LibraryTitle,
     LibraryTitleVariant,
     SourceSummary,
