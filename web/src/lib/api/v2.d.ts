@@ -2531,6 +2531,14 @@ export interface components {
 			running: boolean;
 			/** Last Run At */
 			last_run_at?: string | null;
+			/** Next Run At */
+			next_run_at?: string | null;
+			/** Last Status */
+			last_status?: string | null;
+			/** Last Duration Ms */
+			last_duration_ms?: number | null;
+			/** Last Error */
+			last_error?: string | null;
 		};
 		/** SchedulerStatusResource */
 		SchedulerStatusResource: {

@@ -389,6 +389,18 @@
 		return `${Math.floor(diffSec / 86400)}d ago`;
 	}
 
+	function formatNextRun(nextRunAt: string | null | undefined): string {
+		if (!nextRunAt) return 'paused';
+		const date = new Date(nextRunAt);
+		if (isNaN(date.getTime())) return 'unknown';
+		const diffMs = date.getTime() - Date.now();
+		const diffSec = Math.max(0, Math.floor(diffMs / 1000));
+		if (diffSec < 60) return `in ${diffSec}s`;
+		if (diffSec < 3600) return `in ${Math.floor(diffSec / 60)}m`;
+		if (diffSec < 86400) return `in ${Math.floor(diffSec / 3600)}h`;
+		return `in ${Math.floor(diffSec / 86400)}d`;
+	}
+
 	async function handleSaveExtensionRepo() {
 		if (!extensionRepoUrl.trim() || extensionRepoSaving) return;
 		extensionRepoSaving = true;
@@ -1784,6 +1796,8 @@
 											<span class="text-[9px] uppercase tracking-widest text-[var(--success)] shrink-0">running</span>
 										{:else if job.paused}
 											<span class="text-[9px] uppercase tracking-widest text-[var(--text-ghost)] shrink-0">paused</span>
+										{:else if job.last_status === 'error'}
+											<span class="text-[9px] uppercase tracking-widest text-[var(--error)] shrink-0">error</span>
 										{:else}
 											<span class="text-[9px] uppercase tracking-widest text-[var(--text-muted)] shrink-0">idle</span>
 										{/if}
@@ -1792,7 +1806,18 @@
 										<span class="text-[10px] text-[var(--text-ghost)]">every {formatInterval(job.interval_seconds)}</span>
 										<span class="text-[var(--void-4)]">·</span>
 										<span class="text-[10px] text-[var(--text-ghost)]">{formatLastRun(job.last_run_at)}</span>
+										{#if !job.running}
+											<span class="text-[var(--void-4)]">·</span>
+											<span class="text-[10px] text-[var(--text-ghost)]">{formatNextRun(job.next_run_at)}</span>
+										{/if}
+										{#if job.last_duration_ms !== null && job.last_duration_ms !== undefined}
+											<span class="text-[var(--void-4)]">·</span>
+											<span class="text-[10px] text-[var(--text-ghost)]">{job.last_duration_ms} ms</span>
+										{/if}
 									</div>
+									{#if job.last_error}
+										<p class="mt-1 line-clamp-1 text-[10px] text-[var(--error)]">{job.last_error}</p>
+									{/if}
 								</div>
 
 								<!-- Actions -->
