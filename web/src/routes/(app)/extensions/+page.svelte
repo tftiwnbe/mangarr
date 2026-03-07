@@ -98,7 +98,7 @@
 
 	const availableLangs = $derived.by(() => {
 		const langs = new Set(availableExtensions.map((e) => e.lang.toLowerCase()));
-		return ['all', ...Array.from(langs).sort()];
+		return ['all', ...Array.from(langs).filter((lang) => lang !== 'all').sort()];
 	});
 
 	const filteredAvailable = $derived.by(() => {
@@ -125,7 +125,7 @@
 				.map((change) => (change.lang ?? '').toLowerCase())
 				.filter((lang) => lang.length > 0)
 		);
-		return ['all', ...Array.from(langs).sort()];
+		return ['all', ...Array.from(langs).filter((lang) => lang !== 'all').sort()];
 	});
 
 	const filteredRepoChanges = $derived.by(() => {
