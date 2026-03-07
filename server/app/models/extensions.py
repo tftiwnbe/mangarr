@@ -15,6 +15,40 @@ class RepositoryUpdate(SQLModel):
     url: HttpUrl
 
 
+class RepoChangeStatus(str, Enum):
+    ADDED = "added"
+    REMOVED = "removed"
+    UPDATED = "updated"
+    RENAMED = "renamed"
+
+
+class RepoExtensionChangeResource(SQLModel):
+    status: RepoChangeStatus
+    extension_pkg: str | None = None
+    name: str
+    extension_name: str | None = None
+    lang: str | None = None
+    version: str | None = None
+    new_version: str | None = None
+    renamed_to: str | None = None
+    renamed_to_pkg: str | None = None
+    installed: bool = False
+    known: bool = False
+    icon: str | None = None
+    commit_sha: str
+    commit_message: str | None = None
+    committed_at: str
+
+
+class RepoExtensionChangesResource(SQLModel):
+    repo_url: str
+    tracked_path: str
+    since: str
+    fetched_at: str
+    error: str | None = None
+    changes: list[RepoExtensionChangeResource] = []
+
+
 class SourcePreference(SQLModel):
     key: str
     title: str

@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app.core.deps import DBSessionDep, require_authenticated_user
 from app.features.extensions.service import ExtensionService
 from app.models import SourcePreferenceUpdate
 from app.models.extensions import (
     ExtensionResource,
+    RepoExtensionChangesResource,
     RepoExtensionResource,
     RepositoryUpdate,
     SourcePreferencesResource,
@@ -32,6 +33,16 @@ async def get_available(
 async def get_installed(service: ExtensionService = Depends(get_service)):
     """Get all currently installed extensions."""
     return await service.list_installed_extensions()
+
+
+@router.get("/repo-changes", response_model=RepoExtensionChangesResource)
+async def get_repository_changes(
+    days: int = Query(3, ge=1, le=30),
+    limit: int = Query(120, ge=1, le=300),
+    service: ExtensionService = Depends(get_service),
+):
+    """Get recent changes from the active extension repository."""
+    return await service.list_repository_changes(days=days, limit=limit)
 
 
 @router.put("/repository", response_model=list[RepoExtensionResource], status_code=200)

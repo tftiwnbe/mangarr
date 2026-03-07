@@ -36,6 +36,9 @@ from app.models.downloads import (
 )
 from app.models.extensions import (
     Extension,
+    RepoChangeStatus,
+    RepoExtensionChangeResource,
+    RepoExtensionChangesResource,
     ExtensionResource,
     PreferenceType,
     RepoExtension,
@@ -165,6 +168,9 @@ __all__ = [
     "EnqueueChapterResponse",
     "EnqueueTitleResponse",
     "Extension",
+    "RepoChangeStatus",
+    "RepoExtensionChangeResource",
+    "RepoExtensionChangesResource",
     "ExtensionResource",
     "ExtensionSourceTitle",
     "LibraryChapter",

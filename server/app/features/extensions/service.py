@@ -1,11 +1,19 @@
+from datetime import datetime, timedelta, timezone
+
+from loguru import logger
 from sqlmodel import delete, func, select, asc
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.bridge import tachibridge
+from app.core.cache import PersistentCache
+from app.core.database import sessionmanager
 from app.core.errors import BridgeAPIError
+from app.features.extensions.repo_changes import fetch_repository_changes, load_repository_url
 from app.models import (
     Extension,
     ExtensionResource,
+    RepoExtensionChangeResource,
+    RepoExtensionChangesResource,
     RepoExtension,
     Source,
     SourcePreferenceUpdate,
@@ -14,10 +22,14 @@ from app.models import (
     UpdateSource,
 )
 
+_extensions_logger = logger.bind(module="extensions.service")
+CACHE_TTL_SECONDS = 15 * 60
+
 
 class ExtensionService:
     def __init__(self, session: AsyncSession):
         self.session = session
+        self._cache = PersistentCache(sessionmanager.session)
 
     async def _get_extension_or_raise(self, pkg: str) -> Extension:
         extension = (
@@ -137,6 +149,41 @@ class ExtensionService:
     async def list_all_extensions(self) -> list[Extension]:
         return await self._list_extensions()
 
+    async def list_repository_changes(
+        self,
+        days: int = 3,
+        limit: int = 120,
+    ) -> RepoExtensionChangesResource:
+        safe_days = max(1, min(int(days), 30))
+        safe_limit = max(1, min(int(limit), 300))
+        repo_url = load_repository_url()
+        cache_key = f"extensions:repo_changes:{repo_url}:{safe_days}:{safe_limit}"
+        cached = await self._cache.get(cache_key)
+        if isinstance(cached, dict):
+            try:
+                return RepoExtensionChangesResource.model_validate(cached)
+            except Exception:
+                _extensions_logger.warning("extensions.repo_changes_cache_invalid")
+
+        error, tracked_path, changes = await fetch_repository_changes(
+            repo_url=repo_url,
+            days=safe_days,
+            limit=safe_limit,
+        )
+        resource = await self._build_repository_changes_resource(
+            repo_url=repo_url,
+            tracked_path=tracked_path,
+            days=safe_days,
+            error=error,
+            changes=changes,
+        )
+        await self._cache.set(
+            cache_key,
+            resource.model_dump(mode="json"),
+            ttl=CACHE_TTL_SECONDS,
+        )
+        return resource
+
     async def list_installed_extensions(self) -> list[ExtensionResource]:
         extensions = await self._list_extensions(installed=True)
         if not extensions:
@@ -152,6 +199,68 @@ class ExtensionService:
             ExtensionResource(**ext.model_dump(), sources=sources_by_pkg.get(ext.pkg, []))
             for ext in extensions
         ]
+
+    async def _build_repository_changes_resource(
+        self,
+        *,
+        repo_url: str,
+        tracked_path: str,
+        days: int,
+        error: str | None,
+        changes: list[dict[str, object]],
+    ) -> RepoExtensionChangesResource:
+        pkg_candidates = {
+            str(pkg)
+            for change in changes
+            for pkg in (
+                change.get("extension_pkg"),
+                change.get("renamed_to_pkg"),
+            )
+            if isinstance(pkg, str) and pkg.strip()
+        }
+        extensions_by_pkg: dict[str, Extension] = {}
+        if pkg_candidates:
+            rows = (
+                await self.session.exec(select(Extension).where(Extension.pkg.in_(sorted(pkg_candidates))))
+            ).all()
+            extensions_by_pkg = {extension.pkg: extension for extension in rows}
+
+        resources: list[RepoExtensionChangeResource] = []
+        for change in changes:
+            pkg = (
+                str(change.get("extension_pkg") or "").strip()
+                or str(change.get("renamed_to_pkg") or "").strip()
+                or None
+            )
+            extension = extensions_by_pkg.get(pkg or "")
+            resources.append(
+                RepoExtensionChangeResource(
+                    status=change["status"],
+                    extension_pkg=change.get("extension_pkg"),
+                    name=str(change.get("name") or ""),
+                    extension_name=extension.name if extension is not None else None,
+                    lang=change.get("lang"),
+                    version=change.get("version"),
+                    new_version=change.get("new_version"),
+                    renamed_to=change.get("renamed_to"),
+                    renamed_to_pkg=change.get("renamed_to_pkg"),
+                    installed=bool(extension.installed) if extension is not None else False,
+                    known=extension is not None,
+                    icon=extension.icon if extension is not None else None,
+                    commit_sha=str(change.get("commit_sha") or ""),
+                    commit_message=change.get("commit_message"),
+                    committed_at=str(change.get("committed_at") or ""),
+                )
+            )
+
+        return RepoExtensionChangesResource(
+            repo_url=repo_url,
+            tracked_path=tracked_path,
+            since=(datetime.now(timezone.utc) - timedelta(days=days)).isoformat(),
+            fetched_at=datetime.now(timezone.utc).isoformat(),
+            error=error,
+            changes=resources,
+        )
 
     async def install_extension(self, extension_pkg: str) -> ExtensionResource:
         extension, sources = await tachibridge.install_extension(extension_pkg)
