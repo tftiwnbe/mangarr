@@ -1444,7 +1444,10 @@ class ExtensionManager(
     ): List<SourcePage>? {
         if (!isLibGroupSource(source)) return null
         val chapterRef = parseLibGroupChapterRef(chapterUrl) ?: return null
-        val slug = chapterRef.slug
+        val slug =
+            resolveCanonicalSlug(source, "/${chapterRef.slug}")
+                ?.takeIf { it.isNotBlank() }
+                ?: chapterRef.slug
         val volume = chapterRef.volume
         val number = chapterRef.number
         val branchId = chapterRef.branchId
