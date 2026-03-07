@@ -370,7 +370,7 @@
 			{#each filteredTitles as title (title.id)}
 				{@const displayStatus = getDisplayStatus(title)}
 				<a
-					href={`${buildTitlePath(title.id, title.title)}?from=library`}
+					href={buildTitlePath(title.id, title.title)}
 					class="group card-glow relative flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)]"
 				>
 					<div class="relative aspect-[2/3] overflow-hidden bg-[var(--void-3)]">

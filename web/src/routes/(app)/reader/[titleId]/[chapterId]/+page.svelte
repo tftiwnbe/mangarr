@@ -25,6 +25,7 @@
 	import { Icon } from '$lib/elements/icon';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
+	import { navigateBack } from '$lib/stores/nav-history';
 	import { panelOverlayOpen } from '$lib/stores/ui';
 	import {
 		buildReaderPath,
@@ -36,7 +37,6 @@
 
 	type ReaderMode = 'vertical' | 'horizontal';
 	type ChapterMeta = { name: string; number: number | null };
-	type ReaderParentRoute = 'library' | 'explore';
 	type ChapterListItem = { id: number; name: string; number: number | null };
 	type CommentSortMode = 'time' | 'page';
 
@@ -85,14 +85,6 @@
 	const chapterIdParam = $derived(page.params.chapterId);
 	const titleId = $derived(parseTitleRouteParam(titleIdParam) ?? NaN);
 	const chapterRef = $derived(parseReaderChapterParam(chapterIdParam));
-	const readerParentRoute = $derived.by<ReaderParentRoute>(() =>
-		page.url.searchParams.get('from') === 'explore' ? 'explore' : 'library'
-	);
-
-	function withReaderParent(path: string): string {
-		return `${path}?from=${readerParentRoute}`;
-	}
-
 	const currentChapterMeta = $derived.by(() => {
 		if (!reader) return null;
 		return chapterMetaById.get(reader.chapter_id) ?? null;
@@ -100,8 +92,8 @@
 	const canonicalTitlePath = $derived.by(() => {
 		const resolvedTitleId = reader?.library_title_id ?? titleId;
 		if (!Number.isFinite(resolvedTitleId) || resolvedTitleId <= 0) return null;
-		if (!readerTitleName) return withReaderParent(`/title/${resolvedTitleId}`);
-		return withReaderParent(buildTitlePath(resolvedTitleId, readerTitleName));
+		if (!readerTitleName) return `/title/${resolvedTitleId}`;
+		return buildTitlePath(resolvedTitleId, readerTitleName);
 	});
 
 	const pages = $derived.by(() => {
@@ -715,24 +707,22 @@
 		if (!chapter) return null;
 		const resolvedTitleId = reader?.library_title_id ?? titleId;
 		if (!Number.isFinite(resolvedTitleId) || resolvedTitleId <= 0) return null;
-		return withReaderParent(
-			buildReaderPath({
-				titleId: resolvedTitleId,
-				titleName: readerTitleName || `title-${resolvedTitleId}`,
-				chapterId: chapter,
-				chapterName: null,
-				chapterNumber: null
-			})
-		);
+		return buildReaderPath({
+			titleId: resolvedTitleId,
+			titleName: readerTitleName || `title-${resolvedTitleId}`,
+			chapterId: chapter,
+			chapterName: null,
+			chapterNumber: null
+		});
 	}
 
-function openChapter(chapter: number | null): void {
-	const href = chapterHref(chapter);
-	if (!href) return;
-	showChapterPanel = false;
-	showCommentsPanel = false;
-	void goto(href);
-}
+	function openChapter(chapter: number | null): void {
+		const href = chapterHref(chapter);
+		if (!href) return;
+		showChapterPanel = false;
+		showCommentsPanel = false;
+		void goto(href, { replaceState: true });
+	}
 
 	function prevPage(): void {
 		if (!canPrevPage) return;
@@ -839,7 +829,7 @@ function openChapter(chapter: number | null): void {
 		<div class="flex h-10 items-center justify-between px-2">
 			<!-- Left: back + title (title is a link on all viewports) -->
 			<div class="flex min-w-0 flex-1 items-center gap-1.5">
-				<Button variant="ghost" size="icon-sm" href={canonicalTitlePath ?? '/library'}>
+				<Button variant="ghost" size="icon-sm" onclick={() => void navigateBack(canonicalTitlePath ?? '/library')}>
 					<Icon name="chevron-left" size={18} />
 				</Button>
 				<a

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 
@@ -9,6 +9,7 @@
 	import { StarField } from '$lib/elements/starfield';
 	import { _ } from '$lib/i18n';
 	import { loadContentLanguages } from '$lib/stores/content-languages';
+	import { pushNavHistory } from '$lib/stores/nav-history';
 	import { panelOverlayOpen } from '$lib/stores/ui';
 	import { wsManager } from '$lib/stores/ws';
 
@@ -28,6 +29,26 @@
 
 	const currentPath = $derived(page.url.pathname);
 	const isReaderRoute = $derived(currentPath.startsWith('/reader/'));
+
+	afterNavigate((nav) => {
+		if (nav.type === 'popstate' || nav.type === 'enter') return;
+		const from = nav.from;
+		if (!from) return;
+
+		// Skip canonical slug redirects: same title/reader route, same encoded ID prefix.
+		// These are replaceState navigations the title page fires to normalise the URL
+		// after the title name loads (e.g. /title/xyz--english-name → /title/xyz--real-name).
+		const fromPath = from.url.pathname;
+		const toPath = nav.to?.url.pathname ?? '';
+		const sameRoutePrefix = (prefix: string) =>
+			fromPath.startsWith(prefix) && toPath.startsWith(prefix);
+		const idSegment = (path: string, prefix: string) =>
+			path.slice(prefix.length).split('/')[0]?.split('--')[0];
+		if (sameRoutePrefix('/title/') && idSegment(fromPath, '/title/') === idSegment(toPath, '/title/'))
+			return;
+
+		pushNavHistory(fromPath + from.url.search);
+	});
 
 	async function navigateToLogin(): Promise<void> {
 		const target = encodeURIComponent(redirectTarget);

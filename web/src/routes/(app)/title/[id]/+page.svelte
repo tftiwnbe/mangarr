@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { afterNavigate, goto } from '$app/navigation';
+	import { navigateBack } from '$lib/stores/nav-history';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 
@@ -68,8 +69,6 @@
 	let readerProgressUpdatedAtByChapter = $state<Record<number, string>>({});
 	const structuredChapterPattern =
 		/^\s*(?:\d+\s*[-_.]\s*)?(?:(?:vol(?:ume)?\.?\s*(\d+(?:\.\d+)?))\s*)?(?:ch(?:apter)?\.?\s*(\d+(?:\.\d+)?))(?:\s*[-:–]\s*(.*))?\s*$/i;
-	type TitleParentRoute = 'library' | 'explore';
-
 	function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 		let timer: ReturnType<typeof setTimeout> | null = null;
 		return new Promise<T>((resolve, reject) => {
@@ -89,15 +88,26 @@
 
 	const routeTitleParam = $derived(page.params.id);
 	const routeTitleId = $derived(parseTitleRouteParam(routeTitleParam) ?? NaN);
-	const titleParentRoute = $derived.by<TitleParentRoute>(() =>
-		page.url.searchParams.get('from') === 'explore' ? 'explore' : 'library'
+
+	// Track where we came from so the breadcrumb label is accurate.
+	// We use afterNavigate (fires after layout's afterNavigate) so nav.from is already
+	// the real previous route. We skip canonical slug redirects (same title ID, different
+	// slug) so they don't overwrite the original referrer.
+	let backFromPath = $state<string | null>(null);
+	afterNavigate((nav) => {
+		const fromPath = nav.from?.url.pathname ?? null;
+		const toPath = nav.to?.url.pathname ?? page.url.pathname;
+		// Canonical redirect: both paths are /title/... with the same encoded ID prefix.
+		if (fromPath?.startsWith('/title/') && toPath.startsWith('/title/')) {
+			const fromId = fromPath.split('/')[2]?.split('--')[0];
+			const toId = toPath.split('/')[2]?.split('--')[0];
+			if (fromId && fromId === toId) return;
+		}
+		backFromPath = fromPath;
+	});
+	const backLabel = $derived(
+		backFromPath?.startsWith('/explore') ? $_('nav.explore') : $_('nav.library')
 	);
-	const titleParentHref = $derived(titleParentRoute === 'explore' ? '/explore' : '/library');
-
-	function withTitleParent(path: string): string {
-		return `${path}?from=${titleParentRoute}`;
-	}
-
 	$effect(() => {
 		const nextRouteTitleId =
 			Number.isInteger(routeTitleId) && routeTitleId > 0 ? routeTitleId : null;
@@ -204,15 +214,13 @@
 	});
 	const primaryReadingHref = $derived.by(() => {
 		if (!title || !primaryReadingChapter) return null;
-		return withTitleParent(
-			buildReaderPath({
+		return buildReaderPath({
 			titleId: title.libraryId,
 			titleName: displayTitle || title.title,
 			chapterId: primaryReadingChapter.id,
 			chapterName: primaryReadingChapter.title,
 			chapterNumber: primaryReadingChapter.number
-			})
-		);
+		});
 	});
 
 	onMount(() => {
@@ -393,7 +401,7 @@
 			chapterName: comment.chapter_name,
 			chapterNumber: comment.chapter_number
 		});
-		return `${withTitleParent(base)}&page=${comment.page_index}`;
+		return `${base}?page=${comment.page_index}`;
 	}
 
 	function chapterHeading(chapter: { title: string; number: number | null }): {
@@ -633,7 +641,7 @@
 	}
 
 	function handleBack() {
-		void goto(titleParentHref);
+		void navigateBack('/library');
 	}
 
 	$effect(() => {
@@ -653,7 +661,7 @@
 			<Icon name="chevron-left" size={18} />
 		</Button>
 		<span class="text-xs text-[var(--text-ghost)]">
-			{titleParentRoute === 'explore' ? $_('nav.explore') : $_('nav.library')}
+			{backLabel}
 		</span>
 	</div>
 
@@ -911,13 +919,13 @@
 									{@const heading = chapterHeading(chapter)}
 									{@const chapterProgress = readerProgressByChapter[chapter.id]}
 									<a
-										href={withTitleParent(buildReaderPath({
+										href={buildReaderPath({
 											titleId: title.libraryId,
 											titleName: displayTitle || title.title,
 											chapterId: chapter.id,
 											chapterName: chapter.title,
 											chapterNumber: chapter.number
-										}))}
+										})}
 										class="group flex items-center gap-4 py-3 transition-colors hover:bg-[var(--void-2)] {chapter.isRead ? 'opacity-30' : ''}"
 									>
 										<div class="min-w-0 flex-1">

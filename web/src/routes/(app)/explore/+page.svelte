@@ -725,7 +725,7 @@
 		// If already in library, go to title page
 		if (item.imported_library_id != null) {
 			persistExploreState();
-			goto(`${buildTitlePath(item.imported_library_id, item.title)}?from=explore`);
+			goto(buildTitlePath(item.imported_library_id, item.title));
 			return;
 		}
 
@@ -745,7 +745,7 @@
 			patchImportedLibraryId(item.dedupe_key, imported.library_title_id);
 			previewItemStore.set(null);
 			persistExploreState();
-			await goto(`${buildTitlePath(imported.library_title_id, item.title)}?from=explore`);
+			await goto(buildTitlePath(imported.library_title_id, item.title));
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Unable to open title';
 		} finally {
