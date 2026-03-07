@@ -31,7 +31,9 @@ from app.features.downloads.storage import (
     extract_chapter_pages,
     list_chapter_image_files,
     read_chapter_metadata,
+    read_title_metadata,
     write_chapter_metadata,
+    write_title_metadata,
 )
 from app.features.extensions import ExtensionService
 from app.models import (
@@ -1783,7 +1785,14 @@ class DownloadService:
         by_source_title: dict[str, set[str]],
     ) -> DownloadExternalTitleResource | None:
         inferred_title = _strip_leading_index(_split_name_lang(title_dir.name)[0])
-        inferred = self._infer_metadata_from_chapters(title_dir)
+        manifest_source_id, manifest_title_url, manifest_title_name = self._read_title_metadata_file(
+            title_dir
+        )
+        inferred = (
+            (manifest_source_id, manifest_title_url, manifest_title_name)
+            if any([manifest_source_id, manifest_title_url, manifest_title_name])
+            else self._infer_metadata_from_chapters(title_dir)
+        )
         source_id = source_id or inferred[0]
         title_url = inferred[1]
         title_name = inferred[2] or inferred_title
@@ -1811,6 +1820,18 @@ class DownloadService:
             reason = "Source not matched to installed sources; pick source manually"
         elif not title_url:
             reason = "Title URL not found, will resolve by search"
+
+        if not any([manifest_source_id, manifest_title_url, manifest_title_name]) and (
+            source_id or title_url or title_name
+        ):
+            self._write_external_title_metadata_file(
+                title_dir=title_dir,
+                source_id=source_id,
+                source_name=source_name,
+                source_lang=source_lang,
+                title_name=title_name,
+                title_url=title_url,
+            )
 
         return DownloadExternalTitleResource(
             key=rel_path,
@@ -1855,6 +1876,19 @@ class DownloadService:
             next(iter(source_ids)) if len(source_ids) == 1 else None,
             next(iter(title_urls)) if len(title_urls) == 1 else None,
             next(iter(title_names)) if len(title_names) == 1 else None,
+        )
+
+    @staticmethod
+    def _read_title_metadata_file(
+        title_dir: Path,
+    ) -> tuple[str | None, str | None, str | None]:
+        payload = read_title_metadata(title_dir)
+        if not payload:
+            return None, None, None
+        return (
+            _payload_str(payload, "source", "id"),
+            _payload_str(payload, "title", "url"),
+            _payload_str(payload, "title", "name"),
         )
 
     async def _resolve_missing_title_urls(
@@ -3813,6 +3847,11 @@ class DownloadService:
         chapter: LibraryChapter,
         page_count: int,
     ) -> None:
+        DownloadService._write_title_metadata_file(
+            title_dir=chapter_dir.parent,
+            title=title,
+            variant=variant,
+        )
         payload = {
             "schema": "mangarr.chapter.metadata.v1",
             "generated_at": _now_utc().isoformat(),
@@ -3836,6 +3875,53 @@ class DownloadService:
             },
         }
         write_chapter_metadata(chapter_dir, payload)
+
+    @staticmethod
+    def _write_title_metadata_file(
+        title_dir: Path,
+        title: LibraryTitle,
+        variant: LibraryTitleVariant,
+    ) -> None:
+        payload = {
+            "schema": "mangarr.title.metadata.v1",
+            "generated_at": _now_utc().isoformat(),
+            "source": {
+                "id": variant.source_id,
+                "name": variant.source_name,
+                "lang": variant.source_lang,
+            },
+            "title": {
+                "library_title_id": int(title.id) if title.id is not None else None,
+                "variant_id": int(variant.id) if variant.id is not None else None,
+                "name": variant.title or title.title,
+                "url": variant.title_url,
+            },
+        }
+        write_title_metadata(title_dir, payload)
+
+    @staticmethod
+    def _write_external_title_metadata_file(
+        title_dir: Path,
+        source_id: str | None,
+        source_name: str | None,
+        source_lang: str | None,
+        title_name: str | None,
+        title_url: str | None,
+    ) -> None:
+        payload = {
+            "schema": "mangarr.title.metadata.v1",
+            "generated_at": _now_utc().isoformat(),
+            "source": {
+                "id": source_id,
+                "name": source_name,
+                "lang": source_lang,
+            },
+            "title": {
+                "name": title_name,
+                "url": title_url,
+            },
+        }
+        write_title_metadata(title_dir, payload)
 
     async def _to_profile_resource(self, profile: DownloadProfile) -> DownloadProfileResource:
         return DownloadProfileResource(

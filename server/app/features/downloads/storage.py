@@ -8,6 +8,7 @@ from pathlib import Path
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"}
 CHAPTER_ARCHIVE_SUFFIX = ".cbz"
 CHAPTER_METADATA_FILENAME = "mangarr-chapter-info.json"
+TITLE_METADATA_FILENAME = "mangarr-title-info.json"
 
 
 def chapter_archive_path(chapter_dir: Path) -> Path:
@@ -30,6 +31,17 @@ def find_chapter_archive_path(chapter_dir: Path) -> Path | None:
 def write_chapter_metadata(chapter_dir: Path, payload: dict) -> None:
     chapter_dir.mkdir(parents=True, exist_ok=True)
     path = chapter_dir / CHAPTER_METADATA_FILENAME
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(
+        json.dumps(payload, ensure_ascii=True, indent=2),
+        encoding="utf-8",
+    )
+    tmp_path.replace(path)
+
+
+def write_title_metadata(title_dir: Path, payload: dict) -> None:
+    title_dir.mkdir(parents=True, exist_ok=True)
+    path = title_dir / TITLE_METADATA_FILENAME
     tmp_path = path.with_suffix(path.suffix + ".tmp")
     tmp_path.write_text(
         json.dumps(payload, ensure_ascii=True, indent=2),
@@ -62,6 +74,17 @@ def read_chapter_metadata(chapter_dir: Path) -> dict | None:
     except Exception:
         return None
     return None
+
+
+def read_title_metadata(title_dir: Path) -> dict | None:
+    path = title_dir / TITLE_METADATA_FILENAME
+    if not path.is_file():
+        return None
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return loaded if isinstance(loaded, dict) else None
 
 
 def list_chapter_image_files(chapter_dir: Path) -> list[Path]:
