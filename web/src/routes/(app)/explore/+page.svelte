@@ -738,15 +738,11 @@
 		}
 		const queryParts: string[] = [
 			['source_id', primaryLink.source.id],
-			['source_name', primaryLink.source.name],
-			['source_lang', primaryLink.source.lang || ''],
 			['title_url', primaryLink.title_url],
-			['title', item.title]
+			['title', item.title],
+			['thumbnail_url', item.thumbnail_url || '']
 		].map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
-		if (item.thumbnail_url) {
-			queryParts.push(`thumbnail_url=${encodeURIComponent(item.thumbnail_url)}`);
-		}
-		return `/preview?${queryParts.join('&')}`;
+		return `/title/open?${queryParts.join('&')}`;
 	}
 
 	function handleCardClick(
