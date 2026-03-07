@@ -72,6 +72,7 @@ ENV UV_LINK_MODE=copy
 ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-${TARGETARCH}
 ENV LD_LIBRARY_PATH=$JAVA_HOME/lib/server:$JAVA_HOME/lib
 ENV KCEF_INSTALL_DIR=/opt/kcef/jcef
+ENV MANGARR__SERVER__HOST=0.0.0.0
 
 COPY server/pyproject.toml server/uv.lock /app/server/
 WORKDIR /app/server
