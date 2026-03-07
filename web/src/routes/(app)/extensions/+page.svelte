@@ -32,6 +32,10 @@
 		contentLanguages,
 		setKnownContentLanguages
 	} from '$lib/stores/content-languages';
+	import {
+		normalizeContentLanguageCode,
+		toMainContentLanguages
+	} from '$lib/utils/content-languages';
 
 	type TabValue = 'installed' | 'available' | 'updates';
 
@@ -151,9 +155,13 @@
 
 	// ── Helpers ─────────────────────────────────────────────────────────────
 	function getFilteredSources(sources: ExtensionResource['sources']) {
-		const langs = $contentLanguages;
-		if (!langs || langs.length === 0) return sources;
-		return sources.filter((s) => langs.includes(s.lang.toLowerCase()));
+		const langs = toMainContentLanguages($contentLanguages);
+		if (langs.length === 0) return sources;
+		const selected = new Set(langs);
+		return sources.filter((s) => {
+			const sourceLang = normalizeContentLanguageCode(s.lang);
+			return sourceLang !== null && selected.has(sourceLang);
+		});
 	}
 
 	function changeTitle(change: RepoExtensionChangeResource): string {

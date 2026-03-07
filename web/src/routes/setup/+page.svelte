@@ -25,6 +25,7 @@
 		setContentLanguages,
 		setKnownContentLanguages
 	} from '$lib/stores/content-languages';
+	import { toMainContentLanguages } from '$lib/utils/content-languages';
 
 	let step = $state(1);
 	let repoUrl = $state('');
@@ -38,12 +39,7 @@
 	let selectedContentLangs = $state<Set<string>>(new Set());
 
 	const availableContentLangs = $derived.by(() => {
-		const langs = new Set(repoExtensions.map((e) => e.lang.toLowerCase()));
-		return [...langs].sort((a, b) => {
-			if (a === 'multi') return -1;
-			if (b === 'multi') return 1;
-			return a.localeCompare(b);
-		});
+		return toMainContentLanguages(repoExtensions.map((e) => e.lang));
 	});
 
 	// Default repository URL suggestion

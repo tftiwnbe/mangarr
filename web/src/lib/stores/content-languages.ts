@@ -2,6 +2,7 @@ import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
 
 import { getContentLanguages as fetchContentLanguages, updateContentLanguages } from '$lib/api/settings';
+import { toMainContentLanguages } from '$lib/utils/content-languages';
 
 const STORAGE_KEY = 'mangarr-content-languages';
 const KNOWN_LANGS_KEY = 'mangarr-known-content-languages';
@@ -16,7 +17,7 @@ function getLocalContentLanguages(): string[] {
 		const raw = localStorage.getItem(STORAGE_KEY);
 		if (raw) {
 			const parsed = JSON.parse(raw);
-			if (Array.isArray(parsed)) return parsed;
+			if (Array.isArray(parsed)) return toMainContentLanguages(parsed);
 		}
 	} catch {
 		// ignore
@@ -26,7 +27,7 @@ function getLocalContentLanguages(): string[] {
 
 function setLocalContentLanguages(langs: string[]): void {
 	if (browser) {
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(langs));
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(toMainContentLanguages(langs)));
 	}
 }
 
@@ -40,7 +41,7 @@ export const contentLanguages = writable<string[]>(getLocalContentLanguages());
 export async function loadContentLanguages(): Promise<void> {
 	try {
 		const result = await fetchContentLanguages();
-		const langs = result.preferred ?? [];
+		const langs = toMainContentLanguages(result.preferred ?? []);
 		setLocalContentLanguages(langs);
 		contentLanguages.set(langs);
 	} catch {
@@ -52,10 +53,11 @@ export async function loadContentLanguages(): Promise<void> {
  * Save preferred content languages to server + localStorage and update the reactive store.
  */
 export async function setContentLanguages(langs: string[]): Promise<void> {
-	setLocalContentLanguages(langs);
-	contentLanguages.set(langs);
+	const normalized = toMainContentLanguages(langs);
+	setLocalContentLanguages(normalized);
+	contentLanguages.set(normalized);
 	try {
-		await updateContentLanguages({ preferred: langs });
+		await updateContentLanguages({ preferred: normalized });
 	} catch {
 		// Best-effort server sync — localStorage already updated
 	}
@@ -71,7 +73,7 @@ export function getKnownContentLanguages(): string[] {
 		const raw = localStorage.getItem(KNOWN_LANGS_KEY);
 		if (raw) {
 			const parsed = JSON.parse(raw);
-			if (Array.isArray(parsed)) return parsed;
+			if (Array.isArray(parsed)) return toMainContentLanguages(parsed);
 		}
 	} catch {
 		// ignore
@@ -85,11 +87,7 @@ export function getKnownContentLanguages(): string[] {
  */
 export function setKnownContentLanguages(langs: string[]): void {
 	if (browser) {
-		const sorted = [...new Set(langs.map((l) => l.toLowerCase()))].sort((a, b) => {
-			if (a === 'multi') return -1;
-			if (b === 'multi') return 1;
-			return a.localeCompare(b);
-		});
+		const sorted = toMainContentLanguages(langs);
 		localStorage.setItem(KNOWN_LANGS_KEY, JSON.stringify(sorted));
 	}
 }
