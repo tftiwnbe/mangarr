@@ -25,7 +25,10 @@ import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -80,6 +83,12 @@ class ExtensionManager(
 
     private val sourceMap = ConcurrentHashMap<Long, Source>()
     private val sourceToPackage = ConcurrentHashMap<Long, String>()
+    private val appliedPreferenceHashes = ConcurrentHashMap<Long, Int>()
+    private val initialization = CompletableDeferred<Unit>()
+    private val initLock = Mutex()
+
+    @Volatile
+    private var initializationError: Throwable? = null
 
     init {
         if (!Files.exists(extensionsDir)) {
@@ -88,46 +97,75 @@ class ExtensionManager(
     }
 
     suspend fun init() {
-        logger.info { "Initializing extension manager..." }
-
-        // Sync filesystem
-        val jarFiles =
-            if (Files.exists(extensionsDir)) {
-                Files.list(extensionsDir).use { stream ->
-                    stream
-                        .filter { it.toString().endsWith(".jar") }
-                        .map { it.fileName.toString() }
-                        .toList()
-                        .toSet()
-                }
-            } else {
-                emptySet()
-            }
-
-        val config = ConfigManager.config
-        val validPackages =
-            config.extensions
-                .filter { ext ->
-                    val jarName = ext.jarName ?: "${ext.packageName}-v${ext.version}.jar"
-                    jarName in jarFiles
-                }.map { it.packageName }
-                .toSet()
-
-        ConfigManager.syncExtensions(validPackages)
-
-        // Auto-load all extensions
-        var loadedCount = 0
-        ConfigManager.config.extensions.forEach { ext ->
-            try {
-                loadExtension(ext)
-                loadedCount++
-            } catch (e: Exception) {
-                logger.error(e) { "Failed to auto-load: ${ext.packageName}" }
-            }
+        if (initialization.isCompleted) {
+            awaitReady()
+            return
         }
 
-        logger.info { "Loaded $loadedCount extensions with ${sourceMap.size} sources" }
+        initLock.withLock {
+            if (initialization.isCompleted) {
+                return@withLock
+            }
+
+            try {
+                logger.info { "Initializing extension manager..." }
+
+                // Sync filesystem
+                val jarFiles =
+                    if (Files.exists(extensionsDir)) {
+                        Files.list(extensionsDir).use { stream ->
+                            stream
+                                .filter { it.toString().endsWith(".jar") }
+                                .map { it.fileName.toString() }
+                                .toList()
+                                .toSet()
+                        }
+                    } else {
+                        emptySet()
+                    }
+
+                val config = ConfigManager.config
+                val validPackages =
+                    config.extensions
+                        .filter { ext ->
+                            val jarName = ext.jarName ?: "${ext.packageName}-v${ext.version}.jar"
+                            jarName in jarFiles
+                        }.map { it.packageName }
+                        .toSet()
+
+                ConfigManager.syncExtensions(validPackages)
+
+                // Auto-load all extensions
+                var loadedCount = 0
+                ConfigManager.config.extensions.forEach { ext ->
+                    try {
+                        loadExtension(ext)
+                        loadedCount++
+                    } catch (e: Exception) {
+                        logger.error(e) { "Failed to auto-load: ${ext.packageName}" }
+                    }
+                }
+
+                logger.info { "Loaded $loadedCount extensions with ${sourceMap.size} sources" }
+                initialization.complete(Unit)
+            } catch (e: Exception) {
+                initializationError = e
+                initialization.complete(Unit)
+                throw e
+            }
+        }
     }
+
+    suspend fun awaitReady() {
+        initialization.await()
+        initializationError?.let {
+            throw IllegalStateException("Extension manager initialization failed", it)
+        }
+    }
+
+    fun isReady(): Boolean = initialization.isCompleted && initializationError == null
+
+    fun initializationFailure(): Throwable? = initializationError
 
     suspend fun listExtensions(): List<BridgeConfig.InstalledExtension> = ConfigManager.config.extensions
 
@@ -259,6 +297,7 @@ class ExtensionManager(
         ext.sources.forEach { source ->
             sourceMap.remove(source.id)
             sourceToPackage.remove(source.id)
+            appliedPreferenceHashes.remove(source.id)
         }
 
         // Delete jar
@@ -571,6 +610,7 @@ class ExtensionManager(
                     .remove(key)
                     .apply()
             }
+            appliedPreferenceHashes[sourceId] = ConfigManager.config.sourcePreferencesFor(sourceId).hashCode()
 
             logger.debug { "Removed preference: source=$sourceId key=$key" }
             return
@@ -593,6 +633,7 @@ class ExtensionManager(
             }
             editor.apply()
         }
+        appliedPreferenceHashes[sourceId] = ConfigManager.config.sourcePreferencesFor(sourceId).hashCode()
 
         logger.debug { "Set preference: source=$sourceId key=$key" }
     }
@@ -612,6 +653,7 @@ class ExtensionManager(
         }
         sourceMap.clear()
         sourceToPackage.clear()
+        appliedPreferenceHashes.clear()
     }
 
     private suspend fun loadExtension(ext: BridgeConfig.InstalledExtension) {
@@ -683,7 +725,14 @@ class ExtensionManager(
 
     private suspend fun applyPreferences(source: ConfigurableSource) {
         val prefs = ConfigManager.config.sourcePreferencesFor(source.id)
-        if (prefs.isEmpty()) return
+        val prefsHash = prefs.hashCode()
+        if (appliedPreferenceHashes[source.id] == prefsHash) {
+            return
+        }
+        if (prefs.isEmpty()) {
+            appliedPreferenceHashes[source.id] = prefsHash
+            return
+        }
 
         val editor = source.getSourcePreferences().edit()
         prefs.forEach { (key, value) ->
@@ -697,6 +746,7 @@ class ExtensionManager(
             }
         }
         editor.apply()
+        appliedPreferenceHashes[source.id] = prefsHash
     }
 
     private fun syncRuntimePreferences(source: ConfigurableSource) {

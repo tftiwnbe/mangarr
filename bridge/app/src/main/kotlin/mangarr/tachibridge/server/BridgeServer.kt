@@ -8,7 +8,10 @@ import eu.kanade.tachiyomi.network.NetworkHelper
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.grpc.Server
 import io.grpc.netty.NettyServerBuilder
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -63,6 +66,7 @@ class BridgeServer(
     private lateinit var extensionManager: ExtensionManager
     private lateinit var extensionService: ExtensionBridgeService
     private lateinit var server: Server
+    private val bridgeScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     @kotlinx.coroutines.DelicateCoroutinesApi
     fun start() =
@@ -85,9 +89,6 @@ class BridgeServer(
             // Initialize Android compatibility layer
             initializeAndroidCompat()
 
-            // Initialize KCEF
-            initializeKCEF()
-
             // Get network helper from Injekt
             networkHelper = Injekt.get()
 
@@ -105,13 +106,6 @@ class BridgeServer(
                     networkHelper = networkHelper,
                 )
 
-            // Initialize and sync extensions
-            try {
-                extensionManager.init()
-            } catch (e: Exception) {
-                logger.error(e) { "Failed to initialize extensions" }
-            }
-
             // Create gRPC service
             extensionService = ExtensionBridgeService(extensionManager, repoService)
 
@@ -124,12 +118,22 @@ class BridgeServer(
 
             server.start()
 
+            bridgeScope.launch {
+                try {
+                    initializeKCEF()
+                    extensionManager.init()
+                    logger.info { "Bridge warmup complete with ${extensionManager.listSources().size} loaded sources" }
+                } catch (e: Exception) {
+                    logger.error(e) { "Bridge warmup failed" }
+                }
+            }
+
             logger.info { "==================================================" }
             logger.info { "Bridge Server started on port ${config.port}" }
             logger.info { "Data directory: $dataPath" }
             logger.info { "Extensions directory: $extensionsPath" }
             logger.info { "Repository: ${ConfigManager.config.repoUrl.ifBlank { "(not configured)" }}" }
-            logger.info { "Loaded sources: ${extensionManager.listSources().size}" }
+            logger.info { "Bridge warmup started" }
             logger.info { "==================================================" }
 
             Runtime.getRuntime().addShutdownHook(
@@ -143,6 +147,7 @@ class BridgeServer(
 
     private fun stop() =
         runBlocking {
+            bridgeScope.cancel()
             extensionManager.cleanup()
             server.shutdown()
 
@@ -297,7 +302,7 @@ class BridgeServer(
                 .get<NetworkHelper>()
                 .userAgentFlow
                 .onEach { System.setProperty("http.agent", it) }
-                .launchIn(GlobalScope)
+                .launchIn(bridgeScope)
         }
 
         // Start Android main looper

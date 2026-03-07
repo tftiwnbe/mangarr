@@ -34,6 +34,10 @@ class ExtensionBridgeService(
     private val extensionManager: ExtensionManager,
     private val repoService: ExtensionRepoService,
 ) : TachibridgeGrpcKt.TachibridgeCoroutineImplBase() {
+    private suspend fun awaitExtensionsReady() {
+        extensionManager.awaitReady()
+    }
+
     private fun asGrpcException(operation: String, error: Exception): Exception {
         if (error is StatusException || error is StatusRuntimeException) return error
 
@@ -98,6 +102,7 @@ class ExtensionBridgeService(
 
     override suspend fun installExtension(request: InstallExtensionRequest): InstallExtensionResponse =
         try {
+            awaitExtensionsReady()
             val ext = extensionManager.installFromRepo(request.packageName)
             InstallExtensionResponse
                 .newBuilder()
@@ -115,6 +120,7 @@ class ExtensionBridgeService(
 
     override suspend fun uninstallExtension(request: UninstallExtensionRequest): UninstallExtensionResponse =
         try {
+            awaitExtensionsReady()
             extensionManager.uninstall(request.packageName)
             UninstallExtensionResponse
                 .newBuilder()
@@ -131,6 +137,7 @@ class ExtensionBridgeService(
 
     override suspend fun updateExtension(request: UpdateExtensionRequest): InstallExtensionResponse =
         try {
+            awaitExtensionsReady()
             val ext = extensionManager.update(request.packageName)
             InstallExtensionResponse
                 .newBuilder()
@@ -161,6 +168,7 @@ class ExtensionBridgeService(
         }
 
     override suspend fun listSources(request: ListSourcesRequest): ListSourcesResponse {
+        awaitExtensionsReady()
         val sources = extensionManager.listSources()
         return ListSourcesResponse
             .newBuilder()
@@ -170,6 +178,7 @@ class ExtensionBridgeService(
 
     override suspend fun searchTitle(request: SearchTitleRequest): TitlesPageResponse =
         try {
+            awaitExtensionsReady()
             extensionManager.searchTitle(
                 request.sourceId,
                 request.query,
@@ -183,6 +192,7 @@ class ExtensionBridgeService(
 
     override suspend fun getPopularTitles(request: GetPopularTitlesRequest): TitlesPageResponse =
         try {
+            awaitExtensionsReady()
             extensionManager.getPopularTitles(request.sourceId, request.page)
         } catch (e: Exception) {
             logger.error(e) { "Get popular failed" }
@@ -191,6 +201,7 @@ class ExtensionBridgeService(
 
     override suspend fun getLatestTitles(request: GetLatestTitlesRequest): TitlesPageResponse =
         try {
+            awaitExtensionsReady()
             extensionManager.getLatestTitles(request.sourceId, request.page)
         } catch (e: Exception) {
             logger.error(e) { "Get latest failed" }
@@ -199,6 +210,7 @@ class ExtensionBridgeService(
 
     override suspend fun getTitleDetails(request: GetTitleDetailsRequest): TitleResponse =
         try {
+            awaitExtensionsReady()
             extensionManager.getTitleDetails(request.sourceId, request.titleUrl)
         } catch (e: Exception) {
             logger.error(e) { "Get details failed" }
@@ -207,6 +219,7 @@ class ExtensionBridgeService(
 
     override suspend fun getChapterList(request: GetChaptersListRequest): ChaptersListResponse =
         try {
+            awaitExtensionsReady()
             extensionManager.getChaptersList(request.sourceId, request.titleUrl)
         } catch (e: Exception) {
             logger.error(e) { "Get chapters failed" }
@@ -215,6 +228,7 @@ class ExtensionBridgeService(
 
     override suspend fun getPageList(request: GetPagesListRequest): PagesListResponse =
         try {
+            awaitExtensionsReady()
             extensionManager.getPagesList(request.sourceId, request.chapterUrl)
         } catch (e: Exception) {
             logger.error(e) { "Get pages failed" }
@@ -223,6 +237,7 @@ class ExtensionBridgeService(
 
     override suspend fun getFilters(request: GetFiltersRequest): FiltersResponse =
         try {
+            awaitExtensionsReady()
             extensionManager.getFilters(request.sourceId)
         } catch (e: Exception) {
             logger.error(e) { "Get filters failed" }
@@ -231,6 +246,7 @@ class ExtensionBridgeService(
 
     override suspend fun getSearchFilters(request: GetFiltersRequest): FiltersResponse =
         try {
+            awaitExtensionsReady()
             extensionManager.getSearchFilters(request.sourceId)
         } catch (e: Exception) {
             logger.error(e) { "Get search filters failed" }
@@ -239,6 +255,7 @@ class ExtensionBridgeService(
 
     override suspend fun setPreference(request: SetPreferenceRequest): SetPreferenceResponse =
         try {
+            awaitExtensionsReady()
             extensionManager.setPreference(request.sourceId, request.key, request.value)
             SetPreferenceResponse
                 .newBuilder()
@@ -256,7 +273,13 @@ class ExtensionBridgeService(
     override suspend fun healthCheck(request: HealthCheckRequest): HealthCheckResponse =
         HealthCheckResponse
             .newBuilder()
-            .setStatus("OK")
+            .setStatus(
+                when {
+                    extensionManager.isReady() -> "OK"
+                    extensionManager.initializationFailure() != null -> "FAILED"
+                    else -> "STARTING"
+                },
+            )
             .setLoadedSources(extensionManager.listSources().size)
             .build()
 
