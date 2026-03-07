@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 
 	import { getTitleDetails } from '$lib/api/explore';
@@ -33,6 +34,44 @@
 		hiatus: 'text-[var(--text-muted)]'
 	};
 
+	function itemFromQueryString(): ExploreItem | null {
+		const sourceId = page.url.searchParams.get('source_id')?.trim() ?? '';
+		const titleUrl = page.url.searchParams.get('title_url')?.trim() ?? '';
+		if (!sourceId || !titleUrl) {
+			return null;
+		}
+
+		const title = page.url.searchParams.get('title')?.trim() || titleUrl;
+		const sourceName = page.url.searchParams.get('source_name')?.trim() || sourceId;
+		const sourceLang = page.url.searchParams.get('source_lang')?.trim() || '';
+		const thumbnailUrl = page.url.searchParams.get('thumbnail_url')?.trim() || '';
+
+		return {
+			dedupe_key: `${sourceId}::${titleUrl}`,
+			title,
+			thumbnail_url: thumbnailUrl,
+			artist: null,
+			author: null,
+			description: null,
+			genre: null,
+			status: 0,
+			links: [
+				{
+					source: {
+						id: sourceId,
+						name: sourceName,
+						lang: sourceLang,
+						supports_latest: null,
+						extension_pkg: '',
+						extension_name: sourceName
+					},
+					title_url: titleUrl
+				}
+			],
+			imported_library_id: null
+		};
+	}
+
 	function splitGenres(genre: string | null | undefined): string[] {
 		if (!genre) return [];
 		return genre
@@ -46,7 +85,15 @@
 			item = value;
 		});
 
-		// Redirect to explore if no item
+		if (!item) {
+			const fromQuery = itemFromQueryString();
+			if (fromQuery) {
+				item = fromQuery;
+				previewItemStore.set(fromQuery);
+			}
+		}
+
+		// Redirect to explore if no item in memory or URL
 		if (!item) {
 			goto('/explore');
 		}

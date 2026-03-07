@@ -717,6 +717,49 @@
 		};
 	}
 
+	function shouldUseBrowserNavigation(event: MouseEvent): boolean {
+		return (
+			event.defaultPrevented ||
+			event.button !== 0 ||
+			event.metaKey ||
+			event.ctrlKey ||
+			event.shiftKey ||
+			event.altKey
+		);
+	}
+
+	function buildPreviewHref(item: ExploreFeed['items'][number]): string {
+		if (item.imported_library_id != null) {
+			return buildTitlePath(item.imported_library_id, item.title);
+		}
+		const primaryLink = item.links[0];
+		if (!primaryLink) {
+			return '/explore';
+		}
+		const queryParts: string[] = [
+			['source_id', primaryLink.source.id],
+			['source_name', primaryLink.source.name],
+			['source_lang', primaryLink.source.lang || ''],
+			['title_url', primaryLink.title_url],
+			['title', item.title]
+		].map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+		if (item.thumbnail_url) {
+			queryParts.push(`thumbnail_url=${encodeURIComponent(item.thumbnail_url)}`);
+		}
+		return `/preview?${queryParts.join('&')}`;
+	}
+
+	function handleCardClick(
+		event: MouseEvent,
+		item: ExploreFeed['items'][number]
+	): void {
+		if (shouldUseBrowserNavigation(event)) {
+			return;
+		}
+		event.preventDefault();
+		void openPreview(item);
+	}
+
 	async function openPreview(item: ExploreFeed['items'][number]) {
 		if (openingTitleKey) {
 			return;
@@ -1147,11 +1190,11 @@
 			{#each feed.items as item (item.dedupe_key)}
 				{@const importedLibraryId = item.imported_library_id ?? null}
 				{@const isInLibrary = importedLibraryId !== null && assignedLibraryTitleIds.has(importedLibraryId)}
-				<button
-					type="button"
+				<a
+					href={buildPreviewHref(item)}
 					class="group card-glow relative flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)] text-left"
-					onclick={() => openPreview(item)}
-					disabled={openingTitleKey !== null}
+					onclick={(event) => handleCardClick(event, item)}
+					aria-disabled={openingTitleKey !== null}
 				>
 					<!-- Cover -->
 					<div class="relative aspect-[2/3] overflow-hidden bg-[var(--void-3)]">
@@ -1199,7 +1242,7 @@
 					<div class="flex flex-1 flex-col gap-1 p-2">
 						<p class="line-clamp-2 text-xs text-[var(--text)]">{item.title}</p>
 					</div>
-				</button>
+				</a>
 			{/each}
 		</div>
 		{#if canInfiniteScroll && feed.has_next_page}
