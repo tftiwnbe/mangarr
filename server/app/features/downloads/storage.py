@@ -21,6 +21,7 @@ ALREADY_COMPRESSED_SUFFIXES = {
     ".webm",
 }
 CHAPTER_ARCHIVE_SUFFIX = ".cbz"
+ARCHIVE_VIRTUAL_SEGMENT = ".mangarr-archive"
 CHAPTER_METADATA_FILENAME = "mangarr-chapter-info.json"
 TITLE_METADATA_FILENAME = "mangarr-title-info.json"
 
@@ -40,6 +41,36 @@ def find_chapter_archive_path(chapter_dir: Path) -> Path | None:
     if legacy != preferred and legacy.is_file():
         return legacy
     return None
+
+
+def normalize_archive_member_path(member: str) -> str | None:
+    normalized = member.replace("\\", "/").strip("/")
+    if not normalized:
+        return None
+    parts = [part for part in normalized.split("/") if part not in {"", "."}]
+    if not parts or any(part == ".." for part in parts):
+        return None
+    return "/".join(parts)
+
+
+def archive_member_virtual_path(download_path: str, member: str) -> str | None:
+    normalized_download_path = download_path.strip("/").strip()
+    normalized_member = normalize_archive_member_path(member)
+    if not normalized_download_path or normalized_member is None:
+        return None
+    return f"{normalized_download_path}/{ARCHIVE_VIRTUAL_SEGMENT}/{normalized_member}"
+
+
+def split_archive_member_virtual_path(local_path: str) -> tuple[str, str] | None:
+    marker = f"/{ARCHIVE_VIRTUAL_SEGMENT}/"
+    if marker not in local_path:
+        return None
+    chapter_path, member = local_path.split(marker, 1)
+    normalized_chapter_path = chapter_path.strip("/").strip()
+    normalized_member = normalize_archive_member_path(member)
+    if not normalized_chapter_path or normalized_member is None:
+        return None
+    return normalized_chapter_path, normalized_member
 
 
 def write_chapter_metadata(chapter_dir: Path, payload: dict) -> None:
@@ -138,6 +169,40 @@ def chapter_payload_size_bytes(chapter_dir: Path) -> int:
         return int(archive.stat().st_size)
     except OSError:
         return 0
+
+
+def list_chapter_archive_images(chapter_dir: Path) -> list[tuple[str, int]]:
+    archive = find_chapter_archive_path(chapter_dir)
+    if archive is None:
+        return []
+    entries: list[tuple[str, int]] = []
+    try:
+        with zipfile.ZipFile(archive, mode="r") as handle:
+            for info in handle.infolist():
+                if info.is_dir():
+                    continue
+                normalized_member = normalize_archive_member_path(info.filename)
+                if normalized_member is None:
+                    continue
+                if Path(normalized_member).suffix.lower() not in IMAGE_SUFFIXES:
+                    continue
+                entries.append((normalized_member, int(info.file_size)))
+    except Exception:
+        return []
+    return sorted(entries, key=lambda item: item[0])
+
+
+def read_chapter_archive_member(chapter_dir: Path, member: str) -> bytes | None:
+    archive = find_chapter_archive_path(chapter_dir)
+    normalized_member = normalize_archive_member_path(member)
+    if archive is None or normalized_member is None:
+        return None
+    try:
+        with zipfile.ZipFile(archive, mode="r") as handle:
+            with handle.open(normalized_member, mode="r") as stream:
+                return stream.read()
+    except Exception:
+        return None
 
 
 def compress_chapter_pages(chapter_dir: Path, compression_level: int = 6) -> bool:

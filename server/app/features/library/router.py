@@ -1,8 +1,14 @@
+from mimetypes import guess_type
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from app.config import settings
 from app.core.deps import DBSessionDep, require_authenticated_user
+from app.features.downloads.storage import (
+    read_chapter_archive_member,
+    split_archive_member_virtual_path,
+)
 from app.features.library.service import LibraryService
 from app.models import (
     LibraryCollectionCreate,
@@ -370,6 +376,7 @@ async def delete_library_chapter_comment(
 
 @router.get("/files/{file_path:path}", include_in_schema=False)
 async def get_library_downloaded_file(file_path: str):
+    archive_member_path = split_archive_member_virtual_path(file_path)
     roots = [
         settings.downloads.root_dir,
         settings.app.data_dir / "downloads",
@@ -377,11 +384,18 @@ async def get_library_downloaded_file(file_path: str):
     ]
     for root in roots:
         resolved_root = root.resolve()
-        candidate = (resolved_root / file_path).resolve()
+        candidate_path = archive_member_path[0] if archive_member_path is not None else file_path
+        candidate = (resolved_root / candidate_path).resolve()
         try:
             candidate.relative_to(resolved_root)
         except ValueError:
             continue
+        if archive_member_path is not None:
+            archive_bytes = read_chapter_archive_member(candidate, archive_member_path[1])
+            if archive_bytes is None:
+                continue
+            media_type = guess_type(archive_member_path[1])[0] or "application/octet-stream"
+            return Response(content=archive_bytes, media_type=media_type)
         if candidate.is_file():
             return FileResponse(candidate)
     raise HTTPException(status_code=404, detail="File not found")
