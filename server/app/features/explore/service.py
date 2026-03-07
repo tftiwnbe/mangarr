@@ -357,7 +357,12 @@ class ExploreService:
             if page_meta and page_meta.has_next_page:
                 has_next_page = True
 
-        merged = self._merge_cached_items(sources, source_items)
+        merged = self._merge_cached_items(
+            sources,
+            source_items,
+            page=page,
+            target_limit=limit,
+        )
         await self._attach_imported_library_ids(merged, auto_link_missing=False)
 
         return ExploreFeed(
@@ -441,6 +446,8 @@ class ExploreService:
             sources,
             source_items,
             title_name_match=section == "search",
+            page=page,
+            target_limit=limit,
         )
         await self._attach_imported_library_ids(merged, auto_link_missing=True)
 
@@ -736,11 +743,26 @@ class ExploreService:
         sources: list[SourceSummary],
         source_items: dict[str, list[ExploreCacheItem]],
         title_name_match: bool = False,
+        page: int = 1,
+        target_limit: int = 20,
     ) -> list[ExploreItem]:
         source_by_id = {source.id: source for source in sources}
-        source_order = {source.id: idx for idx, source in enumerate(sources)}
+        if sources:
+            rotation = (max(page, 1) - 1) % len(sources)
+            rotated_sources = sources[rotation:] + sources[:rotation]
+        else:
+            rotated_sources = sources
+        source_order = {source.id: idx for idx, source in enumerate(rotated_sources)}
+        source_cap = max(
+            1,
+            min(
+                target_limit,
+                int((target_limit / max(len(sources), 1)) * 2) + 1,
+            ),
+        )
         merged: dict[str, ExploreItem] = {}
         ordering: list[str] = []
+        created_by_source: dict[str, int] = {source.id: 0 for source in sources}
 
         per_source_items = {
             source.id: list(source_items.get(source.id, []))
@@ -752,7 +774,7 @@ class ExploreService:
         )
 
         for index in range(max_source_items):
-            for source in sources:
+            for source in rotated_sources:
                 source_rows = per_source_items.get(source.id, [])
                 if index >= len(source_rows):
                     continue
@@ -787,6 +809,8 @@ class ExploreService:
 
                 existing = merged.get(key)
                 if existing is None:
+                    if created_by_source.get(source.id, 0) >= source_cap:
+                        continue
                     merged[key] = ExploreItem(
                         dedupe_key=dedupe_key,
                         title=item.title,
@@ -799,6 +823,7 @@ class ExploreService:
                         links=[source_link],
                     )
                     ordering.append(key)
+                    created_by_source[source.id] = created_by_source.get(source.id, 0) + 1
                     continue
 
                 if not any(
