@@ -93,6 +93,7 @@ class TachibridgeService:
         self,
         timeout: float = 15.0,
         kcef_download_timeout: float = 300.0,
+        max_kcef_restart_attempts: int = 1,
         interval: float = 0.3,
     ) -> None:
         """Wait for bridge readiness, aborting early if process exits.
@@ -103,8 +104,28 @@ class TachibridgeService:
         start_time = loop.time()
         current_timeout = timeout
         kcef_download_logged = False
+        kcef_restart_attempts = 0
 
         while (loop.time() - start_time) < current_timeout:
+            if self._process.consume_kcef_restart_request():
+                if kcef_restart_attempts >= max_kcef_restart_attempts:
+                    self._logger.warning(
+                        "KCEF requested another restart, but max automatic restarts ({}) was reached",
+                        max_kcef_restart_attempts,
+                    )
+                else:
+                    kcef_restart_attempts += 1
+                    self._logger.warning(
+                        "KCEF requested bridge restart; restarting bridge ({}/{})",
+                        kcef_restart_attempts,
+                        max_kcef_restart_attempts,
+                    )
+                    await self._restart_after_kcef_request()
+                    start_time = loop.time()
+                    current_timeout = timeout
+                    kcef_download_logged = False
+                    continue
+
             if not self._process.is_running():
                 raise RuntimeError(
                     "Bridge process exited during startup. "
@@ -130,6 +151,11 @@ class TachibridgeService:
         raise RuntimeError(
             f"Timed out waiting for bridge readiness after {current_timeout:.1f}s"
         )
+
+    async def _restart_after_kcef_request(self) -> None:
+        await self._connection.close()
+        await self._process.stop()
+        await self._process.start()
 
     # Extension Management
 

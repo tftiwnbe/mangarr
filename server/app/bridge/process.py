@@ -28,6 +28,7 @@ class TachibridgeProcess:
         # KCEF download tracking
         self._kcef_downloading = False
         self._kcef_last_progress_time: float = 0.0
+        self._kcef_restart_requested = False
 
     async def start(self) -> None:
         """Launch the bridge process via `java -jar`."""
@@ -39,6 +40,9 @@ class TachibridgeProcess:
             jar_path = self._default_jar()
             config_dir = settings.app.config_dir
 
+            self._kcef_downloading = False
+            self._kcef_last_progress_time = 0.0
+            self._kcef_restart_requested = False
             self._cleanup_kcef_singleton(config_dir)
 
             command = [
@@ -128,6 +132,11 @@ class TachibridgeProcess:
         import time
         return (time.monotonic() - self._kcef_last_progress_time) < stale_threshold
 
+    def consume_kcef_restart_request(self) -> bool:
+        requested = self._kcef_restart_requested
+        self._kcef_restart_requested = False
+        return requested
+
     async def _consume_stream(
         self, stream: asyncio.StreamReader | None, stream_name: str
     ) -> None:
@@ -153,9 +162,16 @@ class TachibridgeProcess:
                     elif "KCEF initialized" in message or "KCEF already installed" in message:
                         self._kcef_downloading = False
 
-                    if "Could not load 'jcef' library" in message:
+                    if "KCEF restart required" in message:
+                        self._kcef_restart_requested = True
                         self._logger.warning(
-                            "KCEF library failed to load. Continuing without JCEF restart."
+                            "KCEF requested bridge restart to complete initialization."
+                        )
+
+                    if "Could not load 'jcef' library" in message:
+                        self._kcef_restart_requested = True
+                        self._logger.warning(
+                            "KCEF library failed to load. Scheduling one bridge restart attempt."
                         )
                 else:
                     level = "WARNING" if _looks_like_bridge_error(text) else "DEBUG"
