@@ -516,7 +516,7 @@ class TachibridgeService:
             ]
             return titles, response.has_next_page
         except AioRpcError as e:
-            self._handle_grpc_error(e, "search_titles")
+            self._handle_grpc_error(e, f"search_titles source_id={source_id}")
 
     # Title Details
 

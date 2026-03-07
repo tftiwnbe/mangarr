@@ -1495,6 +1495,7 @@ class LibraryService:
         matches: list[LibrarySourceMatchResource] = []
         match_keys: set[tuple[str, str]] = set()
         direct_matched_source_ids: set[str] = set()
+        failed_sources: list[str] = []
 
         preferred_variant_by_extension_pkg: dict[str, LibraryTitleVariant] = {}
         for variant in variants:
@@ -1582,12 +1583,19 @@ class LibraryService:
 
             candidate = None
             candidate_score = 0.0
+            source_search_failures: list[str] = []
             for query_title in query_titles[:_MATCH_QUERY_TITLES_MAX]:
-                search_results, _ = await tachibridge.search_titles(
-                    source_id=source.id,
-                    query=query_title,
-                    page=1,
-                )
+                try:
+                    search_results, _ = await tachibridge.search_titles(
+                        source_id=source.id,
+                        query=query_title,
+                        page=1,
+                    )
+                except BridgeAPIError as exc:
+                    source_search_failures.append(
+                        self._summarize_source_match_search_error(exc)
+                    )
+                    continue
                 picked = self._pick_source_match_candidate(
                     query_title=query_title,
                     query_author=query_author,
@@ -1602,20 +1610,42 @@ class LibraryService:
                     candidate_score = picked_score
 
             if candidate is None and query_author:
-                author_results, _ = await tachibridge.search_titles(
-                    source_id=source.id,
-                    query=query_author,
-                    page=1,
+                try:
+                    author_results, _ = await tachibridge.search_titles(
+                        source_id=source.id,
+                        query=query_author,
+                        page=1,
+                    )
+                except BridgeAPIError as exc:
+                    source_search_failures.append(
+                        self._summarize_source_match_search_error(exc)
+                    )
+                    author_results = []
+                if author_results:
+                    picked = self._pick_source_match_candidate(
+                        query_title=query_titles[0],
+                        query_author=query_author,
+                        results=author_results,
+                        min_score=min_score,
+                        allow_author_only=True,
+                    )
+                    if picked is not None:
+                        candidate, candidate_score = picked
+
+            if source_search_failures:
+                deduped_failures = list(dict.fromkeys(source_search_failures))
+                failure_preview = "; ".join(deduped_failures[:2])
+                if len(deduped_failures) > 2:
+                    failure_preview = (
+                        f"{failure_preview}; +{len(deduped_failures) - 2} more"
+                    )
+                source_label = self._source_match_source_label(source)
+                _library_logger.warning(
+                    "Source match search failed for {}: {}",
+                    source_label,
+                    failure_preview,
                 )
-                picked = self._pick_source_match_candidate(
-                    query_title=query_titles[0],
-                    query_author=query_author,
-                    results=author_results,
-                    min_score=min_score,
-                    allow_author_only=True,
-                )
-                if picked is not None:
-                    candidate, candidate_score = picked
+                failed_sources.append(f"{source_label}: {deduped_failures[0]}")
 
             if candidate is None:
                 continue
@@ -1738,6 +1768,15 @@ class LibraryService:
                 item.source_name.lower(),
             )
         )
+        if not matches and failed_sources:
+            failure_preview = "; ".join(failed_sources[:3])
+            if len(failed_sources) > 3:
+                failure_preview = f"{failure_preview}; +{len(failed_sources) - 3} more"
+            raise BridgeAPIError(
+                502,
+                "Source match search failed for "
+                f"{len(failed_sources)} source(s): {failure_preview}",
+            )
         return matches
 
     async def link_variant(
@@ -3196,6 +3235,24 @@ class LibraryService:
         if best is None:
             return None
         return best, best_score
+
+    @staticmethod
+    def _source_match_source_label(source: SourceSummary) -> str:
+        source_lang = (source.lang or "").strip()
+        lang_segment = f" [{source_lang}]" if source_lang else ""
+        return (
+            f"{source.extension_name}/{source.name}{lang_segment} "
+            f"({source.extension_pkg}:{source.id})"
+        )
+
+    @staticmethod
+    def _summarize_source_match_search_error(exc: BridgeAPIError) -> str:
+        details = (exc.detail or "").strip()
+        if not details:
+            return f"HTTP {exc.status_code}"
+        if len(details) > 220:
+            return f"{details[:217]}..."
+        return details
 
     async def _auto_link_same_extension_variants(
         self,
