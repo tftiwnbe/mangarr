@@ -4,6 +4,10 @@ services:
       context: .
       dockerfile: Dockerfile
     image: mangarr:latest
+    environment:
+      - MANGARR__SERVER__HOST=0.0.0.0
+      - MANGARR__SERVER__PORT=3737
+    init: true
     ports:
       - 3737:3737
     volumes:

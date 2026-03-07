@@ -69,7 +69,12 @@ dev-web:
 [doc("Start container stack for development")]
 dev-docker:
     @echo "Starting docker compose dev stack..."
-    docker compose -f compose.dev.yaml up --build
+    docker compose -f compose.dev.yaml up --build --remove-orphans
+
+[doc("Stop container stack for development")]
+dev-docker-down:
+    @echo "Stopping docker compose dev stack..."
+    docker compose -f compose.dev.yaml down --remove-orphans
 
 [doc("Build web, then start the server")]
 run:

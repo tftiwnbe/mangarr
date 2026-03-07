@@ -29,9 +29,13 @@ just test
 pnpm --dir web check:all
 ```
 
-## Devcontainer
+Containerized development:
 
-The repo includes a `.devcontainer/` setup with Python, Node/pnpm, Java, `uv`, and `just` preinstalled. Open the project in a compatible devcontainer environment and the bootstrap script will install the backend and web dependencies automatically.
+```bash
+just dev-docker
+```
+
+This starts the backend on `http://localhost:3737` and web dev server on `http://localhost:3000`.
 
 ## Runtime
 
