@@ -113,7 +113,6 @@
 	let downloadParallelDownloads = $state(2);
 	let downloadFailedChapterRetryDelaySeconds = $state(21600);
 	let downloadCompressChapters = $state(false);
-	let downloadCompressionLevel = $state(6);
 	let downloadTotalBytes = $state(0);
 	let downloadUsedBytes = $state(0);
 	let downloadFreeBytes = $state(0);
@@ -217,7 +216,6 @@
 			downloadParallelDownloads = settings.parallel_downloads;
 			downloadFailedChapterRetryDelaySeconds = settings.failed_chapter_retry_delay_seconds;
 			downloadCompressChapters = settings.compress_downloaded_chapters;
-			downloadCompressionLevel = settings.compression_level;
 			downloadTotalBytes = settings.total_bytes;
 			downloadUsedBytes = settings.used_bytes;
 			downloadFreeBytes = settings.free_bytes;
@@ -680,11 +678,6 @@
 			downloadsSettingsError = $_('settings.failedChapterRetryDelayInvalid');
 			return;
 		}
-		const compressionLevel = Math.round(downloadCompressionLevel);
-		if (!Number.isFinite(compressionLevel) || compressionLevel < 0 || compressionLevel > 9) {
-			downloadsSettingsError = $_('settings.downloadCompressionLevelInvalid');
-			return;
-		}
 		downloadsSettingsSaving = true;
 		downloadsSettingsError = null;
 		downloadsSettingsSuccess = false;
@@ -693,14 +686,12 @@
 				root_dir: downloadRootDir.trim(),
 				parallel_downloads: parallel,
 				failed_chapter_retry_delay_seconds: retryDelay,
-				compress_downloaded_chapters: downloadCompressChapters,
-				compression_level: compressionLevel
+				compress_downloaded_chapters: downloadCompressChapters
 			});
 			downloadRootDir = updated.root_dir;
 			downloadParallelDownloads = updated.parallel_downloads;
 			downloadFailedChapterRetryDelaySeconds = updated.failed_chapter_retry_delay_seconds;
 			downloadCompressChapters = updated.compress_downloaded_chapters;
-			downloadCompressionLevel = updated.compression_level;
 			downloadTotalBytes = updated.total_bytes;
 			downloadUsedBytes = updated.used_bytes;
 			downloadFreeBytes = updated.free_bytes;
@@ -1393,28 +1384,9 @@
 							{$_('settings.downloadCompressionEnabled')}
 						</label>
 
-						<div class="flex flex-col gap-1.5">
-							<label class="text-label" for="download-compression-level">
-								{$_('settings.downloadCompressionLevel')}
-							</label>
-							<input
-								id="download-compression-level"
-								type="number"
-								min="0"
-								max="9"
-								step="1"
-								class="settings-input"
-								value={downloadCompressionLevel}
-								oninput={(event) => {
-									const raw = Number((event.currentTarget as HTMLInputElement).value);
-									downloadCompressionLevel = Number.isFinite(raw) ? raw : 6;
-								}}
-								disabled={!downloadCompressChapters}
-							/>
-							<p class="text-xs text-[var(--text-ghost)]">
-								{$_('settings.downloadCompressionLevelDescription')}
-							</p>
-						</div>
+						<p class="text-xs text-[var(--text-ghost)]">
+							{$_('settings.downloadCompressionLevelDescription')}
+						</p>
 
 						<!-- Disk stats -->
 						<div class="flex flex-col gap-2 pt-2">
