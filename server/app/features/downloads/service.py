@@ -47,7 +47,7 @@ from app.models import (
     DownloadProfileResource,
     DownloadProfileUpdate,
     DownloadDashboardResource,
-    DownloadMonitoredTitleResource,
+    DownloadWatchedTitleResource,
     DownloadReconcileResource,
     DownloadStrategy,
     DownloadTask,
@@ -62,7 +62,7 @@ from app.models import (
     LibraryTitle,
     LibraryUserStatus,
     LibraryTitleVariant,
-    MonitorRunResponse,
+    WatchRunResponse,
     Source,
     SourceChapter,
     SourcePreference,
@@ -255,7 +255,7 @@ class DownloadService:
         self._source_request_headers_cache: dict[str, dict[str, str] | None] = {}
 
     async def get_overview(self) -> DownloadOverviewResource:
-        monitored_titles = int(
+        watched_titles_count = int(
             (
                 await self.session.exec(
                     select(func.count(DownloadProfile.id)).where(DownloadProfile.enabled)
@@ -328,7 +328,7 @@ class DownloadService:
         )
 
         return DownloadOverviewResource(
-            monitored_titles=monitored_titles,
+            watched_titles=watched_titles_count,
             queued=by_status.get(DownloadTaskStatus.QUEUED, 0),
             downloading=by_status.get(DownloadTaskStatus.DOWNLOADING, 0),
             completed=by_status.get(DownloadTaskStatus.COMPLETED, 0),
@@ -343,13 +343,13 @@ class DownloadService:
 
     async def get_dashboard(
         self,
-        monitored_limit: int = 30,
+        watched_limit: int = 30,
         active_limit: int = 20,
         recent_limit: int = 20,
     ) -> DownloadDashboardResource:
         overview = await self.get_overview()
 
-        preload_limit = max(monitored_limit * 5, monitored_limit)
+        preload_limit = max(watched_limit * 5, watched_limit)
         profile_rows = (
             await self.session.exec(
                 select(DownloadProfile)
@@ -408,7 +408,7 @@ class DownloadService:
             int(title.id): title for title in title_rows if title.id is not None
         }
 
-        def monitored_recency_ts(title_id: int) -> float:
+        def watched_recency_ts(title_id: int) -> float:
             profile = profiles_by_title_id.get(title_id)
             if profile is not None:
                 updated_at = _as_utc(profile.updated_at)
@@ -427,10 +427,10 @@ class DownloadService:
             [title_id for title_id in candidate_title_ids if title_id in titles_by_id],
             key=lambda title_id: (
                 0 if profiles_by_title_id.get(title_id, None) and profiles_by_title_id[title_id].enabled else 1,
-                -monitored_recency_ts(title_id),
+                -watched_recency_ts(title_id),
                 -title_id,
             ),
-        )[:monitored_limit]
+        )[:watched_limit]
 
         title_ids = ordered_title_ids
         selected_variant_ids_by_title: dict[int, list[int]] = {}
@@ -593,7 +593,7 @@ class DownloadService:
                 per_title = task_stats.setdefault(int(title_id), {})
                 per_title[DownloadTaskStatus.FAILED] = int(count)
 
-        monitored_titles: list[DownloadMonitoredTitleResource] = []
+        watched_titles: list[DownloadWatchedTitleResource] = []
         for title_id in title_ids:
             title = titles_by_id.get(title_id)
             if title is None:
@@ -664,8 +664,8 @@ class DownloadService:
                 DownloadTaskStatus.DOWNLOADING, 0
             )
             failed = stats.get(DownloadTaskStatus.FAILED, 0)
-            monitored_titles.append(
-                DownloadMonitoredTitleResource(
+            watched_titles.append(
+                DownloadWatchedTitleResource(
                     library_title_id=title_id,
                     title=display_title,
                     thumbnail_url=display_thumbnail,
@@ -792,7 +792,7 @@ class DownloadService:
         return DownloadDashboardResource(
             generated_at=_now_utc(),
             overview=overview,
-            monitored_titles=monitored_titles,
+            watched_titles=watched_titles,
             active_tasks=active_tasks,
             recent_tasks=recent_tasks,
         )
@@ -1055,7 +1055,7 @@ class DownloadService:
         self,
         limit: int = 25,
         seed_existing: bool = False,
-    ) -> MonitorRunResponse:
+    ) -> WatchRunResponse:
         _t0 = _time.monotonic()
         async with self._monitor_lock:
             rows = (
@@ -1168,7 +1168,7 @@ class DownloadService:
                         profile.library_title_id,
                     )
 
-            result = MonitorRunResponse(
+            result = WatchRunResponse(
                 checked_titles=checked,
                 enqueued_tasks=enqueued_total,
             )
@@ -1177,8 +1177,8 @@ class DownloadService:
                     titles_checked=checked,
                     enqueued=enqueued_total,
                     duration_ms=round((_time.monotonic() - _t0) * 1000),
-                ).info("monitor.run")
-                _ws_broadcast({"event": "monitor.run", "enqueued": enqueued_total})
+                ).info("watch.run")
+                _ws_broadcast({"event": "watch.run", "enqueued": enqueued_total})
             return result
 
     async def run_worker_once(self, batch_size: int | None = None) -> WorkerRunResponse:

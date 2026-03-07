@@ -14,7 +14,7 @@ from app.models import (
     DownloadTaskStatus,
     EnqueueChapterResponse,
     EnqueueTitleResponse,
-    MonitorRunResponse,
+    WatchRunResponse,
     WorkerRunResponse,
 )
 
@@ -36,13 +36,13 @@ async def get_overview(service: DownloadService = Depends(get_service)):
 
 @router.get("/dashboard", response_model=DownloadDashboardResource)
 async def get_dashboard(
-    monitored_limit: int = Query(30, ge=1, le=100),
+    watched_limit: int = Query(30, ge=1, le=100),
     active_limit: int = Query(20, ge=1, le=100),
     recent_limit: int = Query(20, ge=1, le=100),
     service: DownloadService = Depends(get_service),
 ):
     return await service.get_dashboard(
-        monitored_limit=monitored_limit,
+        watched_limit=watched_limit,
         active_limit=active_limit,
         recent_limit=recent_limit,
     )
@@ -136,8 +136,8 @@ async def cancel_task(
     return await service.cancel_task(task_id)
 
 
-@router.post("/run-monitor", response_model=MonitorRunResponse)
-async def run_monitor(
+@router.post("/run-watch", response_model=WatchRunResponse)
+async def run_watch(
     limit: int = Query(25, ge=1, le=200),
     seed_existing: bool = Query(True),
     service: DownloadService = Depends(get_service),

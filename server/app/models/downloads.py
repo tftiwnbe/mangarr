@@ -158,7 +158,7 @@ class DownloadTaskResource(SQLModel):
 
 
 class DownloadOverviewResource(SQLModel):
-    monitored_titles: int
+    watched_titles: int
     queued: int
     downloading: int
     completed: int
@@ -171,7 +171,7 @@ class DownloadOverviewResource(SQLModel):
     estimated_chapters_fit: int = 0
 
 
-class DownloadMonitoredTitleResource(SQLModel):
+class DownloadWatchedTitleResource(SQLModel):
     library_title_id: int
     title: str
     thumbnail_url: str = ""
@@ -197,7 +197,7 @@ class DownloadMonitoredTitleResource(SQLModel):
 class DownloadDashboardResource(SQLModel):
     generated_at: datetime
     overview: DownloadOverviewResource
-    monitored_titles: list[DownloadMonitoredTitleResource]
+    watched_titles: list[DownloadWatchedTitleResource]
     active_tasks: list["DownloadTaskResource"]
     recent_tasks: list["DownloadTaskResource"]
 
@@ -211,7 +211,7 @@ class EnqueueTitleResponse(SQLModel):
     queued: int
 
 
-class MonitorRunResponse(SQLModel):
+class WatchRunResponse(SQLModel):
     checked_titles: int
     enqueued_tasks: int
 

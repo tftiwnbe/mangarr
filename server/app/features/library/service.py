@@ -319,8 +319,8 @@ class LibraryService:
             user_status=self._to_user_status_resource(user_status),
             user_rating=title.user_rating,
             collections=collections,
-            monitoring_enabled=monitoring_enabled,
-            monitoring_variant_ids=monitoring_variant_ids,
+            updates_enabled=monitoring_enabled,
+            watched_variant_ids=monitoring_variant_ids,
             variants=[self._to_variant_resource(variant) for variant in variants],
         )
 
@@ -650,7 +650,7 @@ class LibraryService:
 
         profile: DownloadProfile | None = None
         status_removed = "user_status_id" in updates and title.user_status_id is None
-        if "monitoring_enabled" in updates or "monitoring_variant_ids" in updates or status_removed:
+        if "updates_enabled" in updates or "watched_variant_ids" in updates or status_removed:
             now = datetime.now(timezone.utc)
             profile = (
                 await self.session.exec(
@@ -658,9 +658,9 @@ class LibraryService:
                 )
             ).first()
             normalized_monitoring_variant_ids: list[int] | None = None
-            if "monitoring_variant_ids" in updates:
+            if "watched_variant_ids" in updates:
                 monitoring_variant_ids = self._normalize_positive_int_ids(
-                    updates["monitoring_variant_ids"] or []
+                    updates["watched_variant_ids"] or []
                 )
                 normalized_monitoring_variant_ids = (
                     await self._normalize_monitoring_variant_ids(
@@ -671,8 +671,8 @@ class LibraryService:
                 if len(normalized_monitoring_variant_ids) != len(monitoring_variant_ids):
                     raise BridgeAPIError(404, "One or more monitoring variants are not linked")
 
-            if "monitoring_enabled" in updates:
-                monitoring_enabled = bool(updates["monitoring_enabled"])
+            if "updates_enabled" in updates:
+                monitoring_enabled = bool(updates["updates_enabled"])
             elif normalized_monitoring_variant_ids is not None:
                 monitoring_enabled = len(normalized_monitoring_variant_ids) > 0
             else:

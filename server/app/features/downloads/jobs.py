@@ -9,15 +9,15 @@ from app.features.downloads.service import DownloadService
 job_logger = logger.bind(module="downloads.jobs")
 
 
-@scheduler.interval(seconds=settings.downloads.monitor_interval_seconds, label="Downloads Monitor")
-async def refresh_monitored_titles_job() -> None:
-    """Refresh monitored titles and enqueue new chapters."""
+@scheduler.interval(seconds=settings.downloads.monitor_interval_seconds, label="Downloads Watch")
+async def refresh_watched_titles_job() -> None:
+    """Refresh watched titles and enqueue new chapters."""
     try:
         async with sessionmanager.session() as session:
             service = DownloadService(session)
             await service.run_monitor_once(limit=100)
     except Exception:
-        job_logger.exception("Monitored title refresh job failed")
+        job_logger.exception("Watched title refresh job failed")
 
 
 @scheduler.interval(seconds=settings.downloads.worker_interval_seconds, label="Downloads Worker")

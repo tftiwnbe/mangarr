@@ -180,8 +180,8 @@ class LibraryTitleResource(SQLModel):
     user_status: "LibraryUserStatusResource | None" = None
     user_rating: float | None = None
     collections: list["LibraryCollectionSummary"] = []
-    monitoring_enabled: bool = False
-    monitoring_variant_ids: list[int] = []
+    updates_enabled: bool = False
+    watched_variant_ids: list[int] = []
     variants: list[LibraryTitleVariantResource]
 
 
@@ -408,6 +408,6 @@ class LibraryTitlePreferencesUpdate(SQLModel):
     preferred_variant_id: int | None = None
     user_status_id: int | None = None
     user_rating: float | None = Field(default=None, ge=0, le=5)
-    monitoring_enabled: bool | None = None
-    monitoring_variant_ids: list[int] | None = None
+    updates_enabled: bool | None = None
+    watched_variant_ids: list[int] | None = None
     collection_ids: list[int] | None = None
