@@ -1,7 +1,7 @@
 /**
  * WebSocket manager — singleton that stays connected for the lifetime of the
  * authenticated session and lets any part of the app subscribe to server-pushed
- * events (task.done, monitor.run, worker.run, …).
+ * events (task.done, watch.run, worker.run, …).
  */
 
 import { getWsToken } from '$lib/api/auth';

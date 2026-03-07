@@ -24,7 +24,7 @@
 	import { buildTitlePath } from '$lib/utils/routes';
 	import { panelOverlayOpen } from '$lib/stores/ui';
 
-	type TabValue = 'active' | 'history' | 'monitored';
+	type TabValue = 'active' | 'history' | 'watched';
 
 	let activeTab = $state<TabValue>('active');
 	let runningAction = $state<string | null>(null);
@@ -63,9 +63,9 @@
 	const isLoading = $derived($downloadsDashboardStore.isLoading);
 	const numberFormatter = new Intl.NumberFormat();
 
-	const monitoredByTitleId = $derived.by(() => {
-		const map = new SvelteMap<number, (typeof dashboard.monitoredTitles)[number]>();
-		for (const item of dashboard.monitoredTitles) {
+	const watchedByTitleId = $derived.by(() => {
+		const map = new SvelteMap<number, (typeof dashboard.watchedTitles)[number]>();
+		for (const item of dashboard.watchedTitles) {
 			map.set(item.titleId, item);
 		}
 		return map;
@@ -94,7 +94,7 @@
 	const tabs: { key: TabValue; labelKey: string }[] = [
 		{ key: 'active', labelKey: 'downloads.active' },
 		{ key: 'history', labelKey: 'downloads.history' },
-		{ key: 'monitored', labelKey: 'downloads.monitored' }
+		{ key: 'watched', labelKey: 'downloads.watched' }
 	];
 
 	onMount(() => {
@@ -113,7 +113,7 @@
 		}
 
 		const unsubscribeDone = wsManager.on('task.done', scheduleRefresh);
-		const unsubscribeMonitor = wsManager.on('monitor.run', scheduleRefresh);
+		const unsubscribeWatch = wsManager.on('watch.run', scheduleRefresh);
 		const unsubscribeWorker = wsManager.on('worker.run', scheduleRefresh);
 
 		// Fallback poll every 60 s in case the WS is disconnected.
@@ -126,7 +126,7 @@
 			clearInterval(interval);
 			if (debounceTimer !== null) clearTimeout(debounceTimer);
 			unsubscribeDone();
-			unsubscribeMonitor();
+			unsubscribeWatch();
 			unsubscribeWorker();
 		};
 	});
@@ -322,7 +322,7 @@
 		}
 	}
 
-	async function handleRunMonitor() {
+	async function handleRunWatch() {
 		runningAction = 'cycle';
 		try {
 			await runDownloadCycle();
@@ -388,7 +388,7 @@
 		}
 	}
 
-	async function toggleMonitoring(titleId: number, enabled: boolean) {
+	async function toggleWatch(titleId: number, enabled: boolean) {
 		if (profileActionTitleId === titleId) return;
 		profileActionTitleId = titleId;
 		try {
@@ -463,12 +463,12 @@
 		if (activeTab !== 'active') {
 			return { percent: task.progressPercent, downloaded: null, total: null };
 		}
-		const monitored = monitoredByTitleId.get(task.titleId);
-		if (!monitored || monitored.totalChapters <= 0) {
+		const watched = watchedByTitleId.get(task.titleId);
+		if (!watched || watched.totalChapters <= 0) {
 			return { percent: task.progressPercent, downloaded: null, total: null };
 		}
-		const total = Math.max(0, monitored.totalChapters);
-		const downloaded = Math.max(0, Math.min(total, monitored.downloadedChapters));
+		const total = Math.max(0, watched.totalChapters);
+		const downloaded = Math.max(0, Math.min(total, watched.downloadedChapters));
 		return {
 			percent: Math.round((downloaded / total) * 100),
 			downloaded,
@@ -483,16 +483,16 @@
 		plannedTotal: number | null;
 	} {
 		if (activeTab === 'active') {
-			const monitored = monitoredByTitleId.get(task.titleId);
-			if (monitored) {
+			const watched = watchedByTitleId.get(task.titleId);
+			if (watched) {
 				return {
-					chaptersTotal: Math.max(0, monitored.totalChapters),
-					chaptersQueued: Math.max(0, monitored.queuedTasks),
+					chaptersTotal: Math.max(0, watched.totalChapters),
+					chaptersQueued: Math.max(0, watched.queuedTasks),
 					plannedDownloaded: Math.max(
 						0,
-						Math.min(monitored.totalChapters, monitored.downloadedChapters)
+						Math.min(watched.totalChapters, watched.downloadedChapters)
 					),
-					plannedTotal: Math.max(0, monitored.totalChapters)
+					plannedTotal: Math.max(0, watched.totalChapters)
 				};
 			}
 		}
@@ -507,7 +507,7 @@
 	function tabCount(key: TabValue): number {
 		if (key === 'active') return dashboard.activeTasks.length;
 		if (key === 'history') return dashboard.recentTasks.length;
-		return dashboard.monitoredTitles.length;
+		return dashboard.watchedTitles.length;
 	}
 </script>
 
@@ -527,7 +527,7 @@
 				class="flex h-8 w-8 items-center justify-center transition-all {runningAction === 'cycle'
 					? 'text-[var(--text)]'
 					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-				onclick={handleRunMonitor}
+				onclick={handleRunWatch}
 				disabled={runningAction !== null}
 				title={$_('downloads.runNow')}
 			>
@@ -676,15 +676,15 @@
 		<div class="flex items-center justify-center py-20">
 			<Icon name="loader" size={16} class="animate-spin text-[var(--text-ghost)]" />
 		</div>
-	{:else if activeTab === 'monitored'}
-		<!-- Monitored titles -->
-		{#if dashboard.monitoredTitles.length === 0}
+	{:else if activeTab === 'watched'}
+		<!-- Watched titles -->
+		{#if dashboard.watchedTitles.length === 0}
 			<div class="flex flex-col items-center py-20">
-				<p class="text-sm text-[var(--text-ghost)]">{$_('downloads.noMonitored')}</p>
+				<p class="text-sm text-[var(--text-ghost)]">{$_('downloads.noWatched')}</p>
 			</div>
 		{:else}
 			<div class="flex flex-col gap-1">
-				{#each dashboard.monitoredTitles as item (item.titleId)}
+				{#each dashboard.watchedTitles as item (item.titleId)}
 					{@const progress =
 						item.totalChapters > 0
 							? Math.round((item.downloadedChapters / item.totalChapters) * 100)
@@ -745,7 +745,7 @@
 							loading={profileActionTitleId === item.titleId}
 							variant="success"
 							class="self-center"
-							onCheckedChange={(enabled) => void toggleMonitoring(item.titleId, enabled)}
+							onCheckedChange={(enabled) => void toggleWatch(item.titleId, enabled)}
 						/>
 					</div>
 				{/each}

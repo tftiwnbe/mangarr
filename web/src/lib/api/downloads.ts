@@ -10,7 +10,7 @@ export type DownloadProfileUpdate = components['schemas']['DownloadProfileUpdate
 export type DownloadTaskResource = components['schemas']['DownloadTaskResource'];
 export type EnqueueChapterResponse = components['schemas']['EnqueueChapterResponse'];
 export type EnqueueTitleResponse = components['schemas']['EnqueueTitleResponse'];
-export type MonitorRunResponse = components['schemas']['MonitorRunResponse'];
+export type WatchRunResponse = components['schemas']['WatchRunResponse'];
 export type WorkerRunResponse = components['schemas']['WorkerRunResponse'];
 export type DownloadExternalTitleResource = components['schemas']['DownloadExternalTitleResource'];
 export type DownloadReconcileResource = components['schemas']['DownloadReconcileResource'];
@@ -25,7 +25,7 @@ export async function getDownloadOverview(): Promise<DownloadOverviewResource> {
 }
 
 export async function getDownloadDashboard(query?: {
-	monitored_limit?: number;
+	watched_limit?: number;
 	active_limit?: number;
 	recent_limit?: number;
 }): Promise<DownloadDashboardResource> {
@@ -132,12 +132,12 @@ export async function cancelDownloadTask(taskId: number): Promise<DownloadTaskRe
 	);
 }
 
-export async function runDownloadMonitor(limit = 25, seedExisting = true): Promise<MonitorRunResponse> {
+export async function runDownloadWatch(limit = 25, seedExisting = true): Promise<WatchRunResponse> {
 	return expectData(
-		await httpClient.POST('/api/v2/downloads/run-monitor', {
+		await httpClient.POST('/api/v2/downloads/run-watch', {
 			params: { query: { limit, seed_existing: seedExisting } }
 		}),
-		'Unable to run download monitor'
+		'Unable to run watched-updates scan'
 	);
 }
 

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
 	import {
 		listLibraryCollections,
@@ -60,7 +61,7 @@
 
 	// Unique reading statuses present in the library
 	const allUserStatuses = $derived.by(() => {
-		const seen = new Map<number, { id: number; label: string }>();
+		const seen = new SvelteMap<number, { id: number; label: string }>();
 		for (const title of titles) {
 			if (title.user_status && !seen.has(title.user_status.id)) {
 				seen.set(title.user_status.id, {
@@ -74,7 +75,7 @@
 
 	// Source status filter keys that have at least one title in the library
 	const presentSourceStatusKeys = $derived.by(() => {
-		const presentValues = new Set(titles.map((t) => t.status).filter((s) => s > 0));
+		const presentValues = new SvelteSet(titles.map((t) => t.status).filter((s) => s > 0));
 		return SOURCE_STATUS_FILTERS.filter((f) => f.values.some((v) => presentValues.has(v))).map(
 			(f) => f.key
 		);
@@ -82,7 +83,7 @@
 
 	// All genre tags parsed from titles
 	const allGenres = $derived.by(() => {
-		const genres = new Set<string>();
+		const genres = new SvelteSet<string>();
 		for (const title of titles) {
 			if (title.genre) {
 				for (const g of title.genre.split(',')) {
@@ -142,9 +143,10 @@
 		result = [...result].sort((a, b) => {
 			let cmp = 0;
 			if (sortMode === 'updated') {
-				cmp = new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime();
+				cmp =
+					new Date(a.updated_at ?? 0).getTime() - new Date(b.updated_at ?? 0).getTime();
 			} else if (sortMode === 'added') {
-				cmp = new Date(a.added_at).getTime() - new Date(b.added_at).getTime();
+				cmp = new Date(a.added_at ?? 0).getTime() - new Date(b.added_at ?? 0).getTime();
 			} else if (sortMode === 'reading') {
 				const ra = a.last_read_at ? new Date(a.last_read_at).getTime() : 0;
 				const rb = b.last_read_at ? new Date(b.last_read_at).getTime() : 0;

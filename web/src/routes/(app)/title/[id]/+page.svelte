@@ -41,7 +41,7 @@
 	let prefsSuccess = $state(false);
 	let selectedStatusId = $state<number | null>(null);
 	let selectedRating = $state<number>(0);
-	let selectedMonitoringVariantIds = $state<number[]>([]);
+	let selectedWatchedVariantIds = $state<number[]>([]);
 	let selectedCollectionIds = $state<number[]>([]);
 	let hasPendingSave = $state(false);
 	let saveInFlight = $state(false);
@@ -143,9 +143,9 @@
 		if (!title || selectedVariantId === null) return null;
 		return visibleVariants.find((variant) => variant.id === selectedVariantId) ?? null;
 	});
-	const isMonitoringSelectedVariant = $derived.by(() => {
+	const isWatchedSelectedVariant = $derived.by(() => {
 		if (selectedStatusId === null || selectedVariantId === null) return false;
-		return selectedMonitoringVariantIds.includes(selectedVariantId);
+		return selectedWatchedVariantIds.includes(selectedVariantId);
 	});
 	const displayTitle = $derived(selectedVariant?.title ?? title?.title ?? '');
 	const displayCover = $derived(selectedVariant?.cover ?? title?.cover ?? '');
@@ -308,7 +308,7 @@
 		selectedStatusId = title.userStatus?.id ?? null;
 		selectedRating = title.userRating ?? 0;
 		const availableVariantIds = new Set(visibleVariants.map((variant) => variant.id));
-		const linkedMonitoringVariantIds = (title.monitoringVariantIds ?? []).filter((variantId) =>
+		const linkedWatchedVariantIds = (title.watchedVariantIds ?? []).filter((variantId) =>
 			availableVariantIds.has(variantId)
 		);
 		const preferredVariantId =
@@ -318,12 +318,12 @@
 				? title.preferredVariantId
 				: null;
 		const fallbackVariantId = preferredVariantId ?? visibleVariants[0]?.id ?? null;
-		selectedMonitoringVariantIds =
-			title.monitoringEnabled && linkedMonitoringVariantIds.length === 0
+		selectedWatchedVariantIds =
+			title.updatesEnabled && linkedWatchedVariantIds.length === 0
 				? fallbackVariantId
 					? [fallbackVariantId]
 					: []
-				: linkedMonitoringVariantIds;
+				: linkedWatchedVariantIds;
 		selectedCollectionIds = title.collections.map((collection) => collection.id);
 		prefsSuccess = false;
 		prefsError = null;
@@ -498,18 +498,18 @@
 		saveInFlight = true;
 		prefsError = null;
 		try {
-			const monitoringVariantIds =
+			const watchedVariantIds =
 				selectedStatusId === null
 					? []
-					: [...new Set(selectedMonitoringVariantIds)].filter(
+					: [...new Set(selectedWatchedVariantIds)].filter(
 							(variantId) => Number.isInteger(variantId) && variantId > 0
 						);
 			await updateLibraryTitlePreferences(title.libraryId, {
 				preferred_variant_id: selectedVariantId,
 				user_status_id: selectedStatusId,
 				user_rating: selectedRating > 0 ? selectedRating : null,
-				monitoring_enabled: monitoringVariantIds.length > 0,
-				monitoring_variant_ids: monitoringVariantIds,
+				updates_enabled: watchedVariantIds.length > 0,
+				watched_variant_ids: watchedVariantIds,
 				collection_ids: selectedCollectionIds
 			});
 			const nextStatus = statuses.find((status) => status.id === selectedStatusId);
@@ -530,8 +530,8 @@
 						}
 					: undefined,
 				userRating: selectedRating > 0 ? selectedRating : undefined,
-				monitoringEnabled: monitoringVariantIds.length > 0,
-				monitoringVariantIds,
+				updatesEnabled: watchedVariantIds.length > 0,
+				watchedVariantIds,
 				collections: nextCollections.map((collection) => ({
 					id: collection.id,
 					name: collection.name,
@@ -586,17 +586,17 @@
 		queueAutoSave();
 	}
 
-	function toggleMonitoringForSelectedVariant() {
+	function toggleWatchForSelectedVariant() {
 		if (selectedStatusId === null || selectedVariantId === null) return;
-		selectedMonitoringVariantIds = isMonitoringSelectedVariant ? [] : [selectedVariantId];
+		selectedWatchedVariantIds = isWatchedSelectedVariant ? [] : [selectedVariantId];
 		queueAutoSave();
 	}
 
 	function setStatusId(statusId: number | null) {
 		if (selectedStatusId === statusId) return;
 		selectedStatusId = statusId;
-		if (statusId === null && selectedMonitoringVariantIds.length > 0) {
-			selectedMonitoringVariantIds = [];
+		if (statusId === null && selectedWatchedVariantIds.length > 0) {
+			selectedWatchedVariantIds = [];
 		}
 		queueAutoSave();
 	}
@@ -1151,19 +1151,19 @@
 				</div>
 			{/if}
 
-			<!-- Monitoring toggle -->
+			<!-- Updates watch toggle -->
 			<div class="flex flex-col gap-2">
 				<span class="text-label">{$_('downloads.monitor')}</span>
 				<button
 					type="button"
-					class="flex h-10 items-center gap-3 px-3 text-xs transition-colors {isMonitoringSelectedVariant
+					class="flex h-10 items-center gap-3 px-3 text-xs transition-colors {isWatchedSelectedVariant
 						? 'bg-[var(--void-5)] text-[var(--text)]'
 						: 'bg-[var(--void-3)] text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-					onclick={toggleMonitoringForSelectedVariant}
+					onclick={toggleWatchForSelectedVariant}
 					disabled={!hasAssignedStatus || selectedVariantId === null}
 				>
 					<Icon name="download" size={14} />
-					{isMonitoringSelectedVariant ? $_('downloads.enabled') : $_('downloads.disabled')}
+					{isWatchedSelectedVariant ? $_('downloads.enabled') : $_('downloads.disabled')}
 				</button>
 			</div>
 

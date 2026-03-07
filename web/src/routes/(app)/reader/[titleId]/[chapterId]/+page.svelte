@@ -45,11 +45,11 @@
 	let error = $state<string | null>(null);
 	let reader = $state<LibraryReaderChapterResource | null>(null);
 	let readerTitleName = $state('');
-	let chapterMetaById = $state<Map<number, ChapterMeta>>(new Map());
+	let chapterMetaById = new SvelteMap<number, ChapterMeta>();
 	let chapterList = $state<ChapterListItem[]>([]);
 	let currentPageIndex = $state(0);
-	let loadedPageIds = $state<Set<number>>(new Set());
-	let paintedPageIds = $state<SvelteSet<number>>(new SvelteSet());
+	let loadedPageIds = new SvelteSet<number>();
+	let paintedPageIds = new SvelteSet<number>();
 	let bookmarkingReading = $state(false);
 	let bookmarkError = $state<string | null>(null);
 	let commentsError = $state<string | null>(null);
@@ -190,16 +190,10 @@
 	}
 
 	function markPagesLoaded(pageIds: number[]): void {
-		let changed = false;
-		const next = new SvelteSet(loadedPageIds);
 		for (const pageId of pageIds) {
-			if (!next.has(pageId)) {
-				next.add(pageId);
-				changed = true;
+			if (!loadedPageIds.has(pageId)) {
+				loadedPageIds.add(pageId);
 			}
-		}
-		if (changed) {
-			loadedPageIds = next;
 		}
 	}
 
@@ -536,8 +530,8 @@
 			isLoading = false;
 			reader = null;
 			error = $_('reader.invalidChapter');
-			loadedPageIds = new Set();
-			paintedPageIds = new SvelteSet();
+			loadedPageIds.clear();
+			paintedPageIds.clear();
 			return;
 		}
 
@@ -549,10 +543,10 @@
 		commentsError = null;
 		readerTitleName = '';
 		hasAnyTitleStatus = true;
-		chapterMetaById = new Map();
+		chapterMetaById = new SvelteMap();
 		chapterList = [];
-		loadedPageIds = new Set();
-		paintedPageIds = new SvelteSet();
+		loadedPageIds.clear();
+		paintedPageIds.clear();
 		chapterComments = [];
 		editingCommentId = null;
 		commentDraft = '';

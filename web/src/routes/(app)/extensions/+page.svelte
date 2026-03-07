@@ -271,7 +271,7 @@
 		sourceSettingsSaving = true;
 		sourceSettingsError = null;
 		const updates: SourcePreferenceUpdate[] = Array.from(pendingPreferenceChanges.entries()).map(
-			([key, value]) => ({ key, value })
+			([key, value]) => ({ key, value, delete: false })
 		);
 		try {
 			sourceSettingsData = await updateSourcePreferences(sourceSettingsData.source_id, updates);
@@ -475,7 +475,8 @@
 			}
 			const upserts: SourcePreferenceUpdate[] = Object.entries(mapped).map(([key, value]) => ({
 				key,
-				value
+				value,
+				delete: false
 			}));
 			const existingKeys = getHiddenStorageKeys();
 			if (existingKeys.length === 0 && upserts.length === 0)

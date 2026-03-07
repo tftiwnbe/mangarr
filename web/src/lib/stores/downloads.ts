@@ -6,7 +6,7 @@ import { createAsyncResourceStore } from './async-resource';
 
 async function loadDashboard(): Promise<DownloadDashboardViewModel> {
 	const dashboard = await downloadsApi.getDownloadDashboard({
-		monitored_limit: 30,
+		watched_limit: 30,
 		active_limit: 100,
 		recent_limit: 40
 	});
@@ -33,18 +33,18 @@ export async function runDownloadWorker(batchSize?: number): Promise<void> {
 	await downloadsDashboardStore.refresh();
 }
 
-export async function runDownloadMonitor(limit = 25): Promise<void> {
-	await downloadsApi.runDownloadMonitor(limit);
+export async function runDownloadWatch(limit = 25): Promise<void> {
+	await downloadsApi.runDownloadWatch(limit);
 	await downloadsDashboardStore.refresh();
 }
 
 export async function runDownloadCycle(
 	options?: {
-		monitorLimit?: number;
+		watchLimit?: number;
 		workerBatchSize?: number;
 	}
 ): Promise<void> {
-	await downloadsApi.runDownloadMonitor(options?.monitorLimit ?? 25);
+	await downloadsApi.runDownloadWatch(options?.watchLimit ?? 25);
 	await downloadsApi.runDownloadWorker(options?.workerBatchSize);
 	await downloadsDashboardStore.refresh();
 }

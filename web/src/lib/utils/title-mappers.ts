@@ -89,8 +89,8 @@ export interface TitleDetailItem extends TitleDetailBase {
 	userStatus?: TitleUserStatusItem;
 	userRating?: number;
 	collections: TitleCollectionItem[];
-	monitoringEnabled: boolean;
-	monitoringVariantIds: number[];
+	updatesEnabled: boolean;
+	watchedVariantIds: number[];
 }
 
 type ExploreItem = components['schemas']['ExploreItem'];
@@ -283,7 +283,7 @@ export function mapLibraryTitleToDetail(
 		userStatus: mapUserStatus(title.user_status),
 		userRating: title.user_rating ?? undefined,
 		collections: title.collections.map(mapCollection),
-		monitoringEnabled: title.monitoring_enabled,
-		monitoringVariantIds: title.monitoring_variant_ids ?? []
+		updatesEnabled: title.updates_enabled,
+		watchedVariantIds: title.watched_variant_ids ?? []
 	};
 }

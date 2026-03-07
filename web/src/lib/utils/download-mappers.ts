@@ -25,7 +25,7 @@ export interface DownloadTaskItem {
 	sources: string[];
 }
 
-interface DownloadMonitoredItem {
+interface DownloadWatchedItem {
 	titleId: number;
 	title: string;
 	cover: string;
@@ -59,7 +59,7 @@ export interface DownloadDashboardViewModel {
 	};
 	activeTasks: DownloadTaskItem[];
 	recentTasks: DownloadTaskItem[];
-	monitoredTitles: DownloadMonitoredItem[];
+	watchedTitles: DownloadWatchedItem[];
 }
 
 function normalizeCover(url: string): string {
@@ -265,9 +265,9 @@ function mapRecentTaskGroups(
 		}));
 }
 
-function mapMonitored(
-	item: DownloadDashboardResource['monitored_titles'][number]
-): DownloadMonitoredItem {
+function mapWatchedTitle(
+	item: DownloadDashboardResource['watched_titles'][number]
+): DownloadWatchedItem {
 	return {
 		titleId: item.library_title_id,
 		title: item.title,
@@ -310,15 +310,15 @@ export function emptyDownloadDashboard(): DownloadDashboardViewModel {
 		},
 		activeTasks: [],
 		recentTasks: [],
-		monitoredTitles: []
+		watchedTitles: []
 	};
 }
 
 export function mapDownloadDashboard(
 	resource: DownloadDashboardResource
 ): DownloadDashboardViewModel {
-	const monitoredTitles = resource.monitored_titles.map(mapMonitored);
-	const coverByTitleId = new Map(monitoredTitles.map((item) => [item.titleId, item.cover]));
+	const watchedTitles = resource.watched_titles.map(mapWatchedTitle);
+	const coverByTitleId = new Map(watchedTitles.map((item) => [item.titleId, item.cover]));
 
 	return {
 		generatedAt: resource.generated_at,
@@ -330,6 +330,6 @@ export function mapDownloadDashboard(
 		},
 		activeTasks: mapTaskGroups(resource.active_tasks, coverByTitleId),
 		recentTasks: mapRecentTaskGroups(resource.recent_tasks, coverByTitleId),
-		monitoredTitles
+		watchedTitles
 	};
 }

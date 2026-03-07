@@ -178,6 +178,23 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v2/covers/library/{title_id}': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** Library Cover */
+		get: operations['library_cover_api_v2_covers_library__title_id__get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v2/extensions/available': {
 		parameters: {
 			query?: never;
@@ -669,7 +686,7 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
-	'/api/v2/downloads/run-monitor': {
+	'/api/v2/downloads/run-watch': {
 		parameters: {
 			query?: never;
 			header?: never;
@@ -678,8 +695,8 @@ export interface paths {
 		};
 		get?: never;
 		put?: never;
-		/** Run Monitor */
-		post: operations['run_monitor_api_v2_downloads_run_monitor_post'];
+		/** Run Watch */
+		post: operations['run_watch_api_v2_downloads_run_watch_post'];
 		delete?: never;
 		options?: never;
 		head?: never;
@@ -1322,8 +1339,8 @@ export interface components {
 			 */
 			generated_at: string;
 			overview: components['schemas']['DownloadOverviewResource'];
-			/** Monitored Titles */
-			monitored_titles: components['schemas']['DownloadMonitoredTitleResource'][];
+			/** Watched Titles */
+			watched_titles: components['schemas']['DownloadWatchedTitleResource'][];
 			/** Active Tasks */
 			active_tasks: components['schemas']['DownloadTaskResource'][];
 			/** Recent Tasks */
@@ -1381,70 +1398,10 @@ export interface components {
 			/** Reason */
 			reason?: string | null;
 		};
-		/** DownloadMonitoredTitleResource */
-		DownloadMonitoredTitleResource: {
-			/** Library Title Id */
-			library_title_id: number;
-			/** Title */
-			title: string;
-			/**
-			 * Thumbnail Url
-			 * @default
-			 */
-			thumbnail_url: string;
-			/** Enabled */
-			enabled: boolean;
-			/**
-			 * Paused
-			 * @default false
-			 */
-			paused: boolean;
-			/** Auto Download */
-			auto_download: boolean;
-			strategy: components['schemas']['DownloadStrategy'];
-			/** Preferred Variant Id */
-			preferred_variant_id: number | null;
-			/**
-			 * Variant Ids
-			 * @default []
-			 */
-			variant_ids: number[];
-			/**
-			 * Variant Sources
-			 * @default []
-			 */
-			variant_sources: string[];
-			/** Start From */
-			start_from: string | null;
-			/** Last Checked At */
-			last_checked_at: string | null;
-			/** Last Success At */
-			last_success_at: string | null;
-			/** Last Error */
-			last_error: string | null;
-			/** Total Chapters */
-			total_chapters: number;
-			/** Downloaded Chapters */
-			downloaded_chapters: number;
-			/** Queued Tasks */
-			queued_tasks: number;
-			/** Failed Tasks */
-			failed_tasks: number;
-			/**
-			 * Downloaded Bytes
-			 * @default 0
-			 */
-			downloaded_bytes: number;
-			/**
-			 * Avg Chapter Size Bytes
-			 * @default 0
-			 */
-			avg_chapter_size_bytes: number;
-		};
 		/** DownloadOverviewResource */
 		DownloadOverviewResource: {
-			/** Monitored Titles */
-			monitored_titles: number;
+			/** Watched Titles */
+			watched_titles: number;
 			/** Queued */
 			queued: number;
 			/** Downloading */
@@ -1669,6 +1626,66 @@ export interface components {
 		 * @enum {string}
 		 */
 		DownloadTrigger: 'monitor' | 'manual';
+		/** DownloadWatchedTitleResource */
+		DownloadWatchedTitleResource: {
+			/** Library Title Id */
+			library_title_id: number;
+			/** Title */
+			title: string;
+			/**
+			 * Thumbnail Url
+			 * @default
+			 */
+			thumbnail_url: string;
+			/** Enabled */
+			enabled: boolean;
+			/**
+			 * Paused
+			 * @default false
+			 */
+			paused: boolean;
+			/** Auto Download */
+			auto_download: boolean;
+			strategy: components['schemas']['DownloadStrategy'];
+			/** Preferred Variant Id */
+			preferred_variant_id: number | null;
+			/**
+			 * Variant Ids
+			 * @default []
+			 */
+			variant_ids: number[];
+			/**
+			 * Variant Sources
+			 * @default []
+			 */
+			variant_sources: string[];
+			/** Start From */
+			start_from: string | null;
+			/** Last Checked At */
+			last_checked_at: string | null;
+			/** Last Success At */
+			last_success_at: string | null;
+			/** Last Error */
+			last_error: string | null;
+			/** Total Chapters */
+			total_chapters: number;
+			/** Downloaded Chapters */
+			downloaded_chapters: number;
+			/** Queued Tasks */
+			queued_tasks: number;
+			/** Failed Tasks */
+			failed_tasks: number;
+			/**
+			 * Downloaded Bytes
+			 * @default 0
+			 */
+			downloaded_bytes: number;
+			/**
+			 * Avg Chapter Size Bytes
+			 * @default 0
+			 */
+			avg_chapter_size_bytes: number;
+		};
 		/** EnqueueChapterResponse */
 		EnqueueChapterResponse: {
 			/** Task Id */
@@ -2197,10 +2214,10 @@ export interface components {
 			user_status_id?: number | null;
 			/** User Rating */
 			user_rating?: number | null;
-			/** Monitoring Enabled */
-			monitoring_enabled?: boolean | null;
-			/** Monitoring Variant Ids */
-			monitoring_variant_ids?: number[] | null;
+			/** Updates Enabled */
+			updates_enabled?: boolean | null;
+			/** Watched Variant Ids */
+			watched_variant_ids?: number[] | null;
 			/** Collection Ids */
 			collection_ids?: number[] | null;
 		};
@@ -2241,15 +2258,15 @@ export interface components {
 			 */
 			collections: components['schemas']['LibraryCollectionSummary'][];
 			/**
-			 * Monitoring Enabled
+			 * Updates Enabled
 			 * @default false
 			 */
-			monitoring_enabled: boolean;
+			updates_enabled: boolean;
 			/**
-			 * Monitoring Variant Ids
+			 * Watched Variant Ids
 			 * @default []
 			 */
-			monitoring_variant_ids: number[];
+			watched_variant_ids: number[];
 			/** Variants */
 			variants: components['schemas']['LibraryTitleVariantResource'][];
 		};
@@ -2287,10 +2304,16 @@ export interface components {
 			 * @default 0
 			 */
 			chapters_count: number;
-			/** Added At */
-			added_at: string;
-			/** Updated At */
-			updated_at: string;
+			/**
+			 * Added At
+			 * Format: date-time
+			 */
+			added_at?: string;
+			/**
+			 * Updated At
+			 * Format: date-time
+			 */
+			updated_at?: string;
 			/** Last Read At */
 			last_read_at?: string | null;
 			/** Genre */
@@ -2386,13 +2409,6 @@ export interface components {
 			 * Format: date-time
 			 */
 			issued_at: string;
-		};
-		/** MonitorRunResponse */
-		MonitorRunResponse: {
-			/** Checked Titles */
-			checked_titles: number;
-			/** Enqueued Tasks */
-			enqueued_tasks: number;
 		};
 		/**
 		 * PreferenceType
@@ -2641,6 +2657,13 @@ export interface components {
 			msg: string;
 			/** Error Type */
 			type: string;
+		};
+		/** WatchRunResponse */
+		WatchRunResponse: {
+			/** Checked Titles */
+			checked_titles: number;
+			/** Enqueued Tasks */
+			enqueued_tasks: number;
 		};
 		/** WorkerRunResponse */
 		WorkerRunResponse: {
@@ -2999,6 +3022,38 @@ export interface operations {
 				content: {
 					'application/json': unknown;
 				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	library_cover_api_v2_covers_library__title_id__get: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path: {
+				title_id: number;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
 			};
 			/** @description Validation Error */
 			422: {
@@ -3713,7 +3768,7 @@ export interface operations {
 	get_dashboard_api_v2_downloads_dashboard_get: {
 		parameters: {
 			query?: {
-				monitored_limit?: number;
+				watched_limit?: number;
 				active_limit?: number;
 				recent_limit?: number;
 			};
@@ -4033,7 +4088,7 @@ export interface operations {
 			};
 		};
 	};
-	run_monitor_api_v2_downloads_run_monitor_post: {
+	run_watch_api_v2_downloads_run_watch_post: {
 		parameters: {
 			query?: {
 				limit?: number;
@@ -4054,7 +4109,7 @@ export interface operations {
 					[name: string]: unknown;
 				};
 				content: {
-					'application/json': components['schemas']['MonitorRunResponse'];
+					'application/json': components['schemas']['WatchRunResponse'];
 				};
 			};
 			/** @description Validation Error */

@@ -379,7 +379,7 @@
 		return `${Math.round(seconds / 86400)}d`;
 	}
 
-	function formatLastRun(lastRunAt: string | null): string {
+	function formatLastRun(lastRunAt: string | null | undefined): string {
 		if (!lastRunAt) return 'never';
 		const date = new Date(lastRunAt);
 		if (isNaN(date.getTime())) return 'never';
@@ -1933,6 +1933,7 @@
 		margin: 0;
 	}
 	input[type='number'] {
+		appearance: textfield;
 		-moz-appearance: textfield;
 	}
 </style>
