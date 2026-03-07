@@ -14,6 +14,7 @@ class LibraryTitle(SQLModel, table=True):
     canonical_key: str = Field(index=True)
     title: str
     thumbnail_url: str = ""
+    local_cover_path: str | None = None
     description: str | None = None
     artist: str | None = None
     author: str | None = None

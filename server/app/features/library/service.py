@@ -32,6 +32,7 @@ from app.features.downloads.storage import (
     compress_chapter_pages,
     extract_chapter_pages,
 )
+from app.features.covers.local_store import library_cover_route, persist_library_cover
 from app.features.extensions import ExtensionService
 from app.models import (
     DownloadProfile,
@@ -216,11 +217,7 @@ class LibraryService:
                         if preferred_variant is not None and preferred_variant.title
                         else title.title
                     ),
-                    thumbnail_url=(
-                        preferred_variant.thumbnail_url
-                        if preferred_variant is not None and preferred_variant.thumbnail_url
-                        else title.thumbnail_url
-                    ),
+                    thumbnail_url=self._display_title_thumbnail(title, preferred_variant),
                     status=(
                         int(preferred_variant.status)
                         if preferred_variant is not None and preferred_variant.status
@@ -281,11 +278,7 @@ class LibraryService:
             if preferred_variant is not None and preferred_variant.title
             else title.title
         )
-        display_thumbnail = (
-            preferred_variant.thumbnail_url
-            if preferred_variant is not None and preferred_variant.thumbnail_url
-            else title.thumbnail_url
-        )
+        display_thumbnail = self._display_title_thumbnail(title, preferred_variant)
         display_description = (
             preferred_variant.description
             if preferred_variant is not None and preferred_variant.description
@@ -745,6 +738,7 @@ class LibraryService:
         title.updated_at = datetime.now(timezone.utc)
         self.session.add(title)
         await self.session.commit()
+        await self._ensure_local_cover_for_monitoring(title_id=title_id)
         return await self.get_title(title_id)
 
     async def cleanup_unassigned_titles(
@@ -994,6 +988,8 @@ class LibraryService:
             library_title_id=int(library_title.id),
             created=created,
         )
+        if profile is not None and profile.enabled:
+            await self._ensure_local_cover(library_title, details.thumbnail_url)
         _library_logger.bind(
             title_id=int(library_title.id),
             source_id=request.source_id,
@@ -2921,6 +2917,18 @@ class LibraryService:
             raise BridgeAPIError(404, f"Library title not found: {title_id}")
         return title
 
+    @staticmethod
+    def _display_title_thumbnail(
+        title: LibraryTitle,
+        preferred_variant: LibraryTitleVariant | None = None,
+    ) -> str:
+        local_cover = library_cover_route(title.id, title.local_cover_path)
+        if local_cover:
+            return local_cover
+        if preferred_variant is not None and preferred_variant.thumbnail_url:
+            return preferred_variant.thumbnail_url
+        return title.thumbnail_url
+
     async def _get_collection_or_404(self, collection_id: int) -> LibraryCollection:
         collection = await self.session.get(LibraryCollection, collection_id)
         if collection is None:
@@ -2987,6 +2995,40 @@ class LibraryService:
         ).first()
         if variant_id is not None:
             await self._set_profile_variant_ids(profile, [int(variant_id)])
+
+    async def _ensure_local_cover_for_monitoring(self, title_id: int) -> None:
+        profile = (
+            await self.session.exec(
+                select(DownloadProfile).where(DownloadProfile.library_title_id == title_id)
+            )
+        ).first()
+        if profile is None or not profile.enabled:
+            return
+
+        title = await self.session.get(LibraryTitle, title_id)
+        if title is None:
+            return
+
+        preferred_variant = await self._resolve_variant(title_id=title_id, variant_id=None)
+        await self._ensure_local_cover(
+            title,
+            preferred_variant.thumbnail_url or title.thumbnail_url,
+        )
+
+    async def _ensure_local_cover(
+        self,
+        title: LibraryTitle,
+        remote_url: str | None,
+    ) -> None:
+        if title.id is None or title.local_cover_path:
+            return
+        cover_path = await persist_library_cover(int(title.id), remote_url)
+        if not cover_path:
+            return
+        title.local_cover_path = cover_path
+        title.updated_at = datetime.now(timezone.utc)
+        self.session.add(title)
+        await self._commit_with_sqlite_retry()
 
     async def _list_enabled_source_summaries(self) -> list[SourceSummary]:
         return await self._list_source_summaries(enabled=True)

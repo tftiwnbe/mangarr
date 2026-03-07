@@ -23,6 +23,7 @@ from app.domain.download_profiles import (
     serialize_selected_variant_ids,
 )
 from app.domain.title_identity import resolve_libgroup_chapter_url
+from app.features.covers.local_store import library_cover_route, persist_library_cover
 from app.features.downloads.storage import (
     chapter_archive_path,
     chapter_has_payload,
@@ -627,11 +628,7 @@ class DownloadService:
                 if primary_variant is not None and primary_variant.title
                 else title.title
             )
-            display_thumbnail = (
-                primary_variant.thumbnail_url
-                if primary_variant is not None and primary_variant.thumbnail_url
-                else title.thumbnail_url
-            )
+            display_thumbnail = self._display_title_thumbnail(title, primary_variant)
             variant_sources = [
                 (
                     f"{variant.source_name or variant.source_id}"
@@ -2602,6 +2599,16 @@ class DownloadService:
                     "Unable to write chapter metadata for chapter_id={}",
                     chapter.id,
                 )
+            try:
+                await self._ensure_local_cover(
+                    title=title,
+                    remote_url=variant.thumbnail_url or title.thumbnail_url,
+                )
+            except Exception:
+                _service_logger.warning(
+                    "Unable to persist local cover for title_id={}",
+                    title.id,
+                )
 
             if settings.downloads.compress_downloaded_chapters:
                 try:
@@ -3780,6 +3787,18 @@ class DownloadService:
         return base_dir / chapter_segment
 
     @staticmethod
+    def _display_title_thumbnail(
+        title: LibraryTitle,
+        preferred_variant: LibraryTitleVariant | None = None,
+    ) -> str:
+        local_cover = library_cover_route(title.id, title.local_cover_path)
+        if local_cover:
+            return local_cover
+        if preferred_variant is not None and preferred_variant.thumbnail_url:
+            return preferred_variant.thumbnail_url
+        return title.thumbnail_url
+
+    @staticmethod
     def _chapter_download_segment(
         chapter: LibraryChapter,
         chapter_number_segment: str | None,
@@ -3875,6 +3894,20 @@ class DownloadService:
             },
         }
         write_chapter_metadata(chapter_dir, payload)
+
+    async def _ensure_local_cover(
+        self,
+        title: LibraryTitle,
+        remote_url: str | None,
+    ) -> None:
+        if title.id is None or title.local_cover_path:
+            return
+        cover_path = await persist_library_cover(int(title.id), remote_url)
+        if not cover_path:
+            return
+        title.local_cover_path = cover_path
+        title.updated_at = _now_utc()
+        self.session.add(title)
 
     @staticmethod
     def _write_title_metadata_file(

@@ -12,9 +12,13 @@ from urllib.parse import urlparse
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.config import settings
+from app.core.database import get_database_session
 from app.core.deps import require_authenticated_user
+from app.features.covers.local_store import resolve_library_cover_path
+from app.models import LibraryTitle
 
 router = APIRouter(prefix="/api/v2/covers", tags=["covers"])
 
@@ -306,3 +310,23 @@ async def proxy_cover(url: str = Query(..., min_length=1)):
     if meta.etag:
         headers["ETag"] = meta.etag
     return FileResponse(file_path, media_type=meta.content_type, headers=headers)
+
+
+@router.get("/library/{title_id}", response_class=FileResponse)
+async def library_cover(
+    title_id: int,
+    _: object = Depends(require_authenticated_user),
+    session: AsyncSession = Depends(get_database_session),
+):
+    title = await session.get(LibraryTitle, title_id)
+    if title is None:
+        raise HTTPException(status_code=404, detail="Library title not found")
+
+    file_path = resolve_library_cover_path(title.local_cover_path)
+    if file_path is None or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Local cover not found")
+
+    return FileResponse(
+        file_path,
+        headers={"Cache-Control": _CACHE_CONTROL},
+    )
