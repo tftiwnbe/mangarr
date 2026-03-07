@@ -25,7 +25,6 @@ from app.domain.download_profiles import (
     serialize_selected_variant_ids,
 )
 from app.domain.chapter_matching import choose_replacement_chapter_url
-from app.domain.title_identity import resolve_source_chapter_url
 from app.features.covers.local_store import library_cover_route, persist_library_cover
 from app.features.downloads.storage import (
     chapter_archive_path,
@@ -2384,7 +2383,7 @@ class DownloadService:
         source_request_headers = await self._resolve_source_request_headers(variant.source_id)
 
         try:
-            bridge_chapter_url = resolve_source_chapter_url(chapter.chapter_url)
+            bridge_chapter_url = chapter.chapter_url
             preflight_error = await self._preflight_mangalib_chapter_pages_unavailable(
                 source_id=variant.source_id,
                 chapter_url=bridge_chapter_url,
@@ -3203,7 +3202,7 @@ class DownloadService:
         if not replacement_url:
             return None
 
-        resolved_replacement = resolve_source_chapter_url(replacement_url)
+        resolved_replacement = replacement_url
         if not resolved_replacement or resolved_replacement == attempted_chapter_url:
             return None
 

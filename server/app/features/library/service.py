@@ -24,7 +24,6 @@ from app.domain.title_identity import (
     author_match_score,
     canonical_title_key,
     fallback_title_from_url,
-    resolve_source_chapter_url,
     source_match_score,
 )
 from app.features.downloads.storage import (
@@ -2371,7 +2370,7 @@ class LibraryService:
             variant = await self.session.get(LibraryTitleVariant, chapter.variant_id)
             if variant is None:
                 raise BridgeAPIError(500, f"Library chapter has no variant: {chapter_id}")
-            bridge_chapter_url = resolve_source_chapter_url(chapter.chapter_url)
+            bridge_chapter_url = chapter.chapter_url
             preflight_error = await self._preflight_mangalib_chapter_pages_unavailable(
                 source_id=variant.source_id,
                 chapter_url=bridge_chapter_url,
@@ -2502,7 +2501,7 @@ class LibraryService:
         if not replacement_url:
             return None
 
-        resolved_replacement = resolve_source_chapter_url(replacement_url)
+        resolved_replacement = replacement_url
         if not resolved_replacement or resolved_replacement == attempted_chapter_url:
             return None
 

@@ -1,7 +1,6 @@
 import re
 from difflib import SequenceMatcher
-from typing import Callable
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import urlparse
 
 from app.core.utils import normalize_text
 
@@ -62,47 +61,6 @@ def fallback_title_from_url(title_url: str) -> str:
     if not slug:
         return title_url
     return " ".join(part.capitalize() for part in slug.split())
-
-
-def _decode_libgroup_chapter_url(chapter_url: str) -> str:
-    raw = (chapter_url or "").strip()
-    prefix = "mangarr-libgroup://"
-    if not raw.startswith(prefix):
-        return raw
-
-    payload = raw.removeprefix(prefix)
-    slug, _, query = payload.partition("?")
-    slug = slug.strip().lstrip("/")
-    if not slug:
-        return raw
-
-    params = parse_qs(query, keep_blank_values=True)
-    volume = (params.get("v", [None])[0] or "").strip()
-    number = (params.get("n", [None])[0] or "").strip()
-    if not volume or not number:
-        return raw
-
-    branch_id = (params.get("b", [None])[0] or "").strip()
-    branch_part = f"&branch_id={quote(branch_id, safe='')}" if branch_id else ""
-    return (
-        f"/{slug}/chapter?"
-        f"{branch_part}&volume={quote(volume, safe='')}&number={quote(number, safe='')}"
-    )
-
-
-def resolve_source_chapter_url(chapter_url: str) -> str:
-    raw = (chapter_url or "").strip()
-    if not raw.startswith("mangarr-"):
-        return raw
-
-    scheme = raw.split("://", 1)[0].strip().lower()
-    decoders: dict[str, Callable[[str], str]] = {
-        "mangarr-libgroup": _decode_libgroup_chapter_url,
-    }
-    decoder = decoders.get(scheme)
-    if decoder is None:
-        return raw
-    return decoder(raw)
 
 
 def source_match_score(

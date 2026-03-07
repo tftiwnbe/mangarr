@@ -472,22 +472,11 @@ class ExtensionManager(
                     if (!fallbackPages.isNullOrEmpty()) {
                         fallbackPages
                     } else {
-                        val resolvedSourceChapterUrl =
-                            if (normalizedUrl.startsWith("mangarr-libgroup://")) {
-                                libGroupRefToSourceChapterUrl(normalizedUrl)
-                            } else {
-                                normalizedUrl
-                            }
-
-                        if (resolvedSourceChapterUrl.isNullOrBlank()) {
-                            fallbackPages ?: emptyList()
-                        } else {
-                            val chapter = SChapter.create().apply { url = resolvedSourceChapterUrl }
-                            try {
-                                source.getPageList(chapter)
-                            } catch (error: Exception) {
-                                fallbackPages ?: throw decorateLibGroupError(source, error)
-                            }
+                        val chapter = SChapter.create().apply { url = normalizedUrl }
+                        try {
+                            source.getPageList(chapter)
+                        } catch (error: Exception) {
+                            fallbackPages ?: throw decorateLibGroupError(source, error)
                         }
                     }
                 } else {
@@ -1286,14 +1275,7 @@ class ExtensionManager(
             return trimmed
         }
 
-        if (trimmed.startsWith("mangarr-libgroup://")) {
-            return trimmed
-        }
-
         val normalized = stripSchemeAndHost(trimmed).trim()
-        if (normalized.startsWith("mangarr-libgroup://")) {
-            return normalized
-        }
         if (normalized.isBlank()) return normalized
 
         // LibGroup sources expect canonical relative URLs like:
@@ -1406,19 +1388,15 @@ class ExtensionManager(
             val branchObj = obj["branches"]?.jsonArray?.firstOrNull()?.jsonObject
             val branchId = branchObj?.get("id")?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             val chapter = SChapter.create()
+            val branchPart =
+                branchId
+                    .takeIf { it.isNotBlank() }
+                    ?.let { "&branch_id=${URLEncoder.encode(it, Charsets.UTF_8)}" }
+                    .orEmpty()
             chapter.url =
-                buildString {
-                    append("mangarr-libgroup://")
-                    append(slug)
-                    append("?v=")
-                    append(URLEncoder.encode(volume, Charsets.UTF_8))
-                    append("&n=")
-                    append(URLEncoder.encode(number, Charsets.UTF_8))
-                    if (branchId.isNotBlank()) {
-                        append("&b=")
-                        append(URLEncoder.encode(branchId, Charsets.UTF_8))
-                    }
-                }
+                "/$slug/chapter?" +
+                    "$branchPart&volume=${URLEncoder.encode(volume, Charsets.UTF_8)}" +
+                    "&number=${URLEncoder.encode(number, Charsets.UTF_8)}"
             chapter.name = obj["name"]?.jsonPrimitive?.contentOrNull.orEmpty().ifBlank { "Chapter $number" }
             chapter.chapter_number = number.toFloatOrNull() ?: 0f
             chapter.date_upload =
@@ -1603,12 +1581,16 @@ class ExtensionManager(
     }
 
     private fun parseLibGroupChapterRef(chapterUrl: String): LibGroupChapterRef? {
-        if (chapterUrl.startsWith("mangarr-libgroup://")) {
-            val raw = chapterUrl.removePrefix("mangarr-libgroup://")
-            val slug = raw.substringBefore('?').removePrefix("/").trim()
-            if (slug.isBlank()) return null
+        val normalizedChapterUrl = chapterUrl.trim()
+        val withoutProtocol = normalizedChapterUrl.substringAfter("://", normalizedChapterUrl)
+        val pathAndQuery = withoutProtocol.substringAfter('/', withoutProtocol)
+        val rawPath = pathAndQuery.substringBefore('?').removePrefix("/")
+        val query = normalizedChapterUrl.substringAfter('?', missingDelimiterValue = "")
 
-            val query = raw.substringAfter('?', missingDelimiterValue = "")
+        val chapterEndpointPath = rawPath.removePrefix("manga/")
+        if (chapterEndpointPath.endsWith("/chapter")) {
+            val slug = chapterEndpointPath.substringBefore("/chapter").trim()
+            if (slug.isBlank()) return null
             val parts =
                 query.split('&')
                     .mapNotNull { part ->
@@ -1619,14 +1601,25 @@ class ExtensionManager(
                             part.substring(0, idx) to part.substring(idx + 1)
                         }
                     }.toMap()
-            val volume = parts["v"]?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8) } ?: return null
-            val number = parts["n"]?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8) } ?: return null
-            val branchId = parts["b"]?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8) }?.takeIf { it.isNotBlank() }
+            val volume =
+                (parts["volume"] ?: parts["v"])
+                    ?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8) }
+                    ?.trim()
+                    .orEmpty()
+            val number =
+                (parts["number"] ?: parts["n"])
+                    ?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8) }
+                    ?.trim()
+                    .orEmpty()
+            if (volume.isBlank() || number.isBlank()) return null
+            val branchId =
+                (parts["branch_id"] ?: parts["b"])
+                    ?.let { java.net.URLDecoder.decode(it, Charsets.UTF_8) }
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
             return LibGroupChapterRef(slug = slug, volume = volume, number = number, branchId = branchId)
         }
 
-        val withoutProtocol = chapterUrl.substringAfter("://", chapterUrl)
-        val rawPath = withoutProtocol.substringAfter('/', withoutProtocol).substringBefore('?').removePrefix("/")
         val slugPart = rawPath.substringBefore("/chapters/").removePrefix("manga/").trim()
         val chapterPart = rawPath.substringAfter("/chapters/", "").substringBefore('/').trim()
         if (slugPart.isBlank() || chapterPart.isBlank()) return null
@@ -1647,18 +1640,6 @@ class ExtensionManager(
         val number: String,
         val branchId: String?,
     )
-
-    private fun libGroupRefToSourceChapterUrl(chapterUrl: String): String? {
-        val ref = parseLibGroupChapterRef(chapterUrl) ?: return null
-        val encodedVolume = URLEncoder.encode(ref.volume, Charsets.UTF_8)
-        val encodedNumber = URLEncoder.encode(ref.number, Charsets.UTF_8)
-        val branchQuery =
-            ref.branchId
-                ?.takeIf { it.isNotBlank() }
-                ?.let { "&branch_id=${URLEncoder.encode(it, Charsets.UTF_8)}" }
-                .orEmpty()
-        return "/${ref.slug}/chapter?$branchQuery&volume=$encodedVolume&number=$encodedNumber"
-    }
 
     private fun safeMangaTitle(manga: SManga, fallbackUrl: String): String =
         safeString { manga.title }.ifBlank {
