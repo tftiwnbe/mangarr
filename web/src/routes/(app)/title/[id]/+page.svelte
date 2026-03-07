@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { afterNavigate, goto } from '$app/navigation';
-	import { navigateBack } from '$lib/stores/nav-history';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 
@@ -28,6 +27,7 @@
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
 	import { libraryTitleDetailStore } from '$lib/stores/library';
+	import { navigateBack, peekNavHistory } from '$lib/stores/nav-history';
 	import { panelOverlayOpen } from '$lib/stores/ui';
 	import { buildReaderPath, buildTitlePath, parseTitleRouteParam } from '$lib/utils/routes';
 	import { mapLibraryChapterResources, type TitleChapterItem } from '$lib/utils/title-mappers';
@@ -92,25 +92,9 @@
 
 	const routeTitleParam = $derived(page.params.id);
 	const routeTitleId = $derived(parseTitleRouteParam(routeTitleParam) ?? NaN);
-
-	// Track where we came from so the breadcrumb label is accurate.
-	// We use afterNavigate (fires after layout's afterNavigate) so nav.from is already
-	// the real previous route. We skip canonical slug redirects (same title ID, different
-	// slug) so they don't overwrite the original referrer.
-	let backFromPath = $state<string | null>(null);
-	afterNavigate((nav) => {
-		const fromPath = nav.from?.url.pathname ?? null;
-		const toPath = nav.to?.url.pathname ?? page.url.pathname;
-		// Canonical redirect: both paths are /title/... with the same encoded ID prefix.
-		if (fromPath?.startsWith('/title/') && toPath.startsWith('/title/')) {
-			const fromId = fromPath.split('/')[2]?.split('--')[0];
-			const toId = toPath.split('/')[2]?.split('--')[0];
-			if (fromId && fromId === toId) return;
-		}
-		backFromPath = fromPath;
-	});
+	const titleBackTarget = $derived(peekNavHistory(['/reader/', '/title/']));
 	const backLabel = $derived(
-		backFromPath?.startsWith('/explore') ? $_('nav.explore') : $_('nav.library')
+		titleBackTarget?.startsWith('/explore') ? $_('nav.explore') : $_('nav.library')
 	);
 	$effect(() => {
 		const nextRouteTitleId =
@@ -664,7 +648,7 @@
 	}
 
 	function handleBack() {
-		void navigateBack('/library');
+		void navigateBack('/library', { skipPrefixes: ['/reader/', '/title/'] });
 	}
 
 	$effect(() => {

@@ -94,6 +94,17 @@ body {
 	-moz-osx-font-smoothing: grayscale;
 }
 
+html.reader-mode,
+body.reader-mode {
+	scrollbar-width: none;
+	-ms-overflow-style: none;
+}
+
+html.reader-mode::-webkit-scrollbar,
+body.reader-mode::-webkit-scrollbar {
+	display: none;
+}
+
 ::selection {
 	background: rgba(113, 113, 122, 0.3);
 	color: var(--text);

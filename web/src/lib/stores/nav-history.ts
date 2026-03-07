@@ -26,6 +26,18 @@ function save(stack: string[]): void {
 	}
 }
 
+function matchesSkippedPrefix(url: string, skipPrefixes: string[]): boolean {
+	return skipPrefixes.some((prefix) => url.startsWith(prefix));
+}
+
+function discardCurrentUrl(stack: string[], currentUrl: string): string[] {
+	let next = stack;
+	while (next.length > 0 && next[next.length - 1] === currentUrl) {
+		next = next.slice(0, -1);
+	}
+	return next;
+}
+
 /** Push the current page URL before navigating away (called from afterNavigate). */
 export function pushNavHistory(url: string): void {
 	if (_skipNext) {
@@ -38,9 +50,17 @@ export function pushNavHistory(url: string): void {
 }
 
 /** Return the previous URL without removing it. */
-export function peekNavHistory(): string | null {
-	const stack = load();
-	return stack[stack.length - 1] ?? null;
+export function peekNavHistory(skipPrefixes: string[] = []): string | null {
+	const currentUrl =
+		typeof window === 'undefined' ? '' : window.location.pathname + window.location.search;
+	const stack = discardCurrentUrl(load(), currentUrl);
+	for (let index = stack.length - 1; index >= 0; index -= 1) {
+		const candidate = stack[index];
+		if (!matchesSkippedPrefix(candidate, skipPrefixes)) {
+			return candidate;
+		}
+	}
+	return null;
 }
 
 /**
@@ -51,12 +71,17 @@ export function peekNavHistory(): string | null {
  * happens when the user navigates with the browser's native back button,
  * which bypasses our stack.
  */
-export async function navigateBack(fallback = '/library'): Promise<void> {
+export async function navigateBack(
+	fallback = '/library',
+	options?: { skipPrefixes?: string[] }
+): Promise<void> {
 	const currentUrl = window.location.pathname + window.location.search;
-	let stack = load();
-
-	// Discard any entries that already match where we are now.
-	while (stack.length > 0 && stack[stack.length - 1] === currentUrl) {
+	const skipPrefixes = options?.skipPrefixes ?? [];
+	let stack = discardCurrentUrl(load(), currentUrl);
+	while (
+		stack.length > 0 &&
+		matchesSkippedPrefix(stack[stack.length - 1] ?? '', skipPrefixes)
+	) {
 		stack = stack.slice(0, -1);
 	}
 

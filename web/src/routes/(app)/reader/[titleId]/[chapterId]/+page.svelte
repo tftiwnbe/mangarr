@@ -466,6 +466,8 @@
 
 	onMount(() => {
 		if (typeof window !== 'undefined') {
+			document.documentElement.classList.add('reader-mode');
+			document.body.classList.add('reader-mode');
 			const media = window.matchMedia('(hover: hover) and (pointer: fine)');
 			const syncTouchDevice = () => {
 				isTouchDevice = !media.matches;
@@ -489,6 +491,8 @@
 			window.addEventListener('resize', syncResize);
 
 			return () => {
+				document.documentElement.classList.remove('reader-mode');
+				document.body.classList.remove('reader-mode');
 				media.removeEventListener('change', syncTouchDevice);
 				window.removeEventListener('scroll', syncScrollTop);
 				window.removeEventListener('resize', syncResize);
@@ -504,6 +508,8 @@
 		}
 
 		return () => {
+			document.documentElement.classList.remove('reader-mode');
+			document.body.classList.remove('reader-mode');
 			if (chapterProgressSaveTimer) {
 				clearTimeout(chapterProgressSaveTimer);
 			}
