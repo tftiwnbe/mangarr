@@ -6,6 +6,20 @@ import zipfile
 from pathlib import Path
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"}
+ALREADY_COMPRESSED_SUFFIXES = {
+    *IMAGE_SUFFIXES,
+    ".zip",
+    ".cbz",
+    ".gz",
+    ".bz2",
+    ".xz",
+    ".7z",
+    ".rar",
+    ".pdf",
+    ".mp4",
+    ".mkv",
+    ".webm",
+}
 CHAPTER_ARCHIVE_SUFFIX = ".cbz"
 CHAPTER_METADATA_FILENAME = "mangarr-chapter-info.json"
 TITLE_METADATA_FILENAME = "mangarr-title-info.json"
@@ -138,25 +152,37 @@ def compress_chapter_pages(chapter_dir: Path, compression_level: int = 6) -> boo
     tmp_archive = archive.with_suffix(archive.suffix + ".tmp")
     level = max(0, min(int(compression_level), 9))
 
-    compression = zipfile.ZIP_STORED if level == 0 else zipfile.ZIP_DEFLATED
-    compresslevel = None if compression == zipfile.ZIP_STORED else level
-
     try:
         with zipfile.ZipFile(
             tmp_archive,
             mode="w",
-            compression=compression,
-            compresslevel=compresslevel,
+            compression=zipfile.ZIP_STORED,
             allowZip64=True,
         ) as handle:
             for file_path in image_files:
                 arcname = file_path.relative_to(chapter_dir).as_posix()
-                handle.write(file_path, arcname=arcname)
+                suffix = file_path.suffix.lower()
+                compression = (
+                    zipfile.ZIP_STORED
+                    if level == 0 or suffix in ALREADY_COMPRESSED_SUFFIXES
+                    else zipfile.ZIP_DEFLATED
+                )
+                compresslevel = None if compression == zipfile.ZIP_STORED else level
+                handle.write(
+                    file_path,
+                    arcname=arcname,
+                    compress_type=compression,
+                    compresslevel=compresslevel,
+                )
             metadata_path = chapter_dir / CHAPTER_METADATA_FILENAME
             if metadata_path.is_file():
+                metadata_compression = zipfile.ZIP_STORED if level == 0 else zipfile.ZIP_DEFLATED
+                metadata_level = None if metadata_compression == zipfile.ZIP_STORED else level
                 handle.write(
                     metadata_path,
                     arcname=CHAPTER_METADATA_FILENAME,
+                    compress_type=metadata_compression,
+                    compresslevel=metadata_level,
                 )
         tmp_archive.replace(archive)
     except Exception:
