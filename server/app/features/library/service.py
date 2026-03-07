@@ -1495,7 +1495,7 @@ class LibraryService:
         matches: list[LibrarySourceMatchResource] = []
         match_keys: set[tuple[str, str]] = set()
         direct_matched_source_ids: set[str] = set()
-        failed_sources: list[str] = []
+        failed_sources: list[tuple[str, str]] = []
 
         preferred_variant_by_extension_pkg: dict[str, LibraryTitleVariant] = {}
         for variant in variants:
@@ -1645,7 +1645,12 @@ class LibraryService:
                     source_label,
                     failure_preview,
                 )
-                failed_sources.append(f"{source_label}: {deduped_failures[0]}")
+                failed_sources.append(
+                    (
+                        self._source_match_source_short_label(source),
+                        deduped_failures[0],
+                    )
+                )
 
             if candidate is None:
                 continue
@@ -1769,12 +1774,15 @@ class LibraryService:
             )
         )
         if not matches and failed_sources:
-            failure_preview = "; ".join(failed_sources[:3])
+            failure_preview = "; ".join(
+                f"{source_label}: {reason}"
+                for source_label, reason in failed_sources[:3]
+            )
             if len(failed_sources) > 3:
                 failure_preview = f"{failure_preview}; +{len(failed_sources) - 3} more"
             raise BridgeAPIError(
                 502,
-                "Source match search failed for "
+                "Source match search unavailable for "
                 f"{len(failed_sources)} source(s): {failure_preview}",
             )
         return matches
@@ -3246,13 +3254,49 @@ class LibraryService:
         )
 
     @staticmethod
+    def _source_match_source_short_label(source: SourceSummary) -> str:
+        source_lang = (source.lang or "").strip()
+        lang_segment = f" [{source_lang}]" if source_lang else ""
+        source_name = (source.name or "").strip() or source.id
+        extension_name = (source.extension_name or "").strip()
+        if extension_name and extension_name.lower() != source_name.lower():
+            return f"{extension_name}/{source_name}{lang_segment}"
+        return f"{source_name}{lang_segment}"
+
+    @staticmethod
     def _summarize_source_match_search_error(exc: BridgeAPIError) -> str:
+        if exc.status_code == 401:
+            return "unauthorized (401)"
+        if exc.status_code == 403:
+            return "access denied (403)"
+        if exc.status_code == 404:
+            return "not found (404)"
+        if exc.status_code == 429:
+            return "rate limited (429)"
+        if exc.status_code == 503:
+            return "bridge unavailable (503)"
+        if exc.status_code == 504:
+            return "timeout (504)"
+
         details = (exc.detail or "").strip()
-        if not details:
-            return f"HTTP {exc.status_code}"
-        if len(details) > 220:
-            return f"{details[:217]}..."
-        return details
+        if details:
+            compact = details
+            compact = re.sub(
+                r"^search_titles source_id=\d+ failed \([A-Z_]+\):\s*",
+                "",
+                compact,
+                flags=re.IGNORECASE,
+            )
+            compact = re.sub(
+                r"^search_title failed:\s*",
+                "",
+                compact,
+                flags=re.IGNORECASE,
+            )
+            if len(compact) > 96:
+                return f"{compact[:93]}..."
+            return compact
+        return f"HTTP {exc.status_code}"
 
     async def _auto_link_same_extension_variants(
         self,
