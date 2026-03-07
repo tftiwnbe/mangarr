@@ -10,6 +10,7 @@ from sqlmodel import delete, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.bridge import tachibridge
+from app.core.database import sessionmanager
 from app.core.utils import normalize_text
 from app.features.extensions import ExtensionService
 from app.models import (
@@ -38,6 +39,7 @@ CACHE_TTL_SECONDS = 15 * 60
 TITLE_DETAILS_CACHE_TTL_SECONDS = 24 * 60 * 60
 MAX_CATEGORY_ITEMS = 250
 AUTO_LINK_EXPLORE_MAX_ITEMS = 4
+SOURCE_FETCH_CONCURRENCY = 6
 
 
 _normalize = normalize_text
@@ -304,26 +306,16 @@ class ExploreService:
             latest_sources = [source for source in sources if source.supports_latest]
 
             for page in range(1, max_pages + 1):
-                await asyncio.gather(
-                    *[
-                        self._refresh_source_page(
-                            section="popular",
-                            source_id=source.id,
-                            page=page,
-                            force=True,
-                        )
+                await self._run_refreshes(
+                    [
+                        ("popular", source.id, page)
                         for source in sources
-                    ],
-                    *[
-                        self._refresh_source_page(
-                            section="latest",
-                            source_id=source.id,
-                            page=page,
-                            force=True,
-                        )
+                    ]
+                    + [
+                        ("latest", source.id, page)
                         for source in latest_sources
                     ],
-                    return_exceptions=True,
+                    force=True,
                 )
 
             _explore_logger.bind(
@@ -360,16 +352,15 @@ class ExploreService:
                 items=[],
             )
 
-        for source in sources:
+        refresh_targets = [
+            (section, source.id, page)
+            for source in sources
             if await self._needs_refresh(
                 section=section, source_id=source.id, page=page
-            ):
-                await self._refresh_source_page(
-                    section=section,
-                    source_id=source.id,
-                    page=page,
-                    force=True,
-                )
+            )
+        ]
+        if refresh_targets:
+            await self._run_refreshes(refresh_targets, force=True)
 
         source_items: dict[str, list[ExploreCacheItem]] = {}
         has_next_page = False
@@ -443,13 +434,14 @@ class ExploreService:
         has_next_page = False
         now = datetime.now(timezone.utc)
 
-        for source in sources:
-            titles, source_has_next = await tachibridge.search_titles(
-                source_id=source.id,
-                query=query or "",
-                page=page,
-                search_filters=search_filters,
-            )
+        search_results = await self._search_sources(
+            sources=sources,
+            query=query or "",
+            page=page,
+            search_filters=search_filters,
+        )
+
+        for source, titles, source_has_next in search_results:
             if category:
                 titles = [
                     title
@@ -502,6 +494,79 @@ class ExploreService:
         return fetched_at + timedelta(seconds=CACHE_TTL_SECONDS) < datetime.now(
             timezone.utc
         )
+
+    async def _run_refreshes(
+        self,
+        targets: list[tuple[Literal["popular", "latest"], str, int]],
+        force: bool,
+    ) -> None:
+        if not targets:
+            return
+
+        semaphore = asyncio.Semaphore(SOURCE_FETCH_CONCURRENCY)
+
+        async def run_one(
+            section: Literal["popular", "latest"],
+            source_id: str,
+            page: int,
+        ) -> None:
+            async with semaphore:
+                try:
+                    await self._refresh_source_page_isolated(
+                        section=section,
+                        source_id=source_id,
+                        page=page,
+                        force=force,
+                    )
+                except Exception:
+                    _explore_logger.bind(
+                        section=section,
+                        source_id=source_id,
+                        page=page,
+                    ).exception("explore.cache_refresh_source")
+
+        await asyncio.gather(
+            *(run_one(section, source_id, page) for section, source_id, page in targets)
+        )
+
+    async def _refresh_source_page_isolated(
+        self,
+        section: Literal["popular", "latest"],
+        source_id: str,
+        page: int,
+        force: bool = False,
+    ) -> None:
+        async with sessionmanager.session() as session:
+            service = ExploreService(session)
+            await service._refresh_source_page(
+                section=section,
+                source_id=source_id,
+                page=page,
+                force=force,
+            )
+
+    async def _search_sources(
+        self,
+        sources: list[SourceSummary],
+        query: str,
+        page: int,
+        search_filters: dict[str, Any] | None,
+    ) -> list[tuple[SourceSummary, list[ExtensionSourceTitle], bool]]:
+        semaphore = asyncio.Semaphore(SOURCE_FETCH_CONCURRENCY)
+
+        async def run_one(
+            source: SourceSummary,
+        ) -> tuple[SourceSummary, list[ExtensionSourceTitle], bool]:
+            async with semaphore:
+                titles, source_has_next = await tachibridge.search_titles(
+                    source_id=source.id,
+                    query=query,
+                    page=page,
+                    search_filters=search_filters,
+                )
+                return source, titles, source_has_next
+
+        return list(await asyncio.gather(*(run_one(source) for source in sources)))
 
     async def _refresh_source_page(
         self,
