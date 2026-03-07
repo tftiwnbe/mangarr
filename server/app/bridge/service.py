@@ -735,5 +735,5 @@ def create_bridge_service() -> TachibridgeService:
     return TachibridgeService(process, connection)
 
 
-# Global instance for backward compatibility
+# Shared service singleton used across the backend.
 tachibridge = create_bridge_service()
