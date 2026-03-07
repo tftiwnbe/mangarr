@@ -2,7 +2,6 @@ import asyncio
 import json
 import re
 import time as _time
-from difflib import SequenceMatcher
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urljoin, urlparse
@@ -17,6 +16,14 @@ from app.bridge import tachibridge
 from app.config import settings
 from app.core.errors import BridgeAPIError
 from app.core.utils import commit_with_sqlite_retry, normalize_positive_int_ids, normalize_text
+from app.domain.title_identity import (
+    author_match_score,
+    canonical_title_key,
+    fallback_title_from_url,
+    resolve_libgroup_chapter_url,
+    source_match_score,
+    title_only_key as canonical_title_only_key,
+)
 from app.features.downloads.storage import (
     chapter_archive_path,
     compress_chapter_pages,
@@ -88,51 +95,9 @@ DEFAULT_USER_STATUSES: tuple[tuple[str, str, str, int], ...] = (
 _normalize = normalize_text
 
 
-def _canonical_key(title: str, author: str | None = None) -> str:
-    base = _normalize(title)
-    author_part = _normalize(author)
-    return f"{base}|{author_part}" if author_part else base
-
-
 def _status_value(value: object) -> int:
     raw = getattr(value, "value", value)
     return int(raw)
-
-
-def _fallback_title_from_url(title_url: str) -> str:
-    slug = title_url.strip().strip("/")
-    if "--" in slug:
-        slug = slug.split("--", 1)[1]
-    slug = slug.replace("-", " ").replace("_", " ").strip()
-    if not slug:
-        return title_url
-    return " ".join(part.capitalize() for part in slug.split())
-
-
-def _resolve_libgroup_chapter_url_for_bridge(chapter_url: str) -> str:
-    raw = (chapter_url or "").strip()
-    prefix = "mangarr-libgroup://"
-    if not raw.startswith(prefix):
-        return raw
-
-    payload = raw.removeprefix(prefix)
-    slug, _, query = payload.partition("?")
-    slug = slug.strip().lstrip("/")
-    if not slug:
-        return raw
-
-    params = parse_qs(query, keep_blank_values=True)
-    volume = (params.get("v", [None])[0] or "").strip()
-    number = (params.get("n", [None])[0] or "").strip()
-    if not volume or not number:
-        return raw
-
-    branch_id = (params.get("b", [None])[0] or "").strip()
-    branch_part = f"&branch_id={quote(branch_id, safe='')}" if branch_id else ""
-    return (
-        f"/{slug}/chapter?"
-        f"{branch_part}&volume={quote(volume, safe='')}&number={quote(number, safe='')}"
-    )
 
 
 _library_logger = logger.bind(module="library.service")
@@ -909,7 +874,7 @@ class LibraryService:
         )
 
         now = datetime.now(timezone.utc)
-        key = _canonical_key(details.title, details.author)
+        key = canonical_title_key(details.title, details.author)
 
         variant = (
             await self.session.exec(
@@ -1066,7 +1031,7 @@ class LibraryService:
                 ExploreTitleDetailsCache,
                 {"source_id": source_id, "title_url": title_url},
             )
-            title = _fallback_title_from_url(title_url)
+            title = fallback_title_from_url(title_url)
             status = Status.UNKNOWN
             thumbnail_url = ""
             artist = None
@@ -2367,7 +2332,7 @@ class LibraryService:
             variant = await self.session.get(LibraryTitleVariant, chapter.variant_id)
             if variant is None:
                 raise BridgeAPIError(500, f"Library chapter has no variant: {chapter_id}")
-            bridge_chapter_url = _resolve_libgroup_chapter_url_for_bridge(chapter.chapter_url)
+            bridge_chapter_url = resolve_libgroup_chapter_url(chapter.chapter_url)
             preflight_error = await self._preflight_mangalib_chapter_pages_unavailable(
                 source_id=variant.source_id,
                 chapter_url=bridge_chapter_url,
@@ -3040,42 +3005,6 @@ class LibraryService:
             for extension, source in rows
         ]
 
-    @staticmethod
-    def _source_match_score(
-        query_title: str,
-        query_author: str | None,
-        candidate_title: str,
-        candidate_author: str | None,
-    ) -> float:
-        normalized_query_title = _normalize(query_title)
-        normalized_candidate_title = _normalize(candidate_title)
-        if not normalized_query_title or not normalized_candidate_title:
-            return 0.0
-
-        if normalized_query_title == normalized_candidate_title:
-            score = 1.0
-        else:
-            score = SequenceMatcher(
-                a=normalized_query_title,
-                b=normalized_candidate_title,
-            ).ratio()
-            if (
-                normalized_query_title in normalized_candidate_title
-                or normalized_candidate_title in normalized_query_title
-            ):
-                score = max(score, 0.9)
-
-        normalized_query_author = _normalize(query_author)
-        normalized_candidate_author = _normalize(candidate_author)
-        if (
-            normalized_query_author
-            and normalized_candidate_author
-            and normalized_query_author == normalized_candidate_author
-        ):
-            score = min(1.0, score + 0.08)
-
-        return score
-
     def _pick_source_match_candidate(
         self,
         query_title: str,
@@ -3092,20 +3021,20 @@ class LibraryService:
             if not candidate_title or not candidate_url:
                 continue
 
-            score = self._source_match_score(
+            score = source_match_score(
                 query_title=query_title,
                 query_author=query_author,
                 candidate_title=candidate_title,
                 candidate_author=(getattr(item, "author", "") or "").strip(),
             )
             if score < min_score and allow_author_only:
-                author_score = self._author_match_score(
+                author_score = author_match_score(
                     query_author=query_author,
                     candidate_author=(getattr(item, "author", "") or "").strip(),
                 )
                 if author_score < 0.97:
                     continue
-                title_only_score = self._source_match_score(
+                title_only_score = source_match_score(
                     query_title=query_title,
                     query_author=None,
                     candidate_title=candidate_title,
@@ -3122,29 +3051,6 @@ class LibraryService:
         if best is None:
             return None
         return best, best_score
-
-    @staticmethod
-    def _author_match_score(
-        query_author: str | None,
-        candidate_author: str | None,
-    ) -> float:
-        normalized_query_author = _normalize(query_author)
-        normalized_candidate_author = _normalize(candidate_author)
-        if not normalized_query_author or not normalized_candidate_author:
-            return 0.0
-        if normalized_query_author == normalized_candidate_author:
-            return 1.0
-
-        score = SequenceMatcher(
-            a=normalized_query_author,
-            b=normalized_candidate_author,
-        ).ratio()
-        if (
-            normalized_query_author in normalized_candidate_author
-            or normalized_candidate_author in normalized_query_author
-        ):
-            score = max(score, 0.9)
-        return score
 
     async def _auto_link_related_variants(self, title_id: int) -> None:
         matches = await self.list_source_matches(
@@ -3217,8 +3123,8 @@ class LibraryService:
         if not canonical_key:
             return
 
-        title_only_key = canonical_key.split("|", 1)[0]
-        if not title_only_key:
+        title_only = canonical_title_only_key(canonical_key)
+        if not title_only:
             return
 
         candidate_rows = (
@@ -3228,8 +3134,8 @@ class LibraryService:
                     LibraryTitle.id != title_id,
                     (
                         (LibraryTitle.canonical_key == canonical_key)
-                        | (LibraryTitle.canonical_key == title_only_key)
-                        | (LibraryTitle.canonical_key.like(f"{title_only_key}|%"))
+                        | (LibraryTitle.canonical_key == title_only)
+                        | (LibraryTitle.canonical_key.like(f"{title_only}|%"))
                     ),
                 )
                 .order_by(LibraryTitle.id)

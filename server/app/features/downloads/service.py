@@ -1,12 +1,11 @@
 import asyncio
-from difflib import SequenceMatcher
 import json
 import re
 import shutil
 import time as _time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urljoin, urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from loguru import logger
@@ -19,6 +18,7 @@ from app.config import settings
 from app.core.database import sessionmanager
 from app.core.errors import BridgeAPIError
 from app.core.utils import commit_with_sqlite_retry, normalize_positive_int_ids, normalize_text
+from app.domain.title_identity import resolve_libgroup_chapter_url
 from app.features.downloads.storage import (
     chapter_archive_path,
     chapter_has_payload,
@@ -163,32 +163,6 @@ def _format_chapter_number_segment(value: object) -> str | None:
     if numeric.is_integer():
         return str(int(numeric))
     return str(numeric)
-
-
-def _resolve_libgroup_chapter_url_for_bridge(chapter_url: str) -> str:
-    raw = (chapter_url or "").strip()
-    prefix = "mangarr-libgroup://"
-    if not raw.startswith(prefix):
-        return raw
-
-    payload = raw.removeprefix(prefix)
-    slug, _, query = payload.partition("?")
-    slug = slug.strip().lstrip("/")
-    if not slug:
-        return raw
-
-    params = parse_qs(query, keep_blank_values=True)
-    volume = (params.get("v", [None])[0] or "").strip()
-    number = (params.get("n", [None])[0] or "").strip()
-    if not volume or not number:
-        return raw
-
-    branch_id = (params.get("b", [None])[0] or "").strip()
-    branch_part = f"&branch_id={quote(branch_id, safe='')}" if branch_id else ""
-    return (
-        f"/{slug}/chapter?"
-        f"{branch_part}&volume={quote(volume, safe='')}&number={quote(number, safe='')}"
-    )
 
 
 def _short_error(exc: Exception) -> str:
@@ -2495,7 +2469,7 @@ class DownloadService:
         source_request_headers = await self._resolve_source_request_headers(variant.source_id)
 
         try:
-            bridge_chapter_url = _resolve_libgroup_chapter_url_for_bridge(chapter.chapter_url)
+            bridge_chapter_url = resolve_libgroup_chapter_url(chapter.chapter_url)
             preflight_error = await self._preflight_mangalib_chapter_pages_unavailable(
                 source_id=variant.source_id,
                 chapter_url=bridge_chapter_url,

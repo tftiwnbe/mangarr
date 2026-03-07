@@ -3,7 +3,6 @@ import re
 import time as _time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
-from urllib.parse import urlparse
 
 from loguru import logger
 from sqlmodel import delete, select
@@ -12,6 +11,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.bridge import tachibridge
 from app.core.database import sessionmanager
 from app.core.utils import normalize_text
+from app.domain.title_identity import canonical_title_key, title_url_group_key
 from app.features.extensions import ExtensionService
 from app.models import (
     ExploreCacheItem,
@@ -28,13 +28,6 @@ from app.models import (
     SourcePreferencesResource,
 )
 
-_UUID_RE = re.compile(
-    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
-    re.IGNORECASE,
-)
-_LONG_HEX_RE = re.compile(r"^[0-9a-f]{16,}$", re.IGNORECASE)
-_NUMERIC_ID_RE = re.compile(r"^\d{5,}$")
-_STABLE_PATH_PREFIXES = {"title", "manga", "comic", "series", "work", "book"}
 CACHE_TTL_SECONDS = 15 * 60
 TITLE_DETAILS_CACHE_TTL_SECONDS = 24 * 60 * 60
 MAX_CATEGORY_ITEMS = 250
@@ -46,34 +39,7 @@ _normalize = normalize_text
 
 
 def _dedupe_key(title: str, author: str | None = None) -> str:
-    title_key = _normalize(title)
-    author_key = _normalize(author)
-    return f"{title_key}|{author_key}" if author_key else title_key
-
-
-def _title_url_group_key(title_url: str) -> str:
-    raw = (title_url or "").strip()
-    if not raw:
-        return ""
-    parsed = urlparse(raw)
-    base_path = parsed.path or raw
-    normalized = base_path.strip().lower().rstrip("/")
-    if not normalized:
-        return raw.lower()
-
-    uuid_match = _UUID_RE.search(normalized)
-    if uuid_match:
-        return f"uuid:{uuid_match.group(0).lower()}"
-
-    segments = [segment for segment in normalized.split("/") if segment]
-    for segment in segments:
-        if _NUMERIC_ID_RE.fullmatch(segment) or _LONG_HEX_RE.fullmatch(segment):
-            return f"id:{segment}"
-
-    if len(segments) >= 2 and segments[0] in _STABLE_PATH_PREFIXES:
-        return f"{segments[0]}/{segments[1]}"
-
-    return normalized
+    return canonical_title_key(title, author)
 
 
 def _ensure_utc(dt: datetime) -> datetime:
@@ -773,7 +739,7 @@ class ExploreService:
         for source in sources:
             for item in source_items.get(source.id, []):
                 dedupe_key = item.dedupe_key or _dedupe_key(item.title, item.author)
-                source_url_key = _title_url_group_key(item.title_url)
+                source_url_key = title_url_group_key(item.title_url)
                 extension_url_key = (
                     f"ext::{source.extension_pkg}::{source_url_key}"
                     if source_url_key
