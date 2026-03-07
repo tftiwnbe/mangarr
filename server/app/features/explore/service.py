@@ -11,7 +11,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.bridge import tachibridge
 from app.core.database import sessionmanager
 from app.core.utils import normalize_text
-from app.domain.title_identity import canonical_title_key, title_url_group_key
+from app.domain.title_identity import canonical_title_key, title_only_key, title_url_group_key
 from app.features.extensions import ExtensionService
 from app.models import (
     ExploreCacheItem,
@@ -437,7 +437,11 @@ class ExploreService:
                 for rank, title in enumerate(titles, start=1)
             ]
 
-        merged = self._merge_cached_items(sources, source_items)
+        merged = self._merge_cached_items(
+            sources,
+            source_items,
+            title_name_match=section == "search",
+        )
         await self._attach_imported_library_ids(merged, auto_link_missing=True)
 
         return ExploreFeed(
@@ -731,15 +735,34 @@ class ExploreService:
     def _merge_cached_items(
         sources: list[SourceSummary],
         source_items: dict[str, list[ExploreCacheItem]],
+        title_name_match: bool = False,
     ) -> list[ExploreItem]:
         source_by_id = {source.id: source for source in sources}
         source_order = {source.id: idx for idx, source in enumerate(sources)}
         merged: dict[str, ExploreItem] = {}
         ordering: list[str] = []
 
-        for source in sources:
-            for item in source_items.get(source.id, []):
+        per_source_items = {
+            source.id: list(source_items.get(source.id, []))
+            for source in sources
+        }
+        max_source_items = max(
+            (len(items) for items in per_source_items.values()),
+            default=0,
+        )
+
+        for index in range(max_source_items):
+            for source in sources:
+                source_rows = per_source_items.get(source.id, [])
+                if index >= len(source_rows):
+                    continue
+                item = source_rows[index]
                 dedupe_key = item.dedupe_key or _dedupe_key(item.title, item.author)
+                title_match_key = ""
+                if title_name_match:
+                    normalized_title = title_only_key(dedupe_key)
+                    if normalized_title:
+                        title_match_key = f"title::{normalized_title}"
                 source_url_key = title_url_group_key(item.title_url)
                 extension_url_key = (
                     f"ext::{source.extension_pkg}::{source_url_key}"
@@ -747,7 +770,11 @@ class ExploreService:
                     else ""
                 )
 
-                key_candidates = [candidate for candidate in [extension_url_key, dedupe_key] if candidate]
+                key_candidates = [
+                    candidate
+                    for candidate in [extension_url_key, dedupe_key, title_match_key]
+                    if candidate
+                ]
                 if not key_candidates:
                     key_candidates = [f"raw::{source.id}::{item.page}:{item.rank}"]
                 existing_key = next((candidate for candidate in key_candidates if candidate in merged), None)
@@ -774,7 +801,10 @@ class ExploreService:
                     ordering.append(key)
                     continue
 
-                if not any(link.source.id == source.id for link in existing.links):
+                if not any(
+                    link.source.id == source.id and link.title_url == item.title_url
+                    for link in existing.links
+                ):
                     existing.links.append(source_link)
 
                 if not existing.description and item.description:
