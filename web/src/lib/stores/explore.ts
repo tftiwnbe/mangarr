@@ -1,14 +1,9 @@
-import { writable } from 'svelte/store';
 import * as exploreApi from '$lib/api/explore';
-import type { ExploreFeed, SourceSummary } from '$lib/api/explore';
+import type { SourceSummary } from '$lib/api/explore';
 import type { TitleCardItem } from '$lib/utils/title-mappers';
 import { mapExploreItemToTitleCard } from '$lib/utils/title-mappers';
 
 import { createAsyncResourceStore } from './async-resource';
-
-// Store for preview item - holds the currently selected explore item for preview
-export type ExploreItem = ExploreFeed['items'][number];
-export const previewItemStore = writable<ExploreItem | null>(null);
 
 const FEED_LIMIT = 24;
 

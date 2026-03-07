@@ -24,7 +24,6 @@
 	import { Icon } from '$lib/elements/icon';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { SlidePanel } from '$lib/elements/slide-panel';
-	import { previewItemStore } from '$lib/stores/explore';
 	import { panelOverlayOpen } from '$lib/stores/ui';
 	import { _ } from '$lib/i18n';
 	import { buildTitlePath } from '$lib/utils/routes';
@@ -782,7 +781,6 @@
 				title_url: primaryLink.title_url
 			});
 			patchImportedLibraryId(item.dedupe_key, imported.library_title_id);
-			previewItemStore.set(null);
 			persistExploreState();
 			await goto(buildTitlePath(imported.library_title_id, item.title));
 		} catch (cause) {
