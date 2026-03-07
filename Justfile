@@ -1,6 +1,7 @@
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
 server_port := `cd server && uv run python -c "from app.config import settings; print(settings.server.port)"`
+web_port := "3000"
 static_dir := "server/app/static"
 
 default:
@@ -94,6 +95,32 @@ lint-web:
 
 [doc("Run all linting tasks")]
 lint: lint-server lint-web
+
+[doc("Run server static checks (lint + tests)")]
+check-server:
+    @echo "Running server checks..."
+    cd server && uv run --group dev ruff check .
+    cd server && uv run --group dev pytest
+
+[doc("Run web static checks")]
+check-web:
+    @echo "Running web checks..."
+    cd web && pnpm check:all
+
+[doc("Compile bridge Kotlin sources")]
+check-bridge:
+    @echo "Running bridge checks..."
+    cd bridge && ./gradlew :app:compileKotlin
+
+[doc("Run all major project checks")]
+check-all: check-server check-web check-bridge
+
+[doc("Smoke-test running server/web endpoints")]
+smoke:
+    @echo "Running smoke checks..."
+    curl -fsS "http://127.0.0.1:{{server_port}}/api/v2/health" >/dev/null
+    curl -fsS "http://127.0.0.1:{{web_port}}" >/dev/null
+    echo "Smoke checks passed."
 
 [doc("Apply Ruff formatting to the server")]
 format-server:
