@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 
@@ -92,7 +92,19 @@
 
 	const routeTitleParam = $derived(page.params.id);
 	const routeTitleId = $derived(parseTitleRouteParam(routeTitleParam) ?? NaN);
-	const titleBackTarget = $derived(peekNavHistory(['/reader/', '/title/']));
+	let titleBackTarget = $state<string | null>(null);
+	afterNavigate(() => {
+		titleBackTarget = peekNavHistory(['/reader/', '/title/']);
+	});
+
+	onMount(() => {
+		titleBackTarget = peekNavHistory(['/reader/', '/title/']);
+		return () => {
+			if (saveTimer) {
+				clearTimeout(saveTimer);
+			}
+		};
+	});
 	const backLabel = $derived(
 		titleBackTarget?.startsWith('/explore') ? $_('nav.explore') : $_('nav.library')
 	);
@@ -214,11 +226,6 @@
 	onMount(() => {
 		void loadPreferenceOptions();
 		void loadEnabledSourceIds();
-		return () => {
-			if (saveTimer) {
-				clearTimeout(saveTimer);
-			}
-		};
 	});
 
 	$effect(() => {
