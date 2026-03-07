@@ -1,7 +1,9 @@
 import { goto } from '$app/navigation';
+import { writable } from 'svelte/store';
 
 const STORAGE_KEY = 'mangarr:nav-history';
 const MAX_SIZE = 30;
+export const navHistoryRevision = writable(0);
 
 // Set to true before calling goto() for a back navigation so the layout's
 // afterNavigate hook knows not to push the "from" URL back onto the stack.
@@ -21,6 +23,7 @@ function save(stack: string[]): void {
 	if (typeof window === 'undefined') return;
 	try {
 		sessionStorage.setItem(STORAGE_KEY, JSON.stringify(stack));
+		navHistoryRevision.update((value) => value + 1);
 	} catch {
 		// ignore — sessionStorage unavailable
 	}
@@ -37,6 +40,12 @@ function discardCurrentUrl(stack: string[], currentUrl: string): string[] {
 	}
 	return next;
 }
+
+type NavBackOptions = {
+	skipPrefixes?: string[];
+	currentUrl?: string;
+	revision?: number;
+};
 
 /** Push the current page URL before navigating away (called from afterNavigate). */
 export function pushNavHistory(url: string): void {
@@ -63,6 +72,28 @@ export function peekNavHistory(skipPrefixes: string[] = []): string | null {
 	return null;
 }
 
+/** Return previous URL or fallback using the same rules as navigateBack(). */
+export function resolveNavBackTarget(
+	fallback = '/library',
+	options?: NavBackOptions
+): string {
+	const currentUrl =
+		options?.currentUrl ?? window.location.pathname + window.location.search;
+	const skipPrefixes = options?.skipPrefixes ?? [];
+	let stack = discardCurrentUrl(load(), currentUrl);
+	while (
+		stack.length > 0 &&
+		matchesSkippedPrefix(stack[stack.length - 1] ?? '', skipPrefixes)
+	) {
+		stack = stack.slice(0, -1);
+	}
+
+	if (stack.length === 0) {
+		return fallback;
+	}
+	return stack[stack.length - 1] ?? fallback;
+}
+
 /**
  * Navigate to the previous page in our history stack, or to `fallback` if
  * the stack is empty.
@@ -73,9 +104,11 @@ export function peekNavHistory(skipPrefixes: string[] = []): string | null {
  */
 export async function navigateBack(
 	fallback = '/library',
-	options?: { skipPrefixes?: string[] }
+	options?: NavBackOptions
 ): Promise<void> {
-	const currentUrl = window.location.pathname + window.location.search;
+	const resolvedTarget = resolveNavBackTarget(fallback, options);
+	const currentUrl =
+		options?.currentUrl ?? window.location.pathname + window.location.search;
 	const skipPrefixes = options?.skipPrefixes ?? [];
 	let stack = discardCurrentUrl(load(), currentUrl);
 	while (
@@ -87,11 +120,11 @@ export async function navigateBack(
 
 	if (stack.length === 0) {
 		save([]);
-		await goto(fallback);
+		await goto(resolvedTarget);
 		return;
 	}
 
-	const prev = stack[stack.length - 1];
+	const prev = resolvedTarget;
 	save(stack.slice(0, -1));
 	_skipNext = true;
 	await goto(prev);

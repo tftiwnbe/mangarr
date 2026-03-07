@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { afterNavigate, goto } from '$app/navigation';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 
@@ -27,7 +27,11 @@
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
 	import { libraryTitleDetailStore } from '$lib/stores/library';
-	import { navigateBack, peekNavHistory } from '$lib/stores/nav-history';
+	import {
+		navigateBack,
+		navHistoryRevision,
+		resolveNavBackTarget
+	} from '$lib/stores/nav-history';
 	import { panelOverlayOpen } from '$lib/stores/ui';
 	import { buildReaderPath, buildTitlePath, parseTitleRouteParam } from '$lib/utils/routes';
 	import { mapLibraryChapterResources, type TitleChapterItem } from '$lib/utils/title-mappers';
@@ -92,18 +96,21 @@
 
 	const routeTitleParam = $derived(page.params.id);
 	const routeTitleId = $derived(parseTitleRouteParam(routeTitleParam) ?? NaN);
-	let titleBackTarget = $state<string | null>(null);
-	afterNavigate(() => {
-		titleBackTarget = peekNavHistory(['/reader/', '/title/']);
-	});
-
+	const titleBackSkipPrefixes = ['/reader/', '/title/'];
 	onMount(() => {
-		titleBackTarget = peekNavHistory(['/reader/', '/title/']);
 		return () => {
 			if (saveTimer) {
 				clearTimeout(saveTimer);
 			}
 		};
+	});
+	const titleBackTarget = $derived.by(() => {
+		const currentUrl = page.url.pathname + page.url.search;
+		return resolveNavBackTarget('/library', {
+			skipPrefixes: titleBackSkipPrefixes,
+			currentUrl,
+			revision: $navHistoryRevision
+		});
 	});
 	const backLabel = $derived(
 		titleBackTarget?.startsWith('/explore') ? $_('nav.explore') : $_('nav.library')
@@ -655,7 +662,7 @@
 	}
 
 	function handleBack() {
-		void navigateBack('/library', { skipPrefixes: ['/reader/', '/title/'] });
+		void navigateBack('/library', { skipPrefixes: titleBackSkipPrefixes });
 	}
 
 	$effect(() => {
