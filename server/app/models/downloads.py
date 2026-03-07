@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Any, ClassVar
 
 from sqlalchemy import UniqueConstraint
-from sqlmodel import Field, SQLModel
+from sqlmodel import Field, Relationship, SQLModel
 
 
 class DownloadStrategy(str, Enum):
@@ -49,6 +49,23 @@ class DownloadProfile(SQLModel, table=True):
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    watch_variants: list["DownloadProfileVariant"] = Relationship(back_populates="profile")
+
+
+class DownloadProfileVariant(SQLModel, table=True):
+    __tablename__: ClassVar[Any] = "download_profile_variants"
+    __table_args__ = (
+        UniqueConstraint("profile_id", "variant_id", name="uq_download_profile_variant"),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    profile_id: int = Field(foreign_key="download_profiles.id", index=True)
+    variant_id: int = Field(index=True)
+    position: int = Field(default=0, index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    profile: DownloadProfile = Relationship(back_populates="watch_variants")
 
 
 class DownloadTask(SQLModel, table=True):

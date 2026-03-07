@@ -16,6 +16,10 @@ from app.bridge import tachibridge
 from app.config import settings
 from app.core.errors import BridgeAPIError
 from app.core.utils import commit_with_sqlite_retry, normalize_positive_int_ids, normalize_text
+from app.domain.download_profiles import (
+    parse_selected_variant_ids,
+    serialize_selected_variant_ids,
+)
 from app.domain.title_identity import (
     author_match_score,
     canonical_title_key,
@@ -31,6 +35,7 @@ from app.features.downloads.storage import (
 from app.features.extensions import ExtensionService
 from app.models import (
     DownloadProfile,
+    DownloadProfileVariant,
     DownloadTask,
     DownloadStrategy,
     ExploreCacheItem,
@@ -720,16 +725,16 @@ class LibraryService:
                 profile.enabled = monitoring_enabled
                 profile.updated_at = now
                 if title.user_status_id is None:
-                    self._set_profile_variant_ids(profile=profile, variant_ids=[])
+                    await self._set_profile_variant_ids(profile=profile, variant_ids=[])
                 if monitoring_enabled:
                     # Enabling monitoring from title page should resume monitoring immediately.
                     profile.paused = False
                 if normalized_monitoring_variant_ids is not None:
-                    self._set_profile_variant_ids(
+                    await self._set_profile_variant_ids(
                         profile=profile,
                         variant_ids=normalized_monitoring_variant_ids,
                     )
-                if monitoring_enabled and not self._profile_variant_ids(profile):
+                if monitoring_enabled and not await self._profile_variant_ids(profile):
                     await self._pin_monitoring_profile_variant_if_missing(
                         profile=profile,
                         title_id=title_id,
@@ -1694,7 +1699,7 @@ class LibraryService:
         if (
             profile is not None
             and profile.enabled
-            and not self._profile_variant_ids(profile)
+            and not await self._profile_variant_ids(profile)
         ):
             try:
                 current_variant = await self._resolve_variant(title_id=title_id, variant_id=None)
@@ -1777,10 +1782,10 @@ class LibraryService:
         if (
             profile is not None
             and profile.enabled
-            and not self._profile_variant_ids(profile)
+            and not await self._profile_variant_ids(profile)
             and pin_variant_id is not None
         ):
-            self._set_profile_variant_ids(profile, [pin_variant_id])
+            await self._set_profile_variant_ids(profile, [pin_variant_id])
             profile.updated_at = now
             self.session.add(profile)
         await self._commit_with_sqlite_retry()
@@ -2081,7 +2086,7 @@ class LibraryService:
                 return []
             remapped_ids = [
                 int(variant_id_remap.get(int(variant_id), int(variant_id)))
-                for variant_id in self._profile_variant_ids(profile)
+                for variant_id in await self._profile_variant_ids(profile)
             ]
             return await self._normalize_monitoring_variant_ids(
                 title_id=target_title_id,
@@ -2097,11 +2102,11 @@ class LibraryService:
         if source_profile is not None and target_profile is None:
             source_profile.library_title_id = target_title_id
             if source_variant_ids:
-                self._set_profile_variant_ids(source_profile, source_variant_ids)
+                await self._set_profile_variant_ids(source_profile, source_variant_ids)
             elif source_preferred_variant_id is not None:
-                self._set_profile_variant_ids(source_profile, [source_preferred_variant_id])
+                await self._set_profile_variant_ids(source_profile, [source_preferred_variant_id])
             else:
-                self._set_profile_variant_ids(source_profile, [])
+                await self._set_profile_variant_ids(source_profile, [])
             source_profile.updated_at = now
             self.session.add(source_profile)
             target_profile = source_profile
@@ -2121,12 +2126,12 @@ class LibraryService:
 
             merged_variant_ids = list(dict.fromkeys([*target_variant_ids, *source_variant_ids]))
             if merged_variant_ids:
-                self._set_profile_variant_ids(target_profile, merged_variant_ids)
+                await self._set_profile_variant_ids(target_profile, merged_variant_ids)
             elif (
                 target_profile.preferred_variant_id is None
                 and source_preferred_variant_id is not None
             ):
-                self._set_profile_variant_ids(target_profile, [source_preferred_variant_id])
+                await self._set_profile_variant_ids(target_profile, [source_preferred_variant_id])
 
             if source_profile.last_checked_at and (
                 target_profile.last_checked_at is None
@@ -2155,9 +2160,9 @@ class LibraryService:
                     reordered_ids = [target_preferred_variant_id] + [
                         item for item in selected_variant_ids if item != target_preferred_variant_id
                     ]
-                    self._set_profile_variant_ids(target_profile, reordered_ids)
+                    await self._set_profile_variant_ids(target_profile, reordered_ids)
                 else:
-                    self._set_profile_variant_ids(target_profile, selected_variant_ids)
+                    await self._set_profile_variant_ids(target_profile, selected_variant_ids)
                 target_profile.updated_at = now
                 self.session.add(target_profile)
 
@@ -2808,38 +2813,52 @@ class LibraryService:
         ).first()
         return bool(profile.enabled) if profile is not None else False
 
-    @staticmethod
-    def _profile_variant_ids(profile: DownloadProfile | None) -> list[int]:
+    async def _profile_variant_ids(self, profile: DownloadProfile | None) -> list[int]:
         if profile is None:
             return []
-        if profile.variant_ids_json:
-            try:
-                payload = json.loads(profile.variant_ids_json)
-            except Exception:
-                payload = None
-            if isinstance(payload, list):
-                parsed: list[int] = []
-                seen: set[int] = set()
-                for raw in payload:
-                    try:
-                        variant_id = int(raw)
-                    except (TypeError, ValueError):
-                        continue
-                    if variant_id <= 0 or variant_id in seen:
-                        continue
-                    seen.add(variant_id)
-                    parsed.append(variant_id)
-                if parsed:
-                    return parsed
-        if profile.preferred_variant_id is not None and int(profile.preferred_variant_id) > 0:
-            return [int(profile.preferred_variant_id)]
-        return []
+        if profile.id is not None:
+            rows = (
+                await self.session.exec(
+                    select(DownloadProfileVariant.variant_id)
+                    .where(DownloadProfileVariant.profile_id == int(profile.id))
+                    .order_by(DownloadProfileVariant.position, DownloadProfileVariant.id)
+                )
+            ).all()
+            normalized = normalize_positive_int_ids(rows)
+            if normalized:
+                return normalized
+        return parse_selected_variant_ids(
+            profile.variant_ids_json,
+            profile.preferred_variant_id,
+        )
 
-    @staticmethod
-    def _set_profile_variant_ids(profile: DownloadProfile, variant_ids: list[int]) -> None:
+    async def _set_profile_variant_ids(
+        self,
+        profile: DownloadProfile,
+        variant_ids: list[int],
+    ) -> None:
         unique_ids = LibraryService._normalize_positive_int_ids(variant_ids)
-        profile.variant_ids_json = json.dumps(unique_ids) if unique_ids else None
+        profile.variant_ids_json = serialize_selected_variant_ids(unique_ids)
         profile.preferred_variant_id = unique_ids[0] if unique_ids else None
+        self.session.add(profile)
+        await self.session.flush()
+        if profile.id is None:
+            return
+
+        await self.session.exec(
+            delete(DownloadProfileVariant).where(
+                DownloadProfileVariant.profile_id == int(profile.id)
+            )
+        )
+        for position, variant_id in enumerate(unique_ids):
+            self.session.add(
+                DownloadProfileVariant(
+                    profile_id=int(profile.id),
+                    variant_id=variant_id,
+                    position=position,
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
 
     @staticmethod
     def _normalize_positive_int_ids(values: list[object]) -> list[int]:
@@ -2876,7 +2895,7 @@ class LibraryService:
         ).first()
         if profile is None:
             return []
-        selected_ids = self._profile_variant_ids(profile)
+        selected_ids = await self._profile_variant_ids(profile)
         if not selected_ids:
             return []
 
@@ -2929,7 +2948,7 @@ class LibraryService:
         title_id: int,
         fallback_variant_id: int | None,
     ) -> None:
-        selected_ids = self._profile_variant_ids(profile)
+        selected_ids = await self._profile_variant_ids(profile)
         if selected_ids:
             if profile.preferred_variant_id is None:
                 profile.preferred_variant_id = selected_ids[0]
@@ -2943,7 +2962,7 @@ class LibraryService:
                 fallback_variant is not None
                 and fallback_variant.library_title_id == title_id
             ):
-                self._set_profile_variant_ids(profile, [int(fallback_variant.id)])
+                await self._set_profile_variant_ids(profile, [int(fallback_variant.id)])
                 return
 
         title = await self.session.get(LibraryTitle, title_id)
@@ -2955,7 +2974,7 @@ class LibraryService:
                 preferred_variant is not None
                 and preferred_variant.library_title_id == title_id
             ):
-                self._set_profile_variant_ids(profile, [int(preferred_variant.id)])
+                await self._set_profile_variant_ids(profile, [int(preferred_variant.id)])
                 return
 
         variant_id = (
@@ -2967,7 +2986,7 @@ class LibraryService:
             )
         ).first()
         if variant_id is not None:
-            self._set_profile_variant_ids(profile, [int(variant_id)])
+            await self._set_profile_variant_ids(profile, [int(variant_id)])
 
     async def _list_enabled_source_summaries(self) -> list[SourceSummary]:
         return await self._list_source_summaries(enabled=True)

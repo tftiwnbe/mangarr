@@ -18,6 +18,10 @@ from app.config import settings
 from app.core.database import sessionmanager
 from app.core.errors import BridgeAPIError
 from app.core.utils import commit_with_sqlite_retry, normalize_positive_int_ids, normalize_text
+from app.domain.download_profiles import (
+    parse_selected_variant_ids,
+    serialize_selected_variant_ids,
+)
 from app.domain.title_identity import resolve_libgroup_chapter_url
 from app.features.downloads.storage import (
     chapter_archive_path,
@@ -36,6 +40,7 @@ from app.models import (
     DownloadExternalImportResponse,
     DownloadExternalTitleResource,
     DownloadProfile,
+    DownloadProfileVariant,
     DownloadProfileResource,
     DownloadProfileUpdate,
     DownloadDashboardResource,
@@ -189,30 +194,6 @@ def _payload_str(payload: dict | None, *keys: str) -> str | None:
     if isinstance(current, str) and current.strip():
         return current.strip()
     return None
-
-
-def _parse_variant_ids_json(value: str | None) -> list[int]:
-    if not value:
-        return []
-    try:
-        loaded = json.loads(value)
-    except Exception:
-        return []
-    if not isinstance(loaded, list):
-        return []
-
-    result: list[int] = []
-    seen: set[int] = set()
-    for raw in loaded:
-        try:
-            candidate = int(raw)
-        except (TypeError, ValueError):
-            continue
-        if candidate <= 0 or candidate in seen:
-            continue
-        seen.add(candidate)
-        result.append(candidate)
-    return result
 
 
 def _coerce_task_status(value: object) -> DownloadTaskStatus | None:
@@ -449,10 +430,11 @@ class DownloadService:
         )[:monitored_limit]
 
         title_ids = ordered_title_ids
-        selected_variant_ids_by_title: dict[int, list[int]] = {
-            title_id: self._profile_variant_ids(profiles_by_title_id.get(title_id))
-            for title_id in title_ids
-        }
+        selected_variant_ids_by_title: dict[int, list[int]] = {}
+        for title_id in title_ids:
+            selected_variant_ids_by_title[title_id] = await self._profile_variant_ids(
+                profiles_by_title_id.get(title_id)
+            )
         selected_variant_ids = sorted(
             {
                 variant_id
@@ -830,7 +812,10 @@ class DownloadService:
             stmt = stmt.where(DownloadProfile.library_title_id == title_id)
 
         rows = (await self.session.exec(stmt.offset(offset).limit(limit))).all()
-        return [self._to_profile_resource(profile) for profile in rows]
+        resources: list[DownloadProfileResource] = []
+        for profile in rows:
+            resources.append(await self._to_profile_resource(profile))
+        return resources
 
     async def get_profile(self, title_id: int) -> DownloadProfileResource:
         title = await self.session.get(LibraryTitle, title_id)
@@ -840,7 +825,7 @@ class DownloadService:
         profile = await self._get_or_create_profile(title_id)
         await commit_with_sqlite_retry(self.session)
         await self.session.refresh(profile)
-        return self._to_profile_resource(profile)
+        return await self._to_profile_resource(profile)
 
     async def update_profile(
         self,
@@ -883,7 +868,7 @@ class DownloadService:
         if "strategy" in updates and updates["strategy"] is not None:
             profile.strategy = updates["strategy"]
         if normalized_payload_variant_ids is not None:
-            self._set_profile_variant_ids(profile, normalized_payload_variant_ids)
+            await self._set_profile_variant_ids(profile, normalized_payload_variant_ids)
         if "preferred_variant_id" in updates:
             preferred_variant_id = updates["preferred_variant_id"]
             if preferred_variant_id is None:
@@ -891,7 +876,7 @@ class DownloadService:
                     profile.preferred_variant_id = None
             else:
                 selected_ids = (
-                    self._profile_variant_ids(profile)
+                    await self._profile_variant_ids(profile)
                     if "variant_ids" not in updates
                     else normalized_payload_variant_ids or []
                 )
@@ -901,21 +886,21 @@ class DownloadService:
                     ]
                 else:
                     reordered = [preferred_variant_id, *selected_ids]
-                self._set_profile_variant_ids(profile, reordered)
+                await self._set_profile_variant_ids(profile, reordered)
         if "start_from" in updates:
             profile.start_from = updates["start_from"]
 
-        if profile.enabled and not self._profile_variant_ids(profile):
+        if profile.enabled and not await self._profile_variant_ids(profile):
             variant = await self._resolve_variant(title_id=title_id, preferred_variant_id=None)
             if variant.id is not None:
-                self._set_profile_variant_ids(profile, [int(variant.id)])
+                await self._set_profile_variant_ids(profile, [int(variant.id)])
 
         profile.updated_at = now
         self.session.add(profile)
         await commit_with_sqlite_retry(self.session)
         await self.session.refresh(profile)
 
-        return self._to_profile_resource(profile)
+        return await self._to_profile_resource(profile)
 
     async def list_tasks(
         self,
@@ -3552,22 +3537,52 @@ class DownloadService:
             raise BridgeAPIError(404, f"Library title has no source variants: {title_id}")
         return variant
 
-    @staticmethod
-    def _profile_variant_ids(profile: DownloadProfile | None) -> list[int]:
+    async def _profile_variant_ids(self, profile: DownloadProfile | None) -> list[int]:
         if profile is None:
             return []
-        parsed = _parse_variant_ids_json(profile.variant_ids_json)
-        if parsed:
-            return parsed
-        if profile.preferred_variant_id is not None and profile.preferred_variant_id > 0:
-            return [int(profile.preferred_variant_id)]
-        return []
+        if profile.id is not None:
+            rows = (
+                await self.session.exec(
+                    select(DownloadProfileVariant.variant_id)
+                    .where(DownloadProfileVariant.profile_id == int(profile.id))
+                    .order_by(DownloadProfileVariant.position, DownloadProfileVariant.id)
+                )
+            ).all()
+            normalized = normalize_positive_int_ids(rows)
+            if normalized:
+                return normalized
+        return parse_selected_variant_ids(
+            profile.variant_ids_json,
+            profile.preferred_variant_id,
+        )
 
-    @staticmethod
-    def _set_profile_variant_ids(profile: DownloadProfile, variant_ids: list[int]) -> None:
+    async def _set_profile_variant_ids(
+        self,
+        profile: DownloadProfile,
+        variant_ids: list[int],
+    ) -> None:
         unique_ids = DownloadService._normalize_positive_int_ids(variant_ids)
-        profile.variant_ids_json = json.dumps(unique_ids) if unique_ids else None
+        profile.variant_ids_json = serialize_selected_variant_ids(unique_ids)
         profile.preferred_variant_id = unique_ids[0] if unique_ids else None
+        self.session.add(profile)
+        await self.session.flush()
+        if profile.id is None:
+            return
+
+        await self.session.exec(
+            delete(DownloadProfileVariant).where(
+                DownloadProfileVariant.profile_id == int(profile.id)
+            )
+        )
+        for position, variant_id in enumerate(unique_ids):
+            self.session.add(
+                DownloadProfileVariant(
+                    profile_id=int(profile.id),
+                    variant_id=variant_id,
+                    position=position,
+                    created_at=_now_utc(),
+                )
+            )
 
     @staticmethod
     def _normalize_positive_int_ids(values: list[object]) -> list[int]:
@@ -3599,7 +3614,7 @@ class DownloadService:
     ) -> list[LibraryTitleVariant]:
         selected_ids = await self._normalize_profile_variant_ids(
             title_id=title_id,
-            variant_ids=self._profile_variant_ids(profile),
+            variant_ids=await self._profile_variant_ids(profile),
         )
         if selected_ids:
             rows = (
@@ -3613,8 +3628,8 @@ class DownloadService:
             by_id = {int(variant.id): variant for variant in rows if variant.id is not None}
             ordered = [by_id[item] for item in selected_ids if item in by_id]
             if ordered:
-                if selected_ids != self._profile_variant_ids(profile):
-                    self._set_profile_variant_ids(
+                if selected_ids != await self._profile_variant_ids(profile):
+                    await self._set_profile_variant_ids(
                         profile, [int(variant.id) for variant in ordered if variant.id is not None]
                     )
                 return ordered
@@ -3625,7 +3640,7 @@ class DownloadService:
         )
         if fallback.id is None:
             raise BridgeAPIError(500, "Resolved fallback variant is missing id")
-        self._set_profile_variant_ids(profile, [int(fallback.id)])
+        await self._set_profile_variant_ids(profile, [int(fallback.id)])
         return [fallback]
 
     async def _get_or_create_profile(self, title_id: int) -> DownloadProfile:
@@ -3666,6 +3681,8 @@ class DownloadService:
                 500,
                 f"Failed to create download profile for title: {title_id}",
             )
+        if profile.preferred_variant_id is not None and not await self._profile_variant_ids(profile):
+            await self._set_profile_variant_ids(profile, [int(profile.preferred_variant_id)])
         return profile
 
     def _downloads_root(self) -> Path:
@@ -3820,8 +3837,7 @@ class DownloadService:
         }
         write_chapter_metadata(chapter_dir, payload)
 
-    @classmethod
-    def _to_profile_resource(cls, profile: DownloadProfile) -> DownloadProfileResource:
+    async def _to_profile_resource(self, profile: DownloadProfile) -> DownloadProfileResource:
         return DownloadProfileResource(
             id=int(profile.id),
             library_title_id=profile.library_title_id,
@@ -3830,7 +3846,7 @@ class DownloadService:
             auto_download=profile.auto_download,
             strategy=profile.strategy,
             preferred_variant_id=profile.preferred_variant_id,
-            variant_ids=cls._profile_variant_ids(profile),
+            variant_ids=await self._profile_variant_ids(profile),
             start_from=_as_utc(profile.start_from),
             last_checked_at=_as_utc(profile.last_checked_at),
             last_success_at=_as_utc(profile.last_success_at),
