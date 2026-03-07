@@ -29,7 +29,6 @@ from app.features.downloads.storage import (
     chapter_has_payload,
     chapter_payload_size_bytes,
     compress_chapter_pages,
-    extract_chapter_pages,
     list_chapter_image_files,
     read_chapter_metadata,
     read_title_metadata,
@@ -1244,7 +1243,6 @@ class DownloadService:
             return 0
 
         async with self._compression_backlog_lock:
-            keep_ids = await self._chapters_to_keep_uncompressed_for_reader()
             stmt = (
                 select(LibraryChapter)
                 .where(
@@ -1266,8 +1264,6 @@ class DownloadService:
 
             compressed = 0
             for chapter in chapters:
-                if chapter.id is None or int(chapter.id) in keep_ids:
-                    continue
                 chapter_dir = self._resolve_download_dir(chapter.download_path)
                 if chapter_dir is None:
                     continue
@@ -1287,58 +1283,6 @@ class DownloadService:
                     compressed += 1
 
             return compressed
-
-    @classmethod
-    async def run_uncompress_backlog_once_isolated(
-        cls,
-        batch_size: int | None = None,
-    ) -> int:
-        async with sessionmanager.session() as session:
-            service = cls(session)
-            return await service.run_uncompress_backlog_once(batch_size=batch_size)
-
-    async def run_uncompress_backlog_once(self, batch_size: int | None = None) -> int:
-        async with self._compression_backlog_lock:
-            stmt = (
-                select(LibraryChapter)
-                .where(
-                    LibraryChapter.is_downloaded == True,  # noqa: E712
-                    LibraryChapter.download_path.is_not(None),
-                )
-                .order_by(
-                    LibraryChapter.variant_id,
-                    *self._chapter_order_oldest_first(),
-                )
-            )
-            if batch_size is not None and batch_size > 0:
-                stmt = stmt.limit(batch_size)
-
-            rows = (await self.session.exec(stmt)).all()
-            chapters = list(rows)
-            if not chapters:
-                return 0
-
-            unpacked = 0
-            for chapter in chapters:
-                chapter_dir = self._resolve_download_dir(chapter.download_path)
-                if chapter_dir is None:
-                    continue
-                try:
-                    changed = await asyncio.to_thread(
-                        extract_chapter_pages,
-                        chapter_dir,
-                    )
-                except Exception:
-                    _service_logger.warning(
-                        "Backlog uncompress failed for chapter_id={} path='{}'",
-                        chapter.id,
-                        chapter_dir,
-                    )
-                    continue
-                if changed:
-                    unpacked += 1
-
-            return unpacked
 
     @classmethod
     async def run_metadata_cleanup_once_isolated(cls) -> int:
@@ -1369,70 +1313,6 @@ class DownloadService:
                         file_path,
                     )
             return removed
-
-    async def _chapters_to_keep_uncompressed_for_reader(self) -> set[int]:
-        rows = (
-            await self.session.exec(
-                select(
-                    LibraryChapter.id,
-                    LibraryChapter.variant_id,
-                    LibraryChapter.reader_updated_at,
-                    LibraryChapter.reader_page_index,
-                )
-                .where(
-                    LibraryChapter.is_downloaded == True,  # noqa: E712
-                    LibraryChapter.download_path.is_not(None),
-                )
-                .order_by(
-                    LibraryChapter.variant_id,
-                    *self._chapter_order_oldest_first(),
-                )
-            )
-        ).all()
-        if not rows:
-            return set()
-
-        by_variant: dict[int, list[tuple[int, datetime | None, int | None]]] = {}
-        for chapter_id, variant_id, reader_updated_at, reader_page_index in rows:
-            if chapter_id is None or variant_id is None:
-                continue
-            by_variant.setdefault(int(variant_id), []).append(
-                (
-                    int(chapter_id),
-                    _as_utc(reader_updated_at),
-                    (
-                        int(reader_page_index)
-                        if reader_page_index is not None
-                        else None
-                    ),
-                )
-            )
-
-        keep_ids: set[int] = set()
-        for items in by_variant.values():
-            current_index: int | None = None
-            latest_updated_at: datetime | None = None
-            for index, (_, updated_at, _) in enumerate(items):
-                if updated_at is None:
-                    continue
-                if latest_updated_at is None or updated_at > latest_updated_at:
-                    latest_updated_at = updated_at
-                    current_index = index
-
-            if current_index is None:
-                for index, (_, _, page_index) in enumerate(items):
-                    if page_index is not None and page_index >= 0:
-                        current_index = index
-
-            if current_index is None:
-                continue
-
-            keep_ids.add(items[current_index][0])
-            next_index = current_index + 1
-            if next_index < len(items):
-                keep_ids.add(items[next_index][0])
-
-        return keep_ids
 
     async def reconcile_downloads(
         self,
@@ -2215,6 +2095,12 @@ class DownloadService:
             return 0
         return chapter_payload_size_bytes(chapter_dir)
 
+    def _chapter_is_archived(self, download_path: str | None) -> bool:
+        chapter_dir = self._resolve_download_dir(download_path)
+        if chapter_dir is None:
+            return False
+        return chapter_archive_path(chapter_dir).is_file()
+
     async def _calculate_downloaded_size_stats(
         self,
         title_ids: list[int] | None = None,
@@ -2256,13 +2142,23 @@ class DownloadService:
         chapters_with_size = 0
         per_title: dict[int, list[int]] = {}
         fallback_size_cache: dict[str, int] = {}
-        force_disk_size = bool(settings.downloads.compress_downloaded_chapters)
+        archived_path_cache: dict[str, bool] = {}
         for chapter_id, title_id, download_path in chapter_rows:
             if chapter_id is None or title_id is None:
                 continue
-            chapter_size = 0 if force_disk_size else size_by_chapter_id.get(int(chapter_id), 0)
+            path_key = (download_path or "").strip()
+            uses_archive = False
+            if path_key:
+                cached_archived = archived_path_cache.get(path_key)
+                if cached_archived is None:
+                    cached_archived = await asyncio.to_thread(
+                        self._chapter_is_archived,
+                        download_path,
+                    )
+                    archived_path_cache[path_key] = cached_archived
+                uses_archive = cached_archived
+            chapter_size = 0 if uses_archive else size_by_chapter_id.get(int(chapter_id), 0)
             if chapter_size <= 0:
-                path_key = (download_path or "").strip()
                 if path_key:
                     cached_size = fallback_size_cache.get(path_key)
                     if cached_size is None:
@@ -2295,8 +2191,7 @@ class DownloadService:
 
     @staticmethod
     def _compress_chapter_download(chapter_dir: Path) -> bool:
-        level = max(0, min(int(settings.downloads.compression_level), 9))
-        return compress_chapter_pages(chapter_dir, compression_level=level)
+        return compress_chapter_pages(chapter_dir)
 
     def _iter_source_dirs(self, root: Path):
         has_standalone_titles = False

@@ -6,20 +6,6 @@ import zipfile
 from pathlib import Path
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"}
-ALREADY_COMPRESSED_SUFFIXES = {
-    *IMAGE_SUFFIXES,
-    ".zip",
-    ".cbz",
-    ".gz",
-    ".bz2",
-    ".xz",
-    ".7z",
-    ".rar",
-    ".pdf",
-    ".mp4",
-    ".mkv",
-    ".webm",
-}
 CHAPTER_ARCHIVE_SUFFIX = ".cbz"
 ARCHIVE_VIRTUAL_SEGMENT = ".mangarr-archive"
 CHAPTER_METADATA_FILENAME = "mangarr-chapter-info.json"
@@ -205,7 +191,7 @@ def read_chapter_archive_member(chapter_dir: Path, member: str) -> bytes | None:
         return None
 
 
-def compress_chapter_pages(chapter_dir: Path, compression_level: int = 6) -> bool:
+def compress_chapter_pages(chapter_dir: Path) -> bool:
     if not chapter_dir.exists() or not chapter_dir.is_dir():
         return False
 
@@ -215,8 +201,6 @@ def compress_chapter_pages(chapter_dir: Path, compression_level: int = 6) -> boo
 
     archive = chapter_archive_path(chapter_dir)
     tmp_archive = archive.with_suffix(archive.suffix + ".tmp")
-    level = max(0, min(int(compression_level), 9))
-
     try:
         with zipfile.ZipFile(
             tmp_archive,
@@ -226,28 +210,17 @@ def compress_chapter_pages(chapter_dir: Path, compression_level: int = 6) -> boo
         ) as handle:
             for file_path in image_files:
                 arcname = file_path.relative_to(chapter_dir).as_posix()
-                suffix = file_path.suffix.lower()
-                compression = (
-                    zipfile.ZIP_STORED
-                    if level == 0 or suffix in ALREADY_COMPRESSED_SUFFIXES
-                    else zipfile.ZIP_DEFLATED
-                )
-                compresslevel = None if compression == zipfile.ZIP_STORED else level
                 handle.write(
                     file_path,
                     arcname=arcname,
-                    compress_type=compression,
-                    compresslevel=compresslevel,
+                    compress_type=zipfile.ZIP_STORED,
                 )
             metadata_path = chapter_dir / CHAPTER_METADATA_FILENAME
             if metadata_path.is_file():
-                metadata_compression = zipfile.ZIP_STORED if level == 0 else zipfile.ZIP_DEFLATED
-                metadata_level = None if metadata_compression == zipfile.ZIP_STORED else level
                 handle.write(
                     metadata_path,
                     arcname=CHAPTER_METADATA_FILENAME,
-                    compress_type=metadata_compression,
-                    compresslevel=metadata_level,
+                    compress_type=zipfile.ZIP_STORED,
                 )
         tmp_archive.replace(archive)
     except Exception:
@@ -255,31 +228,4 @@ def compress_chapter_pages(chapter_dir: Path, compression_level: int = 6) -> boo
         raise
 
     shutil.rmtree(chapter_dir, ignore_errors=True)
-    return True
-
-
-def extract_chapter_pages(chapter_dir: Path) -> bool:
-    archive = find_chapter_archive_path(chapter_dir)
-    if archive is None:
-        return False
-
-    resolved_dir = chapter_dir.resolve()
-    chapter_dir.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(archive, mode="r") as handle:
-        for info in handle.infolist():
-            if info.is_dir():
-                continue
-            member = info.filename.lstrip("/\\")
-            if not member:
-                continue
-            destination = (resolved_dir / member).resolve()
-            try:
-                destination.relative_to(resolved_dir)
-            except ValueError as exc:
-                raise ValueError(f"Unsafe archive member path: {info.filename}") from exc
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            with handle.open(info, mode="r") as source, destination.open("wb") as target:
-                shutil.copyfileobj(source, target, length=128 * 1024)
-
-    archive.unlink(missing_ok=True)
     return True
