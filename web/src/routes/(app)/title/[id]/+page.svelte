@@ -155,6 +155,28 @@
 	const displayAuthor = $derived(selectedVariant?.author ?? title?.author ?? '');
 	const displayArtist = $derived(selectedVariant?.artist ?? title?.artist ?? '');
 	const displayDescription = $derived(selectedVariant?.description ?? title?.description ?? '');
+	const displayStatus = $derived(selectedVariant?.status ?? title?.status);
+	const displayStatusLabel = $derived.by(() => {
+		if (!displayStatus) return '';
+		return $_(`status.${displayStatus}`);
+	});
+	const displaySourceLabel = $derived.by(() => {
+		if (!selectedVariant) return '';
+		if (selectedVariant.sourceLang) {
+			return `${selectedVariant.sourceName || selectedVariant.sourceId} [${selectedVariant.sourceLang}]`;
+		}
+		return selectedVariant.sourceName || selectedVariant.sourceId;
+	});
+	const displayChapterCountLabel = $derived.by(() => {
+		return `${displayedChapters.length} ${$_('title.chapters').toLowerCase()}`;
+	});
+	const displaySourceCountLabel = $derived.by(() => {
+		return `${visibleVariants.length} ${$_('title.sources').toLowerCase()}`;
+	});
+	const displayUpdatesStateLabel = $derived.by(() => {
+		if (!title) return '';
+		return title.updatesEnabled ? $_('downloads.enabled') : $_('downloads.disabled');
+	});
 	const displayGenres = $derived.by(() => {
 		const sourceGenre = selectedVariant?.genre
 			?.split(',')
@@ -835,6 +857,19 @@
 							{#if displayAuthor} · {/if}{displayArtist}
 						{/if}
 					</p>
+					<p class="text-xs text-[var(--void-6)]">
+						{#if displayStatusLabel}
+							{displayStatusLabel}
+						{/if}
+						{#if displayedChapters.length > 0}
+							{#if displayStatusLabel} · {/if}
+							{displayChapterCountLabel}
+						{/if}
+						{#if visibleVariants.length > 0}
+							{#if displayStatusLabel || displayedChapters.length > 0} · {/if}
+							{displaySourceCountLabel}
+						{/if}
+					</p>
 				</div>
 
 				<!-- PRIMARY ACTION BAR (mobile only — desktop version is under cover) -->
@@ -984,6 +1019,43 @@
 									{/if}
 								</div>
 							{/if}
+
+							<div class="flex flex-col gap-3">
+								{#if displayStatusLabel}
+									<div class="flex items-baseline justify-between gap-4">
+										<span class="text-[10px] uppercase tracking-widest text-[var(--void-6)]">
+											{$_('title.status')}
+										</span>
+										<span class="text-xs text-[var(--text-muted)]">{displayStatusLabel}</span>
+									</div>
+								{/if}
+								{#if displaySourceLabel}
+									<div class="flex items-baseline justify-between gap-4">
+										<span class="text-[10px] uppercase tracking-widest text-[var(--void-6)]">
+											{$_('title.readingSource')}
+										</span>
+										<span class="text-right text-xs text-[var(--text-muted)]">{displaySourceLabel}</span>
+									</div>
+								{/if}
+								<div class="flex items-baseline justify-between gap-4">
+									<span class="text-[10px] uppercase tracking-widest text-[var(--void-6)]">
+										{$_('title.chapters')}
+									</span>
+									<span class="text-xs text-[var(--text-muted)]">{displayChapterCountLabel}</span>
+								</div>
+								<div class="flex items-baseline justify-between gap-4">
+									<span class="text-[10px] uppercase tracking-widest text-[var(--void-6)]">
+										{$_('title.sources')}
+									</span>
+									<span class="text-xs text-[var(--text-muted)]">{displaySourceCountLabel}</span>
+								</div>
+								<div class="flex items-baseline justify-between gap-4">
+									<span class="text-[10px] uppercase tracking-widest text-[var(--void-6)]">
+										{$_('title.downloadMonitoring')}
+									</span>
+									<span class="text-xs text-[var(--text-muted)]">{displayUpdatesStateLabel}</span>
+								</div>
+							</div>
 						</div>
 					{:else if activeTab === 'chapters'}
 						<!-- CHAPTERS TAB -->
