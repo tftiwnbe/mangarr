@@ -1,0 +1,52 @@
+{
+	"name": "mangarr",
+	"build": {
+		"dockerfile": "Dockerfile",
+		"context": ".."
+	},
+	"remoteUser": "vscode",
+	"workspaceFolder": "/workspaces/mangarr",
+	"forwardPorts": [3000, 3737],
+	"portsAttributes": {
+		"3000": {
+			"label": "Vite",
+			"onAutoForward": "notify"
+		},
+		"3737": {
+			"label": "FastAPI",
+			"onAutoForward": "notify"
+		}
+	},
+	"containerEnv": {
+		"KCEF_INSTALL_DIR": "/workspaces/mangarr/config/bin/kcef",
+		"MANGARR__SERVER__HOST": "0.0.0.0",
+		"MANGARR__SERVER__PORT": "3737"
+	},
+	"postCreateCommand": "bash .devcontainer/post-create.sh",
+	"customizations": {
+		"vscode": {
+			"settings": {
+				"terminal.integrated.defaultProfile.linux": "bash",
+				"python.defaultInterpreterPath": "/workspaces/mangarr/server/.venv/bin/python",
+				"python.terminal.activateEnvironment": false,
+				"editor.formatOnSave": true,
+				"files.watcherExclude": {
+					"**/.gradle/**": true,
+					"**/.kotlin/**": true,
+					"**/.svelte-kit/**": true,
+					"**/node_modules/**": true
+				}
+			},
+			"extensions": [
+				"ms-python.python",
+				"ms-python.vscode-pylance",
+				"charliermarsh.ruff",
+				"svelte.svelte-vscode",
+				"esbenp.prettier-vscode",
+				"dbaeumer.vscode-eslint",
+				"vscjava.vscode-java-pack",
+				"fwcd.kotlin"
+			]
+		}
+	}
+}
