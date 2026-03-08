@@ -107,10 +107,15 @@ async def handle_bridge_api_error(_: Request, exc: BridgeAPIError) -> JSONRespon
 
 
 @app.exception_handler(Exception)
-async def handle_unexpected_error(_: Request, exc: Exception) -> JSONResponse:
-    logger.exception("Unhandled application error")
-    detail = str(exc).strip() or exc.__class__.__name__
-    return JSONResponse(status_code=500, content={"detail": detail})
+async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+    logger.bind(
+        method=request.method,
+        path=request.url.path,
+    ).exception("Unhandled application error")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
 
 
 @app.websocket("/api/v2/ws")
