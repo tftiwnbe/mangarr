@@ -43,7 +43,8 @@ def _with_extra(base: str) -> Callable:
             suffix = " | " + " ".join(parts) if parts else ""
         else:
             suffix = ""
-        return base + suffix + "\n"
+        exception_suffix = "\n{exception}" if record["exception"] is not None else ""
+        return base + suffix + exception_suffix + "\n"
 
     return formatter
 
@@ -56,6 +57,8 @@ def _json_format(record: dict) -> str:
         "mod": record["extra"].get("module", record["name"]),
         "msg": str(record["message"]),
     }
+    if record["exception"] is not None:
+        data["exception"] = str(record["exception"])
     for k, v in record["extra"].items():
         if k not in _INTERNAL_EXTRA_KEYS and v is not None:
             data[k] = v

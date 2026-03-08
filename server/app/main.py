@@ -111,7 +111,11 @@ async def handle_unexpected_error(request: Request, exc: Exception) -> JSONRespo
     logger.bind(
         method=request.method,
         path=request.url.path,
-    ).exception("Unhandled application error")
+        error_type=exc.__class__.__name__,
+    ).opt(exception=exc).error(
+        "Unhandled application error: {}",
+        str(exc).strip() or exc.__class__.__name__,
+    )
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error"},
