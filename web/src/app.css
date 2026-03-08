@@ -96,6 +96,27 @@ body {
 	-moz-osx-font-smoothing: grayscale;
 }
 
+@supports (-webkit-touch-callout: none) {
+	@media (hover: none) and (pointer: coarse) {
+		input[type='text'],
+		input[type='password'],
+		input[type='search'],
+		input[type='email'],
+		input[type='url'],
+		input[type='tel'],
+		input[type='number'],
+		input[type='date'],
+		input[type='datetime-local'],
+		input[type='month'],
+		input[type='time'],
+		input[type='week'],
+		textarea,
+		select {
+			font-size: 16px !important;
+		}
+	}
+}
+
 html.reader-mode,
 body.reader-mode {
 	scrollbar-width: none;
