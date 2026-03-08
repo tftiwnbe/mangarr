@@ -1,14 +1,10 @@
 from datetime import UTC, datetime, timedelta
 
-from loguru import logger
-
 from app.config import settings
 from app.core.cache import PersistentCache
 from app.core.database import sessionmanager
 from app.core.scheduler import scheduler
 from app.features.library.service import LibraryService
-
-job_logger = logger.bind(module="library.jobs")
 
 LIBRARY_CLEANUP_LAST_RUN_CACHE_KEY = "jobs:library_cleanup_unassigned:last_run"
 
@@ -66,7 +62,4 @@ async def run_unassigned_cleanup(force: bool = False) -> tuple[bool, int, dateti
 
 @scheduler.interval(seconds=24 * 60 * 60, label="Library Cleanup")
 async def cleanup_unassigned_library_titles_job() -> None:
-    try:
-        await run_unassigned_cleanup(force=False)
-    except Exception:
-        job_logger.exception("Unassigned library cleanup job failed")
+    await run_unassigned_cleanup(force=False)
