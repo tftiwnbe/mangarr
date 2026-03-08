@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { resolvedTheme } from '$lib/stores/theme';
+
 	interface Props {
 		count?: number;
 		class?: string;
@@ -52,12 +54,22 @@
 				width: {star.size}px;
 				height: {star.size}px;
 				opacity: {star.opacity};
-				background: {star.bright ? 'rgba(255, 255, 255, 0.95)' : 'rgba(200, 200, 210, 0.7)'};
+				background: {$resolvedTheme === 'light'
+				? star.bright
+					? 'rgba(20, 20, 24, 0.18)'
+					: 'rgba(20, 20, 24, 0.1)'
+				: star.bright
+					? 'rgba(255, 255, 255, 0.95)'
+					: 'rgba(200, 200, 210, 0.7)'};
 				animation: {star.bright ? 'twinkle' : 'twinkle-slow'} {star.duration}s ease-in-out infinite;
 				animation-delay: {star.delay}s;
-				box-shadow: 0 0 {star.bright ? star.size * 4 : star.size * 2}px {star.bright
-				? 'rgba(255, 255, 255, 0.5)'
-				: 'rgba(200, 200, 210, 0.3)'};
+				box-shadow: 0 0 {star.bright ? star.size * 4 : star.size * 2}px {$resolvedTheme === 'light'
+				? star.bright
+					? 'rgba(20, 20, 24, 0.08)'
+					: 'rgba(20, 20, 24, 0.04)'
+				: star.bright
+					? 'rgba(255, 255, 255, 0.5)'
+					: 'rgba(200, 200, 210, 0.3)'};
 			"
 		></div>
 	{/each}

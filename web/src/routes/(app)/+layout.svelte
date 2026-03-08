@@ -18,6 +18,7 @@
 	import { loadContentLanguages } from '$lib/stores/content-languages';
 	import { pushNavHistory } from '$lib/stores/nav-history';
 	import { panelOverlayOpen } from '$lib/stores/ui';
+	import { resolvedTheme } from '$lib/stores/theme';
 	import { wsManager } from '$lib/stores/ws';
 
 	let { children } = $props();
@@ -99,11 +100,12 @@
 		<div class="pointer-events-none fixed inset-0">
 			<!-- Subtle grid -->
 			<div
-				class="absolute inset-0 opacity-[0.02]"
+				class="absolute inset-0"
 				style="
+					opacity: {$resolvedTheme === 'light' ? '0.04' : '0.02'};
 					background-image:
-						linear-gradient(rgba(200, 200, 220, 0.6) 1px, transparent 1px),
-						linear-gradient(90deg, rgba(200, 200, 220, 0.6) 1px, transparent 1px);
+						linear-gradient({$resolvedTheme === 'light' ? 'rgba(20, 20, 30, 0.5)' : 'rgba(200, 200, 220, 0.6)'} 1px, transparent 1px),
+						linear-gradient(90deg, {$resolvedTheme === 'light' ? 'rgba(20, 20, 30, 0.5)' : 'rgba(200, 200, 220, 0.6)'} 1px, transparent 1px);
 					background-size: 50px 50px;
 				"
 			></div>
@@ -123,7 +125,9 @@
 						rx="95"
 						ry="28"
 						fill="none"
-						stroke="rgba(140, 140, 160, 0.08)"
+						stroke={$resolvedTheme === 'light'
+							? 'rgba(20, 20, 30, 0.06)'
+							: 'rgba(140, 140, 160, 0.08)'}
 						stroke-width="0.5"
 					/>
 				</svg>
@@ -188,8 +192,8 @@
 					<a
 						href={item.href}
 						class="flex h-10 w-10 items-center justify-center transition-all {isActive
-							? 'bg-[var(--void-4)] text-[var(--text)] shadow-[0_0_12px_rgba(255,255,255,0.12)]'
-							: 'text-[var(--text-ghost)] hover:bg-[var(--void-3)] hover:text-[var(--text-muted)] hover:shadow-[0_0_10px_rgba(255,255,255,0.08)]'}"
+							? 'bg-[var(--void-4)] text-[var(--text)]'
+							: 'text-[var(--text-ghost)] hover:bg-[var(--void-3)] hover:text-[var(--text-muted)]'}"
 						title={$_(`nav.${item.label}`)}
 					>
 						<NavIcon size={20} />
