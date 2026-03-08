@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Query, status
@@ -8,6 +8,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.database import get_database_session
 from app.core.security import hash_api_key
+from app.core.utils import commit_with_sqlite_retry
 from app.models import AuthSession, IntegrationApiKey, User
 
 DBSessionDep = Annotated[AsyncSession, Depends(get_database_session)]
@@ -17,6 +18,7 @@ ApiKeyQueryDep = Annotated[
     str | None,
     Query(alias="api_key", include_in_schema=False),
 ]
+_LAST_USED_UPDATE_INTERVAL = timedelta(minutes=5)
 
 
 def _extract_api_key(
@@ -34,6 +36,36 @@ def _extract_api_key(
     if scheme.lower() != "bearer" or not token:
         return None
     return token.strip()
+
+
+def _needs_last_used_update(
+    last_used_at: datetime | None,
+    now: datetime,
+) -> bool:
+    if last_used_at is None:
+        return True
+    candidate = (
+        last_used_at.replace(tzinfo=timezone.utc)
+        if last_used_at.tzinfo is None
+        else last_used_at.astimezone(timezone.utc)
+    )
+    return (now - candidate) >= _LAST_USED_UPDATE_INTERVAL
+
+
+async def _touch_last_used(
+    db: AsyncSession,
+    row: AuthSession | IntegrationApiKey,
+    now: datetime,
+) -> None:
+    if not _needs_last_used_update(row.last_used_at, now):
+        return
+
+    row.last_used_at = now
+    db.add(row)
+    try:
+        await commit_with_sqlite_retry(db)
+    except Exception:
+        await db.rollback()
 
 
 async def get_current_user(
@@ -69,9 +101,7 @@ async def get_current_user(
     ).first()
     if auth_session is not None:
         session_row, user = auth_session
-        session_row.last_used_at = now
-        db.add(session_row)
-        await db.commit()
+        await _touch_last_used(db, session_row, now)
         return user
 
     integration_key = (
@@ -86,9 +116,7 @@ async def get_current_user(
     ).first()
     if integration_key is not None:
         key_row, user = integration_key
-        key_row.last_used_at = now
-        db.add(key_row)
-        await db.commit()
+        await _touch_last_used(db, key_row, now)
         return user
 
     raise HTTPException(
