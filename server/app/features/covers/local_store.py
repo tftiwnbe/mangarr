@@ -34,11 +34,6 @@ def _active_downloads_root() -> Path:
             continue
     return _downloads_root_candidates()[0]
 
-
-def _legacy_covers_root() -> Path:
-    return (settings.app.data_dir / "covers" / "library").resolve()
-
-
 def is_downloaded_title_cover_path(local_cover_path: str | None) -> bool:
     relative_path = (local_cover_path or "").strip()
     if not relative_path:
@@ -74,14 +69,7 @@ def resolve_library_cover_path(local_cover_path: str | None) -> Path | None:
             return candidate
         except ValueError:
             continue
-
-    legacy_root = _legacy_covers_root()
-    try:
-        legacy_candidate = (settings.app.data_dir / candidate_path).resolve()
-        legacy_candidate.relative_to(legacy_root)
-        return legacy_candidate
-    except ValueError:
-        return None
+    return None
 
 
 async def persist_library_cover(
