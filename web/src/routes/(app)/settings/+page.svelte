@@ -51,7 +51,10 @@
 		TrashIcon,
 		PlayIcon,
 		SkipForwardIcon,
-		PauseIcon
+		PauseIcon,
+		MoonIcon,
+		SunIcon,
+		MonitorIcon
 	} from 'phosphor-svelte';
 	import { Input } from '$lib/elements/input';
 	import { Switch } from '$lib/elements/switch';
@@ -64,8 +67,15 @@
 		getKnownContentLanguages,
 		setKnownContentLanguages
 	} from '$lib/stores/content-languages';
+	import { themePreference, setTheme } from '$lib/stores/theme';
 
 	type SettingsTab = 'account' | 'library' | 'system' | 'about';
+
+	const themeModes = [
+		{ value: 'dark' as const, icon: MoonIcon, label: 'dark' },
+		{ value: 'system' as const, icon: MonitorIcon, label: 'system' },
+		{ value: 'light' as const, icon: SunIcon, label: 'light' }
+	];
 
 	// ── Extensions settings ────────────────────────────────────────────────
 	let extensionRepoUrl = $state('');
@@ -893,6 +903,31 @@
 						{$_('settings.signOut').toLowerCase()}
 					</Button>
 				</div>
+
+				<!-- Appearance -->
+				<section class="flex flex-col gap-4">
+					<h2 class="text-sm font-medium text-[var(--text-soft)]">appearance</h2>
+					<div class="flex flex-col gap-2">
+						<span class="text-label">theme</span>
+						<div class="inline-flex self-start border border-[var(--line)]">
+							{#each themeModes as mode (mode.value)}
+								{@const isActive = $themePreference === mode.value}
+								{@const ModeIcon = mode.icon}
+								<button
+									type="button"
+									class="flex items-center gap-1.5 px-3 py-2 text-xs tracking-wider uppercase transition-all duration-150
+										{isActive
+										? 'bg-[var(--void-4)] text-[var(--text)]'
+										: 'text-[var(--text-ghost)] hover:bg-[var(--void-3)] hover:text-[var(--text-muted)]'}"
+									onclick={() => setTheme(mode.value)}
+								>
+									<ModeIcon size={14} weight={isActive ? 'fill' : 'light'} />
+									{mode.label}
+								</button>
+							{/each}
+						</div>
+					</div>
+				</section>
 
 				<!-- Change Password -->
 				<section class="flex flex-col gap-4">
