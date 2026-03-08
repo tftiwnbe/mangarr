@@ -116,7 +116,28 @@ build-web:
 
 # Build all major project artifacts
 [group('build')]
-build: build-server build-web build-bridge
+build target="all":
+    @case "{{ target }}" in \
+      all) \
+        echo "Building server, web, and bridge..."; \
+        just build server; \
+        just build web; \
+        just build bridge; \
+        ;; \
+      server) \
+        just build-server; \
+        ;; \
+      web) \
+        just build-web; \
+        ;; \
+      bridge) \
+        just build-bridge; \
+        ;; \
+      *) \
+        echo "Unknown build target: {{ target }} (expected: all|server|web|bridge)"; \
+        exit 1; \
+        ;; \
+    esac
 
 # Apply Ruff formatting to the server
 [group('quality')]
@@ -144,7 +165,28 @@ format-bridge:
 
 # Run all formatting tasks
 [group('quality')]
-format: format-server format-web format-bridge
+format target="all":
+    @case "{{ target }}" in \
+      all) \
+        echo "Formatting server, web, and bridge..."; \
+        just format server; \
+        just format web; \
+        just format bridge; \
+        ;; \
+      server) \
+        just format-server; \
+        ;; \
+      web) \
+        just format-web; \
+        ;; \
+      bridge) \
+        just format-bridge; \
+        ;; \
+      *) \
+        echo "Unknown format target: {{ target }} (expected: all|server|web|bridge)"; \
+        exit 1; \
+        ;; \
+    esac
 
 # Run the server test suite
 [group('quality')]
@@ -152,27 +194,58 @@ test:
     @echo "Testing fastapi application..."
     cd server && if rg --files -g 'test_*.py' -g '*_test.py' >/dev/null; then uv run --group dev pytest; else echo "No server tests found; skipping pytest."; fi
 
-# Run Ruff diagnostics on the server
+# Run linting tasks for all targets or one target: `just lint [server|web|bridge]`
 [group('quality')]
-lint-server:
-    @echo "Linting fastapi application..."
-    cd server && uv run --group dev ruff check .
+lint target="all":
+    @case "{{ target }}" in \
+      all) \
+        echo "Linting server, web, and bridge..."; \
+        cd server && uv run --group dev ruff check .; \
+        cd ../web && pnpm run lint; \
+        cd ../bridge && ./gradlew ktlintCheck; \
+        ;; \
+      server) \
+        echo "Linting fastapi application..."; \
+        cd server && uv run --group dev ruff check .; \
+        ;; \
+      web) \
+        echo "Linting web client..."; \
+        cd web && pnpm run lint; \
+        ;; \
+      bridge) \
+        echo "Linting bridge sources..."; \
+        cd bridge && ./gradlew ktlintCheck; \
+        ;; \
+      *) \
+        echo "Unknown lint target: {{ target }} (expected: all|server|web|bridge)"; \
+        exit 1; \
+        ;; \
+    esac
 
-# Run ESLint and Prettier checks for the web client
+# Run static checks for all targets or one target: `just check [server|web|bridge]`
 [group('quality')]
-lint-web:
-    @echo "Linting web client..."
-    cd web && pnpm run lint
-
-# Run ktlint checks for the bridge
-[group('quality')]
-lint-bridge:
-    @echo "Linting bridge sources..."
-    cd bridge && ./gradlew ktlintCheck
-
-# Run all linting tasks
-[group('quality')]
-lint: lint-server lint-web lint-bridge
+check target="all":
+    @case "{{ target }}" in \
+      all) \
+        echo "Checking server, web, and bridge..."; \
+        just check server; \
+        just check web; \
+        just check bridge; \
+        ;; \
+      server) \
+        just check-server; \
+        ;; \
+      web) \
+        just check-web; \
+        ;; \
+      bridge) \
+        just check-bridge; \
+        ;; \
+      *) \
+        echo "Unknown check target: {{ target }} (expected: all|server|web|bridge)"; \
+        exit 1; \
+        ;; \
+    esac
 
 # Run server static checks (lint + tests)
 [group('quality')]
@@ -195,23 +268,54 @@ check-bridge:
 
 # Run all CI checks for the server
 [group('quality')]
-ci-server: format-check-server check-server build-server
+ci-server:
+    @just format-check-server
+    @just check server
+    @just build server
 
 # Run all CI checks for the web client
 [group('quality')]
-ci-web: lint-web check-web build-web
+ci-web:
+    @just lint web
+    @just check web
+    @just build web
 
 # Run all CI checks for the bridge
 [group('quality')]
-ci-bridge: lint-bridge check-bridge build-bridge
+ci-bridge:
+    @just lint bridge
+    @just check bridge
+    @just build bridge
 
-# Run all CI checks for the repo
+# Run CI checks for all targets or one target: `just ci [server|web|bridge]`
 [group('quality')]
-ci: ci-server ci-web ci-bridge
+ci target="all":
+    @case "{{ target }}" in \
+      all) \
+        echo "Running CI checks for server, web, and bridge..."; \
+        just ci server; \
+        just ci web; \
+        just ci bridge; \
+        ;; \
+      server) \
+        just ci-server; \
+        ;; \
+      web) \
+        just ci-web; \
+        ;; \
+      bridge) \
+        just ci-bridge; \
+        ;; \
+      *) \
+        echo "Unknown ci target: {{ target }} (expected: all|server|web|bridge)"; \
+        exit 1; \
+        ;; \
+    esac
 
 # Run all major project checks
 [group('quality')]
-check-all: check-server check-web check-bridge
+check-all:
+    @just check
 
 # Smoke-test running server/web endpoints
 [group('quality')]
@@ -235,11 +339,32 @@ audit-web:
 
 # Run all dependency audits
 [group('quality')]
-audit: audit-server audit-web
+audit target="all":
+    @case "{{ target }}" in \
+      all) \
+        echo "Auditing server and web dependencies..."; \
+        just audit server; \
+        just audit web; \
+        ;; \
+      server) \
+        just audit-server; \
+        ;; \
+      web) \
+        just audit-web; \
+        ;; \
+      *) \
+        echo "Unknown audit target: {{ target }} (expected: all|server|web)"; \
+        exit 1; \
+        ;; \
+    esac
 
 # Release readiness pass: format, lint, check, build
 [group('quality')]
-release: format lint check-all build
+release:
+    @just format
+    @just lint
+    @just check
+    @just build
 
 # Remove local build and runtime artifacts
 [group('maintenance')]
