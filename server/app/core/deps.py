@@ -1,12 +1,13 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Query, status
-from sqlalchemy import or_
+from sqlalchemy import or_, update
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from app.core.database import get_database_session
+from app.core.database import get_database_session, sessionmanager
 from app.core.security import hash_api_key
 from app.core.utils import commit_with_sqlite_retry
 from app.models import AuthSession, IntegrationApiKey, User
@@ -53,19 +54,36 @@ def _needs_last_used_update(
 
 
 async def _touch_last_used(
-    db: AsyncSession,
+    model: type[AuthSession] | type[IntegrationApiKey],
+    row_id: int | None,
+    last_used_at: datetime | None,
+    now: datetime,
+) -> None:
+    if row_id is None or not _needs_last_used_update(last_used_at, now):
+        return
+
+    try:
+        async with sessionmanager.session() as db:
+            threshold = now - _LAST_USED_UPDATE_INTERVAL
+            await db.exec(
+                update(model)
+                .where(
+                    model.id == row_id,
+                    or_(model.last_used_at.is_(None), model.last_used_at < threshold),
+                )
+                .values(last_used_at=now)
+            )
+            await commit_with_sqlite_retry(db)
+    except Exception:
+        return
+
+
+def _schedule_last_used_touch(
+    model: type[AuthSession] | type[IntegrationApiKey],
     row: AuthSession | IntegrationApiKey,
     now: datetime,
 ) -> None:
-    if not _needs_last_used_update(row.last_used_at, now):
-        return
-
-    row.last_used_at = now
-    db.add(row)
-    try:
-        await commit_with_sqlite_retry(db)
-    except Exception:
-        await db.rollback()
+    asyncio.create_task(_touch_last_used(model, row.id, row.last_used_at, now))
 
 
 async def get_current_user(
@@ -101,7 +119,7 @@ async def get_current_user(
     ).first()
     if auth_session is not None:
         session_row, user = auth_session
-        await _touch_last_used(db, session_row, now)
+        _schedule_last_used_touch(AuthSession, session_row, now)
         return user
 
     integration_key = (
@@ -116,7 +134,7 @@ async def get_current_user(
     ).first()
     if integration_key is not None:
         key_row, user = integration_key
-        await _touch_last_used(db, key_row, now)
+        _schedule_last_used_touch(IntegrationApiKey, key_row, now)
         return user
 
     raise HTTPException(
