@@ -34,9 +34,10 @@
 	--accent-line: rgba(113, 113, 122, 0.3);
 
 	/* Star colors — for cosmic elements */
-	--star-bright: rgba(228, 228, 231, 0.9);
-	--star-dim: rgba(161, 161, 170, 0.4);
-	--star-glow: rgba(228, 228, 231, 0.15);
+	--star-bright: rgba(255, 255, 255, 0.95);
+	--star-dim: rgba(200, 200, 210, 0.6);
+	--star-glow: rgba(255, 255, 255, 0.5);
+	--star-glow-dim: rgba(200, 200, 210, 0.2);
 
 	/* Semantic */
 	--error: #f87171;
@@ -66,6 +67,62 @@
 	--duration-fast: 120ms;
 	--duration-normal: 200ms;
 	--duration-slow: 400ms;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Light Theme — Lunar surface, cold starlight
+   ───────────────────────────────────────────────────────────────────────────── */
+[data-theme='light'] {
+	/* Void scale — inverted: cold off-whites to mid-grays */
+	--void-0: #f4f4f7;
+	--void-1: #eaeaef;
+	--void-2: #e0e0e7;
+	--void-3: #d4d4dc;
+	--void-4: #c6c6d0;
+	--void-5: #b2b2be;
+	--void-6: #9292a0;
+	--void-7: #6e6e7c;
+	--void-8: #4a4a56;
+	--void-9: #2c2c36;
+
+	/* Text hierarchy — dark on light */
+	--text: #141418;
+	--text-soft: #38383e;
+	--text-muted: #6e6e7c;
+	--text-ghost: #9292a0;
+
+	/* Accent — same restrained cool tint */
+	--accent: #6e6e7c;
+	--accent-glow: rgba(110, 110, 124, 0.12);
+	--accent-line: rgba(110, 110, 124, 0.25);
+
+	/* Star colors — dark specks on light sky */
+	--star-bright: rgba(20, 20, 24, 0.22);
+	--star-dim: rgba(20, 20, 24, 0.12);
+	--star-glow: rgba(20, 20, 24, 0.1);
+	--star-glow-dim: rgba(20, 20, 24, 0.04);
+
+	/* Semantic — adjusted for light background contrast */
+	--error: #dc2626;
+	--error-soft: rgba(220, 38, 38, 0.08);
+	--success: #16a34a;
+	--success-soft: rgba(22, 163, 74, 0.08);
+
+	/* Surfaces */
+	--surface: var(--void-2);
+	--surface-raised: var(--void-3);
+	--surface-overlay: rgba(244, 244, 247, 0.94);
+
+	/* Borders */
+	--line: var(--void-4);
+	--line-soft: rgba(198, 198, 208, 0.5);
+
+	/* Glow → subtle shadows for light mode */
+	--glow-subtle: 0 1px 4px rgba(20, 20, 24, 0.06);
+	--glow-focus: 0 0 0 1px var(--accent-line);
+	--glow-hover: 0 1px 8px rgba(20, 20, 24, 0.08);
+	--glow-active: 0 1px 12px rgba(20, 20, 24, 0.1);
+	--glow-card: 0 0 0 1px var(--void-4), 0 1px 6px rgba(20, 20, 24, 0.06);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -131,6 +188,10 @@ body.reader-mode::-webkit-scrollbar {
 ::selection {
 	background: rgba(113, 113, 122, 0.3);
 	color: var(--text);
+}
+
+[data-theme='light'] ::selection {
+	background: rgba(110, 110, 124, 0.2);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -277,7 +338,7 @@ body.reader-mode::-webkit-scrollbar {
 
 	.star-dim {
 		background: var(--star-dim);
-		box-shadow: 0 0 2px rgba(161, 161, 170, 0.2);
+		box-shadow: 0 0 2px var(--star-glow-dim);
 	}
 
 	/* Orbital path */

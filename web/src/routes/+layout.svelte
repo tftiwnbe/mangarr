@@ -2,10 +2,14 @@
 	import '../app.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import { initI18n } from '$lib/i18n';
+	import { initTheme } from '$lib/stores/theme';
 	import { isLoading } from 'svelte-i18n';
 
 	// Initialize i18n on app start
 	initI18n();
+
+	// Wire up theme reactivity (media query listener + DOM sync)
+	initTheme();
 
 	let { children } = $props();
 </script>
