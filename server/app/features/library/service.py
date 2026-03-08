@@ -31,7 +31,11 @@ from app.features.downloads.storage import (
     chapter_archive_path,
     list_chapter_archive_images,
 )
-from app.features.covers.local_store import library_cover_route, persist_library_cover
+from app.features.covers.local_store import (
+    is_downloaded_title_cover_path,
+    library_cover_route,
+    persist_library_cover,
+)
 from app.features.extensions import ExtensionService
 from app.models import (
     DownloadProfile,
@@ -1001,7 +1005,7 @@ class LibraryService:
             created=created,
         )
         if profile is not None and profile.enabled:
-            await self._ensure_local_cover(library_title, details.thumbnail_url)
+            await self._ensure_local_cover(library_title, variant, details.thumbnail_url)
         _library_logger.bind(
             title_id=int(library_title.id),
             source_id=request.source_id,
@@ -3162,17 +3166,26 @@ class LibraryService:
         preferred_variant = await self._resolve_variant(title_id=title_id, variant_id=None)
         await self._ensure_local_cover(
             title,
+            preferred_variant,
             preferred_variant.thumbnail_url or title.thumbnail_url,
         )
 
     async def _ensure_local_cover(
         self,
         title: LibraryTitle,
+        variant: LibraryTitleVariant,
         remote_url: str | None,
     ) -> None:
-        if title.id is None or title.local_cover_path:
+        if title.id is None:
             return
-        cover_path = await persist_library_cover(int(title.id), remote_url)
+        if is_downloaded_title_cover_path(title.local_cover_path):
+            return
+        cover_path = await persist_library_cover(
+            remote_url,
+            source_name=variant.source_name,
+            source_lang=variant.source_lang,
+            title_name=variant.title or title.title,
+        )
         if not cover_path:
             return
         title.local_cover_path = cover_path

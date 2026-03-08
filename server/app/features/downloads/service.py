@@ -25,7 +25,11 @@ from app.domain.download_profiles import (
     serialize_selected_variant_ids,
 )
 from app.domain.chapter_matching import choose_replacement_chapter_url
-from app.features.covers.local_store import library_cover_route, persist_library_cover
+from app.features.covers.local_store import (
+    is_downloaded_title_cover_path,
+    library_cover_route,
+    persist_library_cover,
+)
 from app.features.downloads.storage import (
     chapter_archive_path,
     chapter_has_payload,
@@ -2522,6 +2526,7 @@ class DownloadService:
             try:
                 await self._ensure_local_cover(
                     title=title,
+                    variant=variant,
                     remote_url=variant.thumbnail_url or title.thumbnail_url,
                 )
             except Exception:
@@ -3873,11 +3878,19 @@ class DownloadService:
     async def _ensure_local_cover(
         self,
         title: LibraryTitle,
+        variant: LibraryTitleVariant,
         remote_url: str | None,
     ) -> None:
-        if title.id is None or title.local_cover_path:
+        if title.id is None:
             return
-        cover_path = await persist_library_cover(int(title.id), remote_url)
+        if is_downloaded_title_cover_path(title.local_cover_path):
+            return
+        cover_path = await persist_library_cover(
+            remote_url,
+            source_name=variant.source_name,
+            source_lang=variant.source_lang,
+            title_name=variant.title or title.title,
+        )
         if not cover_path:
             return
         title.local_cover_path = cover_path
