@@ -33,8 +33,23 @@ jobs:
       - name: Install server dependencies
         run: cd server && uv sync --group dev
 
-      - name: Run server CI
-        run: just ci-server
+      - name: Check server formatting
+        run: cd server && uv run --group dev ruff format --check .
+
+      - name: Run server lint
+        run: cd server && uv run --group dev ruff check .
+
+      - name: Run server tests if present
+        run: |
+          cd server
+          if rg --files -g 'test_*.py' -g '*_test.py' >/dev/null; then
+            uv run --group dev pytest
+          else
+            echo "No server tests found; skipping pytest."
+          fi
+
+      - name: Byte-compile server
+        run: cd server && uv run python -m compileall app
 
   web:
     name: web
@@ -44,6 +59,12 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -51,14 +72,17 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
-      - name: Enable Corepack
-        run: corepack enable
-
       - name: Install web dependencies
         run: cd web && pnpm install --frozen-lockfile
 
-      - name: Run web CI
-        run: just ci-web
+      - name: Run web lint
+        run: cd web && pnpm run lint
+
+      - name: Run web checks
+        run: cd web && pnpm run check:all
+
+      - name: Build web client
+        run: cd web && pnpm run build
 
   bridge:
     name: bridge
@@ -78,8 +102,11 @@ jobs:
       - name: Prepare Android compatibility stubs
         run: bash ./bridge/AndroidCompat/getAndroid.sh
 
-      - name: Run bridge CI
-        run: just ci-bridge
+      - name: Run bridge lint
+        run: cd bridge && ./gradlew ktlintCheck --no-daemon
+
+      - name: Build bridge
+        run: cd bridge && ./gradlew build shadowJar --no-daemon
 
   docker-smoke:
     name: docker-smoke
