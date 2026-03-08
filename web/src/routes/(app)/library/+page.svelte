@@ -11,8 +11,16 @@
 	} from '$lib/api/library';
 	import { getCachedCoverUrl } from '$lib/api/covers';
 	import { Button } from '$lib/elements/button';
-	import { Icon } from '$lib/elements/icon';
 	import { Input } from '$lib/elements/input';
+	import {
+		FunnelIcon,
+		MagnifyingGlassIcon,
+		XIcon,
+		BookIcon,
+		ImageIcon,
+		CaretDownIcon,
+		CaretUpIcon
+	} from 'phosphor-svelte';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
@@ -262,7 +270,7 @@
 				onclick={() => (filterPanelOpen = true)}
 				aria-label="Sort and filter"
 			>
-				<Icon name="filter" size={14} />
+				<FunnelIcon size={14} />
 				{#if hasActiveControls}
 					<span class="absolute top-1 right-1 h-1.5 w-1.5 bg-[var(--text-muted)]"></span>
 				{/if}
@@ -272,8 +280,7 @@
 
 	<!-- Search -->
 	<div class="relative">
-		<Icon
-			name="search"
+		<MagnifyingGlassIcon
 			size={14}
 			class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-ghost)]"
 		/>
@@ -289,7 +296,7 @@
 				class="absolute top-1/2 right-3 -translate-y-1/2 text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 				onclick={() => (searchQuery = '')}
 			>
-				<Icon name="x" size={14} />
+				<XIcon size={14} />
 			</button>
 		{/if}
 	</div>
@@ -359,7 +366,7 @@
 			<div
 				class="flex h-16 w-16 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]"
 			>
-				<Icon name="book" size={24} class="text-[var(--text-ghost)]" />
+				<BookIcon size={24} class="text-[var(--text-ghost)]" />
 			</div>
 			<div>
 				<p class="text-[var(--text)]">{$_('library.empty')}</p>
@@ -389,7 +396,7 @@
 							/>
 						{:else}
 							<div class="flex h-full w-full items-center justify-center bg-[var(--void-5)]">
-								<Icon name="image" size={20} class="text-[var(--text-ghost)]" />
+								<ImageIcon size={20} class="text-[var(--text-ghost)]" />
 							</div>
 						{/if}
 
@@ -434,7 +441,7 @@
 				class="flex items-center gap-1.5 text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 				onclick={() => (sortDesc = !sortDesc)}
 			>
-				<Icon name={sortDesc ? 'chevron-down' : 'chevron-up'} size={12} />
+				{#if sortDesc}<CaretDownIcon size={12} />{:else}<CaretUpIcon size={12} />{/if}
 				<span>{sortDesc ? 'desc' : 'asc'}</span>
 			</button>
 		</div>

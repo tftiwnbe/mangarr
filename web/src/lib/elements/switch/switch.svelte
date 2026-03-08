@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Switch } from 'bits-ui';
-	import { Icon } from '$lib/elements/icon';
+	import { SpinnerIcon } from 'phosphor-svelte';
 
 	type Variant = 'default' | 'success';
 
@@ -53,7 +53,7 @@
 >
 	<Switch.Thumb class="flex h-4 w-4 items-center justify-center transition-colors {thumbBg}">
 		{#if loading}
-			<Icon name="loader" size={10} class="animate-spin text-[var(--text-ghost)]" />
+			<SpinnerIcon size={10} weight="bold" class="animate-spin text-[var(--text-ghost)]" />
 		{/if}
 	</Switch.Thumb>
 </Switch.Root>

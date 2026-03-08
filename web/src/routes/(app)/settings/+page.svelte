@@ -44,8 +44,18 @@
 		type SchedulerStatusResource
 	} from '$lib/api/settings';
 	import { Button } from '$lib/elements/button';
-	import { Icon } from '$lib/elements/icon';
+	import {
+		SpinnerIcon,
+		ArrowLeftIcon,
+		ArrowsClockwiseIcon,
+		TrashIcon,
+		PlayIcon,
+		SkipForwardIcon,
+		PauseIcon
+	} from 'phosphor-svelte';
 	import { Input } from '$lib/elements/input';
+	import { Switch } from '$lib/elements/switch';
+	import { Tabs, type TabItem } from '$lib/elements/tabs';
 	import { _ } from '$lib/i18n';
 	import {
 		contentLanguages,
@@ -845,51 +855,23 @@
 
 	{#if loading}
 		<div class="flex flex-col items-center gap-4 py-16">
-			<Icon name="loader" size={24} class="animate-spin text-[var(--text-muted)]" />
+			<SpinnerIcon size={24} class="animate-spin text-[var(--text-muted)]" />
 			<p class="text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
 		</div>
 	{:else if error && !user}
 		<p class="text-sm text-[var(--error)]">{error}</p>
 	{:else}
 		<!-- Tabs -->
-		<div class="no-scrollbar flex gap-1 overflow-x-auto">
-			<button
-				type="button"
-				class="shrink-0 px-3 py-1.5 text-xs font-medium transition-colors {activeTab === 'account'
-					? 'bg-[var(--void-4)] text-[var(--text)]'
-					: 'text-[var(--text-ghost)] hover:bg-[var(--void-3)] hover:text-[var(--text-muted)]'}"
-				onclick={() => (activeTab = 'account')}
-			>
-				{$_('settings.account').toLowerCase()}
-			</button>
-			<button
-				type="button"
-				class="shrink-0 px-3 py-1.5 text-xs font-medium transition-colors {activeTab === 'library'
-					? 'bg-[var(--void-4)] text-[var(--text)]'
-					: 'text-[var(--text-ghost)] hover:bg-[var(--void-3)] hover:text-[var(--text-muted)]'}"
-				onclick={() => (activeTab = 'library')}
-			>
-				{$_('nav.library').toLowerCase()}
-			</button>
-			<button
-				type="button"
-				class="shrink-0 px-3 py-1.5 text-xs font-medium transition-colors {activeTab === 'system'
-					? 'bg-[var(--void-4)] text-[var(--text)]'
-					: 'text-[var(--text-ghost)] hover:bg-[var(--void-3)] hover:text-[var(--text-muted)]'}"
-				onclick={() => (activeTab = 'system')}
-			>
-				{$_('settings.system').toLowerCase()}
-			</button>
-			<button
-				type="button"
-				class="shrink-0 px-3 py-1.5 text-xs font-medium transition-colors {activeTab === 'about'
-					? 'bg-[var(--void-4)] text-[var(--text)]'
-					: 'text-[var(--text-ghost)] hover:bg-[var(--void-3)] hover:text-[var(--text-muted)]'}"
-				onclick={() => (activeTab = 'about')}
-			>
-				{$_('settings.about').toLowerCase()}
-			</button>
-		</div>
+		<Tabs
+			tabs={[
+				{ value: 'account', label: $_('settings.account').toLowerCase() },
+				{ value: 'library', label: $_('nav.library').toLowerCase() },
+				{ value: 'system', label: $_('settings.system').toLowerCase() },
+				{ value: 'about', label: $_('settings.about').toLowerCase() }
+			] satisfies TabItem[]}
+			value={activeTab}
+			onValueChange={(v) => (activeTab = v as SettingsTab)}
+		/>
 
 		<!-- ═══════════════════ ACCOUNT ═══════════════════ -->
 		{#if activeTab === 'account'}
@@ -907,7 +889,7 @@
 						>
 					</div>
 					<Button variant="ghost" size="sm" onclick={handleSignOut} class="self-start">
-						<Icon name="arrow-left" size={14} />
+						<ArrowLeftIcon size={14} />
 						{$_('settings.signOut').toLowerCase()}
 					</Button>
 				</div>
@@ -976,7 +958,7 @@
 							disabled={apiKeyLoading}
 							loading={apiKeyLoading}
 						>
-							<Icon name="refresh" size={14} />
+							<ArrowsClockwiseIcon size={14} />
 							{$_('settings.rotateApiKey').toLowerCase()}
 						</Button>
 						{#if apiKeySuccess}
@@ -1147,9 +1129,9 @@
 											title={$_('common.delete')}
 										>
 											{#if deletingStatusId === status.id}
-												<Icon name="loader" size={14} class="animate-spin" />
+												<SpinnerIcon size={14} class="animate-spin" />
 											{:else}
-												<Icon name="trash-2" size={14} />
+												<TrashIcon size={14} />
 											{/if}
 										</button>
 									{:else}
@@ -1234,9 +1216,9 @@
 											title={$_('common.delete')}
 										>
 											{#if deletingCollectionId === collection.id}
-												<Icon name="loader" size={14} class="animate-spin" />
+												<SpinnerIcon size={14} class="animate-spin" />
 											{:else}
-												<Icon name="trash-2" size={14} />
+												<TrashIcon size={14} />
 											{/if}
 										</button>
 									</div>
@@ -1427,19 +1409,15 @@
 							</p>
 						</div>
 
-						<label
-							class="flex cursor-pointer items-center gap-3 py-1 text-sm text-[var(--text)] select-none"
-						>
-							<input
-								type="checkbox"
-								class="h-5 w-5 accent-[var(--void-8)]"
+						<div class="flex items-center justify-between gap-3 py-1">
+							<span class="text-sm text-[var(--text-soft)]">
+								{$_('settings.downloadCompressionEnabled')}
+							</span>
+							<Switch
 								checked={downloadCompressChapters}
-								onchange={(event) => {
-									downloadCompressChapters = (event.currentTarget as HTMLInputElement).checked;
-								}}
+								onCheckedChange={(v) => (downloadCompressChapters = v)}
 							/>
-							{$_('settings.downloadCompressionEnabled')}
-						</label>
+						</div>
 
 						<p class="text-xs text-[var(--text-ghost)]">
 							{$_('settings.downloadCompressionLevelDescription')}
@@ -1501,19 +1479,15 @@
 					{#if jobsSettingsLoading}
 						<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
 					{:else}
-						<label
-							class="flex cursor-pointer items-center gap-3 py-1 text-sm text-[var(--text)] select-none"
-						>
-							<input
-								type="checkbox"
-								class="h-5 w-5 accent-[var(--void-8)]"
+						<div class="flex items-center justify-between gap-3 py-1">
+							<span class="text-sm text-[var(--text-soft)]">
+								{$_('settings.cleanupUnassignedEnabled')}
+							</span>
+							<Switch
 								checked={jobsCleanupEnabled}
-								onchange={(event) => {
-									jobsCleanupEnabled = (event.currentTarget as HTMLInputElement).checked;
-								}}
+								onCheckedChange={(v) => (jobsCleanupEnabled = v)}
 							/>
-							{$_('settings.cleanupUnassignedEnabled')}
-						</label>
+						</div>
 
 						<div class="flex flex-col gap-4">
 							<div class="flex flex-col gap-1.5">
@@ -1655,19 +1629,13 @@
 							Use <code>;</code> as separator and <code>*</code> for wildcard matching.
 						</p>
 
-						<label
-							class="flex cursor-pointer items-center gap-3 py-1 text-sm text-[var(--text)] select-none"
-						>
-							<input
-								type="checkbox"
-								class="h-5 w-5 accent-[var(--void-8)]"
+						<div class="flex items-center justify-between gap-3 py-1">
+							<span class="text-sm text-[var(--text-soft)]">Bypass proxy for local addresses</span>
+							<Switch
 								checked={proxyBypassLocalAddresses}
-								onchange={(event) => {
-									proxyBypassLocalAddresses = (event.currentTarget as HTMLInputElement).checked;
-								}}
+								onCheckedChange={(v) => (proxyBypassLocalAddresses = v)}
 							/>
-							Bypass proxy for local addresses
-						</label>
+						</div>
 
 						<div class="flex gap-2">
 							<Button
@@ -1707,19 +1675,10 @@
 					{#if flareSettingsLoading}
 						<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
 					{:else}
-						<label
-							class="flex cursor-pointer items-center gap-3 py-1 text-sm text-[var(--text)] select-none"
-						>
-							<input
-								type="checkbox"
-								class="h-5 w-5 accent-[var(--void-8)]"
-								checked={flareEnabled}
-								onchange={(event) => {
-									flareEnabled = (event.currentTarget as HTMLInputElement).checked;
-								}}
-							/>
-							Enable FlareSolverr
-						</label>
+						<div class="flex items-center justify-between gap-3 py-1">
+							<span class="text-sm text-[var(--text-soft)]">Enable FlareSolverr</span>
+							<Switch checked={flareEnabled} onCheckedChange={(v) => (flareEnabled = v)} />
+						</div>
 
 						<Input
 							label="FlareSolverr URL"
@@ -1743,19 +1702,13 @@
 							/>
 						</div>
 
-						<label
-							class="flex cursor-pointer items-center gap-3 py-1 text-sm text-[var(--text)] select-none"
-						>
-							<input
-								type="checkbox"
-								class="h-5 w-5 accent-[var(--void-8)]"
+						<div class="flex items-center justify-between gap-3 py-1">
+							<span class="text-sm text-[var(--text-soft)]">Response fallback</span>
+							<Switch
 								checked={flareResponseFallback}
-								onchange={(event) => {
-									flareResponseFallback = (event.currentTarget as HTMLInputElement).checked;
-								}}
+								onCheckedChange={(v) => (flareResponseFallback = v)}
 							/>
-							Response fallback
-						</label>
+						</div>
 						<p class="text-xs text-[var(--text-dim)]">
 							If enabled, requests fall back to the extension's direct response when FlareSolverr
 							fails or times out.
@@ -1836,9 +1789,9 @@
 							onclick={loadSchedulerStatus}
 						>
 							{#if schedulerLoading}
-								<Icon name="loader" size={10} class="inline animate-spin" />
+								<SpinnerIcon size={10} class="inline animate-spin" />
 							{:else}
-								<Icon name="refresh-cw" size={10} class="inline" />
+								<ArrowsClockwiseIcon size={10} class="inline" />
 							{/if}
 						</button>
 					</div>
@@ -1858,7 +1811,7 @@
 
 					{#if schedulerLoading && schedulerJobs.length === 0}
 						<div class="flex items-center gap-2 py-4 text-[var(--text-ghost)]">
-							<Icon name="loader" size={12} class="animate-spin" />
+							<SpinnerIcon size={12} class="animate-spin" />
 							<span class="text-xs">loading…</span>
 						</div>
 					{:else if schedulerJobs.length === 0}
@@ -1935,9 +1888,9 @@
 										onclick={() => void handleJobTrigger(job.name)}
 									>
 										{#if isActing && !job.paused}
-											<Icon name="loader" size={12} class="animate-spin" />
+											<SpinnerIcon size={12} class="animate-spin" />
 										{:else}
-											<Icon name="play" size={12} />
+											<PlayIcon size={12} />
 										{/if}
 									</button>
 
@@ -1951,9 +1904,9 @@
 											onclick={() => void handleJobResume(job.name)}
 										>
 											{#if isActing}
-												<Icon name="loader" size={12} class="animate-spin" />
+												<SpinnerIcon size={12} class="animate-spin" />
 											{:else}
-												<Icon name="skip-forward" size={12} />
+												<SkipForwardIcon size={12} />
 											{/if}
 										</button>
 									{:else}
@@ -1965,9 +1918,9 @@
 											onclick={() => void handleJobPause(job.name)}
 										>
 											{#if isActing}
-												<Icon name="loader" size={12} class="animate-spin" />
+												<SpinnerIcon size={12} class="animate-spin" />
 											{:else}
-												<Icon name="pause" size={12} />
+												<PauseIcon size={12} />
 											{/if}
 										</button>
 									{/if}

@@ -22,7 +22,22 @@
 	} from '$lib/api/library';
 	import { Button } from '$lib/elements/button';
 	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
-	import { Icon } from '$lib/elements/icon';
+	import {
+		SpinnerIcon,
+		CaretLeftIcon,
+		CaretRightIcon,
+		SkipBackIcon,
+		SkipForwardIcon,
+		ListIcon,
+		ChatIcon,
+		ArrowsOutIcon,
+		ArrowsInIcon,
+		BookmarkSimpleIcon,
+		WarningCircleIcon,
+		FileIcon,
+		PlusIcon,
+		ClockIcon
+	} from 'phosphor-svelte';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
 	import { navigateBack } from '$lib/stores/nav-history';
@@ -834,7 +849,7 @@
 					size="icon-sm"
 					onclick={() => void navigateBack(canonicalTitlePath ?? '/library')}
 				>
-					<Icon name="chevron-left" size={18} />
+					<CaretLeftIcon size={18} />
 				</Button>
 				<a
 					href={canonicalTitlePath ?? '/library'}
@@ -855,7 +870,7 @@
 						title={$_('reader.prevChapter')}
 						aria-label={$_('reader.prevChapter')}
 					>
-						<Icon name="skip-back" size={16} />
+						<SkipBackIcon size={16} />
 					</Button>
 					<Button
 						variant="ghost"
@@ -864,7 +879,7 @@
 						title={$_('reader.openChapters')}
 						aria-label="Open chapter list"
 					>
-						<Icon name="list" size={16} />
+						<ListIcon size={16} />
 					</Button>
 					<Button
 						variant="ghost"
@@ -873,7 +888,7 @@
 						title={$_('reader.openComments')}
 						aria-label="Open comments"
 					>
-						<Icon name="message-square" size={16} />
+						<ChatIcon size={16} />
 					</Button>
 					<Button
 						variant="ghost"
@@ -882,7 +897,9 @@
 						title={mode === 'vertical' ? $_('reader.horizontal') : $_('reader.vertical')}
 						aria-label={mode === 'vertical' ? $_('reader.horizontal') : $_('reader.vertical')}
 					>
-						<Icon name={mode === 'vertical' ? 'maximize' : 'minimize'} size={16} />
+						{#if mode === 'vertical'}<ArrowsOutIcon size={16} />{:else}<ArrowsInIcon
+								size={16}
+							/>{/if}
 					</Button>
 					<Button
 						variant="ghost"
@@ -892,7 +909,7 @@
 						title={$_('reader.nextChapter')}
 						aria-label={$_('reader.nextChapter')}
 					>
-						<Icon name="skip-forward" size={16} />
+						<SkipForwardIcon size={16} />
 					</Button>
 				</div>
 			{/if}
@@ -909,9 +926,9 @@
 						aria-label={$_('title.addToLibrary')}
 					>
 						{#if bookmarkingReading}
-							<Icon name="loader" size={14} class="animate-spin" />
+							<SpinnerIcon size={14} class="animate-spin" />
 						{:else}
-							<Icon name="bookmark-plus" size={14} />
+							<BookmarkSimpleIcon size={14} />
 						{/if}
 					</Button>
 				{/if}
@@ -927,11 +944,11 @@
 	<!-- Content area -->
 	{#if isLoading}
 		<div class="flex min-h-svh items-center justify-center">
-			<Icon name="loader" size={20} class="animate-spin text-[var(--text-ghost)]" />
+			<SpinnerIcon size={20} class="animate-spin text-[var(--text-ghost)]" />
 		</div>
 	{:else if error}
 		<div class="flex min-h-svh flex-col items-center justify-center gap-4 px-6 text-center">
-			<Icon name="alert-circle" size={24} class="text-[var(--text-ghost)]" />
+			<WarningCircleIcon size={24} class="text-[var(--text-ghost)]" />
 			<div>
 				<p class="text-sm text-[var(--text-muted)]">{$_('reader.failed')}</p>
 				<p class="mt-1 text-xs text-[var(--text-ghost)]">{error}</p>
@@ -939,7 +956,7 @@
 		</div>
 	{:else if pages.length === 0}
 		<div class="flex min-h-svh flex-col items-center justify-center gap-4 px-6 text-center">
-			<Icon name="file" size={24} class="text-[var(--text-ghost)]" />
+			<FileIcon size={24} class="text-[var(--text-ghost)]" />
 			<p class="text-sm text-[var(--text-muted)]">{$_('reader.noPages')}</p>
 		</div>
 	{:else}
@@ -1008,14 +1025,14 @@
 			<div class="flex items-center gap-3">
 				{#if prevChapterId}
 					<Button variant="outline" size="sm" onclick={() => openChapter(prevChapterId)}>
-						<Icon name="chevron-left" size={14} />
+						<CaretLeftIcon size={14} />
 						{$_('reader.prevChapter')}
 					</Button>
 				{/if}
 				{#if nextChapterId}
 					<Button variant="outline" size="sm" onclick={() => openChapter(nextChapterId)}>
 						{$_('reader.nextChapter')}
-						<Icon name="chevron-right" size={14} />
+						<CaretRightIcon size={14} />
 					</Button>
 				{/if}
 			</div>
@@ -1028,9 +1045,9 @@
 					disabled={bookmarkingReading || !reader}
 				>
 					{#if bookmarkingReading}
-						<Icon name="loader" size={14} class="animate-spin" />
+						<SpinnerIcon size={14} class="animate-spin" />
 					{:else}
-						<Icon name="plus" size={14} />
+						<PlusIcon size={14} />
 					{/if}
 					{$_('title.addToLibrary')}
 				</Button>
@@ -1058,7 +1075,7 @@
 					title={$_('reader.prevChapter')}
 					aria-label={$_('reader.prevChapter')}
 				>
-					<Icon name="skip-back" size={16} />
+					<SkipBackIcon size={16} />
 				</Button>
 
 				<div class="flex items-center gap-1">
@@ -1069,7 +1086,7 @@
 						title={$_('reader.openChapters')}
 						aria-label={$_('reader.openChapters')}
 					>
-						<Icon name="list" size={16} />
+						<ListIcon size={16} />
 					</Button>
 					<Button
 						variant="ghost"
@@ -1078,7 +1095,7 @@
 						title={$_('reader.openComments')}
 						aria-label={$_('reader.openComments')}
 					>
-						<Icon name="message-square" size={16} />
+						<ChatIcon size={16} />
 					</Button>
 					<Button
 						variant="ghost"
@@ -1087,7 +1104,9 @@
 						title={mode === 'vertical' ? $_('reader.horizontal') : $_('reader.vertical')}
 						aria-label={mode === 'vertical' ? $_('reader.horizontal') : $_('reader.vertical')}
 					>
-						<Icon name={mode === 'vertical' ? 'maximize' : 'minimize'} size={16} />
+						{#if mode === 'vertical'}<ArrowsOutIcon size={16} />{:else}<ArrowsInIcon
+								size={16}
+							/>{/if}
 					</Button>
 				</div>
 
@@ -1099,7 +1118,7 @@
 					title={$_('reader.nextChapter')}
 					aria-label={$_('reader.nextChapter')}
 				>
-					<Icon name="skip-forward" size={16} />
+					<SkipForwardIcon size={16} />
 				</Button>
 			</div>
 		</div>
@@ -1168,9 +1187,9 @@
 					{/if}
 					<Button variant="ghost" size="sm" onclick={saveComment} disabled={commentSubmitting}>
 						{#if commentSubmitting}
-							<Icon name="loader" size={12} class="animate-spin" />
+							<SpinnerIcon size={12} class="animate-spin" />
 						{:else}
-							<Icon name="plus" size={12} />
+							<PlusIcon size={12} />
 						{/if}
 						{$_('reader.comment')}
 					</Button>
@@ -1188,14 +1207,14 @@
 			class="flex items-center gap-1.5 text-[10px] text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 			onclick={() => (commentsSortMode = commentsSortMode === 'time' ? 'page' : 'time')}
 		>
-			<Icon name="clock" size={12} />
+			<ClockIcon size={12} />
 			{commentsSortMode === 'time' ? $_('reader.sortByTime') : $_('reader.sortByPage')}
 		</button>
 
 		<!-- Comments list -->
 		{#if chapterCommentsLoading}
 			<div class="flex items-center justify-center py-8">
-				<Icon name="loader" size={16} class="animate-spin text-[var(--text-ghost)]" />
+				<SpinnerIcon size={16} class="animate-spin text-[var(--text-ghost)]" />
 			</div>
 		{:else if sortedChapterComments.length === 0}
 			<p class="py-8 text-center text-xs text-[var(--text-ghost)]">{$_('reader.noComments')}</p>
@@ -1230,7 +1249,7 @@
 								disabled={deletingCommentId === comment.id}
 							>
 								{#if deletingCommentId === comment.id}
-									<Icon name="loader" size={10} class="inline animate-spin" />
+									<SpinnerIcon size={10} class="inline animate-spin" />
 								{/if}
 								{$_('common.delete')}
 							</button>
