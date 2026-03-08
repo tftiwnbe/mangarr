@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 
-from app.core.deps import DBSessionDep, require_authenticated_user
+from app.core.deps import CurrentAdminDep, DBSessionDep, require_authenticated_user
 from app.features.extensions.service import ExtensionService
 from app.models import SourcePreferenceUpdate
 from app.models.extensions import (
@@ -47,7 +47,9 @@ async def get_repository_changes(
 
 @router.put("/repository", response_model=list[RepoExtensionResource], status_code=200)
 async def change_repository(
-    repo: RepositoryUpdate, service: ExtensionService = Depends(get_service)
+    repo: RepositoryUpdate,
+    _: CurrentAdminDep,
+    service: ExtensionService = Depends(get_service),
 ):
     """Delete existing extensions/sources and use new repository URL."""
     return await service.change_extensions_repo(str(repo.url))
@@ -55,7 +57,9 @@ async def change_repository(
 
 @router.post("/install/{extension_pkg}", response_model=ExtensionResource)
 async def install_extension(
-    extension_pkg: str, service: ExtensionService = Depends(get_service)
+    extension_pkg: str,
+    _: CurrentAdminDep,
+    service: ExtensionService = Depends(get_service),
 ):
     """Install an extension by package name."""
     return await service.install_extension(extension_pkg)
@@ -63,7 +67,9 @@ async def install_extension(
 
 @router.delete("/uninstall/{extension_pkg}", status_code=204)
 async def uninstall_extension(
-    extension_pkg: str, service: ExtensionService = Depends(get_service)
+    extension_pkg: str,
+    _: CurrentAdminDep,
+    service: ExtensionService = Depends(get_service),
 ):
     """Uninstall an extension by package name."""
     await service.uninstall_extension(extension_pkg)
@@ -72,6 +78,7 @@ async def uninstall_extension(
 @router.put("/priority", status_code=204)
 async def update_extensions_priority(
     extensions_by_priority: list[str],
+    _: CurrentAdminDep,
     service: ExtensionService = Depends(get_service),
 ):
     """Update an extension's priority."""
@@ -82,6 +89,7 @@ async def update_extensions_priority(
 async def toggle_extension_proxy(
     extension_pkg: str,
     use_proxy: bool,
+    _: CurrentAdminDep,
     service: ExtensionService = Depends(get_service),
 ):
     """Enable or disable proxy mode for an extension."""
@@ -100,6 +108,7 @@ async def get_source_preferences(
 async def toggle_source(
     source_id: str,
     enabled: bool,
+    _: CurrentAdminDep,
     service: ExtensionService = Depends(get_service),
 ):
     """Enable or disable a source."""
@@ -114,6 +123,7 @@ async def toggle_source(
 async def update_source_preferences(
     source_id: str,
     preferences: list[SourcePreferenceUpdate],
+    _: CurrentAdminDep,
     service: ExtensionService = Depends(get_service),
 ):
     """Update source preferences"""

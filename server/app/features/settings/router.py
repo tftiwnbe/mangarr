@@ -1,7 +1,7 @@
 from app.bridge.metrics import bridge_page_metrics
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.deps import CurrentUserDep, require_authenticated_user
+from app.core.deps import CurrentAdminDep, CurrentUserDep, require_authenticated_user
 from app.core.scheduler import scheduler
 from app.features.settings.service import SettingsService
 from app.models import (
@@ -80,7 +80,7 @@ async def get_scheduler_status():
 
 
 @router.post("/scheduler/{job_name}/trigger", response_model=SchedulerJobResource)
-async def trigger_scheduler_job(job_name: str, _: CurrentUserDep):
+async def trigger_scheduler_job(job_name: str, _: CurrentAdminDep):
     if not scheduler.trigger_job(job_name):
         raise HTTPException(status_code=404, detail=f"Job '{job_name}' not found or scheduler not running")
     job = scheduler.find_job(job_name)
@@ -101,7 +101,7 @@ async def trigger_scheduler_job(job_name: str, _: CurrentUserDep):
 
 
 @router.post("/scheduler/{job_name}/pause", response_model=SchedulerJobResource)
-async def pause_scheduler_job(job_name: str, _: CurrentUserDep):
+async def pause_scheduler_job(job_name: str, _: CurrentAdminDep):
     if not await scheduler.pause_job(job_name):
         raise HTTPException(status_code=404, detail=f"Job '{job_name}' not found")
     job = scheduler.find_job(job_name)
@@ -122,7 +122,7 @@ async def pause_scheduler_job(job_name: str, _: CurrentUserDep):
 
 
 @router.post("/scheduler/{job_name}/resume", response_model=SchedulerJobResource)
-async def resume_scheduler_job(job_name: str, _: CurrentUserDep):
+async def resume_scheduler_job(job_name: str, _: CurrentAdminDep):
     if not await scheduler.resume_job(job_name):
         raise HTTPException(status_code=404, detail=f"Job '{job_name}' not found")
     job = scheduler.find_job(job_name)
@@ -143,14 +143,14 @@ async def resume_scheduler_job(job_name: str, _: CurrentUserDep):
 
 
 @router.get("/flaresolverr", response_model=FlareSolverrSettingsResource)
-async def get_flaresolverr_settings():
+async def get_flaresolverr_settings(_: CurrentAdminDep):
     return await SettingsService.get_flaresolverr_settings()
 
 
 @router.put("/flaresolverr", response_model=FlareSolverrSettingsResource)
 async def update_flaresolverr_settings(
     payload: FlareSolverrSettingsUpdate,
-    current_user: CurrentUserDep,
+    current_user: CurrentAdminDep,
 ):
     return await SettingsService.update_flaresolverr_settings(
         payload=payload,
@@ -159,14 +159,14 @@ async def update_flaresolverr_settings(
 
 
 @router.get("/proxy", response_model=ProxySettingsResource)
-async def get_proxy_settings():
+async def get_proxy_settings(_: CurrentAdminDep):
     return await SettingsService.get_proxy_settings()
 
 
 @router.put("/proxy", response_model=ProxySettingsResource)
 async def update_proxy_settings(
     payload: ProxySettingsUpdate,
-    current_user: CurrentUserDep,
+    current_user: CurrentAdminDep,
 ):
     return await SettingsService.update_proxy_settings(
         payload=payload,

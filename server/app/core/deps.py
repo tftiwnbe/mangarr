@@ -95,4 +95,25 @@ async def require_authenticated_user(_: Annotated[User, Depends(get_current_user
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
-__all__ = ["CurrentUserDep", "DBSessionDep", "get_current_user", "require_authenticated_user"]
+
+async def require_admin_user(
+    current_user: CurrentUserDep,
+) -> User:
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required",
+        )
+    return current_user
+
+
+CurrentAdminDep = Annotated[User, Depends(require_admin_user)]
+
+__all__ = [
+    "CurrentAdminDep",
+    "CurrentUserDep",
+    "DBSessionDep",
+    "get_current_user",
+    "require_admin_user",
+    "require_authenticated_user",
+]
