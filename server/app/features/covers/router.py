@@ -27,6 +27,7 @@ _CLIENT_TIMEOUT = httpx.Timeout(20.0)
 _MAX_IMAGE_BYTES = 12 * 1024 * 1024
 _CACHE_CONTROL = f"public, max-age={_CACHE_TTL_SECONDS}, stale-while-revalidate=86400"
 _ALLOWED_SCHEMES = {"http", "https"}
+_MAX_REDIRECTS = 5
 
 
 def _now_utc() -> datetime:
@@ -228,8 +229,7 @@ class CoverCacheService:
         if current_meta and current_meta.last_modified:
             headers["If-Modified-Since"] = current_meta.last_modified
 
-        client = await self._get_client()
-        response = await client.get(url, headers=headers)
+        response = await self._safe_get(url, headers=headers)
 
         if response.status_code == 304 and current_meta and file_path.is_file():
             refreshed = CoverCacheMeta(
@@ -267,6 +267,36 @@ class CoverCacheService:
         )
         await self._write_meta(meta_path, meta)
         return meta
+
+    async def _safe_get(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+    ) -> httpx.Response:
+        client = await self._get_client()
+        current_url = await self._validate_remote_url(url)
+        request_headers = dict(headers or {})
+
+        for _ in range(_MAX_REDIRECTS + 1):
+            response = await client.get(
+                current_url,
+                headers=request_headers,
+                follow_redirects=False,
+            )
+            if response.status_code not in {301, 302, 303, 307, 308}:
+                return response
+
+            location = response.headers.get("location")
+            if not location:
+                raise HTTPException(status_code=502, detail="Cover redirect is invalid")
+
+            redirect_url = str(response.url.join(location))
+            current_url = await self._validate_remote_url(redirect_url)
+            if response.status_code == 303:
+                request_headers.pop("If-None-Match", None)
+                request_headers.pop("If-Modified-Since", None)
+
+        raise HTTPException(status_code=502, detail="Cover redirect limit exceeded")
 
     async def get_cover(self, raw_url: str) -> tuple[Path, CoverCacheMeta]:
         url = await self._validate_remote_url(raw_url)
