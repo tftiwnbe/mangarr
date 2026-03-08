@@ -112,7 +112,7 @@ class DownloadProfileResource(SQLModel):
     auto_download: bool
     strategy: DownloadStrategy
     preferred_variant_id: int | None
-    variant_ids: list[int] = []
+    variant_ids: list[int] = Field(default_factory=list)
     start_from: datetime | None
     last_checked_at: datetime | None
     last_success_at: datetime | None
@@ -180,8 +180,8 @@ class DownloadWatchedTitleResource(SQLModel):
     auto_download: bool
     strategy: DownloadStrategy
     preferred_variant_id: int | None
-    variant_ids: list[int] = []
-    variant_sources: list[str] = []
+    variant_ids: list[int] = Field(default_factory=list)
+    variant_sources: list[str] = Field(default_factory=list)
     start_from: datetime | None
     last_checked_at: datetime | None
     last_success_at: datetime | None

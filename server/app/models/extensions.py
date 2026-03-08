@@ -46,7 +46,7 @@ class RepoExtensionChangesResource(SQLModel):
     since: str
     fetched_at: str
     error: str | None = None
-    changes: list[RepoExtensionChangeResource] = []
+    changes: list[RepoExtensionChangeResource] = Field(default_factory=list)
 
 
 class SourcePreference(SQLModel):

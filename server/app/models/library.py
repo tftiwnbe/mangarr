@@ -142,7 +142,7 @@ class LibraryTitleSummary(SQLModel):
     status: int = 0
     user_status: "LibraryUserStatusResource | None" = None
     user_rating: float | None = None
-    collections: list["LibraryCollectionSummary"] = []
+    collections: list["LibraryCollectionSummary"] = Field(default_factory=list)
     variants_count: int = 0
     chapters_count: int = 0
     added_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -190,9 +190,9 @@ class LibraryTitleResource(SQLModel):
     preferred_variant_id: int | None = None
     user_status: "LibraryUserStatusResource | None" = None
     user_rating: float | None = None
-    collections: list["LibraryCollectionSummary"] = []
+    collections: list["LibraryCollectionSummary"] = Field(default_factory=list)
     updates_enabled: bool = False
-    watched_variant_ids: list[int] = []
+    watched_variant_ids: list[int] = Field(default_factory=list)
     variants: list[LibraryTitleVariantResource]
 
 
