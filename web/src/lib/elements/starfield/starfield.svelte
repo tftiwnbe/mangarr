@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { resolvedTheme } from '$lib/stores/theme';
-
 	interface Props {
 		count?: number;
 		class?: string;
@@ -62,29 +60,16 @@
 <div class="pointer-events-none fixed inset-0 overflow-hidden {className}">
 	{#each stars as star, i (i)}
 		<div
-			class="absolute rounded-full"
+			class="absolute rounded-full {star.bright ? 'star' : 'star-dim'}"
 			style="
 				left: {star.x}%;
 				top: {star.y}%;
 				width: {star.size}px;
 				height: {star.size}px;
 				opacity: {star.opacity};
-				background: {$resolvedTheme === 'light'
-				? star.bright
-					? 'rgba(20, 20, 24, 0.22)'
-					: 'rgba(20, 20, 24, 0.12)'
-				: star.bright
-					? 'rgba(255, 255, 255, 0.95)'
-					: 'rgba(200, 200, 210, 0.6)'};
+				box-shadow: 0 0 {star.glow}px {star.bright ? 'var(--star-glow)' : 'var(--star-glow-dim)'};
 				animation: {star.bright ? 'twinkle' : 'twinkle-slow'} {star.duration}s ease-in-out infinite;
 				animation-delay: {star.delay}s;
-				box-shadow: 0 0 {star.glow}px {$resolvedTheme === 'light'
-				? star.bright
-					? 'rgba(20, 20, 24, 0.1)'
-					: 'rgba(20, 20, 24, 0.04)'
-				: star.bright
-					? 'rgba(255, 255, 255, 0.5)'
-					: 'rgba(200, 200, 210, 0.2)'};
 			"
 		></div>
 	{/each}
