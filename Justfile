@@ -88,130 +88,184 @@ run:
     @echo "Starting uvicorn..."
     cd server && uv run python -m app.main
 
-# Build the bridge jar and copy it to the local runtime directory
+# Build tachibridge jar
 [group('build')]
-build-bridge:
+bridge:
     @echo "Building bridge jar..."
     if [ ! -f "bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ./bridge/AndroidCompat/getAndroid.sh; fi
     cd bridge && ./gradlew shadowJar
     mkdir -p config/bin
     cp -f bridge/app/build/*.jar config/bin/
 
-# Build tachibridge jar
+# Build project
 [group('build')]
-bridge:
-    @just build-bridge
+build target="all":
+    @case "{{ target }}" in \
+      all) \
+        echo "Building server, web, and bridge..."; \
+        cd server && uv run python -m compileall app; \
+        cd ../web && pnpm run build; \
+        if [ ! -f "../bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ../bridge/AndroidCompat/getAndroid.sh; fi; \
+        cd ../bridge && ./gradlew shadowJar; \
+        cd .. && mkdir -p config/bin && cp -f bridge/app/build/*.jar config/bin/; \
+        ;; \
+      server) \
+        echo "Building fastapi application..."; \
+        cd server && uv run python -m compileall app; \
+        ;; \
+      web) \
+        echo "Building web client..."; \
+        cd web && pnpm run build; \
+        ;; \
+      bridge) \
+        echo "Building bridge jar..."; \
+        if [ ! -f "bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ./bridge/AndroidCompat/getAndroid.sh; fi; \
+        cd bridge && ./gradlew shadowJar; \
+        cd .. && mkdir -p config/bin && cp -f bridge/app/build/*.jar config/bin/; \
+        ;; \
+      *) \
+        echo "Unknown build target: {{ target }} (expected: all|server|web|bridge)"; \
+        exit 1; \
+        ;; \
+    esac
 
-# Byte-compile the server
-[group('build')]
-build-server:
-    @echo "Building fastapi application..."
-    cd server && uv run python -m compileall app
-
-# Build the web client
-[group('build')]
-build-web:
-    @echo "Building web client..."
-    cd web && pnpm run build
-
-# Build all major project artifacts
-[group('build')]
-build: build-server build-web build-bridge
-
-# Apply Ruff formatting to the server
+# Format code
 [group('quality')]
-format-server:
-    @echo "Formatting fastapi application..."
-    cd server && uv run --group dev ruff format .
+format target="all":
+    @case "{{ target }}" in \
+      all) \
+        echo "Formatting server, web, and bridge..."; \
+        cd server && uv run --group dev ruff format .; \
+        cd ../web && pnpm run format; \
+        cd ../bridge && ./gradlew ktlintFormat; \
+        ;; \
+      server) \
+        echo "Formatting fastapi application..."; \
+        cd server && uv run --group dev ruff format .; \
+        ;; \
+      web) \
+        echo "Formatting web client..."; \
+        cd web && pnpm run format; \
+        ;; \
+      bridge) \
+        echo "Formatting bridge sources..."; \
+        cd bridge && ./gradlew ktlintFormat; \
+        ;; \
+      *) \
+        echo "Unknown format target: {{ target }} (expected: all|server|web|bridge)"; \
+        exit 1; \
+        ;; \
+    esac
 
-# Check Ruff formatting on the server
-[group('quality')]
-format-check-server:
-    @echo "Checking fastapi formatting..."
-    cd server && uv run --group dev ruff format --check .
-
-# Apply Prettier formatting to the web client
-[group('quality')]
-format-web:
-    @echo "Formatting web client..."
-    cd web && pnpm run format
-
-# Apply ktlint formatting to the bridge
-[group('quality')]
-format-bridge:
-    @echo "Formatting bridge sources..."
-    cd bridge && ./gradlew ktlintFormat
-
-# Run all formatting tasks
-[group('quality')]
-format: format-server format-web format-bridge
-
-# Run the server test suite
+# Run server tests
 [group('quality')]
 test:
     @echo "Testing fastapi application..."
     cd server && if rg --files -g 'test_*.py' -g '*_test.py' >/dev/null; then uv run --group dev pytest; else echo "No server tests found; skipping pytest."; fi
 
-# Run Ruff diagnostics on the server
+# Lint code
 [group('quality')]
-lint-server:
-    @echo "Linting fastapi application..."
-    cd server && uv run --group dev ruff check .
+lint target="all":
+    @case "{{ target }}" in \
+      all) \
+        echo "Linting server, web, and bridge..."; \
+        cd server && uv run --group dev ruff check .; \
+        cd ../web && pnpm run lint; \
+        cd ../bridge && ./gradlew ktlintCheck; \
+        ;; \
+      server) \
+        echo "Linting fastapi application..."; \
+        cd server && uv run --group dev ruff check .; \
+        ;; \
+      web) \
+        echo "Linting web client..."; \
+        cd web && pnpm run lint; \
+        ;; \
+      bridge) \
+        echo "Linting bridge sources..."; \
+        cd bridge && ./gradlew ktlintCheck; \
+        ;; \
+      *) \
+        echo "Unknown lint target: {{ target }} (expected: all|server|web|bridge)"; \
+        exit 1; \
+        ;; \
+    esac
 
-# Run ESLint and Prettier checks for the web client
+# Run checks
 [group('quality')]
-lint-web:
-    @echo "Linting web client..."
-    cd web && pnpm run lint
+check target="all":
+    @case "{{ target }}" in \
+      all) \
+        echo "Checking server, web, and bridge..."; \
+        (cd server && uv run --group dev ruff check .); \
+        (cd server && if rg --files -g 'test_*.py' -g '*_test.py' >/dev/null; then uv run --group dev pytest; else echo "No server tests found; skipping pytest."; fi); \
+        (cd web && pnpm run check:all); \
+        (cd bridge && ./gradlew build); \
+        ;; \
+      server) \
+        echo "Running server checks..."; \
+        (cd server && uv run --group dev ruff check .); \
+        (cd server && if rg --files -g 'test_*.py' -g '*_test.py' >/dev/null; then uv run --group dev pytest; else echo "No server tests found; skipping pytest."; fi); \
+        ;; \
+      web) \
+        echo "Running web checks..."; \
+        cd web && pnpm run check:all; \
+        ;; \
+      bridge) \
+        echo "Running bridge checks..."; \
+        cd bridge && ./gradlew build; \
+        ;; \
+      *) \
+        echo "Unknown check target: {{ target }} (expected: all|server|web|bridge)"; \
+        exit 1; \
+        ;; \
+    esac
 
-# Run ktlint checks for the bridge
+# Run CI checks
 [group('quality')]
-lint-bridge:
-    @echo "Linting bridge sources..."
-    cd bridge && ./gradlew ktlintCheck
-
-# Run all linting tasks
-[group('quality')]
-lint: lint-server lint-web lint-bridge
-
-# Run server static checks (lint + tests)
-[group('quality')]
-check-server:
-    @echo "Running server checks..."
-    cd server && uv run --group dev ruff check .
-    cd server && if rg --files -g 'test_*.py' -g '*_test.py' >/dev/null; then uv run --group dev pytest; else echo "No server tests found; skipping pytest."; fi
-
-# Run web static checks
-[group('quality')]
-check-web:
-    @echo "Running web checks..."
-    cd web && pnpm run check:all
-
-# Compile and verify bridge sources
-[group('quality')]
-check-bridge:
-    @echo "Running bridge checks..."
-    cd bridge && ./gradlew build
-
-# Run all CI checks for the server
-[group('quality')]
-ci-server: format-check-server check-server build-server
-
-# Run all CI checks for the web client
-[group('quality')]
-ci-web: lint-web check-web build-web
-
-# Run all CI checks for the bridge
-[group('quality')]
-ci-bridge: lint-bridge check-bridge build-bridge
-
-# Run all CI checks for the repo
-[group('quality')]
-ci: ci-server ci-web ci-bridge
-
-# Run all major project checks
-[group('quality')]
-check-all: check-server check-web check-bridge
+ci target="all":
+    @case "{{ target }}" in \
+      all) \
+        echo "Running CI checks for server, web, and bridge..."; \
+        (cd server && uv run --group dev ruff format --check .); \
+        (cd server && uv run --group dev ruff check .); \
+        (cd server && if rg --files -g 'test_*.py' -g '*_test.py' >/dev/null; then uv run --group dev pytest; else echo "No server tests found; skipping pytest."; fi); \
+        (cd server && uv run python -m compileall app); \
+        (cd web && pnpm run lint); \
+        (cd web && pnpm run check:all); \
+        (cd web && pnpm run build); \
+        (cd bridge && ./gradlew ktlintCheck); \
+        (cd bridge && ./gradlew build); \
+        if [ ! -f "bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ./bridge/AndroidCompat/getAndroid.sh; fi; \
+        (cd bridge && ./gradlew shadowJar); \
+        mkdir -p config/bin && cp -f bridge/app/build/*.jar config/bin/; \
+        ;; \
+      server) \
+        echo "Running server CI checks..."; \
+        (cd server && uv run --group dev ruff format --check .); \
+        (cd server && uv run --group dev ruff check .); \
+        (cd server && if rg --files -g 'test_*.py' -g '*_test.py' >/dev/null; then uv run --group dev pytest; else echo "No server tests found; skipping pytest."; fi); \
+        (cd server && uv run python -m compileall app); \
+        ;; \
+      web) \
+        echo "Running web CI checks..."; \
+        (cd web && pnpm run lint); \
+        (cd web && pnpm run check:all); \
+        (cd web && pnpm run build); \
+        ;; \
+      bridge) \
+        echo "Running bridge CI checks..."; \
+        (cd bridge && ./gradlew ktlintCheck); \
+        (cd bridge && ./gradlew build); \
+        if [ ! -f "bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ./bridge/AndroidCompat/getAndroid.sh; fi; \
+        (cd bridge && ./gradlew shadowJar); \
+        mkdir -p config/bin && cp -f bridge/app/build/*.jar config/bin/; \
+        ;; \
+      *) \
+        echo "Unknown ci target: {{ target }} (expected: all|server|web|bridge)"; \
+        exit 1; \
+        ;; \
+    esac
 
 # Smoke-test running server/web endpoints
 [group('quality')]
@@ -221,25 +275,36 @@ smoke:
     curl -fsS "http://127.0.0.1:{{ web_port }}" >/dev/null
     echo "Smoke checks passed."
 
-# Audit Python dependencies for known vulnerabilities
+# Audit dependencies
 [group('quality')]
-audit-server:
-    @echo "Auditing Python dependencies..."
-    cd server && uv run pip-audit
+audit target="all":
+    @case "{{ target }}" in \
+      all) \
+        echo "Auditing server and web dependencies..."; \
+        cd server && uv run pip-audit; \
+        cd ../web && pnpm audit --prod; \
+        ;; \
+      server) \
+        echo "Auditing Python dependencies..."; \
+        cd server && uv run pip-audit; \
+        ;; \
+      web) \
+        echo "Auditing Node dependencies..."; \
+        cd web && pnpm audit --prod; \
+        ;; \
+      *) \
+        echo "Unknown audit target: {{ target }} (expected: all|server|web)"; \
+        exit 1; \
+        ;; \
+    esac
 
-# Audit Node dependencies for known vulnerabilities
+# Release checks
 [group('quality')]
-audit-web:
-    @echo "Auditing Node dependencies..."
-    cd web && pnpm audit --prod
-
-# Run all dependency audits
-[group('quality')]
-audit: audit-server audit-web
-
-# Release readiness pass: format, lint, check, build
-[group('quality')]
-release: format lint check-all build
+release:
+    @just format
+    @just lint
+    @just check
+    @just build
 
 # Remove local build and runtime artifacts
 [group('maintenance')]
