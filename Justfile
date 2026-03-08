@@ -88,8 +88,8 @@ run:
     @echo "Starting uvicorn..."
     cd server && uv run python -m app.main
 
-# Build the bridge jar and copy it to the local runtime directory
-[group('build')]
+# Build bridge artifacts
+[private]
 build-bridge:
     @echo "Building bridge jar..."
     if [ ! -f "bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ./bridge/AndroidCompat/getAndroid.sh; fi
@@ -102,19 +102,19 @@ build-bridge:
 bridge:
     @just build-bridge
 
-# Byte-compile the server
-[group('build')]
+# Build server bytecode
+[private]
 build-server:
     @echo "Building fastapi application..."
     cd server && uv run python -m compileall app
 
-# Build the web client
-[group('build')]
+# Build web client
+[private]
 build-web:
     @echo "Building web client..."
     cd web && pnpm run build
 
-# Build all major project artifacts
+# Build project
 [group('build')]
 build target="all":
     @case "{{ target }}" in \
@@ -139,31 +139,31 @@ build target="all":
         ;; \
     esac
 
-# Apply Ruff formatting to the server
-[group('quality')]
+# Format server code
+[private]
 format-server:
     @echo "Formatting fastapi application..."
     cd server && uv run --group dev ruff format .
 
-# Check Ruff formatting on the server
-[group('quality')]
+# Check server formatting
+[private]
 format-check-server:
     @echo "Checking fastapi formatting..."
     cd server && uv run --group dev ruff format --check .
 
-# Apply Prettier formatting to the web client
-[group('quality')]
+# Format web code
+[private]
 format-web:
     @echo "Formatting web client..."
     cd web && pnpm run format
 
-# Apply ktlint formatting to the bridge
-[group('quality')]
+# Format bridge code
+[private]
 format-bridge:
     @echo "Formatting bridge sources..."
     cd bridge && ./gradlew ktlintFormat
 
-# Run all formatting tasks
+# Format code
 [group('quality')]
 format target="all":
     @case "{{ target }}" in \
@@ -188,13 +188,13 @@ format target="all":
         ;; \
     esac
 
-# Run the server test suite
+# Run server tests
 [group('quality')]
 test:
     @echo "Testing fastapi application..."
     cd server && if rg --files -g 'test_*.py' -g '*_test.py' >/dev/null; then uv run --group dev pytest; else echo "No server tests found; skipping pytest."; fi
 
-# Run linting tasks for all targets or one target: `just lint [server|web|bridge]`
+# Lint code
 [group('quality')]
 lint target="all":
     @case "{{ target }}" in \
@@ -222,7 +222,7 @@ lint target="all":
         ;; \
     esac
 
-# Run static checks for all targets or one target: `just check [server|web|bridge]`
+# Run checks
 [group('quality')]
 check target="all":
     @case "{{ target }}" in \
@@ -247,47 +247,47 @@ check target="all":
         ;; \
     esac
 
-# Run server static checks (lint + tests)
-[group('quality')]
+# Check server
+[private]
 check-server:
     @echo "Running server checks..."
     cd server && uv run --group dev ruff check .
     cd server && if rg --files -g 'test_*.py' -g '*_test.py' >/dev/null; then uv run --group dev pytest; else echo "No server tests found; skipping pytest."; fi
 
-# Run web static checks
-[group('quality')]
+# Check web
+[private]
 check-web:
     @echo "Running web checks..."
     cd web && pnpm run check:all
 
-# Compile and verify bridge sources
-[group('quality')]
+# Check bridge
+[private]
 check-bridge:
     @echo "Running bridge checks..."
     cd bridge && ./gradlew build
 
-# Run all CI checks for the server
-[group('quality')]
+# CI: server
+[private]
 ci-server:
     @just format-check-server
     @just check server
     @just build server
 
-# Run all CI checks for the web client
-[group('quality')]
+# CI: web
+[private]
 ci-web:
     @just lint web
     @just check web
     @just build web
 
-# Run all CI checks for the bridge
-[group('quality')]
+# CI: bridge
+[private]
 ci-bridge:
     @just lint bridge
     @just check bridge
     @just build bridge
 
-# Run CI checks for all targets or one target: `just ci [server|web|bridge]`
+# Run CI checks
 [group('quality')]
 ci target="all":
     @case "{{ target }}" in \
@@ -312,8 +312,8 @@ ci target="all":
         ;; \
     esac
 
-# Run all major project checks
-[group('quality')]
+# Run all checks
+[private]
 check-all:
     @just check
 
@@ -325,19 +325,19 @@ smoke:
     curl -fsS "http://127.0.0.1:{{ web_port }}" >/dev/null
     echo "Smoke checks passed."
 
-# Audit Python dependencies for known vulnerabilities
-[group('quality')]
+# Audit server dependencies
+[private]
 audit-server:
     @echo "Auditing Python dependencies..."
     cd server && uv run pip-audit
 
-# Audit Node dependencies for known vulnerabilities
-[group('quality')]
+# Audit web dependencies
+[private]
 audit-web:
     @echo "Auditing Node dependencies..."
     cd web && pnpm audit --prod
 
-# Run all dependency audits
+# Audit dependencies
 [group('quality')]
 audit target="all":
     @case "{{ target }}" in \
@@ -358,7 +358,7 @@ audit target="all":
         ;; \
     esac
 
-# Release readiness pass: format, lint, check, build
+# Release checks
 [group('quality')]
 release:
     @just format
