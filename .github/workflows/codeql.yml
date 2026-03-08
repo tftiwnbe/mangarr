@@ -61,7 +61,7 @@ jobs:
         run: bash ./bridge/AndroidCompat/getAndroid.sh
 
       - name: Build bridge
-        run: cd bridge && ./gradlew build --no-daemon
+        run: cd bridge && ./gradlew clean :AndroidCompat:compileKotlin :app:compileKotlin --no-daemon --rerun-tasks
 
       - name: Analyze
         uses: github/codeql-action/analyze@v4
