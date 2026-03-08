@@ -237,7 +237,7 @@ ci target="all":
         (cd bridge && ./gradlew ktlintCheck); \
         (cd bridge && ./gradlew build); \
         if [ ! -f "bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ./bridge/AndroidCompat/getAndroid.sh; fi; \
-        cd bridge && ./gradlew shadowJar; \
+        (cd bridge && ./gradlew shadowJar); \
         mkdir -p config/bin && cp -f bridge/app/build/*.jar config/bin/; \
         ;; \
       server) \
@@ -258,7 +258,7 @@ ci target="all":
         (cd bridge && ./gradlew ktlintCheck); \
         (cd bridge && ./gradlew build); \
         if [ ! -f "bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ./bridge/AndroidCompat/getAndroid.sh; fi; \
-        cd bridge && ./gradlew shadowJar; \
+        (cd bridge && ./gradlew shadowJar); \
         mkdir -p config/bin && cp -f bridge/app/build/*.jar config/bin/; \
         ;; \
       *) \
