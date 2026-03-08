@@ -102,7 +102,6 @@
 			loading = false;
 		}
 	}
-
 </script>
 
 <svelte:head>
@@ -127,7 +126,7 @@
 		<!-- Stars -->
 		{#each Array(50) as _, i (i)}
 			<div
-				class="absolute rounded-full bg-white animate-pulse-glow"
+				class="animate-pulse-glow absolute rounded-full bg-white"
 				style="
 					width: {1 + Math.random() * 2}px;
 					height: {1 + Math.random() * 2}px;
@@ -142,7 +141,7 @@
 
 		<!-- Orbital rings -->
 		<div
-			class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-[900px] w-[900px] animate-spin-slow opacity-[0.03]"
+			class="animate-spin-slow absolute top-1/2 left-1/2 h-[900px] w-[900px] -translate-x-1/2 -translate-y-1/2 opacity-[0.03]"
 		>
 			<svg viewBox="0 0 200 200" class="h-full w-full">
 				<ellipse
@@ -188,13 +187,15 @@
 					{$_('app.name').toLowerCase()}
 				</h1>
 				<p class="mt-2 text-sm text-[var(--text-muted)]">
-					{needsSetup ? $_('auth.firstAdminDescription').toLowerCase() : $_('auth.welcomeBack').toLowerCase()}
+					{needsSetup
+						? $_('auth.firstAdminDescription').toLowerCase()
+						: $_('auth.welcomeBack').toLowerCase()}
 				</p>
 			</div>
 
 			<!-- Card container with flowing border -->
 			<div class="border-flow">
-				<div class="border border-[var(--line)] bg-[var(--surface)] p-6 glow-subtle">
+				<div class="glow-subtle border border-[var(--line)] bg-[var(--surface)] p-6">
 					<form class="flex flex-col gap-5" onsubmit={handleSubmit}>
 						<Input
 							type="text"
@@ -216,7 +217,7 @@
 							/>
 							<button
 								type="button"
-								class="absolute right-3 top-[30px] p-1 text-[var(--text-ghost)] transition-colors hover:text-[var(--text-soft)]"
+								class="absolute top-[30px] right-3 p-1 text-[var(--text-ghost)] transition-colors hover:text-[var(--text-soft)]"
 								onclick={() => (showPassword = !showPassword)}
 								tabindex={-1}
 								aria-label={showPassword ? 'Hide password' : 'Show password'}
@@ -229,18 +230,14 @@
 						{#if !needsSetup}
 							<label class="flex cursor-pointer items-center gap-3">
 								<div class="relative">
-									<input
-										type="checkbox"
-										bind:checked={rememberSession}
-										class="peer sr-only"
-									/>
+									<input type="checkbox" bind:checked={rememberSession} class="peer sr-only" />
 									<div
 										class="h-4 w-4 border border-[var(--line)] bg-[var(--void-2)] transition-all peer-checked:border-[var(--void-6)] peer-checked:bg-[var(--void-5)] peer-focus-visible:ring-1 peer-focus-visible:ring-[var(--accent-line)]"
 									></div>
 									<Icon
 										name="check"
 										size={10}
-										class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-[var(--text)] opacity-0 transition-opacity peer-checked:opacity-100"
+										class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[var(--text)] opacity-0 transition-opacity peer-checked:opacity-100"
 									/>
 								</div>
 								<span class="text-sm text-[var(--text-ghost)]">{$_('auth.rememberMe')}</span>
@@ -250,7 +247,7 @@
 						<!-- Error message -->
 						{#if error}
 							<div
-								class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)] animate-fade-in"
+								class="animate-fade-in border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]"
 							>
 								{error}
 							</div>
@@ -260,7 +257,7 @@
 							type="submit"
 							size="lg"
 							disabled={loading || username.trim().length === 0 || password.length === 0}
-							loading={loading}
+							{loading}
 							class="mt-2 w-full justify-center"
 						>
 							{#if loading}
@@ -285,7 +282,9 @@
 	</div>
 
 	<!-- Domain watermark -->
-	<div class="absolute bottom-4 left-1/2 -translate-x-1/2 text-[10px] font-mono text-[var(--void-6)] tracking-wider">
+	<div
+		class="absolute bottom-4 left-1/2 -translate-x-1/2 font-mono text-[10px] tracking-wider text-[var(--void-6)]"
+	>
 		hmphin.space
 	</div>
 </main>

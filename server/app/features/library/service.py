@@ -14,7 +14,11 @@ from app.bridge import tachibridge
 from app.bridge.metrics import bridge_page_metrics
 from app.config import settings
 from app.core.errors import BridgeAPIError
-from app.core.utils import commit_with_sqlite_retry, normalize_positive_int_ids, normalize_text
+from app.core.utils import (
+    commit_with_sqlite_retry,
+    normalize_positive_int_ids,
+    normalize_text,
+)
 from app.domain.download_profiles import (
     parse_selected_variant_ids,
     serialize_selected_variant_ids,
@@ -131,10 +135,7 @@ class LibraryService:
             stmt = stmt.where(LibraryTitle.user_status_id.is_not(None))
         title_rows = (
             await self.session.exec(
-                stmt
-                .order_by(desc(LibraryTitle.updated_at))
-                .offset(offset)
-                .limit(limit)
+                stmt.order_by(desc(LibraryTitle.updated_at)).offset(offset).limit(limit)
             )
         ).all()
         titles = list(title_rows)
@@ -176,7 +177,9 @@ class LibraryService:
                 .group_by(LibraryTitleVariant.library_title_id)
             )
         ).all()
-        variants_count = {int(title_id): int(count) for title_id, count in variants_count_rows}
+        variants_count = {
+            int(title_id): int(count) for title_id, count in variants_count_rows
+        }
 
         chapters_count_rows = (
             await self.session.exec(
@@ -188,7 +191,9 @@ class LibraryService:
                 .group_by(LibraryChapter.library_title_id)
             )
         ).all()
-        chapters_count = {int(title_id): int(count) for title_id, count in chapters_count_rows}
+        chapters_count = {
+            int(title_id): int(count) for title_id, count in chapters_count_rows
+        }
 
         last_read_rows = (
             await self.session.exec(
@@ -222,7 +227,9 @@ class LibraryService:
                         if preferred_variant is not None and preferred_variant.title
                         else title.title
                     ),
-                    thumbnail_url=self._display_title_thumbnail(title, preferred_variant),
+                    thumbnail_url=self._display_title_thumbnail(
+                        title, preferred_variant
+                    ),
                     status=(
                         int(preferred_variant.status)
                         if preferred_variant is not None and preferred_variant.status
@@ -451,7 +458,11 @@ class LibraryService:
         if not collections:
             return []
 
-        ids = [int(collection.id) for collection in collections if collection.id is not None]
+        ids = [
+            int(collection.id)
+            for collection in collections
+            if collection.id is not None
+        ]
         count_rows = (
             await self.session.exec(
                 select(
@@ -532,7 +543,9 @@ class LibraryService:
         if "description" in updates:
             collection.description = (updates["description"] or "").strip() or None
         if "color" in updates and updates["color"] is not None:
-            collection.color = self._normalize_color(updates["color"], default=collection.color)
+            collection.color = self._normalize_color(
+                updates["color"], default=collection.color
+            )
         if "position" in updates and updates["position"] is not None:
             collection.position = int(updates["position"])
         collection.updated_at = datetime.now(timezone.utc)
@@ -594,7 +607,9 @@ class LibraryService:
             )
             await self._commit_with_sqlite_retry()
 
-    async def remove_title_from_collection(self, collection_id: int, title_id: int) -> None:
+    async def remove_title_from_collection(
+        self, collection_id: int, title_id: int
+    ) -> None:
         await self._get_collection_or_404(collection_id)
         await self.session.exec(
             delete(LibraryCollectionTitle).where(
@@ -618,7 +633,9 @@ class LibraryService:
             if user_status_id is not None:
                 status = await self.session.get(LibraryUserStatus, int(user_status_id))
                 if status is None:
-                    raise BridgeAPIError(404, f"Library status not found: {user_status_id}")
+                    raise BridgeAPIError(
+                        404, f"Library status not found: {user_status_id}"
+                    )
             title.user_status_id = user_status_id
 
         if "preferred_variant_id" in updates:
@@ -642,7 +659,9 @@ class LibraryService:
             if ids:
                 existing_rows = (
                     await self.session.exec(
-                        select(LibraryCollection.id).where(LibraryCollection.id.in_(ids))
+                        select(LibraryCollection.id).where(
+                            LibraryCollection.id.in_(ids)
+                        )
                     )
                 ).all()
                 existing_ids = {int(item) for item in existing_rows}
@@ -666,11 +685,17 @@ class LibraryService:
 
         profile: DownloadProfile | None = None
         status_removed = "user_status_id" in updates and title.user_status_id is None
-        if "updates_enabled" in updates or "watched_variant_ids" in updates or status_removed:
+        if (
+            "updates_enabled" in updates
+            or "watched_variant_ids" in updates
+            or status_removed
+        ):
             now = datetime.now(timezone.utc)
             profile = (
                 await self.session.exec(
-                    select(DownloadProfile).where(DownloadProfile.library_title_id == title_id)
+                    select(DownloadProfile).where(
+                        DownloadProfile.library_title_id == title_id
+                    )
                 )
             ).first()
             normalized_monitoring_variant_ids: list[int] | None = None
@@ -684,15 +709,21 @@ class LibraryService:
                         variant_ids=monitoring_variant_ids,
                     )
                 )
-                if len(normalized_monitoring_variant_ids) != len(monitoring_variant_ids):
-                    raise BridgeAPIError(404, "One or more monitoring variants are not linked")
+                if len(normalized_monitoring_variant_ids) != len(
+                    monitoring_variant_ids
+                ):
+                    raise BridgeAPIError(
+                        404, "One or more monitoring variants are not linked"
+                    )
 
             if "updates_enabled" in updates:
                 monitoring_enabled = bool(updates["updates_enabled"])
             elif normalized_monitoring_variant_ids is not None:
                 monitoring_enabled = len(normalized_monitoring_variant_ids) > 0
             else:
-                monitoring_enabled = bool(profile.enabled) if profile is not None else False
+                monitoring_enabled = (
+                    bool(profile.enabled) if profile is not None else False
+                )
             if title.user_status_id is None:
                 monitoring_enabled = False
 
@@ -857,7 +888,9 @@ class LibraryService:
             delete(DownloadTask).where(DownloadTask.library_title_id.in_(deletable_ids))
         )
         await self.session.exec(
-            delete(DownloadProfile).where(DownloadProfile.library_title_id.in_(deletable_ids))
+            delete(DownloadProfile).where(
+                DownloadProfile.library_title_id.in_(deletable_ids)
+            )
         )
         # Keep minimal identity metadata so re-importing the same source title
         # resolves to the same library title ID.
@@ -873,7 +906,9 @@ class LibraryService:
         )
         return removed
 
-    async def import_title(self, request: LibraryImportRequest) -> LibraryImportResponse:
+    async def import_title(
+        self, request: LibraryImportRequest
+    ) -> LibraryImportResponse:
         _t0 = _time.monotonic()
         source = await self._resolve_source(request.source_id)
         details = await self._fetch_title_details_with_fallback(
@@ -937,7 +972,9 @@ class LibraryService:
             self.session.add(variant)
             created = True
         else:
-            library_title = await self.session.get(LibraryTitle, variant.library_title_id)
+            library_title = await self.session.get(
+                LibraryTitle, variant.library_title_id
+            )
             if library_title is None:
                 raise BridgeAPIError(500, f"Broken library variant: {variant.id}")
             variant.source_name = source.name
@@ -1005,7 +1042,9 @@ class LibraryService:
             created=created,
         )
         if profile is not None and profile.enabled:
-            await self._ensure_local_cover(library_title, variant, details.thumbnail_url)
+            await self._ensure_local_cover(
+                library_title, variant, details.thumbnail_url
+            )
         _library_logger.bind(
             title_id=int(library_title.id),
             source_id=request.source_id,
@@ -1093,7 +1132,10 @@ class LibraryService:
             await self.session.exec(
                 select(LibraryChapter)
                 .where(LibraryChapter.variant_id == int(variant.id))
-                .order_by(desc(LibraryChapter.chapter_number), desc(LibraryChapter.date_upload))
+                .order_by(
+                    desc(LibraryChapter.chapter_number),
+                    desc(LibraryChapter.date_upload),
+                )
             )
         ).all()
 
@@ -1132,7 +1174,11 @@ class LibraryService:
             await self.session.exec(
                 select(LibraryChapter)
                 .where(LibraryChapter.variant_id == int(variant.id))
-                .order_by(LibraryChapter.chapter_number, LibraryChapter.date_upload, LibraryChapter.id)
+                .order_by(
+                    LibraryChapter.chapter_number,
+                    LibraryChapter.date_upload,
+                    LibraryChapter.id,
+                )
             )
         ).all()
 
@@ -1175,7 +1221,11 @@ class LibraryService:
         if chapter is None:
             raise BridgeAPIError(404, f"Library chapter not found: {chapter_id}")
 
-        order = desc(LibraryChapterComment.created_at) if newest_first else LibraryChapterComment.created_at
+        order = (
+            desc(LibraryChapterComment.created_at)
+            if newest_first
+            else LibraryChapterComment.created_at
+        )
         rows = (
             await self.session.exec(
                 select(LibraryChapterComment)
@@ -1184,7 +1234,9 @@ class LibraryService:
             )
         ).all()
         comments = list(rows)
-        return [self._to_chapter_comment_resource(comment, chapter) for comment in comments]
+        return [
+            self._to_chapter_comment_resource(comment, chapter) for comment in comments
+        ]
 
     async def create_chapter_comment(
         self,
@@ -1219,11 +1271,15 @@ class LibraryService:
     ) -> LibraryChapterCommentResource:
         comment = await self.session.get(LibraryChapterComment, comment_id)
         if comment is None:
-            raise BridgeAPIError(404, f"Library chapter comment not found: {comment_id}")
+            raise BridgeAPIError(
+                404, f"Library chapter comment not found: {comment_id}"
+            )
 
         chapter = await self.session.get(LibraryChapter, int(comment.chapter_id))
         if chapter is None:
-            raise BridgeAPIError(404, f"Library chapter not found: {comment.chapter_id}")
+            raise BridgeAPIError(
+                404, f"Library chapter not found: {comment.chapter_id}"
+            )
 
         updates = payload.model_dump(exclude_unset=True)
         changed = False
@@ -1265,7 +1321,9 @@ class LibraryService:
         if title is None:
             raise BridgeAPIError(404, f"Library title not found: {title_id}")
 
-        chapter_stmt = select(LibraryChapter).where(LibraryChapter.library_title_id == title_id)
+        chapter_stmt = select(LibraryChapter).where(
+            LibraryChapter.library_title_id == title_id
+        )
         if variant_id is not None:
             chapter_stmt = chapter_stmt.where(LibraryChapter.variant_id == variant_id)
 
@@ -1273,12 +1331,18 @@ class LibraryService:
         chapters = list(chapter_rows)
         if not chapters:
             return []
-        chapter_by_id = {int(chapter.id): chapter for chapter in chapters if chapter.id is not None}
+        chapter_by_id = {
+            int(chapter.id): chapter for chapter in chapters if chapter.id is not None
+        }
         chapter_ids = list(chapter_by_id.keys())
         if not chapter_ids:
             return []
 
-        order = desc(LibraryChapterComment.created_at) if newest_first else LibraryChapterComment.created_at
+        order = (
+            desc(LibraryChapterComment.created_at)
+            if newest_first
+            else LibraryChapterComment.created_at
+        )
         comment_rows = (
             await self.session.exec(
                 select(LibraryChapterComment)
@@ -1295,7 +1359,9 @@ class LibraryService:
             resources.append(self._to_chapter_comment_resource(comment, chapter))
         return resources
 
-    async def get_chapter_progress(self, chapter_id: int) -> LibraryChapterProgressResource:
+    async def get_chapter_progress(
+        self, chapter_id: int
+    ) -> LibraryChapterProgressResource:
         chapter = await self.session.get(LibraryChapter, chapter_id)
         if chapter is None:
             raise BridgeAPIError(404, f"Library chapter not found: {chapter_id}")
@@ -1374,7 +1440,9 @@ class LibraryService:
 
         rows = (
             await self.session.exec(
-                select(LibraryChapter).where(LibraryChapter.library_title_id == title_id)
+                select(LibraryChapter).where(
+                    LibraryChapter.library_title_id == title_id
+                )
             )
         ).all()
         chapters = list(rows)
@@ -1446,20 +1514,17 @@ class LibraryService:
             query_titles = [title.title]
 
         query_author = (
-            (
-                (anchor_variant.author if anchor_variant else None)
-                or title.author
-                or next(
-                    (
-                        (variant.author or "").strip()
-                        for variant in variants
-                        if (variant.author or "").strip()
-                    ),
-                    "",
-                )
+            (anchor_variant.author if anchor_variant else None)
+            or title.author
+            or next(
+                (
+                    (variant.author or "").strip()
+                    for variant in variants
+                    if (variant.author or "").strip()
+                ),
+                "",
             )
-            .strip()
-        )
+        ).strip()
 
         source_summaries = await self._list_enabled_source_summaries()
         if lang:
@@ -1483,7 +1548,9 @@ class LibraryService:
         anchor_extension_pkg = None
         if anchor_variant is not None:
             anchor_source = source_by_id.get(anchor_variant.source_id)
-            anchor_extension_pkg = anchor_source.extension_pkg if anchor_source else None
+            anchor_extension_pkg = (
+                anchor_source.extension_pkg if anchor_source else None
+            )
 
         source_summaries.sort(
             key=lambda source: (
@@ -1511,9 +1578,16 @@ class LibraryService:
             if current is None:
                 preferred_variant_by_extension_pkg[extension_pkg] = variant
                 continue
-            current_stamp = current.last_synced_at or datetime.fromtimestamp(0, tz=timezone.utc)
-            variant_stamp = variant.last_synced_at or datetime.fromtimestamp(0, tz=timezone.utc)
-            if (variant_stamp, int(variant.id or 0)) > (current_stamp, int(current.id or 0)):
+            current_stamp = current.last_synced_at or datetime.fromtimestamp(
+                0, tz=timezone.utc
+            )
+            variant_stamp = variant.last_synced_at or datetime.fromtimestamp(
+                0, tz=timezone.utc
+            )
+            if (variant_stamp, int(variant.id or 0)) > (
+                current_stamp,
+                int(current.id or 0),
+            ):
                 preferred_variant_by_extension_pkg[extension_pkg] = variant
 
         # Same extension usually keeps stable title URL between language sources.
@@ -1521,7 +1595,9 @@ class LibraryService:
         for source in source_summaries:
             if source.id in linked_source_ids:
                 continue
-            preferred_variant = preferred_variant_by_extension_pkg.get(source.extension_pkg)
+            preferred_variant = preferred_variant_by_extension_pkg.get(
+                source.extension_pkg
+            )
             if preferred_variant is None:
                 continue
             title_url = preferred_variant.title_url
@@ -1718,7 +1794,9 @@ class LibraryService:
                         continue
                     if _normalize(variant.author) != normalized_query_author:
                         continue
-                    author_fallback_by_source.setdefault(variant.source_id, []).append(variant)
+                    author_fallback_by_source.setdefault(variant.source_id, []).append(
+                        variant
+                    )
 
                 by_source_summary = {source.id: source for source in source_summaries}
                 for source_id, fallback_variants in author_fallback_by_source.items():
@@ -1755,7 +1833,9 @@ class LibraryService:
                                 else (variant.source_name or variant.source_id)
                             ),
                             source_lang=(
-                                source_summary.lang if source_summary else variant.source_lang
+                                source_summary.lang
+                                if source_summary
+                                else variant.source_lang
                             ),
                             title_url=variant.title_url,
                             title=variant.title,
@@ -1807,7 +1887,9 @@ class LibraryService:
 
         profile = (
             await self.session.exec(
-                select(DownloadProfile).where(DownloadProfile.library_title_id == title_id)
+                select(DownloadProfile).where(
+                    DownloadProfile.library_title_id == title_id
+                )
             )
         ).first()
         pin_variant_id: int | None = None
@@ -1817,7 +1899,9 @@ class LibraryService:
             and not await self._profile_variant_ids(profile)
         ):
             try:
-                current_variant = await self._resolve_variant(title_id=title_id, variant_id=None)
+                current_variant = await self._resolve_variant(
+                    title_id=title_id, variant_id=None
+                )
                 if current_variant.id is not None:
                     pin_variant_id = int(current_variant.id)
             except BridgeAPIError:
@@ -2158,7 +2242,9 @@ class LibraryService:
             )
         ).all()
         target_collection_ids = {
-            int(item.collection_id) for item in target_collection_rows if item.id is not None
+            int(item.collection_id)
+            for item in target_collection_rows
+            if item.id is not None
         }
         for row in source_collection_rows:
             if row.id is None:
@@ -2196,7 +2282,9 @@ class LibraryService:
                 return None
             return int(variant.id)
 
-        async def remap_profile_variant_ids(profile: DownloadProfile | None) -> list[int]:
+        async def remap_profile_variant_ids(
+            profile: DownloadProfile | None,
+        ) -> list[int]:
             if profile is None:
                 return []
             remapped_ids = [
@@ -2219,7 +2307,9 @@ class LibraryService:
             if source_variant_ids:
                 await self._set_profile_variant_ids(source_profile, source_variant_ids)
             elif source_preferred_variant_id is not None:
-                await self._set_profile_variant_ids(source_profile, [source_preferred_variant_id])
+                await self._set_profile_variant_ids(
+                    source_profile, [source_preferred_variant_id]
+                )
             else:
                 await self._set_profile_variant_ids(source_profile, [])
             source_profile.updated_at = now
@@ -2239,14 +2329,18 @@ class LibraryService:
                     source_profile.start_from,
                 )
 
-            merged_variant_ids = list(dict.fromkeys([*target_variant_ids, *source_variant_ids]))
+            merged_variant_ids = list(
+                dict.fromkeys([*target_variant_ids, *source_variant_ids])
+            )
             if merged_variant_ids:
                 await self._set_profile_variant_ids(target_profile, merged_variant_ids)
             elif (
                 target_profile.preferred_variant_id is None
                 and source_preferred_variant_id is not None
             ):
-                await self._set_profile_variant_ids(target_profile, [source_preferred_variant_id])
+                await self._set_profile_variant_ids(
+                    target_profile, [source_preferred_variant_id]
+                )
 
             if source_profile.last_checked_at and (
                 target_profile.last_checked_at is None
@@ -2273,11 +2367,15 @@ class LibraryService:
                 selected_variant_ids = await remap_profile_variant_ids(target_profile)
                 if target_preferred_variant_id is not None:
                     reordered_ids = [target_preferred_variant_id] + [
-                        item for item in selected_variant_ids if item != target_preferred_variant_id
+                        item
+                        for item in selected_variant_ids
+                        if item != target_preferred_variant_id
                     ]
                     await self._set_profile_variant_ids(target_profile, reordered_ids)
                 else:
-                    await self._set_profile_variant_ids(target_profile, selected_variant_ids)
+                    await self._set_profile_variant_ids(
+                        target_profile, selected_variant_ids
+                    )
                 target_profile.updated_at = now
                 self.session.add(target_profile)
 
@@ -2313,7 +2411,9 @@ class LibraryService:
                 await self.session.exec(
                     select(LibraryTitleVariant.id)
                     .where(LibraryTitleVariant.library_title_id == target_title_id)
-                    .order_by(desc(LibraryTitleVariant.last_synced_at), LibraryTitleVariant.id)
+                    .order_by(
+                        desc(LibraryTitleVariant.last_synced_at), LibraryTitleVariant.id
+                    )
                     .limit(1)
                 )
             ).first()
@@ -2354,7 +2454,9 @@ class LibraryService:
                 )
             )
         ).all()
-        remaining_source_chapter_ids = [int(item) for item in remaining_source_chapter_id_rows]
+        remaining_source_chapter_ids = [
+            int(item) for item in remaining_source_chapter_id_rows
+        ]
         if remaining_source_chapter_ids:
             await self.session.exec(
                 delete(LibraryChapterPage).where(
@@ -2373,7 +2475,9 @@ class LibraryService:
             )
         )
         await self.session.exec(
-            delete(DownloadProfile).where(DownloadProfile.library_title_id == source_title_id)
+            delete(DownloadProfile).where(
+                DownloadProfile.library_title_id == source_title_id
+            )
         )
         await self.session.exec(
             delete(DownloadTask).where(DownloadTask.library_title_id == source_title_id)
@@ -2432,7 +2536,9 @@ class LibraryService:
         if refresh or not cached_pages:
             variant = await self.session.get(LibraryTitleVariant, chapter.variant_id)
             if variant is None:
-                raise BridgeAPIError(500, f"Library chapter has no variant: {chapter_id}")
+                raise BridgeAPIError(
+                    500, f"Library chapter has no variant: {chapter_id}"
+                )
             bridge_chapter_url = chapter.chapter_url
             preflight_error = await self._preflight_mangalib_chapter_pages_unavailable(
                 source_id=variant.source_id,
@@ -2693,7 +2799,11 @@ class LibraryService:
     def _list_downloaded_page_files(chapter_dir: Path) -> list[Path]:
         if not chapter_dir.exists() or not chapter_dir.is_dir():
             return []
-        files = [path for path in chapter_dir.iterdir() if path.is_file() and path.suffix.lower() in _IMAGE_SUFFIXES]
+        files = [
+            path
+            for path in chapter_dir.iterdir()
+            if path.is_file() and path.suffix.lower() in _IMAGE_SUFFIXES
+        ]
 
         def _sort_key(path: Path) -> tuple[int, str]:
             stem = path.stem
@@ -2797,7 +2907,10 @@ class LibraryService:
             enabled=None,
             supports_latest=None,
         )
-        summaries = [SourceSummary.from_models(extension, source) for extension, source in sources]
+        summaries = [
+            SourceSummary.from_models(extension, source)
+            for extension, source in sources
+        ]
         source = next((item for item in summaries if item.id == source_id), None)
         if source is None:
             raise BridgeAPIError(404, f"Source not found: {source_id}")
@@ -2805,7 +2918,8 @@ class LibraryService:
 
     async def _ensure_default_user_statuses(self) -> None:
         existing_count = int(
-            (await self.session.exec(select(func.count(LibraryUserStatus.id)))).one() or 0
+            (await self.session.exec(select(func.count(LibraryUserStatus.id)))).one()
+            or 0
         )
         if existing_count > 0:
             return
@@ -2874,7 +2988,11 @@ class LibraryService:
         titles: list[LibraryTitle],
     ) -> dict[int, LibraryUserStatus]:
         status_ids = sorted(
-            {int(title.user_status_id) for title in titles if title.user_status_id is not None}
+            {
+                int(title.user_status_id)
+                for title in titles
+                if title.user_status_id is not None
+            }
         )
         if not status_ids:
             return {}
@@ -2958,7 +3076,9 @@ class LibraryService:
     async def _is_monitoring_enabled(self, title_id: int) -> bool:
         profile = (
             await self.session.exec(
-                select(DownloadProfile).where(DownloadProfile.library_title_id == title_id)
+                select(DownloadProfile).where(
+                    DownloadProfile.library_title_id == title_id
+                )
             )
         ).first()
         return bool(profile.enabled) if profile is not None else False
@@ -2971,7 +3091,9 @@ class LibraryService:
                 await self.session.exec(
                     select(DownloadProfileVariant.variant_id)
                     .where(DownloadProfileVariant.profile_id == int(profile.id))
-                    .order_by(DownloadProfileVariant.position, DownloadProfileVariant.id)
+                    .order_by(
+                        DownloadProfileVariant.position, DownloadProfileVariant.id
+                    )
                 )
             ).all()
             normalized = normalize_positive_int_ids(rows)
@@ -3040,7 +3162,9 @@ class LibraryService:
     ) -> list[int]:
         profile = (
             await self.session.exec(
-                select(DownloadProfile).where(DownloadProfile.library_title_id == title_id)
+                select(DownloadProfile).where(
+                    DownloadProfile.library_title_id == title_id
+                )
             )
         ).first()
         if profile is None:
@@ -3136,14 +3260,18 @@ class LibraryService:
                 preferred_variant is not None
                 and preferred_variant.library_title_id == title_id
             ):
-                await self._set_profile_variant_ids(profile, [int(preferred_variant.id)])
+                await self._set_profile_variant_ids(
+                    profile, [int(preferred_variant.id)]
+                )
                 return
 
         variant_id = (
             await self.session.exec(
                 select(LibraryTitleVariant.id)
                 .where(LibraryTitleVariant.library_title_id == title_id)
-                .order_by(desc(LibraryTitleVariant.last_synced_at), LibraryTitleVariant.id)
+                .order_by(
+                    desc(LibraryTitleVariant.last_synced_at), LibraryTitleVariant.id
+                )
                 .limit(1)
             )
         ).first()
@@ -3153,7 +3281,9 @@ class LibraryService:
     async def _ensure_local_cover_for_monitoring(self, title_id: int) -> None:
         profile = (
             await self.session.exec(
-                select(DownloadProfile).where(DownloadProfile.library_title_id == title_id)
+                select(DownloadProfile).where(
+                    DownloadProfile.library_title_id == title_id
+                )
             )
         ).first()
         if profile is None or not profile.enabled:
@@ -3163,7 +3293,9 @@ class LibraryService:
         if title is None:
             return
 
-        preferred_variant = await self._resolve_variant(title_id=title_id, variant_id=None)
+        preferred_variant = await self._resolve_variant(
+            title_id=title_id, variant_id=None
+        )
         await self._ensure_local_cover(
             title,
             preferred_variant,
@@ -3206,8 +3338,7 @@ class LibraryService:
             supports_latest=None,
         )
         return [
-            SourceSummary.from_models(extension, source)
-            for extension, source in rows
+            SourceSummary.from_models(extension, source) for extension, source in rows
         ]
 
     def _pick_source_match_candidate(
@@ -3340,7 +3471,9 @@ class LibraryService:
                 )
             )
         ).all()
-        linked_source_ids = {str(item) for item in linked_source_rows if item is not None}
+        linked_source_ids = {
+            str(item) for item in linked_source_rows if item is not None
+        }
 
         for sibling_source_id in sibling_source_ids:
             if sibling_source_id in linked_source_ids:
@@ -3368,7 +3501,9 @@ class LibraryService:
                 select(Source.id).where(Source.extension_pkg == source.extension_pkg)
             )
         ).all()
-        sibling_source_ids = [str(item) for item in sibling_source_id_rows if item is not None]
+        sibling_source_ids = [
+            str(item) for item in sibling_source_id_rows if item is not None
+        ]
         if not sibling_source_ids:
             return None
 
@@ -3379,13 +3514,17 @@ class LibraryService:
                     LibraryTitleVariant.source_id.in_(sibling_source_ids),
                     LibraryTitleVariant.title_url == title_url,
                 )
-                .order_by(desc(LibraryTitleVariant.last_synced_at), LibraryTitleVariant.id)
+                .order_by(
+                    desc(LibraryTitleVariant.last_synced_at), LibraryTitleVariant.id
+                )
                 .limit(1)
             )
         ).first()
         return int(existing) if existing is not None else None
 
-    async def _find_or_create_library_title(self, key: str, fallback_title: str) -> LibraryTitle:
+    async def _find_or_create_library_title(
+        self, key: str, fallback_title: str
+    ) -> LibraryTitle:
         title = (
             await self.session.exec(
                 select(LibraryTitle).where(LibraryTitle.canonical_key == key)
@@ -3401,7 +3540,9 @@ class LibraryService:
             if title_only_key:
                 title = (
                     await self.session.exec(
-                        select(LibraryTitle).where(LibraryTitle.canonical_key == title_only_key)
+                        select(LibraryTitle).where(
+                            LibraryTitle.canonical_key == title_only_key
+                        )
                     )
                 ).first()
                 if title is not None:
@@ -3426,10 +3567,7 @@ class LibraryService:
             return variant
 
         title = await self.session.get(LibraryTitle, title_id)
-        if (
-            title is not None
-            and title.preferred_variant_id is not None
-        ):
+        if title is not None and title.preferred_variant_id is not None:
             preferred_variant = await self.session.get(
                 LibraryTitleVariant, int(title.preferred_variant_id)
             )
@@ -3443,15 +3581,21 @@ class LibraryService:
             await self.session.exec(
                 select(LibraryTitleVariant)
                 .where(LibraryTitleVariant.library_title_id == title_id)
-                .order_by(desc(LibraryTitleVariant.last_synced_at), LibraryTitleVariant.id)
+                .order_by(
+                    desc(LibraryTitleVariant.last_synced_at), LibraryTitleVariant.id
+                )
                 .limit(1)
             )
         ).first()
         if variant is None:
-            raise BridgeAPIError(404, f"Library title has no source variants: {title_id}")
+            raise BridgeAPIError(
+                404, f"Library title has no source variants: {title_id}"
+            )
         return variant
 
-    async def _refresh_variant(self, title: LibraryTitle, variant: LibraryTitleVariant) -> None:
+    async def _refresh_variant(
+        self, title: LibraryTitle, variant: LibraryTitleVariant
+    ) -> None:
         details = await tachibridge.fetch_title_details(
             source_id=variant.source_id,
             title_url=variant.title_url,
@@ -3535,16 +3679,22 @@ class LibraryService:
         ]
         if stale_ids:
             await self.session.exec(
-                delete(LibraryChapterPage).where(LibraryChapterPage.chapter_id.in_(stale_ids))
+                delete(LibraryChapterPage).where(
+                    LibraryChapterPage.chapter_id.in_(stale_ids)
+                )
             )
             await self.session.exec(
                 delete(LibraryChapter).where(LibraryChapter.id.in_(stale_ids))
             )
 
     @staticmethod
-    def _sync_title_snapshot(library_title: LibraryTitle, details, now: datetime) -> None:
+    def _sync_title_snapshot(
+        library_title: LibraryTitle, details, now: datetime
+    ) -> None:
         library_title.title = details.title or library_title.title
-        library_title.thumbnail_url = details.thumbnail_url or library_title.thumbnail_url
+        library_title.thumbnail_url = (
+            details.thumbnail_url or library_title.thumbnail_url
+        )
         library_title.description = details.description or library_title.description
         library_title.artist = details.artist or library_title.artist
         library_title.author = details.author or library_title.author
@@ -3573,7 +3723,9 @@ class LibraryService:
         title_id: int,
         variants: list[LibraryTitleVariant],
     ) -> dict[int, LibraryVariantAvailabilityResource]:
-        variant_ids = [int(variant.id) for variant in variants if variant.id is not None]
+        variant_ids = [
+            int(variant.id) for variant in variants if variant.id is not None
+        ]
         if not variant_ids:
             return {}
 
@@ -3591,8 +3743,7 @@ class LibraryService:
 
         chapter_count_by_variant = {variant_id: 0 for variant_id in variant_ids}
         chapter_numbers_by_variant: dict[int, list[float]] = {
-            variant_id: []
-            for variant_id in variant_ids
+            variant_id: [] for variant_id in variant_ids
         }
 
         for variant_id, chapter_number in rows:
@@ -3602,22 +3753,16 @@ class LibraryService:
             )
             number = float(chapter_number or 0.0)
             if number > 0.0:
-                chapter_numbers_by_variant.setdefault(normalized_variant_id, []).append(number)
+                chapter_numbers_by_variant.setdefault(normalized_variant_id, []).append(
+                    number
+                )
 
         highest_by_variant = {
-            variant_id: (
-                max(numbers)
-                if numbers
-                else None
-            )
+            variant_id: (max(numbers) if numbers else None)
             for variant_id, numbers in chapter_numbers_by_variant.items()
         }
         global_highest = max(
-            (
-                value
-                for value in highest_by_variant.values()
-                if value is not None
-            ),
+            (value for value in highest_by_variant.values() if value is not None),
             default=None,
         )
 
@@ -3631,7 +3776,9 @@ class LibraryService:
             starts_from_chapter_one = first_number is not None and first_number <= 1.05
             has_major_gaps = any(
                 (next_number - current_number) > 1.25
-                for current_number, next_number in zip(unique_numbers, unique_numbers[1:])
+                for current_number, next_number in zip(
+                    unique_numbers, unique_numbers[1:]
+                )
             )
 
             if chapter_count == 0:
@@ -3752,10 +3899,14 @@ class LibraryService:
         bases = self._extract_url_preference_bases(prefs.preferences)
         selected_base = bases[0] if bases else None
         if "MangaLibImageServer" in pref_by_key:
-            image_server = str(pref_by_key.get("MangaLibImageServer") or "compress").strip()
+            image_server = str(
+                pref_by_key.get("MangaLibImageServer") or "compress"
+            ).strip()
             if not image_server:
                 image_server = "compress"
-            api_domain = str(pref_by_key.get("MangaLibApiDomain") or "https://api.cdnlibs.org").strip()
+            api_domain = str(
+                pref_by_key.get("MangaLibApiDomain") or "https://api.cdnlibs.org"
+            ).strip()
             if not api_domain:
                 api_domain = "https://api.cdnlibs.org"
             mangalib = await self._fetch_mangalib_image_server_url(
@@ -3784,17 +3935,24 @@ class LibraryService:
             return None
 
         pref_by_key = {pref.key: pref.current_value for pref in prefs.preferences}
-        if "MangaLibApiDomain" not in pref_by_key and "MangaLibImageServer" not in pref_by_key:
+        if (
+            "MangaLibApiDomain" not in pref_by_key
+            and "MangaLibImageServer" not in pref_by_key
+        ):
             return None
 
-        api_domain = str(pref_by_key.get("MangaLibApiDomain") or "https://api.cdnlibs.org").strip()
+        api_domain = str(
+            pref_by_key.get("MangaLibApiDomain") or "https://api.cdnlibs.org"
+        ).strip()
         if not api_domain:
             api_domain = "https://api.cdnlibs.org"
         endpoint = f"{api_domain.rstrip('/')}/api/manga{chapter_url}"
 
         try:
             timeout = httpx.Timeout(15.0)
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            async with httpx.AsyncClient(
+                timeout=timeout, follow_redirects=True
+            ) as client:
                 response = await client.get(endpoint)
                 response.raise_for_status()
         except Exception:
@@ -3814,7 +3972,9 @@ class LibraryService:
         if expired_at:
             return f"Chapter pages are unavailable in MangaLib API (locked until {expired_at})"
         if expired_type == 1:
-            return "Chapter pages are unavailable in MangaLib API (chapter is time-locked)"
+            return (
+                "Chapter pages are unavailable in MangaLib API (chapter is time-locked)"
+            )
         return "Chapter pages are unavailable in MangaLib API"
 
     async def _normalize_mangalib_pages_error(
@@ -3854,7 +4014,9 @@ class LibraryService:
         constants_url = f"{api_base}/api/constants"
         try:
             timeout = httpx.Timeout(10.0)
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            async with httpx.AsyncClient(
+                timeout=timeout, follow_redirects=True
+            ) as client:
                 response = await client.get(
                     constants_url,
                     params=[("fields[]", "imageServers")],
@@ -3916,7 +4078,9 @@ class LibraryService:
         for pref in preferences:
             key = (pref.key or "").strip().lower()
             if key == "домен":
-                domain_value = str(pref.current_value or pref.default_value or "").strip().lower()
+                domain_value = (
+                    str(pref.current_value or pref.default_value or "").strip().lower()
+                )
                 break
 
         if "hentai" in domain_value:
@@ -4007,16 +4171,23 @@ class LibraryService:
         if not source_url_base:
             return remote_url
 
-        candidate = LibraryService._sanitize_comma_encoded_url((page_url or "").strip()) or (page_url or "").strip()
+        candidate = (
+            LibraryService._sanitize_comma_encoded_url((page_url or "").strip())
+            or (page_url or "").strip()
+        )
         if not candidate:
             return remote_url
 
         parsed_remote = urlparse(remote_url)
         remote_is_absolute = bool(parsed_remote.scheme and parsed_remote.netloc)
-        if remote_is_absolute and (candidate.startswith("/") or candidate.startswith("//")):
+        if remote_is_absolute and (
+            candidate.startswith("/") or candidate.startswith("//")
+        ):
             return remote_url
 
-        parsed = urlparse(f"https:{candidate}" if candidate.startswith("//") else candidate)
+        parsed = urlparse(
+            f"https:{candidate}" if candidate.startswith("//") else candidate
+        )
         path = (parsed.path or "").lower()
         if path and any(path.endswith(suffix) for suffix in _IMAGE_SUFFIXES):
             return candidate
@@ -4044,8 +4215,14 @@ class LibraryService:
                 continue
             if not parsed_part.scheme:
                 normalized_part = part
-                if normalized_part.startswith("https/") or normalized_part.startswith("http/"):
-                    normalized_part = normalized_part.split("/", 1)[1] if "/" in normalized_part else ""
+                if normalized_part.startswith("https/") or normalized_part.startswith(
+                    "http/"
+                ):
+                    normalized_part = (
+                        normalized_part.split("/", 1)[1]
+                        if "/" in normalized_part
+                        else ""
+                    )
                 path_parts.append(
                     normalized_part
                     if normalized_part.startswith("/")
@@ -4081,7 +4258,10 @@ class LibraryService:
         for piece in [part.strip() for part in candidate.split(",") if part.strip()]:
             parsed_piece = urlparse(piece)
             if parsed_piece.scheme and parsed_piece.netloc:
-                return urljoin(f"{parsed_piece.scheme}://{parsed_piece.netloc}", parsed_piece.path or "/")
+                return urljoin(
+                    f"{parsed_piece.scheme}://{parsed_piece.netloc}",
+                    parsed_piece.path or "/",
+                )
 
         parsed = urlparse(candidate)
         if parsed.scheme and parsed.netloc:

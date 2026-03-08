@@ -20,7 +20,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column("library_chapters", sa.Column("downloaded_at", sa.DateTime(), nullable=True))
+    op.add_column(
+        "library_chapters", sa.Column("downloaded_at", sa.DateTime(), nullable=True)
+    )
     op.add_column(
         "library_chapters",
         sa.Column("download_path", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
@@ -34,7 +36,9 @@ def upgrade() -> None:
         "library_chapter_pages",
         sa.Column("local_path", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     )
-    op.add_column("library_chapter_pages", sa.Column("local_size", sa.Integer(), nullable=True))
+    op.add_column(
+        "library_chapter_pages", sa.Column("local_size", sa.Integer(), nullable=True)
+    )
 
     op.create_table(
         "download_profiles",
@@ -42,7 +46,11 @@ def upgrade() -> None:
         sa.Column("library_title_id", sa.Integer(), nullable=False),
         sa.Column("enabled", sa.Boolean(), nullable=False),
         sa.Column("auto_download", sa.Boolean(), nullable=False),
-        sa.Column("strategy", sa.Enum("NEW_ONLY", "ALL_UNREAD", name="downloadstrategy"), nullable=False),
+        sa.Column(
+            "strategy",
+            sa.Enum("NEW_ONLY", "ALL_UNREAD", name="downloadstrategy"),
+            nullable=False,
+        ),
         sa.Column("preferred_variant_id", sa.Integer(), nullable=True),
         sa.Column("start_from", sa.DateTime(), nullable=True),
         sa.Column("last_checked_at", sa.DateTime(), nullable=True),
@@ -91,7 +99,11 @@ def upgrade() -> None:
             ),
             nullable=False,
         ),
-        sa.Column("trigger", sa.Enum("MONITOR", "MANUAL", name="downloadtrigger"), nullable=False),
+        sa.Column(
+            "trigger",
+            sa.Enum("MONITOR", "MANUAL", name="downloadtrigger"),
+            nullable=False,
+        ),
         sa.Column("priority", sa.Integer(), nullable=False),
         sa.Column("attempts", sa.Integer(), nullable=False),
         sa.Column("max_attempts", sa.Integer(), nullable=False),
@@ -106,13 +118,33 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_download_tasks_library_title_id", "download_tasks", ["library_title_id"], unique=False)
-    op.create_index("ix_download_tasks_variant_id", "download_tasks", ["variant_id"], unique=False)
-    op.create_index("ix_download_tasks_chapter_id", "download_tasks", ["chapter_id"], unique=False)
-    op.create_index("ix_download_tasks_source_id", "download_tasks", ["source_id"], unique=False)
-    op.create_index("ix_download_tasks_status", "download_tasks", ["status"], unique=False)
-    op.create_index("ix_download_tasks_priority", "download_tasks", ["priority"], unique=False)
-    op.create_index("ix_download_tasks_available_at", "download_tasks", ["available_at"], unique=False)
+    op.create_index(
+        "ix_download_tasks_library_title_id",
+        "download_tasks",
+        ["library_title_id"],
+        unique=False,
+    )
+    op.create_index(
+        "ix_download_tasks_variant_id", "download_tasks", ["variant_id"], unique=False
+    )
+    op.create_index(
+        "ix_download_tasks_chapter_id", "download_tasks", ["chapter_id"], unique=False
+    )
+    op.create_index(
+        "ix_download_tasks_source_id", "download_tasks", ["source_id"], unique=False
+    )
+    op.create_index(
+        "ix_download_tasks_status", "download_tasks", ["status"], unique=False
+    )
+    op.create_index(
+        "ix_download_tasks_priority", "download_tasks", ["priority"], unique=False
+    )
+    op.create_index(
+        "ix_download_tasks_available_at",
+        "download_tasks",
+        ["available_at"],
+        unique=False,
+    )
 
 
 def downgrade() -> None:
@@ -125,9 +157,13 @@ def downgrade() -> None:
     op.drop_index("ix_download_tasks_library_title_id", table_name="download_tasks")
     op.drop_table("download_tasks")
 
-    op.drop_index("ix_download_profiles_preferred_variant_id", table_name="download_profiles")
+    op.drop_index(
+        "ix_download_profiles_preferred_variant_id", table_name="download_profiles"
+    )
     op.drop_index("ix_download_profiles_enabled", table_name="download_profiles")
-    op.drop_index("ix_download_profiles_library_title_id", table_name="download_profiles")
+    op.drop_index(
+        "ix_download_profiles_library_title_id", table_name="download_profiles"
+    )
     op.drop_table("download_profiles")
 
     op.drop_column("library_chapter_pages", "local_size")

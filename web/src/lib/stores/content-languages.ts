@@ -1,7 +1,10 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
 
-import { getContentLanguages as fetchContentLanguages, updateContentLanguages } from '$lib/api/settings';
+import {
+	getContentLanguages as fetchContentLanguages,
+	updateContentLanguages
+} from '$lib/api/settings';
 import { toMainContentLanguages } from '$lib/utils/content-languages';
 
 const STORAGE_KEY = 'mangarr-content-languages';

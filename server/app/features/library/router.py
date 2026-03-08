@@ -211,7 +211,9 @@ async def add_library_title_to_collection(
     title_id: int,
     service: LibraryService = Depends(get_service),
 ):
-    await service.add_title_to_collection(collection_id=collection_id, title_id=title_id)
+    await service.add_title_to_collection(
+        collection_id=collection_id, title_id=title_id
+    )
 
 
 @router.delete("/collections/{collection_id}/titles/{title_id}", status_code=204)
@@ -220,7 +222,9 @@ async def remove_library_title_from_collection(
     title_id: int,
     service: LibraryService = Depends(get_service),
 ):
-    await service.remove_title_from_collection(collection_id=collection_id, title_id=title_id)
+    await service.remove_title_from_collection(
+        collection_id=collection_id, title_id=title_id
+    )
 
 
 @router.get("/titles/{title_id}/chapters", response_model=list[LibraryChapterResource])
@@ -270,7 +274,9 @@ async def list_library_title_chapter_progress(
     variant_id: int | None = Query(None),
     service: LibraryService = Depends(get_service),
 ):
-    return await service.list_title_chapter_progress(title_id=title_id, variant_id=variant_id)
+    return await service.list_title_chapter_progress(
+        title_id=title_id, variant_id=variant_id
+    )
 
 
 @router.get(
@@ -338,7 +344,9 @@ async def list_library_chapter_comments(
     newest_first: bool = Query(True),
     service: LibraryService = Depends(get_service),
 ):
-    return await service.list_chapter_comments(chapter_id=chapter_id, newest_first=newest_first)
+    return await service.list_chapter_comments(
+        chapter_id=chapter_id, newest_first=newest_first
+    )
 
 
 @router.post(
@@ -384,17 +392,23 @@ async def get_library_downloaded_file(file_path: str):
     ]
     for root in roots:
         resolved_root = root.resolve()
-        candidate_path = archive_member_path[0] if archive_member_path is not None else file_path
+        candidate_path = (
+            archive_member_path[0] if archive_member_path is not None else file_path
+        )
         candidate = (resolved_root / candidate_path).resolve()
         try:
             candidate.relative_to(resolved_root)
         except ValueError:
             continue
         if archive_member_path is not None:
-            archive_bytes = read_chapter_archive_member(candidate, archive_member_path[1])
+            archive_bytes = read_chapter_archive_member(
+                candidate, archive_member_path[1]
+            )
             if archive_bytes is None:
                 continue
-            media_type = guess_type(archive_member_path[1])[0] or "application/octet-stream"
+            media_type = (
+                guess_type(archive_member_path[1])[0] or "application/octet-stream"
+            )
             return Response(content=archive_bytes, media_type=media_type)
         if candidate.is_file():
             return FileResponse(candidate)

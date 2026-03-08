@@ -101,9 +101,7 @@
 			activeGenres.length > 0
 	);
 
-	const hasActiveControls = $derived(
-		hasActiveFilters || sortMode !== 'updated' || !sortDesc
-	);
+	const hasActiveControls = $derived(hasActiveFilters || sortMode !== 'updated' || !sortDesc);
 
 	const filteredTitles = $derived.by(() => {
 		const query = (debouncedSearch.value ?? '').trim().toLowerCase();
@@ -143,8 +141,7 @@
 		result = [...result].sort((a, b) => {
 			let cmp = 0;
 			if (sortMode === 'updated') {
-				cmp =
-					new Date(a.updated_at ?? 0).getTime() - new Date(b.updated_at ?? 0).getTime();
+				cmp = new Date(a.updated_at ?? 0).getTime() - new Date(b.updated_at ?? 0).getTime();
 			} else if (sortMode === 'added') {
 				cmp = new Date(a.added_at ?? 0).getTime() - new Date(b.added_at ?? 0).getTime();
 			} else if (sortMode === 'reading') {
@@ -252,7 +249,9 @@
 <div class="flex flex-col gap-3">
 	<!-- Header row -->
 	<div class="flex items-center gap-3">
-		<h1 class="text-display text-xl text-[var(--text)] flex-1">{$_('nav.library').toLowerCase()}</h1>
+		<h1 class="text-display flex-1 text-xl text-[var(--text)]">
+			{$_('nav.library').toLowerCase()}
+		</h1>
 		{#if !loading}
 			<span class="text-label text-[var(--text-ghost)]">{titles.length}</span>
 			<button
@@ -282,12 +281,12 @@
 			type="search"
 			placeholder={$_('library.searchPlaceholder')}
 			bind:value={searchQuery}
-			class="pl-9 h-9 text-sm"
+			class="h-9 pl-9 text-sm"
 		/>
 		{#if searchQuery}
 			<button
 				type="button"
-				class="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-ghost)] hover:text-[var(--text-muted)] transition-colors"
+				class="absolute top-1/2 right-3 -translate-y-1/2 text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 				onclick={() => (searchQuery = '')}
 			>
 				<Icon name="x" size={14} />
@@ -297,11 +296,11 @@
 
 	<!-- Collection filters — only shown when collections exist (UNCHANGED) -->
 	{#if collections.length > 0}
-		<div class="flex items-center gap-1 overflow-x-auto pb-0.5 no-scrollbar">
+		<div class="no-scrollbar flex items-center gap-1 overflow-x-auto pb-0.5">
 			<button
 				type="button"
 				class="shrink-0 px-2.5 py-1 text-xs transition-colors {selectedCollectionId === null
-					? 'bg-[var(--void-3)] border border-[var(--line)] text-[var(--text)]'
+					? 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text)]'
 					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 				onclick={() => (selectedCollectionId = null)}
 			>
@@ -310,8 +309,9 @@
 			{#each collections as collection (collection.id)}
 				<button
 					type="button"
-					class="shrink-0 px-2.5 py-1 text-xs transition-colors {selectedCollectionId === collection.id
-						? 'bg-[var(--void-3)] border border-[var(--line)] text-[var(--text)]'
+					class="shrink-0 px-2.5 py-1 text-xs transition-colors {selectedCollectionId ===
+					collection.id
+						? 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text)]'
 						: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 					onclick={() => (selectedCollectionId = collection.id)}
 				>
@@ -323,7 +323,9 @@
 
 	<!-- Error -->
 	{#if error}
-		<div class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]">
+		<div
+			class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]"
+		>
 			{error}
 		</div>
 	{/if}
@@ -351,10 +353,12 @@
 			{/each}
 		</div>
 
-	<!-- Empty state -->
+		<!-- Empty state -->
 	{:else if isEmpty}
 		<div class="flex flex-col items-center gap-4 py-16 text-center">
-			<div class="flex h-16 w-16 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]">
+			<div
+				class="flex h-16 w-16 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]"
+			>
 				<Icon name="book" size={24} class="text-[var(--text-ghost)]" />
 			</div>
 			<div>
@@ -366,7 +370,7 @@
 			</Button>
 		</div>
 
-	<!-- Title grid -->
+		<!-- Title grid -->
 	{:else}
 		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
 			{#each filteredTitles as title (title.id)}
@@ -390,7 +394,9 @@
 						{/if}
 
 						{#if title.chapters_count > 0}
-							<div class="absolute right-1 bottom-1 bg-[var(--void-0)]/80 px-1.5 py-0.5 text-[10px] text-[var(--text)]">
+							<div
+								class="absolute right-1 bottom-1 bg-[var(--void-0)]/80 px-1.5 py-0.5 text-[10px] text-[var(--text)]"
+							>
 								{title.chapters_count}
 							</div>
 						{/if}
@@ -411,25 +417,21 @@
 
 		{#if filteredTitles.length === 0 && !loading}
 			<div class="flex flex-col items-center gap-2 py-8 text-center">
-				<p class="text-[var(--text-muted)] text-sm">{$_('common.noResults')}</p>
+				<p class="text-sm text-[var(--text-muted)]">{$_('common.noResults')}</p>
 			</div>
 		{/if}
 	{/if}
 </div>
 
 <!-- Sort & filter panel -->
-<SlidePanel
-	open={filterPanelOpen}
-	title="sort & filter"
-	onclose={() => (filterPanelOpen = false)}
->
+<SlidePanel open={filterPanelOpen} title="sort & filter" onclose={() => (filterPanelOpen = false)}>
 	<!-- Sort section -->
-	<div class="flex flex-col gap-3 border-b border-[var(--void-3)] pb-5 pt-1">
+	<div class="flex flex-col gap-3 border-b border-[var(--void-3)] pt-1 pb-5">
 		<div class="flex items-center justify-between">
-			<span class="text-[10px] tracking-widest uppercase text-[var(--text-ghost)]">sort</span>
+			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">sort</span>
 			<button
 				type="button"
-				class="flex items-center gap-1.5 text-xs text-[var(--text-ghost)] hover:text-[var(--text-muted)] transition-colors"
+				class="flex items-center gap-1.5 text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 				onclick={() => (sortDesc = !sortDesc)}
 			>
 				<Icon name={sortDesc ? 'chevron-down' : 'chevron-up'} size={12} />
@@ -441,7 +443,7 @@
 				<button
 					type="button"
 					class="px-2.5 py-1 text-xs transition-colors {sortMode === mode.value
-						? 'bg-[var(--void-3)] border border-[var(--line)] text-[var(--text)]'
+						? 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text)]'
 						: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 					onclick={() => (sortMode = mode.value)}
 				>
@@ -454,7 +456,7 @@
 	<!-- Reading status section -->
 	{#if allUserStatuses.length > 0}
 		<div class="flex flex-col gap-3 border-b border-[var(--void-3)] py-5">
-			<span class="text-[10px] tracking-widest uppercase text-[var(--text-ghost)]"
+			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase"
 				>reading status</span
 			>
 			<div class="flex flex-wrap gap-1.5">
@@ -463,7 +465,7 @@
 					<button
 						type="button"
 						class="px-2.5 py-1 text-xs transition-colors {active
-							? 'bg-[var(--void-3)] border border-[var(--line)] text-[var(--text)]'
+							? 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text)]'
 							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 						onclick={() => toggleReadingStatus(status.id)}
 					>
@@ -481,16 +483,16 @@
 				? 'border-b border-[var(--void-3)]'
 				: ''}"
 		>
-			<span class="text-[10px] tracking-widest uppercase text-[var(--text-ghost)]"
+			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase"
 				>source status</span
 			>
 			<div class="flex flex-wrap gap-1.5">
-				{#each SOURCE_STATUS_FILTERS.filter((f) => presentSourceStatusKeys.includes(f.key)) as sf (sf.key)}
+				{#each SOURCE_STATUS_FILTERS.filter( (f) => presentSourceStatusKeys.includes(f.key) ) as sf (sf.key)}
 					{@const active = activeSourceStatusKeys.includes(sf.key)}
 					<button
 						type="button"
 						class="px-2.5 py-1 text-xs transition-colors {active
-							? 'bg-[var(--void-3)] border border-[var(--line)] text-[var(--text)]'
+							? 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text)]'
 							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 						onclick={() => toggleSourceStatus(sf.key)}
 					>
@@ -504,14 +506,14 @@
 	<!-- Genre section -->
 	{#if allGenres.length > 0}
 		<div class="flex flex-col gap-3 py-5">
-			<span class="text-[10px] tracking-widest uppercase text-[var(--text-ghost)]">genre</span>
+			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">genre</span>
 			<div class="flex flex-wrap gap-1.5">
 				{#each allGenres as genre (genre)}
 					{@const active = activeGenres.includes(genre)}
 					<button
 						type="button"
 						class="px-2.5 py-1 text-xs transition-colors {active
-							? 'bg-[var(--void-3)] border border-[var(--line)] text-[var(--text)]'
+							? 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text)]'
 							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 						onclick={() => toggleGenre(genre)}
 					>
@@ -528,7 +530,7 @@
 			<button
 				type="button"
 				onclick={clearFilters}
-				class="text-[10px] tracking-widest uppercase text-[var(--text-ghost)] hover:text-[var(--text-muted)] transition-colors"
+				class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text-muted)]"
 			>
 				clear filters
 			</button>

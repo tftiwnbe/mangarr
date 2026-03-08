@@ -17,9 +17,15 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("library_chapters", sa.Column("reader_page_index", sa.Integer(), nullable=True))
-    op.add_column("library_chapters", sa.Column("reader_comment", sa.Text(), nullable=True))
-    op.add_column("library_chapters", sa.Column("reader_updated_at", sa.DateTime(), nullable=True))
+    op.add_column(
+        "library_chapters", sa.Column("reader_page_index", sa.Integer(), nullable=True)
+    )
+    op.add_column(
+        "library_chapters", sa.Column("reader_comment", sa.Text(), nullable=True)
+    )
+    op.add_column(
+        "library_chapters", sa.Column("reader_updated_at", sa.DateTime(), nullable=True)
+    )
     op.create_index(
         "ix_library_chapters_reader_page_index",
         "library_chapters",
@@ -29,7 +35,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_library_chapters_reader_page_index", table_name="library_chapters")
+    op.drop_index(
+        "ix_library_chapters_reader_page_index", table_name="library_chapters"
+    )
     op.drop_column("library_chapters", "reader_updated_at")
     op.drop_column("library_chapters", "reader_comment")
     op.drop_column("library_chapters", "reader_page_index")

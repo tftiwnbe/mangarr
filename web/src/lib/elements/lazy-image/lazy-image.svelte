@@ -78,7 +78,9 @@
 			{alt}
 			{loading}
 			{decoding}
-			class="h-full w-full object-cover transition-opacity duration-200 {isLoaded && !hasError ? 'opacity-100' : 'opacity-0'} {imgClass}"
+			class="h-full w-full object-cover transition-opacity duration-200 {isLoaded && !hasError
+				? 'opacity-100'
+				: 'opacity-0'} {imgClass}"
 			onload={() => {
 				isLoaded = true;
 				hasError = false;
@@ -90,7 +92,7 @@
 		/>
 	{/if}
 	{#if hasError}
-		<div class="absolute inset-0 flex items-center justify-center text-[var(--text-ghost)] text-xs">
+		<div class="absolute inset-0 flex items-center justify-center text-xs text-[var(--text-ghost)]">
 			{alt || 'image'}
 		</div>
 	{/if}

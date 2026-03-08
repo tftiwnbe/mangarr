@@ -28,10 +28,7 @@
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
 	import { panelOverlayOpen } from '$lib/stores/ui';
-	import {
-		contentLanguages,
-		setKnownContentLanguages
-	} from '$lib/stores/content-languages';
+	import { contentLanguages, setKnownContentLanguages } from '$lib/stores/content-languages';
 	import {
 		normalizeContentLanguageCode,
 		toMainContentLanguages
@@ -102,7 +99,12 @@
 
 	const availableLangs = $derived.by(() => {
 		const langs = new Set(availableExtensions.map((e) => e.lang.toLowerCase()));
-		return ['all', ...Array.from(langs).filter((lang) => lang !== 'all').sort()];
+		return [
+			'all',
+			...Array.from(langs)
+				.filter((lang) => lang !== 'all')
+				.sort()
+		];
 	});
 
 	const filteredAvailable = $derived.by(() => {
@@ -129,7 +131,12 @@
 				.map((change) => (change.lang ?? '').toLowerCase())
 				.filter((lang) => lang.length > 0)
 		);
-		return ['all', ...Array.from(langs).filter((lang) => lang !== 'all').sort()];
+		return [
+			'all',
+			...Array.from(langs)
+				.filter((lang) => lang !== 'all')
+				.sort()
+		];
 	});
 
 	const filteredRepoChanges = $derived.by(() => {
@@ -420,9 +427,7 @@
 		}
 	}
 
-	function buildLibGroupTokenStorePayload(
-		raw: Record<string, unknown>
-	): Record<string, unknown> {
+	function buildLibGroupTokenStorePayload(raw: Record<string, unknown>): Record<string, unknown> {
 		let tokenPayload: Record<string, unknown> | null = null;
 		let authPayload: Record<string, unknown> | null = null;
 		if (raw.token && raw.auth && typeof raw.token === 'object' && typeof raw.auth === 'object') {
@@ -444,15 +449,11 @@
 		const userId = Number(authPayload.id);
 		if (!Number.isFinite(userId) || userId <= 0) throw new Error('Invalid auth.id in payload.');
 		const tokenType = String(tokenPayload.token_type ?? tokenPayload.tokenType ?? '').trim();
-		const accessToken = String(
-			tokenPayload.access_token ?? tokenPayload.accessToken ?? ''
-		).trim();
+		const accessToken = String(tokenPayload.access_token ?? tokenPayload.accessToken ?? '').trim();
 		const expiresIn = Number(tokenPayload.expires_in ?? tokenPayload.expiresIn ?? 0);
 		const timestamp = Number(tokenPayload.timestamp ?? Date.now());
 		if (!tokenType || !accessToken || !Number.isFinite(expiresIn) || expiresIn <= 0)
-			throw new Error(
-				'Invalid token payload. token_type, access_token, expires_in are required.'
-			);
+			throw new Error('Invalid token payload. token_type, access_token, expires_in are required.');
 		return {
 			TokenStore: {
 				auth: { id: userId },
@@ -509,9 +510,7 @@
 
 	function getHiddenStorageKeys(): string[] {
 		if (!sourceSettingsData) return [];
-		return sourceSettingsData.preferences
-			.filter(isHiddenStoragePreference)
-			.map((pref) => pref.key);
+		return sourceSettingsData.preferences.filter(isHiddenStoragePreference).map((pref) => pref.key);
 	}
 
 	function importedStorageMap(
@@ -575,8 +574,7 @@
 				authImportSuccess = `Replaced imported storage with ${upserts.length} key${upserts.length === 1 ? '' : 's'} (removed ${deletes.length}).`;
 			}
 		} catch (e) {
-			authImportError =
-				e instanceof Error ? e.message : 'Failed to import auth/storage values';
+			authImportError = e instanceof Error ? e.message : 'Failed to import auth/storage values';
 		} finally {
 			authImportSaving = false;
 		}
@@ -623,7 +621,7 @@
 <div class="flex flex-col gap-4">
 	<!-- ── Header ───────────────────────────────────────────────────────── -->
 	<div class="flex items-center gap-3">
-		<h1 class="text-display text-xl text-[var(--text)] flex-1 tracking-tight">
+		<h1 class="text-display flex-1 text-xl tracking-tight text-[var(--text)]">
 			{$_('nav.extensions').toLowerCase()}
 		</h1>
 		<button
@@ -644,17 +642,16 @@
 	<div class="flex gap-6">
 		{#each ['installed', 'available', 'updates'] as tab (tab)}
 			{@const isActive = activeTab === tab}
-			{@const count = tab === 'installed'
-				? installedExtensions.length
-				: tab === 'available'
-					? availableExtensions.length
-					: repoChangeItems.length}
+			{@const count =
+				tab === 'installed'
+					? installedExtensions.length
+					: tab === 'available'
+						? availableExtensions.length
+						: repoChangeItems.length}
 			<button
 				type="button"
-				class="relative pb-2 text-xs font-medium uppercase tracking-wide transition-colors
-					{isActive
-					? 'text-[var(--text)]'
-					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+				class="relative pb-2 text-xs font-medium tracking-wide uppercase transition-colors
+					{isActive ? 'text-[var(--text)]' : 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 				onclick={() => switchTab(tab as TabValue)}
 			>
 				<span class="flex items-center gap-1.5">
@@ -678,7 +675,7 @@
 		<Icon
 			name="search"
 			size={13}
-			class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-ghost)]"
+			class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-ghost)]"
 		/>
 		<input
 			type="search"
@@ -688,12 +685,12 @@
 					? $_('extensions.updatesSearchPlaceholder')
 					: $_('extensions.searchPlaceholder')}
 			bind:value={searchQuery}
-			class="w-full h-9 pl-8 pr-8 bg-transparent text-sm text-[var(--text)] placeholder:text-[var(--text-ghost)] border-b border-[var(--line-soft)] transition-colors focus:border-[var(--void-6)] focus:outline-none"
+			class="h-9 w-full border-b border-[var(--line-soft)] bg-transparent pr-8 pl-8 text-sm text-[var(--text)] transition-colors placeholder:text-[var(--text-ghost)] focus:border-[var(--void-6)] focus:outline-none"
 		/>
 		{#if searchQuery}
 			<button
 				type="button"
-				class="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-ghost)] hover:text-[var(--text-muted)] transition-colors"
+				class="absolute top-1/2 right-2 -translate-y-1/2 text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 				onclick={() => (searchQuery = '')}
 			>
 				<Icon name="x" size={13} />
@@ -703,14 +700,14 @@
 
 	<!-- ── Language filter chips (available tab) ────────────────────────── -->
 	{#if activeTab === 'available' && availableLangs.length > 2}
-		<div class="flex items-center gap-0.5 overflow-x-auto no-scrollbar -mx-1 px-1 py-1">
+		<div class="no-scrollbar -mx-1 flex items-center gap-0.5 overflow-x-auto px-1 py-1">
 			{#each availableLangs.slice(0, 24) as lang (lang)}
 				{@const isActive = (lang === 'all' && !selectedLang) || selectedLang === lang}
 				<button
 					type="button"
-					class="shrink-0 h-7 px-2.5 text-[10px] uppercase tracking-wider transition-colors
+					class="h-7 shrink-0 px-2.5 text-[10px] tracking-wider uppercase transition-colors
 						{isActive
-						? 'text-[var(--text)] bg-[var(--void-3)]'
+						? 'bg-[var(--void-3)] text-[var(--text)]'
 						: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 					onclick={() => (selectedLang = lang === 'all' ? null : lang)}
 				>
@@ -719,14 +716,14 @@
 			{/each}
 		</div>
 	{:else if activeTab === 'updates' && updatesLangs.length > 2}
-		<div class="flex items-center gap-0.5 overflow-x-auto no-scrollbar -mx-1 px-1 py-1">
+		<div class="no-scrollbar -mx-1 flex items-center gap-0.5 overflow-x-auto px-1 py-1">
 			{#each updatesLangs.slice(0, 24) as lang (lang)}
 				{@const isActive = (lang === 'all' && !selectedLang) || selectedLang === lang}
 				<button
 					type="button"
-					class="shrink-0 h-7 px-2.5 text-[10px] uppercase tracking-wider transition-colors
+					class="h-7 shrink-0 px-2.5 text-[10px] tracking-wider uppercase transition-colors
 						{isActive
-						? 'text-[var(--text)] bg-[var(--void-3)]'
+						? 'bg-[var(--void-3)] text-[var(--text)]'
 						: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 					onclick={() => (selectedLang = lang === 'all' ? null : lang)}
 				>
@@ -747,13 +744,16 @@
 	{#if loading}
 		<div class="flex flex-col gap-4 pt-4">
 			{#each Array(3) as _, i (i)}
-				<div class="px-1 opacity-0 animate-slide-up" style="animation-delay: {i * 80}ms; animation-fill-mode: forwards">
+				<div
+					class="animate-slide-up px-1 opacity-0"
+					style="animation-delay: {i * 80}ms; animation-fill-mode: forwards"
+				>
 					<div class="flex items-center gap-4">
 						<div
 							class="h-11 w-11 shrink-0 animate-pulse bg-[var(--void-3)]"
 							style="animation-delay: {i * 60}ms"
 						></div>
-						<div class="flex-1 flex flex-col gap-2.5">
+						<div class="flex flex-1 flex-col gap-2.5">
 							<div
 								class="h-3 w-32 animate-pulse bg-[var(--void-3)]"
 								style="animation-delay: {i * 60}ms"
@@ -774,9 +774,7 @@
 	{:else if activeTab === 'installed'}
 		{#if installedExtensions.length === 0}
 			<div class="flex flex-col items-center gap-5 py-20 text-center">
-				<div
-					class="flex h-16 w-16 items-center justify-center bg-[var(--void-2)]"
-				>
+				<div class="flex h-16 w-16 items-center justify-center bg-[var(--void-2)]">
 					<Icon name="puzzle" size={24} class="text-[var(--text-ghost)]" />
 				</div>
 				<div>
@@ -803,7 +801,10 @@
 
 					<div
 						class="transition-all duration-200"
-						style="animation: slide-up var(--duration-slow) var(--ease-out) forwards; animation-delay: {Math.min(i * 30, 300)}ms; opacity: 0"
+						style="animation: slide-up var(--duration-slow) var(--ease-out) forwards; animation-delay: {Math.min(
+							i * 30,
+							300
+						)}ms; opacity: 0"
 					>
 						<!-- Card header (clickable to expand) -->
 						<button
@@ -814,37 +815,24 @@
 						>
 							<!-- Icon -->
 							{#if ext.icon}
-								<img
-									src={ext.icon}
-									alt=""
-									class="h-11 w-11 shrink-0 object-contain"
-								/>
+								<img src={ext.icon} alt="" class="h-11 w-11 shrink-0 object-contain" />
 							{:else}
-								<div
-									class="flex h-11 w-11 shrink-0 items-center justify-center bg-[var(--void-2)]"
-								>
-									<Icon
-										name="puzzle"
-										size={20}
-										class="text-[var(--text-ghost)]"
-									/>
+								<div class="flex h-11 w-11 shrink-0 items-center justify-center bg-[var(--void-2)]">
+									<Icon name="puzzle" size={20} class="text-[var(--text-ghost)]" />
 								</div>
 							{/if}
 
 							<!-- Name + meta -->
 							<div class="min-w-0 flex-1">
 								<div class="flex items-center gap-2">
-									<span class="text-[15px] text-[var(--text)] truncate leading-tight"
+									<span class="truncate text-[15px] leading-tight text-[var(--text)]"
 										>{ext.name}</span
 									>
 									{#if ext.nsfw}
-										<span
-											class="text-[10px] text-[var(--text-ghost)] shrink-0"
-											>18+</span
-										>
+										<span class="shrink-0 text-[10px] text-[var(--text-ghost)]">18+</span>
 									{/if}
 								</div>
-								<p class="text-[11px] text-[var(--text-ghost)] mt-1">
+								<p class="mt-1 text-[11px] text-[var(--text-ghost)]">
 									v{ext.version} · {enabledCount} active
 								</p>
 							</div>
@@ -853,49 +841,40 @@
 							<Icon
 								name={isExpanded ? 'chevron-down' : 'chevron-right'}
 								size={14}
-								class="text-[var(--text-ghost)] shrink-0"
+								class="shrink-0 text-[var(--text-ghost)]"
 							/>
 						</button>
 
 						<!-- ── Expanded detail ─────────────────────────────────── -->
 						{#if isExpanded}
-							<div
-								transition:slide={{ duration: 150 }}
-							>
-								<div class="flex flex-col gap-6 px-1 pt-2 pb-5 border-b border-[var(--line-soft)]">
+							<div transition:slide={{ duration: 150 }}>
+								<div class="flex flex-col gap-6 border-b border-[var(--line-soft)] px-1 pt-2 pb-5">
 									<!-- Sources (filtered by global content language preferences) -->
 									<div class="flex flex-col gap-1">
 										{#if getFilteredSources(ext.sources).length === 0}
-											<p class="text-xs text-[var(--text-ghost)] py-1">
+											<p class="py-1 text-xs text-[var(--text-ghost)]">
 												no sources match your language preferences
 											</p>
 										{:else}
 											{#each getFilteredSources(ext.sources) as source (source.id)}
-												{@const isToggling =
-													togglingSourceId === source.id}
-												<div
-													class="flex items-center gap-3 py-2.5 transition-colors"
-												>
+												{@const isToggling = togglingSourceId === source.id}
+												<div class="flex items-center gap-3 py-2.5 transition-colors">
 													<div class="min-w-0 flex-1">
 														<div class="flex items-center gap-2">
-															<span
-																class="text-xs text-[var(--text-soft)] truncate"
+															<span class="truncate text-xs text-[var(--text-soft)]"
 																>{source.name}</span
 															>
 															<span
-																class="text-[10px] uppercase tracking-wide text-[var(--text-ghost)] shrink-0"
+																class="shrink-0 text-[10px] tracking-wide text-[var(--text-ghost)] uppercase"
 																>{source.lang}</span
 															>
 														</div>
 													</div>
 													<button
 														type="button"
-														class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)] hover:bg-[var(--void-3)]"
-														onclick={() =>
-															openSourceSettings(source.id)}
-														title={$_(
-															'extensions.sourceSettings'
-														)}
+														class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-3)] hover:text-[var(--text)]"
+														onclick={() => openSourceSettings(source.id)}
+														title={$_('extensions.sourceSettings')}
 													>
 														<Icon name="settings" size={14} />
 													</button>
@@ -913,15 +892,12 @@
 
 									<!-- Proxy toggle -->
 									<div class="flex items-center gap-3">
-										<span class="flex-1 text-xs text-[var(--text-muted)]"
-											>proxy</span
-										>
+										<span class="flex-1 text-xs text-[var(--text-muted)]">proxy</span>
 										<Switch
 											checked={ext.use_proxy}
 											disabled={isTogglingProxy}
 											loading={isTogglingProxy}
-											onCheckedChange={(enabled) =>
-												void handleToggleProxy(ext.pkg, enabled)}
+											onCheckedChange={(enabled) => void handleToggleProxy(ext.pkg, enabled)}
 										/>
 									</div>
 
@@ -933,11 +909,7 @@
 										disabled={isUninstalling}
 									>
 										{#if isUninstalling}
-											<Icon
-												name="loader"
-												size={12}
-												class="animate-spin inline-block mr-1"
-											/>
+											<Icon name="loader" size={12} class="mr-1 inline-block animate-spin" />
 										{/if}
 										{$_('extensions.uninstall').toLowerCase()}
 									</button>
@@ -984,14 +956,17 @@
 		{:else}
 			<div class="flex flex-col gap-1">
 				{#if repoChanges}
-					<p class="px-1 text-[10px] uppercase tracking-wider text-[var(--text-ghost)]">
+					<p class="px-1 text-[10px] tracking-wider text-[var(--text-ghost)] uppercase">
 						{$_('extensions.updatesWindow', { values: { count: filteredRepoChanges.length } })}
 					</p>
 				{/if}
 				{#each filteredRepoChanges as change, i (`${change.commit_sha}:${change.extension_pkg ?? change.name}:${i}`)}
 					<div
 						class="flex items-start gap-4 border-b border-[var(--line-soft)] px-1 py-3.5"
-						style="animation: slide-up var(--duration-slow) var(--ease-out) forwards; animation-delay: {Math.min(i * 20, 300)}ms; opacity: 0"
+						style="animation: slide-up var(--duration-slow) var(--ease-out) forwards; animation-delay: {Math.min(
+							i * 20,
+							300
+						)}ms; opacity: 0"
 					>
 						{#if change.icon}
 							<img src={change.icon} alt="" class="h-10 w-10 shrink-0 object-contain" />
@@ -1005,14 +980,22 @@
 								<span class="truncate text-[15px] leading-tight text-[var(--text)]">
 									{changeTitle(change)}
 								</span>
-								<span class="text-[10px] uppercase tracking-wider text-[var(--text-ghost)] shrink-0">
+								<span
+									class="shrink-0 text-[10px] tracking-wider text-[var(--text-ghost)] uppercase"
+								>
 									{change.lang ?? '??'}
 								</span>
-								<span class="text-[10px] uppercase tracking-wider shrink-0 {changeStatusClass(change.status)}">
+								<span
+									class="shrink-0 text-[10px] tracking-wider uppercase {changeStatusClass(
+										change.status
+									)}"
+								>
 									{change.status}
 								</span>
 								{#if change.installed}
-									<span class="text-[10px] uppercase tracking-wider text-[var(--text-muted)] shrink-0">
+									<span
+										class="shrink-0 text-[10px] tracking-wider text-[var(--text-muted)] uppercase"
+									>
 										installed
 									</span>
 								{/if}
@@ -1030,7 +1013,9 @@
 									{change.extension_pkg ?? change.commit_sha.slice(0, 7)}
 								{/if}
 							</p>
-							<div class="mt-1 flex flex-wrap items-center gap-x-2 text-[10px] text-[var(--text-ghost)]">
+							<div
+								class="mt-1 flex flex-wrap items-center gap-x-2 text-[10px] text-[var(--text-ghost)]"
+							>
 								<span>{formatChangeAge(change.committed_at)}</span>
 								<span class="opacity-30">·</span>
 								<span>{change.commit_sha.slice(0, 7)}</span>
@@ -1063,90 +1048,79 @@
 		<!-- ════════════════════════════════════════════════════════════════
 		     AVAILABLE TAB
 		     ════════════════════════════════════════════════════════════════ -->
+	{:else if availableExtensions.length === 0}
+		<div class="flex flex-col items-center gap-5 py-20 text-center">
+			<div class="flex h-16 w-16 items-center justify-center bg-[var(--void-2)]">
+				<Icon name="check" size={24} class="text-[var(--text-muted)]" />
+			</div>
+			<div>
+				<p class="text-sm text-[var(--text)]">{$_('extensions.allInstalled')}</p>
+				<p class="mt-1.5 text-xs text-[var(--text-ghost)]">
+					{$_('extensions.noRepoConfigured')}
+				</p>
+			</div>
+		</div>
+	{:else if filteredAvailable.length === 0}
+		<div class="py-12 text-center">
+			<p class="text-xs text-[var(--text-muted)]">{$_('common.noResults')}</p>
+		</div>
 	{:else}
-		{#if availableExtensions.length === 0}
-			<div class="flex flex-col items-center gap-5 py-20 text-center">
+		<!-- Result count -->
+		<p class="text-[10px] tracking-wider text-[var(--text-ghost)] uppercase">
+			{filteredAvailable.length} extensions
+		</p>
+
+		<div class="flex flex-col">
+			{#each visibleAvailable as ext, i (ext.pkg)}
+				{@const isInstalling = installingPkg === ext.pkg}
 				<div
-					class="flex h-16 w-16 items-center justify-center bg-[var(--void-2)]"
+					class="flex items-center gap-4 border-b border-[var(--line-soft)] px-1 py-3.5 transition-colors hover:bg-[var(--void-1)]"
+					style="animation: slide-up var(--duration-slow) var(--ease-out) forwards; animation-delay: {Math.min(
+						i * 20,
+						400
+					)}ms; opacity: 0"
 				>
-					<Icon name="check" size={24} class="text-[var(--text-muted)]" />
-				</div>
-				<div>
-					<p class="text-sm text-[var(--text)]">{$_('extensions.allInstalled')}</p>
-					<p class="mt-1.5 text-xs text-[var(--text-ghost)]">
-						{$_('extensions.noRepoConfigured')}
-					</p>
-				</div>
-			</div>
-		{:else if filteredAvailable.length === 0}
-			<div class="py-12 text-center">
-				<p class="text-xs text-[var(--text-muted)]">{$_('common.noResults')}</p>
-			</div>
-		{:else}
-			<!-- Result count -->
-			<p class="text-[10px] text-[var(--text-ghost)] uppercase tracking-wider">
-				{filteredAvailable.length} extensions
-			</p>
-
-			<div class="flex flex-col">
-				{#each visibleAvailable as ext, i (ext.pkg)}
-					{@const isInstalling = installingPkg === ext.pkg}
-					<div
-						class="flex items-center gap-4 border-b border-[var(--line-soft)] px-1 py-3.5 transition-colors hover:bg-[var(--void-1)]"
-						style="animation: slide-up var(--duration-slow) var(--ease-out) forwards; animation-delay: {Math.min(i * 20, 400)}ms; opacity: 0"
-					>
-						{#if ext.icon}
-							<img
-								src={ext.icon}
-								alt=""
-								class="h-10 w-10 shrink-0 object-contain"
-							/>
-						{:else}
-							<div
-								class="flex h-10 w-10 shrink-0 items-center justify-center bg-[var(--void-2)]"
-							>
-								<Icon name="puzzle" size={16} class="text-[var(--text-ghost)]" />
-							</div>
-						{/if}
-						<div class="min-w-0 flex-1">
-							<div class="flex items-center gap-2">
-								<span class="text-[15px] text-[var(--text)] truncate leading-tight">{ext.name}</span>
-								<span
-									class="text-[10px] uppercase tracking-wider text-[var(--text-ghost)] shrink-0"
-									>{ext.lang}</span
-								>
-								{#if ext.nsfw}
-									<span
-										class="text-[10px] text-[var(--text-ghost)] shrink-0"
-										>18+</span
-									>
-								{/if}
-							</div>
-							<p class="text-[11px] text-[var(--text-ghost)]">v{ext.version}</p>
+					{#if ext.icon}
+						<img src={ext.icon} alt="" class="h-10 w-10 shrink-0 object-contain" />
+					{:else}
+						<div class="flex h-10 w-10 shrink-0 items-center justify-center bg-[var(--void-2)]">
+							<Icon name="puzzle" size={16} class="text-[var(--text-ghost)]" />
 						</div>
-						<button
-							type="button"
-							class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)] disabled:pointer-events-none disabled:opacity-40"
-							onclick={() => handleInstall(ext.pkg)}
-							disabled={isInstalling}
-							title={$_('extensions.install')}
-						>
-							{#if isInstalling}
-								<Icon name="loader" size={14} class="animate-spin" />
-							{:else}
-								<Icon name="plus" size={16} />
+					{/if}
+					<div class="min-w-0 flex-1">
+						<div class="flex items-center gap-2">
+							<span class="truncate text-[15px] leading-tight text-[var(--text)]">{ext.name}</span>
+							<span class="shrink-0 text-[10px] tracking-wider text-[var(--text-ghost)] uppercase"
+								>{ext.lang}</span
+							>
+							{#if ext.nsfw}
+								<span class="shrink-0 text-[10px] text-[var(--text-ghost)]">18+</span>
 							{/if}
-						</button>
+						</div>
+						<p class="text-[11px] text-[var(--text-ghost)]">v{ext.version}</p>
 					</div>
-				{/each}
-			</div>
-
-			<!-- Progressive render sentinel -->
-			{#if visibleAvailable.length < filteredAvailable.length}
-				<div bind:this={sentinelEl} class="flex justify-center py-4">
-					<Icon name="loader" size={16} class="animate-spin text-[var(--text-ghost)]" />
+					<button
+						type="button"
+						class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)] disabled:pointer-events-none disabled:opacity-40"
+						onclick={() => handleInstall(ext.pkg)}
+						disabled={isInstalling}
+						title={$_('extensions.install')}
+					>
+						{#if isInstalling}
+							<Icon name="loader" size={14} class="animate-spin" />
+						{:else}
+							<Icon name="plus" size={16} />
+						{/if}
+					</button>
 				</div>
-			{/if}
+			{/each}
+		</div>
+
+		<!-- Progressive render sentinel -->
+		{#if visibleAvailable.length < filteredAvailable.length}
+			<div bind:this={sentinelEl} class="flex justify-center py-4">
+				<Icon name="loader" size={16} class="animate-spin text-[var(--text-ghost)]" />
+			</div>
 		{/if}
 	{/if}
 </div>
@@ -1163,7 +1137,7 @@
 >
 	{#if sourceSettingsLoading}
 		<div class="flex flex-col items-center gap-4 py-16">
-			<Icon name="loader" size={20} class="text-[var(--text-muted)] animate-spin" />
+			<Icon name="loader" size={20} class="animate-spin text-[var(--text-muted)]" />
 			<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
 		</div>
 	{:else if sourceSettingsError}
@@ -1174,8 +1148,7 @@
 		</div>
 	{:else if sourceSettingsData}
 		{@const visiblePrefs = sourceSettingsData.preferences.filter((p) => p.visible)}
-		{@const hasAnyPrefs =
-			visiblePrefs.length > 0 || importedStoragePreferences.length > 0}
+		{@const hasAnyPrefs = visiblePrefs.length > 0 || importedStoragePreferences.length > 0}
 
 		{#if !hasAnyPrefs}
 			<div class="flex flex-col items-center gap-4 py-16 text-center">
@@ -1188,7 +1161,7 @@
 			<div class="flex flex-col gap-4">
 				<!-- Visible preferences -->
 				{#each visiblePrefs as pref (pref.key)}
-					<div class="py-4 border-b border-[var(--line-soft)]">
+					<div class="border-b border-[var(--line-soft)] py-4">
 						<div class="flex items-start justify-between gap-3">
 							<div class="flex-1">
 								<p class="text-sm text-[var(--text)]">{pref.title}</p>
@@ -1203,8 +1176,7 @@
 								<Switch
 									checked={val}
 									disabled={!pref.enabled}
-									onCheckedChange={(enabled) =>
-										handlePreferenceChange(pref.key, enabled)}
+									onCheckedChange={(enabled) => handlePreferenceChange(pref.key, enabled)}
 								/>
 							{/if}
 						</div>
@@ -1220,13 +1192,11 @@
 											{val === entryVal
 											? 'bg-[var(--void-3)] text-[var(--text)]'
 											: 'text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
-										onclick={() =>
-											handlePreferenceChange(pref.key, entryVal)}
+										onclick={() => handlePreferenceChange(pref.key, entryVal)}
 										disabled={!pref.enabled}
 									>
 										<div
-											class="h-3 w-3 border border-[var(--void-6)] {val ===
-											entryVal
+											class="h-3 w-3 border border-[var(--void-6)] {val === entryVal
 												? 'bg-[var(--text)]'
 												: ''}"
 										></div>
@@ -1262,11 +1232,7 @@
 												: ''}"
 										>
 											{#if isSelected}
-												<Icon
-													name="check"
-													size={10}
-													class="text-[var(--void-0)]"
-												/>
+												<Icon name="check" size={10} class="text-[var(--void-0)]" />
 											{/if}
 										</div>
 										{entry}
@@ -1281,11 +1247,7 @@
 								<Input
 									type="text"
 									value={val}
-									oninput={(e) =>
-										handlePreferenceChange(
-											pref.key,
-											e.currentTarget.value
-										)}
+									oninput={(e) => handlePreferenceChange(pref.key, e.currentTarget.value)}
 									disabled={!pref.enabled}
 								/>
 							</div>
@@ -1301,34 +1263,23 @@
 							class="flex w-full items-center gap-2 py-2 text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 							onclick={() => (advancedOpen = !advancedOpen)}
 						>
-							<Icon
-								name={advancedOpen ? 'chevron-down' : 'chevron-right'}
-								size={12}
-							/>
+							<Icon name={advancedOpen ? 'chevron-down' : 'chevron-right'} size={12} />
 							advanced
 						</button>
 
 						{#if advancedOpen}
-							<div
-								class="flex flex-col gap-3 pt-2"
-								transition:slide={{ duration: 120 }}
-							>
+							<div class="flex flex-col gap-3 pt-2" transition:slide={{ duration: 120 }}>
 								<div class="py-3">
 									<div class="flex flex-col gap-3">
 										<div>
-											<p class="text-xs text-[var(--text-soft)]">
-												auth / storage import
-											</p>
-											<p
-												class="mt-0.5 text-[11px] text-[var(--text-ghost)]"
-											>
-												Replace hidden extension storage values. Leave
-												empty and apply to clear all.
+											<p class="text-xs text-[var(--text-soft)]">auth / storage import</p>
+											<p class="mt-0.5 text-[11px] text-[var(--text-ghost)]">
+												Replace hidden extension storage values. Leave empty and apply to clear all.
 											</p>
 										</div>
 
 										<textarea
-											class="min-h-24 w-full border-b border-[var(--line)] bg-transparent p-3 text-xs text-[var(--text)] outline-none focus:border-[var(--text-muted)] resize-y"
+											class="min-h-24 w-full resize-y border-b border-[var(--line)] bg-transparent p-3 text-xs text-[var(--text)] outline-none focus:border-[var(--text-muted)]"
 											placeholder="JSON object or key-value pairs"
 											bind:value={authImportText}
 										></textarea>
@@ -1345,9 +1296,7 @@
 										</p>
 
 										{#if authImportError}
-											<div
-												class="bg-[var(--error-soft)] px-3 py-2 text-[11px] text-[var(--error)]"
-											>
+											<div class="bg-[var(--error-soft)] px-3 py-2 text-[11px] text-[var(--error)]">
 												{authImportError}
 											</div>
 										{/if}
@@ -1364,8 +1313,7 @@
 											size="sm"
 											onclick={importAuthStorage}
 											disabled={authImportSaving ||
-												(!authImportText.trim() &&
-													importedStoragePreferences.length === 0)}
+												(!authImportText.trim() && importedStoragePreferences.length === 0)}
 											loading={authImportSaving}
 										>
 											apply
@@ -1394,7 +1342,6 @@
 		{/if}
 	{/if}
 </SlidePanel>
-
 
 <ConfirmDialog
 	open={uninstallConfirmPkg !== null}

@@ -5,6 +5,7 @@ Maintains the set of authenticated WebSocket clients and provides a single
 `broadcast()` call that fan-outs JSON events to all of them.  Dead connections
 are pruned on the next broadcast.
 """
+
 import asyncio
 import json
 from typing import Any
@@ -46,13 +47,19 @@ class ConnectionManager:
 
         async def send_one(ws: WebSocket) -> WebSocket | None:
             try:
-                await asyncio.wait_for(ws.send_text(message), timeout=_SEND_TIMEOUT_SECONDS)
+                await asyncio.wait_for(
+                    ws.send_text(message), timeout=_SEND_TIMEOUT_SECONDS
+                )
                 return None
             except Exception as exc:
                 _ws_logger.debug("ws.pruned error={}", type(exc).__name__)
                 return ws
 
-        dead = [ws for ws in await asyncio.gather(*(send_one(ws) for ws in connections)) if ws]
+        dead = [
+            ws
+            for ws in await asyncio.gather(*(send_one(ws) for ws in connections))
+            if ws
+        ]
         if dead:
             async with self._lock:
                 for ws in dead:

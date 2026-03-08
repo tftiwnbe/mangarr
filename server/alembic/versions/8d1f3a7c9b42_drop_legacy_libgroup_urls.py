@@ -44,9 +44,7 @@ def _normalize_legacy_url(chapter_url: str) -> str:
     if not volume or not number:
         return raw
 
-    branch_id = (
-        params.get("branch_id", params.get("b", [None]))[0] or ""
-    ).strip()
+    branch_id = (params.get("branch_id", params.get("b", [None]))[0] or "").strip()
     branch_part = f"&branch_id={quote(branch_id, safe='')}" if branch_id else ""
     return (
         f"/{slug}/chapter?"
@@ -108,4 +106,3 @@ def upgrade() -> None:
 def downgrade() -> None:
     # Data migration is intentionally not reversed.
     pass
-

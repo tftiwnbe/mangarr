@@ -19,7 +19,11 @@ from app.bridge.metrics import bridge_page_metrics
 from app.config import settings
 from app.core.database import sessionmanager
 from app.core.errors import BridgeAPIError
-from app.core.utils import commit_with_sqlite_retry, normalize_positive_int_ids, normalize_text
+from app.core.utils import (
+    commit_with_sqlite_retry,
+    normalize_positive_int_ids,
+    normalize_text,
+)
 from app.domain.download_profiles import (
     parse_selected_variant_ids,
     serialize_selected_variant_ids,
@@ -77,12 +81,16 @@ from app.models import (
 
 _service_logger = logger.bind(module="downloads.service")
 
+
 # Lazy import to avoid circular dependency at module load time.
 def _ws_broadcast(event: dict) -> None:
     from app.core.ws import ws_manager  # noqa: PLC0415
+
     loop = asyncio.get_event_loop()
     if not loop.is_closed():
         loop.create_task(ws_manager.broadcast(event))
+
+
 _SAFE_SEGMENT_RE = re.compile(r"[^a-zA-Z0-9._ -]+")
 _HASH_SUFFIX_RE = re.compile(r"\s+--\s+[0-9a-f]{6,}$", re.IGNORECASE)
 _LANG_SUFFIX_RE = re.compile(r"\s+\[([a-z]{2,5}(?:-[a-z0-9]{2,5})?)\]$", re.IGNORECASE)
@@ -264,7 +272,9 @@ class DownloadService:
         watched_titles_count = int(
             (
                 await self.session.exec(
-                    select(func.count(DownloadProfile.id)).where(DownloadProfile.enabled)
+                    select(func.count(DownloadProfile.id)).where(
+                        DownloadProfile.enabled
+                    )
                 )
             ).one()
             or 0
@@ -315,9 +325,11 @@ class DownloadService:
             ).one()
             or 0
         )
-        total_downloaded_bytes_value, chapters_with_size_value, _ = (
-            await self._calculate_downloaded_size_stats()
-        )
+        (
+            total_downloaded_bytes_value,
+            chapters_with_size_value,
+            _,
+        ) = await self._calculate_downloaded_size_stats()
         avg_chapter_size_bytes = (
             int(total_downloaded_bytes_value / chapters_with_size_value)
             if chapters_with_size_value > 0
@@ -406,10 +418,14 @@ class DownloadService:
             }
         )
         title_rows = (
-            await self.session.exec(
-                select(LibraryTitle).where(LibraryTitle.id.in_(candidate_title_ids))
-            )
-        ).all() if candidate_title_ids else []
+            (
+                await self.session.exec(
+                    select(LibraryTitle).where(LibraryTitle.id.in_(candidate_title_ids))
+                )
+            ).all()
+            if candidate_title_ids
+            else []
+        )
         titles_by_id = {
             int(title.id): title for title in title_rows if title.id is not None
         }
@@ -432,7 +448,10 @@ class DownloadService:
         ordered_title_ids = sorted(
             [title_id for title_id in candidate_title_ids if title_id in titles_by_id],
             key=lambda title_id: (
-                0 if profiles_by_title_id.get(title_id, None) and profiles_by_title_id[title_id].enabled else 1,
+                0
+                if profiles_by_title_id.get(title_id, None)
+                and profiles_by_title_id[title_id].enabled
+                else 1,
                 -watched_recency_ts(title_id),
                 -title_id,
             ),
@@ -480,7 +499,9 @@ class DownloadService:
                 )
             ).all()
             variants_by_id = {
-                int(variant.id): variant for variant in variant_rows if variant.id is not None
+                int(variant.id): variant
+                for variant in variant_rows
+                if variant.id is not None
             }
 
         chapter_variant_ids_by_title: dict[int, list[int]] = {}
@@ -677,7 +698,9 @@ class DownloadService:
                     thumbnail_url=display_thumbnail,
                     enabled=profile.enabled if profile is not None else False,
                     paused=profile.paused if profile is not None else False,
-                    auto_download=profile.auto_download if profile is not None else False,
+                    auto_download=profile.auto_download
+                    if profile is not None
+                    else False,
                     strategy=(
                         profile.strategy
                         if profile is not None
@@ -686,12 +709,18 @@ class DownloadService:
                     preferred_variant_id=preferred_variant_id,
                     variant_ids=selected_variant_ids,
                     variant_sources=variant_sources,
-                    start_from=_as_utc(profile.start_from) if profile is not None else None,
+                    start_from=_as_utc(profile.start_from)
+                    if profile is not None
+                    else None,
                     last_checked_at=(
-                        _as_utc(profile.last_checked_at) if profile is not None else None
+                        _as_utc(profile.last_checked_at)
+                        if profile is not None
+                        else None
                     ),
                     last_success_at=(
-                        _as_utc(profile.last_success_at) if profile is not None else None
+                        _as_utc(profile.last_success_at)
+                        if profile is not None
+                        else None
                     ),
                     last_error=profile.last_error if profile is not None else None,
                     total_chapters=total,
@@ -771,7 +800,9 @@ class DownloadService:
         if task_title_ids:
             paused_rows = (
                 await self.session.exec(
-                    select(DownloadProfile.library_title_id, DownloadProfile.paused).where(
+                    select(
+                        DownloadProfile.library_title_id, DownloadProfile.paused
+                    ).where(
                         DownloadProfile.library_title_id.in_(sorted(task_title_ids))
                     )
                 )
@@ -844,7 +875,9 @@ class DownloadService:
         profile = await self._get_or_create_profile(title_id)
 
         if payload.preferred_variant_id is not None:
-            variant = await self.session.get(LibraryTitleVariant, payload.preferred_variant_id)
+            variant = await self.session.get(
+                LibraryTitleVariant, payload.preferred_variant_id
+            )
             if variant is None or variant.library_title_id != title_id:
                 raise BridgeAPIError(
                     404,
@@ -859,7 +892,9 @@ class DownloadService:
             if len(normalized_payload_variant_ids) != len(
                 self._normalize_positive_int_ids(payload.variant_ids)
             ):
-                raise BridgeAPIError(404, "One or more variants are not linked to this title")
+                raise BridgeAPIError(
+                    404, "One or more variants are not linked to this title"
+                )
 
         updates = payload.model_dump(exclude_unset=True)
         now = _now_utc()
@@ -896,7 +931,9 @@ class DownloadService:
             profile.start_from = updates["start_from"]
 
         if profile.enabled and not await self._profile_variant_ids(profile):
-            variant = await self._resolve_variant(title_id=title_id, preferred_variant_id=None)
+            variant = await self._resolve_variant(
+                title_id=title_id, preferred_variant_id=None
+            )
             if variant.id is not None:
                 await self._set_profile_variant_ids(profile, [int(variant.id)])
 
@@ -922,18 +959,23 @@ class DownloadService:
             stmt = stmt.where(DownloadTask.library_title_id == title_id)
 
         rows = (await self.session.exec(stmt.offset(offset).limit(limit))).all()
-        title_ids = {int(task.library_title_id) for task in rows if task.library_title_id is not None}
+        title_ids = {
+            int(task.library_title_id)
+            for task in rows
+            if task.library_title_id is not None
+        }
         paused_by_title_id: dict[int, bool] = {}
         if title_ids:
             paused_rows = (
                 await self.session.exec(
-                    select(DownloadProfile.library_title_id, DownloadProfile.paused).where(
-                        DownloadProfile.library_title_id.in_(sorted(title_ids))
-                    )
+                    select(
+                        DownloadProfile.library_title_id, DownloadProfile.paused
+                    ).where(DownloadProfile.library_title_id.in_(sorted(title_ids)))
                 )
             ).all()
             paused_by_title_id = {
-                int(task_title_id): bool(paused) for task_title_id, paused in paused_rows
+                int(task_title_id): bool(paused)
+                for task_title_id, paused in paused_rows
             }
         return [
             self._to_task_resource(
@@ -970,7 +1012,9 @@ class DownloadService:
         if title is None:
             raise BridgeAPIError(404, f"Library title not found: {title_id}")
 
-        target_variant = await self._resolve_variant(title_id, preferred_variant_id=variant_id)
+        target_variant = await self._resolve_variant(
+            title_id, preferred_variant_id=variant_id
+        )
 
         stmt = select(LibraryChapter).where(
             LibraryChapter.variant_id == int(target_variant.id),
@@ -980,9 +1024,7 @@ class DownloadService:
             stmt = stmt.where(LibraryChapter.is_read == False)  # noqa: E712
 
         chapters = (
-            await self.session.exec(
-                stmt.order_by(*self._chapter_order_oldest_first())
-            )
+            await self.session.exec(stmt.order_by(*self._chapter_order_oldest_first()))
         ).all()
 
         queued = 0
@@ -1082,7 +1124,9 @@ class DownloadService:
                 now = _now_utc()
                 try:
                     first_check = profile.last_checked_at is None
-                    title = await self.session.get(LibraryTitle, profile.library_title_id)
+                    title = await self.session.get(
+                        LibraryTitle, profile.library_title_id
+                    )
                     if title is None:
                         profile.enabled = False
                         profile.last_error = (
@@ -1105,14 +1149,16 @@ class DownloadService:
                         if variant.id is None:
                             continue
                         try:
-                            new_chapter_ids_by_variant[int(variant.id)] = (
-                                await self._sync_variant_and_collect_new(
-                                    title=title,
-                                    variant=variant,
-                                )
+                            new_chapter_ids_by_variant[
+                                int(variant.id)
+                            ] = await self._sync_variant_and_collect_new(
+                                title=title,
+                                variant=variant,
                             )
                             sync_success += 1
-                        except Exception as sync_exc:  # pragma: no cover - defensive branch
+                        except (
+                            Exception
+                        ) as sync_exc:  # pragma: no cover - defensive branch
                             sync_errors.append(
                                 f"{variant.source_id}: {_short_error(sync_exc)}"
                             )
@@ -1145,7 +1191,8 @@ class DownloadService:
                                 ),
                                 profile=profile,
                                 first_check=first_check,
-                                seed_existing=seed_existing or int(variant.id) not in new_chapter_ids_by_variant,
+                                seed_existing=seed_existing
+                                or int(variant.id) not in new_chapter_ids_by_variant,
                             )
                             for chapter_id in candidate_ids:
                                 task, created = await self._enqueue_chapter_if_needed(
@@ -1206,7 +1253,9 @@ class DownloadService:
             if not claimed_task_ids:
                 return WorkerRunResponse(processed_tasks=0)
 
-            parallel = max(1, min(settings.downloads.parallel_downloads, len(claimed_task_ids)))
+            parallel = max(
+                1, min(settings.downloads.parallel_downloads, len(claimed_task_ids))
+            )
             if parallel == 1:
                 for task_id in claimed_task_ids:
                     await self._process_task_isolated(task_id)
@@ -1223,7 +1272,9 @@ class DownloadService:
                                 task_id,
                             )
 
-                await asyncio.gather(*(run_one(task_id) for task_id in claimed_task_ids))
+                await asyncio.gather(
+                    *(run_one(task_id) for task_id in claimed_task_ids)
+                )
 
             processed = len(claimed_task_ids)
             if processed > 0:
@@ -1327,7 +1378,9 @@ class DownloadService:
         limit: int = 100,
     ) -> DownloadReconcileResource:
         reconciled_missing = await self._reconcile_missing_downloaded_chapters()
-        external_titles = await self._scan_external_download_titles(query=query, limit=limit)
+        external_titles = await self._scan_external_download_titles(
+            query=query, limit=limit
+        )
         await self._auto_link_known_external_titles(external_titles)
         return DownloadReconcileResource(
             scanned_at=_now_utc(),
@@ -1362,11 +1415,13 @@ class DownloadService:
 
             linked_downloaded_chapters = 0
             if payload.path and payload.path.strip():
-                linked_downloaded_chapters = await self._link_downloaded_chapters_for_import(
-                    library_title_id=library_title_id,
-                    source_id=source_id,
-                    title_url=resolved_title_url,
-                    relative_title_path=payload.path.strip(),
+                linked_downloaded_chapters = (
+                    await self._link_downloaded_chapters_for_import(
+                        library_title_id=library_title_id,
+                        source_id=source_id,
+                        title_url=resolved_title_url,
+                        relative_title_path=payload.path.strip(),
+                    )
                 )
 
             return DownloadExternalImportResponse(
@@ -1387,7 +1442,11 @@ class DownloadService:
                 raise BridgeAPIError(404, "Unable to match title in selected source")
             normalized_query = _normalize_text(title)
             exact_match = next(
-                (item for item in titles if _normalize_text(item.title) == normalized_query),
+                (
+                    item
+                    for item in titles
+                    if _normalize_text(item.title) == normalized_query
+                ),
                 None,
             )
             selected = exact_match or titles[0]
@@ -1404,11 +1463,13 @@ class DownloadService:
 
         linked_downloaded_chapters = 0
         if payload.path and payload.path.strip():
-            linked_downloaded_chapters = await self._link_downloaded_chapters_for_import(
-                library_title_id=imported.library_title_id,
-                source_id=source_id,
-                title_url=title_url,
-                relative_title_path=payload.path.strip(),
+            linked_downloaded_chapters = (
+                await self._link_downloaded_chapters_for_import(
+                    library_title_id=imported.library_title_id,
+                    source_id=source_id,
+                    title_url=title_url,
+                    relative_title_path=payload.path.strip(),
+                )
             )
 
         return DownloadExternalImportResponse(
@@ -1469,7 +1530,9 @@ class DownloadService:
                 )
             )
         ).all()
-        first_status = next((status for status in statuses if status.id is not None), None)
+        first_status = next(
+            (status for status in statuses if status.id is not None), None
+        )
         if first_status is None:
             return
 
@@ -1503,7 +1566,8 @@ class DownloadService:
 
         # First pass: identify chapters whose files are missing on disk (sync I/O, no DB).
         bad_chapters = [
-            chapter for chapter in chapters
+            chapter
+            for chapter in chapters
             if not (
                 (chapter_dir := self._resolve_download_dir(chapter.download_path))
                 and chapter_has_payload(chapter_dir)
@@ -1669,8 +1733,8 @@ class DownloadService:
         by_source_title: dict[str, set[str]],
     ) -> DownloadExternalTitleResource | None:
         inferred_title = _strip_leading_index(_split_name_lang(title_dir.name)[0])
-        manifest_source_id, manifest_title_url, manifest_title_name = self._read_title_metadata_file(
-            title_dir
+        manifest_source_id, manifest_title_url, manifest_title_name = (
+            self._read_title_metadata_file(title_dir)
         )
         inferred = (
             (manifest_source_id, manifest_title_url, manifest_title_name)
@@ -1690,7 +1754,9 @@ class DownloadService:
         if source_id and title_url:
             in_library = (source_id, title_url) in by_source_url
         elif source_id:
-            in_library = _normalize_text(title_name) in by_source_title.get(source_id, set())
+            in_library = _normalize_text(title_name) in by_source_title.get(
+                source_id, set()
+            )
         else:
             in_library = False
 
@@ -1800,7 +1866,9 @@ class DownloadService:
                             query=query,
                             page=1,
                         )
-                        selected = self._pick_search_title_match(query=query, results=found)
+                        selected = self._pick_search_title_match(
+                            query=query, results=found
+                        )
                         candidate = selected.url if selected is not None else None
                     except Exception:
                         candidate = None
@@ -1905,7 +1973,10 @@ class DownloadService:
             if not normalized_title:
                 continue
             score = SequenceMatcher(None, normalized_query, normalized_title).ratio()
-            if normalized_query in normalized_title or normalized_title in normalized_query:
+            if (
+                normalized_query in normalized_title
+                or normalized_title in normalized_query
+            ):
                 score += 0.08
             scored.append((score, result))
 
@@ -1953,9 +2024,9 @@ class DownloadService:
         by_chapter_url = {chapter.chapter_url: chapter for chapter in chapter_rows}
         by_chapter_number: dict[str, list[LibraryChapter]] = {}
         for chapter in chapter_rows:
-            number = _coerce_positive_float(chapter.chapter_number) or _chapter_number_from_text(
-                chapter.name
-            )
+            number = _coerce_positive_float(
+                chapter.chapter_number
+            ) or _chapter_number_from_text(chapter.name)
             key = _chapter_number_key(number)
             if key is not None:
                 by_chapter_number.setdefault(key, []).append(chapter)
@@ -1980,9 +2051,9 @@ class DownloadService:
             if chapter is None:
                 numeric = _coerce_positive_float(chapter_number)
                 if numeric is None:
-                    numeric = _coerce_positive_float(chapter_dir.name) or _chapter_number_from_text(
+                    numeric = _coerce_positive_float(
                         chapter_dir.name
-                    )
+                    ) or _chapter_number_from_text(chapter_dir.name)
             else:
                 numeric = None
             if numeric is not None:
@@ -1995,7 +2066,9 @@ class DownloadService:
             if chapter is None or chapter.id is None or int(chapter.id) in linked_ids:
                 continue
 
-            relative_download_path = self._relative_download_path(chapter_dir, preferred_root=root)
+            relative_download_path = self._relative_download_path(
+                chapter_dir, preferred_root=root
+            )
             if relative_download_path is None:
                 continue
 
@@ -2118,12 +2191,18 @@ class DownloadService:
             LibraryChapter.download_path,
         ).where(LibraryChapter.is_downloaded == True)  # noqa: E712
         if title_ids:
-            chapter_stmt = chapter_stmt.where(LibraryChapter.library_title_id.in_(title_ids))
+            chapter_stmt = chapter_stmt.where(
+                LibraryChapter.library_title_id.in_(title_ids)
+            )
         chapter_rows = (await self.session.exec(chapter_stmt)).all()
         if not chapter_rows:
             return 0, 0, {}
 
-        chapter_ids = [int(chapter_id) for chapter_id, _, _ in chapter_rows if chapter_id is not None]
+        chapter_ids = [
+            int(chapter_id)
+            for chapter_id, _, _ in chapter_rows
+            if chapter_id is not None
+        ]
         size_by_chapter_id: dict[int, int] = {}
         if chapter_ids:
             size_rows = (
@@ -2164,7 +2243,9 @@ class DownloadService:
                     )
                     archived_path_cache[path_key] = cached_archived
                 uses_archive = cached_archived
-            chapter_size = 0 if uses_archive else size_by_chapter_id.get(int(chapter_id), 0)
+            chapter_size = (
+                0 if uses_archive else size_by_chapter_id.get(int(chapter_id), 0)
+            )
             if chapter_size <= 0:
                 if path_key:
                     cached_size = fallback_size_cache.get(path_key)
@@ -2207,7 +2288,9 @@ class DownloadService:
                 continue
             if child.name == "sources":
                 for legacy_source in child.iterdir():
-                    if legacy_source.is_dir() and not legacy_source.name.startswith("."):
+                    if legacy_source.is_dir() and not legacy_source.name.startswith(
+                        "."
+                    ):
                         yield legacy_source
                 continue
             if self._looks_like_title_root(child):
@@ -2335,7 +2418,9 @@ class DownloadService:
         _t0 = _time.monotonic()
         now = _now_utc()
 
-        def _log_task(status: str, /, pages: int | None = None, error: str | None = None) -> None:
+        def _log_task(
+            status: str, /, pages: int | None = None, error: str | None = None
+        ) -> None:
             _service_logger.bind(
                 task_id=task.id,
                 attempt_group=task.attempt_group_id,
@@ -2350,14 +2435,18 @@ class DownloadService:
                 error=error,
                 duration_ms=round((_time.monotonic() - _t0) * 1000),
                 status=status,
-            ).log("WARNING" if status in ("failed", "cancelled") else "INFO", "task.done")
-            _ws_broadcast({
-                "event": "task.done",
-                "task_id": int(task.id) if task.id is not None else None,
-                "chapter_id": task.chapter_id,
-                "title_id": task.library_title_id,
-                "status": status,
-            })
+            ).log(
+                "WARNING" if status in ("failed", "cancelled") else "INFO", "task.done"
+            )
+            _ws_broadcast(
+                {
+                    "event": "task.done",
+                    "task_id": int(task.id) if task.id is not None else None,
+                    "chapter_id": task.chapter_id,
+                    "title_id": task.library_title_id,
+                    "status": status,
+                }
+            )
 
         chapter = await self.session.get(LibraryChapter, task.chapter_id)
         if chapter is None:
@@ -2368,7 +2457,9 @@ class DownloadService:
         variant = await self.session.get(LibraryTitleVariant, chapter.variant_id)
         title = await self.session.get(LibraryTitle, chapter.library_title_id)
         if variant is None or title is None:
-            await self._mark_task_failed(task.id, "Broken chapter references", final=True)
+            await self._mark_task_failed(
+                task.id, "Broken chapter references", final=True
+            )
             _log_task("failed", error="Broken chapter references")
             return
 
@@ -2384,7 +2475,9 @@ class DownloadService:
 
         output_dir = self._chapter_dir(title=title, variant=variant, chapter=chapter)
         source_url_base = await self._resolve_source_image_base_url(variant.source_id)
-        source_request_headers = await self._resolve_source_request_headers(variant.source_id)
+        source_request_headers = await self._resolve_source_request_headers(
+            variant.source_id
+        )
 
         try:
             bridge_chapter_url = chapter.chapter_url
@@ -2448,7 +2541,9 @@ class DownloadService:
             page_by_index = {page.page_index: page for page in existing_pages}
 
             timeout = httpx.Timeout(settings.downloads.request_timeout_seconds)
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            async with httpx.AsyncClient(
+                timeout=timeout, follow_redirects=True
+            ) as client:
                 total_pages = len(pages)
                 downloaded_pages = 0
 
@@ -2504,7 +2599,9 @@ class DownloadService:
 
             chapter.is_downloaded = True
             chapter.downloaded_at = _now_utc()
-            chapter.download_path = str(output_dir.relative_to(self._downloads_root()).as_posix())
+            chapter.download_path = str(
+                output_dir.relative_to(self._downloads_root()).as_posix()
+            )
             chapter.download_error = None
             chapter.updated_at = _now_utc()
             self.session.add(chapter)
@@ -2574,7 +2671,9 @@ class DownloadService:
 
         for attempt in range(retries + 1):
             tmp_path = output_path.with_suffix(f"{output_path.suffix}.part")
-            request_timeout = settings.downloads.request_timeout_seconds + (attempt * 10)
+            request_timeout = settings.downloads.request_timeout_seconds + (
+                attempt * 10
+            )
             try:
                 async with client.stream(
                     "GET",
@@ -2605,7 +2704,9 @@ class DownloadService:
         assert last_exc is not None
         raise last_exc
 
-    async def _mark_task_completed(self, task_id: int | None, output_dir: str | None) -> None:
+    async def _mark_task_completed(
+        self, task_id: int | None, output_dir: str | None
+    ) -> None:
         if task_id is None:
             return
 
@@ -2622,7 +2723,9 @@ class DownloadService:
         self.session.add(task)
         await commit_with_sqlite_retry(self.session)
 
-    async def _mark_task_failed(self, task_id: int | None, error: str, final: bool) -> None:
+    async def _mark_task_failed(
+        self, task_id: int | None, error: str, final: bool
+    ) -> None:
         if task_id is None:
             return
 
@@ -2756,7 +2859,9 @@ class DownloadService:
         self.session.add(task)
         await commit_with_sqlite_retry(self.session)
 
-    async def _mark_task_requeued(self, task_id: int | None, reason: str | None = None) -> None:
+    async def _mark_task_requeued(
+        self, task_id: int | None, reason: str | None = None
+    ) -> None:
         if task_id is None:
             return
 
@@ -2894,7 +2999,9 @@ class DownloadService:
                 and chapter.download_path
             ]
             await self.session.exec(
-                delete(LibraryChapterPage).where(LibraryChapterPage.chapter_id.in_(stale_ids))
+                delete(LibraryChapterPage).where(
+                    LibraryChapterPage.chapter_id.in_(stale_ids)
+                )
             )
             await self.session.exec(
                 delete(DownloadTask).where(DownloadTask.chapter_id.in_(stale_ids))
@@ -2913,7 +3020,9 @@ class DownloadService:
     async def _sync_pages(self, chapter_id: int, pages) -> None:
         existing_rows = (
             await self.session.exec(
-                select(LibraryChapterPage).where(LibraryChapterPage.chapter_id == chapter_id)
+                select(LibraryChapterPage).where(
+                    LibraryChapterPage.chapter_id == chapter_id
+                )
             )
         ).all()
         existing_by_index = {page.page_index: page for page in existing_rows}
@@ -2932,7 +3041,9 @@ class DownloadService:
             seen_indexes.add(page.index)
 
         stale_indexes = [
-            page.page_index for page in existing_rows if page.page_index not in seen_indexes
+            page.page_index
+            for page in existing_rows
+            if page.page_index not in seen_indexes
         ]
         if stale_indexes:
             await self.session.exec(
@@ -2963,7 +3074,9 @@ class DownloadService:
                 if not new_chapter_ids:
                     return []
 
-                stmt = select(LibraryChapter).where(LibraryChapter.id.in_(new_chapter_ids))
+                stmt = select(LibraryChapter).where(
+                    LibraryChapter.id.in_(new_chapter_ids)
+                )
         else:
             stmt = select(LibraryChapter).where(
                 LibraryChapter.variant_id == variant_id,
@@ -2972,9 +3085,7 @@ class DownloadService:
             )
 
         chapters = (
-            await self.session.exec(
-                stmt.order_by(*self._chapter_order_oldest_first())
-            )
+            await self.session.exec(stmt.order_by(*self._chapter_order_oldest_first()))
         ).all()
 
         selected: list[int] = []
@@ -3034,7 +3145,9 @@ class DownloadService:
 
         resolved: str | None = None
         try:
-            prefs = await ExtensionService(self.session).list_source_preferences(source_id)
+            prefs = await ExtensionService(self.session).list_source_preferences(
+                source_id
+            )
             pref_by_key = {pref.key: pref.current_value for pref in prefs.preferences}
             site_id = self._infer_mangalib_site_id(
                 source_name=prefs.name,
@@ -3044,10 +3157,14 @@ class DownloadService:
             if preferred_bases:
                 resolved = preferred_bases[0]
             if "MangaLibImageServer" in pref_by_key:
-                image_server = str(pref_by_key.get("MangaLibImageServer") or "compress").strip()
+                image_server = str(
+                    pref_by_key.get("MangaLibImageServer") or "compress"
+                ).strip()
                 if not image_server:
                     image_server = "compress"
-                api_domain = str(pref_by_key.get("MangaLibApiDomain") or "https://api.cdnlibs.org").strip()
+                api_domain = str(
+                    pref_by_key.get("MangaLibApiDomain") or "https://api.cdnlibs.org"
+                ).strip()
                 if not api_domain:
                     api_domain = "https://api.cdnlibs.org"
                 mangalib_base = await self._fetch_mangalib_image_server_url(
@@ -3076,19 +3193,25 @@ class DownloadService:
 
         resolved: dict[str, str] | None = None
         try:
-            prefs = await ExtensionService(self.session).list_source_preferences(source_id)
+            prefs = await ExtensionService(self.session).list_source_preferences(
+                source_id
+            )
             pref_by_key = {pref.key: pref.current_value for pref in prefs.preferences}
 
             referer_candidate = ""
             for pref in prefs.preferences:
                 key = (pref.key or "").strip().lower()
                 if key in {"домен", "domain"}:
-                    referer_candidate = str(pref.current_value or pref.default_value or "").strip()
+                    referer_candidate = str(
+                        pref.current_value or pref.default_value or ""
+                    ).strip()
                     if referer_candidate:
                         break
 
             if not referer_candidate:
-                referer_candidate = str(pref_by_key.get("MangaLibApiDomain") or "").strip()
+                referer_candidate = str(
+                    pref_by_key.get("MangaLibApiDomain") or ""
+                ).strip()
 
             if not referer_candidate:
                 bases = self._extract_url_preference_bases(prefs.preferences)
@@ -3118,22 +3241,31 @@ class DownloadService:
             return None
 
         try:
-            prefs = await ExtensionService(self.session).list_source_preferences(source_id)
+            prefs = await ExtensionService(self.session).list_source_preferences(
+                source_id
+            )
         except Exception:
             return None
 
         pref_by_key = {pref.key: pref.current_value for pref in prefs.preferences}
-        if "MangaLibApiDomain" not in pref_by_key and "MangaLibImageServer" not in pref_by_key:
+        if (
+            "MangaLibApiDomain" not in pref_by_key
+            and "MangaLibImageServer" not in pref_by_key
+        ):
             return None
 
-        api_domain = str(pref_by_key.get("MangaLibApiDomain") or "https://api.cdnlibs.org").strip()
+        api_domain = str(
+            pref_by_key.get("MangaLibApiDomain") or "https://api.cdnlibs.org"
+        ).strip()
         if not api_domain:
             api_domain = "https://api.cdnlibs.org"
         endpoint = f"{api_domain.rstrip('/')}/api/manga{chapter_url}"
 
         try:
             timeout = httpx.Timeout(15.0)
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            async with httpx.AsyncClient(
+                timeout=timeout, follow_redirects=True
+            ) as client:
                 response = await client.get(endpoint)
                 response.raise_for_status()
         except Exception:
@@ -3153,7 +3285,9 @@ class DownloadService:
         if expired_at:
             return f"Chapter pages are unavailable in MangaLib API (locked until {expired_at})"
         if expired_type == 1:
-            return "Chapter pages are unavailable in MangaLib API (chapter is time-locked)"
+            return (
+                "Chapter pages are unavailable in MangaLib API (chapter is time-locked)"
+            )
         return "Chapter pages are unavailable in MangaLib API"
 
     async def _normalize_mangalib_pages_error(
@@ -3298,7 +3432,9 @@ class DownloadService:
         constants_url = f"{api_base}/api/constants"
         try:
             timeout = httpx.Timeout(10.0)
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            async with httpx.AsyncClient(
+                timeout=timeout, follow_redirects=True
+            ) as client:
                 response = await client.get(
                     constants_url,
                     params=[("fields[]", "imageServers")],
@@ -3360,7 +3496,9 @@ class DownloadService:
         for pref in preferences:
             key = (pref.key or "").strip().lower()
             if key == "домен":
-                domain_value = str(pref.current_value or pref.default_value or "").strip().lower()
+                domain_value = (
+                    str(pref.current_value or pref.default_value or "").strip().lower()
+                )
                 break
 
         if "hentai" in domain_value:
@@ -3400,16 +3538,23 @@ class DownloadService:
         if not source_url_base:
             return remote_url
 
-        candidate = DownloadService._sanitize_comma_encoded_url((page_url or "").strip()) or (page_url or "").strip()
+        candidate = (
+            DownloadService._sanitize_comma_encoded_url((page_url or "").strip())
+            or (page_url or "").strip()
+        )
         if not candidate:
             return remote_url
 
         parsed_remote = urlparse(remote_url)
         remote_is_absolute = bool(parsed_remote.scheme and parsed_remote.netloc)
-        if remote_is_absolute and (candidate.startswith("/") or candidate.startswith("//")):
+        if remote_is_absolute and (
+            candidate.startswith("/") or candidate.startswith("//")
+        ):
             return remote_url
 
-        parsed = urlparse(f"https:{candidate}" if candidate.startswith("//") else candidate)
+        parsed = urlparse(
+            f"https:{candidate}" if candidate.startswith("//") else candidate
+        )
         path = (parsed.path or "").lower()
         if path and any(path.endswith(suffix) for suffix in _IMAGE_SUFFIXES):
             return candidate
@@ -3437,8 +3582,14 @@ class DownloadService:
                 continue
             if not parsed_part.scheme:
                 normalized_part = part
-                if normalized_part.startswith("https/") or normalized_part.startswith("http/"):
-                    normalized_part = normalized_part.split("/", 1)[1] if "/" in normalized_part else ""
+                if normalized_part.startswith("https/") or normalized_part.startswith(
+                    "http/"
+                ):
+                    normalized_part = (
+                        normalized_part.split("/", 1)[1]
+                        if "/" in normalized_part
+                        else ""
+                    )
                 path_parts.append(
                     normalized_part
                     if normalized_part.startswith("/")
@@ -3542,7 +3693,9 @@ class DownloadService:
         preferred_variant_id: int | None,
     ) -> LibraryTitleVariant:
         if preferred_variant_id is not None:
-            preferred = await self.session.get(LibraryTitleVariant, preferred_variant_id)
+            preferred = await self.session.get(
+                LibraryTitleVariant, preferred_variant_id
+            )
             if preferred is not None and preferred.library_title_id == title_id:
                 return preferred
 
@@ -3550,12 +3703,16 @@ class DownloadService:
             await self.session.exec(
                 select(LibraryTitleVariant)
                 .where(LibraryTitleVariant.library_title_id == title_id)
-                .order_by(desc(LibraryTitleVariant.last_synced_at), LibraryTitleVariant.id)
+                .order_by(
+                    desc(LibraryTitleVariant.last_synced_at), LibraryTitleVariant.id
+                )
                 .limit(1)
             )
         ).first()
         if variant is None:
-            raise BridgeAPIError(404, f"Library title has no source variants: {title_id}")
+            raise BridgeAPIError(
+                404, f"Library title has no source variants: {title_id}"
+            )
         return variant
 
     async def _profile_variant_ids(self, profile: DownloadProfile | None) -> list[int]:
@@ -3566,7 +3723,9 @@ class DownloadService:
                 await self.session.exec(
                     select(DownloadProfileVariant.variant_id)
                     .where(DownloadProfileVariant.profile_id == int(profile.id))
-                    .order_by(DownloadProfileVariant.position, DownloadProfileVariant.id)
+                    .order_by(
+                        DownloadProfileVariant.position, DownloadProfileVariant.id
+                    )
                 )
             ).all()
             normalized = normalize_positive_int_ids(rows)
@@ -3646,12 +3805,19 @@ class DownloadService:
                     )
                 )
             ).all()
-            by_id = {int(variant.id): variant for variant in rows if variant.id is not None}
+            by_id = {
+                int(variant.id): variant for variant in rows if variant.id is not None
+            }
             ordered = [by_id[item] for item in selected_ids if item in by_id]
             if ordered:
                 if selected_ids != await self._profile_variant_ids(profile):
                     await self._set_profile_variant_ids(
-                        profile, [int(variant.id) for variant in ordered if variant.id is not None]
+                        profile,
+                        [
+                            int(variant.id)
+                            for variant in ordered
+                            if variant.id is not None
+                        ],
                     )
                 return ordered
 
@@ -3667,14 +3833,18 @@ class DownloadService:
     async def _get_or_create_profile(self, title_id: int) -> DownloadProfile:
         profile = (
             await self.session.exec(
-                select(DownloadProfile).where(DownloadProfile.library_title_id == title_id)
+                select(DownloadProfile).where(
+                    DownloadProfile.library_title_id == title_id
+                )
             )
         ).first()
         if profile is not None:
             return profile
 
         now = _now_utc()
-        variant = await self._resolve_variant(title_id=title_id, preferred_variant_id=None)
+        variant = await self._resolve_variant(
+            title_id=title_id, preferred_variant_id=None
+        )
         # Avoid duplicate-profile races when monitor/worker and UI updates overlap.
         await self.session.exec(
             insert(DownloadProfile)
@@ -3694,7 +3864,9 @@ class DownloadService:
         )
         profile = (
             await self.session.exec(
-                select(DownloadProfile).where(DownloadProfile.library_title_id == title_id)
+                select(DownloadProfile).where(
+                    DownloadProfile.library_title_id == title_id
+                )
             )
         ).first()
         if profile is None:
@@ -3702,8 +3874,13 @@ class DownloadService:
                 500,
                 f"Failed to create download profile for title: {title_id}",
             )
-        if profile.preferred_variant_id is not None and not await self._profile_variant_ids(profile):
-            await self._set_profile_variant_ids(profile, [int(profile.preferred_variant_id)])
+        if (
+            profile.preferred_variant_id is not None
+            and not await self._profile_variant_ids(profile)
+        ):
+            await self._set_profile_variant_ids(
+                profile, [int(profile.preferred_variant_id)]
+            )
         return profile
 
     def _downloads_root(self) -> Path:
@@ -3749,9 +3926,9 @@ class DownloadService:
 
         title_segment = _safe_segment(variant.title or title.title, f"title-{title.id}")
 
-        chapter_number = _coerce_positive_float(chapter.chapter_number) or _chapter_number_from_text(
-            chapter.name
-        )
+        chapter_number = _coerce_positive_float(
+            chapter.chapter_number
+        ) or _chapter_number_from_text(chapter.name)
         chapter_number_segment = _format_chapter_number_segment(chapter_number)
 
         base_dir = self._downloads_root() / source_segment / title_segment
@@ -3944,7 +4121,9 @@ class DownloadService:
         }
         write_title_metadata(title_dir, payload)
 
-    async def _to_profile_resource(self, profile: DownloadProfile) -> DownloadProfileResource:
+    async def _to_profile_resource(
+        self, profile: DownloadProfile
+    ) -> DownloadProfileResource:
         return DownloadProfileResource(
             id=int(profile.id),
             library_title_id=profile.library_title_id,

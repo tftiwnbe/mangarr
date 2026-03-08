@@ -14,8 +14,10 @@ export type RegisterFirstUserResponse = components['schemas']['RegisterFirstUser
 export type ChangePasswordRequest = components['schemas']['ChangePasswordRequest'];
 export type RotateApiKeyResponse = components['schemas']['RotateApiKeyResponse'];
 export type IntegrationApiKeyResource = components['schemas']['IntegrationApiKeyResource'];
-export type CreateIntegrationApiKeyRequest = components['schemas']['CreateIntegrationApiKeyRequest'];
-export type CreateIntegrationApiKeyResponse = components['schemas']['CreateIntegrationApiKeyResponse'];
+export type CreateIntegrationApiKeyRequest =
+	components['schemas']['CreateIntegrationApiKeyRequest'];
+export type CreateIntegrationApiKeyResponse =
+	components['schemas']['CreateIntegrationApiKeyResponse'];
 export type UserProfile = components['schemas']['UserProfileResource'];
 export type LoginRequest = components['schemas']['LoginRequest'];
 export type LoginResponse = components['schemas']['LoginResponse'];
@@ -59,7 +61,10 @@ export async function getSetupStatus(): Promise<SetupStatusResponse> {
 }
 
 export async function getMe(): Promise<UserProfile> {
-	const profile = expectData(await httpClient.GET('/api/v2/auth/me'), 'Unable to load current user');
+	const profile = expectData(
+		await httpClient.GET('/api/v2/auth/me'),
+		'Unable to load current user'
+	);
 	const persistence = getApiKeyPersistence() ?? 'session';
 	setCachedUserProfile(profile, persistence);
 	return profile;
@@ -78,7 +83,10 @@ export async function rotateApiKey(options?: {
 }
 
 export async function listIntegrationApiKeys(): Promise<IntegrationApiKeyResource[]> {
-	return expectData(await httpClient.GET('/api/v2/auth/me/api-keys'), 'Unable to load integration API keys');
+	return expectData(
+		await httpClient.GET('/api/v2/auth/me/api-keys'),
+		'Unable to load integration API keys'
+	);
 }
 
 export async function createIntegrationApiKey(

@@ -38,11 +38,7 @@ export function getCachedCoverUrl(url: string | null | undefined): string {
 	) {
 		return appendCoverApiKey(trimmed);
 	}
-	if (
-		trimmed.startsWith('/') ||
-		trimmed.startsWith('data:') ||
-		trimmed.startsWith('blob:')
-	) {
+	if (trimmed.startsWith('/') || trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
 		return trimmed;
 	}
 

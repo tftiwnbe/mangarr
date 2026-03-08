@@ -143,7 +143,9 @@ async def get_current_user(
     )
 
 
-async def require_authenticated_user(_: Annotated[User, Depends(get_current_user)]) -> None:
+async def require_authenticated_user(
+    _: Annotated[User, Depends(get_current_user)],
+) -> None:
     return None
 
 

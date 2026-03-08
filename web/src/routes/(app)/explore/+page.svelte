@@ -308,7 +308,9 @@
 	const isSearching = $derived(isSearchTab && hasSearchQuery);
 	const showSearchPrompt = $derived(isSearchTab && !hasSearchQuery);
 	const canInfiniteScroll = $derived(
-		!isSearchTab && !hasCategoryFilterSelected && (activeTab === 'latest' || activeTab === 'popular')
+		!isSearchTab &&
+			!hasCategoryFilterSelected &&
+			(activeTab === 'latest' || activeTab === 'popular')
 	);
 
 	let activeFeedRequestId = 0;
@@ -744,10 +746,7 @@
 		return `/title/open?${queryParts.join('&')}`;
 	}
 
-	function handleCardClick(
-		event: MouseEvent,
-		item: ExploreFeed['items'][number]
-	): void {
+	function handleCardClick(event: MouseEvent, item: ExploreFeed['items'][number]): void {
 		if (shouldUseBrowserNavigation(event)) {
 			return;
 		}
@@ -952,7 +951,9 @@
 		<div class="flex flex-col gap-4">
 			<!-- Search input -->
 			<div class="relative">
-				<div class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-ghost)]">
+				<div
+					class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-ghost)]"
+				>
 					<Icon name="search" size={14} />
 				</div>
 				<input
@@ -960,12 +961,12 @@
 					placeholder={$_('explore.searchPlaceholder')}
 					bind:value={searchQuery}
 					oninput={onSearchInput}
-					class="h-11 w-full bg-[var(--void-2)] border border-[var(--void-4)] pl-9 pr-9 text-sm text-[var(--text)] placeholder:text-[var(--text-ghost)] transition-colors hover:border-[var(--void-5)] focus:border-[var(--void-6)] focus:outline-none"
+					class="h-11 w-full border border-[var(--void-4)] bg-[var(--void-2)] pr-9 pl-9 text-sm text-[var(--text)] transition-colors placeholder:text-[var(--text-ghost)] hover:border-[var(--void-5)] focus:border-[var(--void-6)] focus:outline-none"
 				/>
 				{#if searchQuery.trim()}
 					<button
 						type="button"
-						class="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-ghost)] hover:text-[var(--text-muted)] transition-colors"
+						class="absolute top-1/2 right-3 -translate-y-1/2 text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 						onclick={() => {
 							searchQuery = '';
 							void handleSearch('');
@@ -981,7 +982,7 @@
 				<div class="flex flex-col gap-2.5">
 					<!-- Label row with filter action -->
 					<div class="flex items-center justify-between">
-						<span class="text-[10px] uppercase tracking-widest text-[var(--text-ghost)]">
+						<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
 							{$_('explore.selectSource')}
 						</span>
 						{#if hasSourceFilterSelected}
@@ -1000,12 +1001,12 @@
 					</div>
 
 					<!-- Horizontal chip row -->
-					<div class="flex gap-1.5 overflow-x-auto no-scrollbar">
+					<div class="no-scrollbar flex gap-1.5 overflow-x-auto">
 						<button
 							type="button"
-							class="shrink-0 h-7 px-3 text-[10px] uppercase tracking-wider transition-colors {!hasSourceFilterSelected
+							class="h-7 shrink-0 px-3 text-[10px] tracking-wider uppercase transition-colors {!hasSourceFilterSelected
 								? 'bg-[var(--void-4)] text-[var(--text)]'
-								: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
+								: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
 							onclick={clearSourceFilter}
 						>
 							{$_('explore.allSources')}
@@ -1013,9 +1014,10 @@
 						{#each sources as source (source.id)}
 							<button
 								type="button"
-								class="shrink-0 h-7 px-3 text-[10px] uppercase tracking-wider transition-colors {selectedSourceId === source.id
+								class="h-7 shrink-0 px-3 text-[10px] tracking-wider uppercase transition-colors {selectedSourceId ===
+								source.id
 									? 'bg-[var(--void-4)] text-[var(--text)]'
-									: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
+									: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
 								onclick={() => setSourceFilter(source.id)}
 							>
 								{source.name}{source.lang ? ` [${source.lang}]` : ''}
@@ -1033,7 +1035,9 @@
 								onclick={clearAppliedSearchFilters}
 							>
 								<Icon name="x" size={10} />
-								{$_('common.clear')} {appliedSearchFilterCount} {appliedSearchFilterCount === 1 ? 'filter' : 'filters'}
+								{$_('common.clear')}
+								{appliedSearchFilterCount}
+								{appliedSearchFilterCount === 1 ? 'filter' : 'filters'}
 							</button>
 						</div>
 					{/if}
@@ -1183,7 +1187,8 @@
 		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
 			{#each feed.items as item (item.dedupe_key)}
 				{@const importedLibraryId = item.imported_library_id ?? null}
-				{@const isInLibrary = importedLibraryId !== null && assignedLibraryTitleIds.has(importedLibraryId)}
+				{@const isInLibrary =
+					importedLibraryId !== null && assignedLibraryTitleIds.has(importedLibraryId)}
 				<a
 					href={buildPreviewHref(item)}
 					class="group card-glow relative flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)] text-left"
@@ -1192,13 +1197,13 @@
 				>
 					<!-- Cover -->
 					<div class="relative aspect-[2/3] overflow-hidden bg-[var(--void-3)]">
-							{#if item.thumbnail_url}
-								<LazyImage
-									src={getCachedCoverUrl(item.thumbnail_url)}
-									alt={item.title}
-									class="h-full w-full"
-									imgClass="transition-transform group-hover:scale-105"
-								/>
+						{#if item.thumbnail_url}
+							<LazyImage
+								src={getCachedCoverUrl(item.thumbnail_url)}
+								alt={item.title}
+								class="h-full w-full"
+								imgClass="transition-transform group-hover:scale-105"
+							/>
 						{:else}
 							<div class="flex h-full w-full items-center justify-center">
 								<Icon name="image" size={24} class="text-[var(--text-ghost)]" />

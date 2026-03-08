@@ -165,7 +165,9 @@ class CoverCacheService:
                 socket.SOCK_STREAM,
             )
         except OSError as exc:
-            raise HTTPException(status_code=400, detail="Unable to resolve cover URL host") from exc
+            raise HTTPException(
+                status_code=400, detail="Unable to resolve cover URL host"
+            ) from exc
 
         for info in infos:
             try:
@@ -179,7 +181,9 @@ class CoverCacheService:
                 or ip.is_reserved
                 or ip.is_multicast
             ):
-                raise HTTPException(status_code=400, detail="Cover URL host is not allowed")
+                raise HTTPException(
+                    status_code=400, detail="Cover URL host is not allowed"
+                )
 
         return parsed.geturl()
 
@@ -246,9 +250,13 @@ class CoverCacheService:
             raise HTTPException(status_code=502, detail="Unable to fetch cover image")
 
         final_url = await self._validate_remote_url(str(response.url))
-        content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        content_type = (
+            response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        )
         if not content_type.startswith("image/"):
-            raise HTTPException(status_code=502, detail="Cover response is not an image")
+            raise HTTPException(
+                status_code=502, detail="Cover response is not an image"
+            )
 
         content = response.content
         if not content:
@@ -327,7 +335,9 @@ class CoverCacheService:
             except Exception as exc:  # pragma: no cover - defensive guard
                 if meta and file_path.is_file():
                     return file_path, meta
-                raise HTTPException(status_code=502, detail="Unable to fetch cover image") from exc
+                raise HTTPException(
+                    status_code=502, detail="Unable to fetch cover image"
+                ) from exc
 
 
 cover_cache = CoverCacheService()

@@ -29,15 +29,20 @@
 	}: Props = $props();
 </script>
 
-<Dialog.Root bind:open onOpenChange={(v) => { if (!v) onCancel(); }}>
+<Dialog.Root
+	bind:open
+	onOpenChange={(v) => {
+		if (!v) onCancel();
+	}}
+>
 	<Dialog.Portal>
 		<Dialog.Overlay
-			class="fixed inset-0 z-50 bg-[var(--void-0)]/80 backdrop-blur-sm animate-fade-in"
+			class="animate-fade-in fixed inset-0 z-50 bg-[var(--void-0)]/80 backdrop-blur-sm"
 		/>
 		<Dialog.Content
-			class="fixed left-1/2 top-1/2 z-50 w-full max-w-xs -translate-x-1/2 -translate-y-1/2
-				bg-[var(--void-1)] border border-[var(--void-3)] shadow-2xl
-				animate-scale-in focus:outline-none"
+			class="animate-scale-in fixed top-1/2 left-1/2 z-50 w-full max-w-xs -translate-x-1/2
+				-translate-y-1/2 border border-[var(--void-3)] bg-[var(--void-1)]
+				shadow-2xl focus:outline-none"
 		>
 			<!-- Header -->
 			<div class="px-5 pt-5 pb-4">
@@ -45,7 +50,7 @@
 					{title}
 				</Dialog.Title>
 				{#if description}
-					<Dialog.Description class="mt-1.5 text-xs text-[var(--text-ghost)] leading-relaxed">
+					<Dialog.Description class="mt-1.5 text-xs leading-relaxed text-[var(--text-ghost)]">
 						{description}
 					</Dialog.Description>
 				{/if}
@@ -56,19 +61,14 @@
 
 			<!-- Actions -->
 			<div class="flex items-center justify-end gap-2 px-4 py-3">
-				<Button
-					variant="ghost"
-					size="sm"
-					onclick={onCancel}
-					disabled={loading}
-				>
+				<Button variant="ghost" size="sm" onclick={onCancel} disabled={loading}>
 					{cancelLabel}
 				</Button>
 				<Button
 					variant="solid"
 					size="sm"
 					class={variant === 'danger'
-						? 'bg-[var(--error)]/80 border-[var(--error)] hover:bg-[var(--error)] text-white'
+						? 'border-[var(--error)] bg-[var(--error)]/80 text-white hover:bg-[var(--error)]'
 						: ''}
 					onclick={onConfirm}
 					{loading}
@@ -94,8 +94,12 @@
 	}
 
 	@keyframes fade-in {
-		from { opacity: 0; }
-		to { opacity: 1; }
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
 	}
 
 	:global(.animate-scale-in) {

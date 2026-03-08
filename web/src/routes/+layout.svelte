@@ -17,7 +17,9 @@
 {#if $isLoading}
 	<!-- Minimal loading state while translations load -->
 	<div class="flex min-h-svh items-center justify-center">
-		<div class="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+		<div
+			class="border-primary size-8 animate-spin rounded-full border-2 border-t-transparent"
+		></div>
 	</div>
 {:else}
 	{@render children()}

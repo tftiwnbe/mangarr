@@ -152,8 +152,8 @@ async def websocket_endpoint(
         await ws_manager.disconnect(ws)
 
 
-_ACCESS_SAMPLE_RATE = 0.05   # fraction of normal requests to keep
-_ACCESS_SLOW_MS = 1_000      # requests slower than this are always kept
+_ACCESS_SAMPLE_RATE = 0.05  # fraction of normal requests to keep
+_ACCESS_SLOW_MS = 1_000  # requests slower than this are always kept
 
 
 @app.middleware("http")
@@ -192,7 +192,8 @@ async def log_requests(request: Request, call_next):
     if not is_server_error:
         log_extra["access"] = True
     logger.bind(**log_extra).log(
-        level, f"{request.method} {request.url.path} → {response.status_code} ({process_time_ms}ms)"
+        level,
+        f"{request.method} {request.url.path} → {response.status_code} ({process_time_ms}ms)",
     )
     return response
 

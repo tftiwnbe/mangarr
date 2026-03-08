@@ -27,9 +27,7 @@ export function sortContentLanguageCodes(langs: Iterable<string>): string[] {
 	return unique;
 }
 
-export function toMainContentLanguages(
-	langs: Iterable<string | null | undefined>
-): string[] {
+export function toMainContentLanguages(langs: Iterable<string | null | undefined>): string[] {
 	const normalized = [];
 	for (const value of langs) {
 		const code = normalizeContentLanguageCode(value);

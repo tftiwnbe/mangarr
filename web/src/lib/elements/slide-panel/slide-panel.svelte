@@ -28,20 +28,25 @@
 {#if open}
 	<!-- Backdrop -->
 	<div
-		class="fixed inset-0 z-50 bg-[var(--void-0)]/85 backdrop-blur-sm animate-fade-in"
+		class="animate-fade-in fixed inset-0 z-50 bg-[var(--void-0)]/85 backdrop-blur-sm"
 		onclick={handleBackdropClick}
 		role="presentation"
 	>
 		<!-- Panel -->
 		<div
-			class="absolute right-0 top-0 h-full w-full max-w-sm bg-[var(--void-0)] animate-slide-in-right"
+			class="animate-slide-in-right absolute top-0 right-0 h-full w-full max-w-sm bg-[var(--void-0)]"
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="slide-panel-title"
 		>
 			<!-- Header -->
 			<div class="flex h-11 items-center justify-between px-4">
-				<h2 id="slide-panel-title" class="text-xs text-[var(--text-muted)] uppercase tracking-wider">{title}</h2>
+				<h2
+					id="slide-panel-title"
+					class="text-xs tracking-wider text-[var(--text-muted)] uppercase"
+				>
+					{title}
+				</h2>
 				<button
 					type="button"
 					class="flex h-8 w-8 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
@@ -53,7 +58,7 @@
 			</div>
 
 			<!-- Content -->
-			<div class="h-[calc(100%-44px)] overflow-y-auto px-4 pb-4 no-scrollbar">
+			<div class="no-scrollbar h-[calc(100%-44px)] overflow-y-auto px-4 pb-4">
 				{#if children}
 					{@render children()}
 				{/if}

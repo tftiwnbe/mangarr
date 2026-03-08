@@ -21,8 +21,8 @@
 		for (let i = 0; i < n; i++) {
 			// Use golden ratio for better distribution
 			const golden = 1.618033988749;
-			const x = ((i * golden * 37) % 100);
-			const y = ((i * golden * 53) % 100);
+			const x = (i * golden * 37) % 100;
+			const y = (i * golden * 53) % 100;
 
 			// More visible stars
 			const isBright = i % 4 === 0;
@@ -55,7 +55,9 @@
 				background: {star.bright ? 'rgba(255, 255, 255, 0.95)' : 'rgba(200, 200, 210, 0.7)'};
 				animation: {star.bright ? 'twinkle' : 'twinkle-slow'} {star.duration}s ease-in-out infinite;
 				animation-delay: {star.delay}s;
-				box-shadow: 0 0 {star.bright ? star.size * 4 : star.size * 2}px {star.bright ? 'rgba(255, 255, 255, 0.5)' : 'rgba(200, 200, 210, 0.3)'};
+				box-shadow: 0 0 {star.bright ? star.size * 4 : star.size * 2}px {star.bright
+				? 'rgba(255, 255, 255, 0.5)'
+				: 'rgba(200, 200, 210, 0.3)'};
 			"
 		></div>
 	{/each}

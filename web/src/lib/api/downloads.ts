@@ -15,7 +15,8 @@ export type WorkerRunResponse = components['schemas']['WorkerRunResponse'];
 export type DownloadExternalTitleResource = components['schemas']['DownloadExternalTitleResource'];
 export type DownloadReconcileResource = components['schemas']['DownloadReconcileResource'];
 export type DownloadExternalImportRequest = components['schemas']['DownloadExternalImportRequest'];
-export type DownloadExternalImportResponse = components['schemas']['DownloadExternalImportResponse'];
+export type DownloadExternalImportResponse =
+	components['schemas']['DownloadExternalImportResponse'];
 
 export async function getDownloadOverview(): Promise<DownloadOverviewResource> {
 	return expectData(

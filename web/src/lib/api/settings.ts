@@ -17,7 +17,10 @@ export type SchedulerJobResource = components['schemas']['SchedulerJobResource']
 export type SchedulerStatusResource = components['schemas']['SchedulerStatusResource'];
 
 export async function getDownloadSettings(): Promise<DownloadSettingsResource> {
-	return expectData(await httpClient.GET('/api/v2/settings/downloads'), 'Unable to load download settings');
+	return expectData(
+		await httpClient.GET('/api/v2/settings/downloads'),
+		'Unable to load download settings'
+	);
 }
 
 export async function updateDownloadSettings(
@@ -33,7 +36,9 @@ export async function getJobsSettings(): Promise<JobsSettingsResource> {
 	return expectData(await httpClient.GET('/api/v2/settings/jobs'), 'Unable to load jobs settings');
 }
 
-export async function updateJobsSettings(payload: JobsSettingsUpdate): Promise<JobsSettingsResource> {
+export async function updateJobsSettings(
+	payload: JobsSettingsUpdate
+): Promise<JobsSettingsResource> {
 	return expectData(
 		await httpClient.PUT('/api/v2/settings/jobs', { body: payload }),
 		'Unable to update jobs settings'
@@ -64,7 +69,10 @@ export async function updateFlareSolverrSettings(
 }
 
 export async function getProxySettings(): Promise<ProxySettingsResource> {
-	return expectData(await httpClient.GET('/api/v2/settings/proxy'), 'Unable to load proxy settings');
+	return expectData(
+		await httpClient.GET('/api/v2/settings/proxy'),
+		'Unable to load proxy settings'
+	);
 }
 
 export async function updateProxySettings(

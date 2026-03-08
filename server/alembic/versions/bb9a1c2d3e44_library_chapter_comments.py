@@ -20,8 +20,15 @@ def upgrade() -> None:
     op.create_table(
         "library_chapter_comments",
         sa.Column("id", sa.Integer(), primary_key=True, nullable=False),
-        sa.Column("chapter_id", sa.Integer(), sa.ForeignKey("library_chapters.id"), nullable=False),
-        sa.Column("page_index", sa.Integer(), nullable=False, server_default=sa.text("0")),
+        sa.Column(
+            "chapter_id",
+            sa.Integer(),
+            sa.ForeignKey("library_chapters.id"),
+            nullable=False,
+        ),
+        sa.Column(
+            "page_index", sa.Integer(), nullable=False, server_default=sa.text("0")
+        ),
         sa.Column("message", sa.Text(), nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
@@ -41,6 +48,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_library_chapter_comments_created_at", table_name="library_chapter_comments")
-    op.drop_index("ix_library_chapter_comments_chapter_id", table_name="library_chapter_comments")
+    op.drop_index(
+        "ix_library_chapter_comments_created_at", table_name="library_chapter_comments"
+    )
+    op.drop_index(
+        "ix_library_chapter_comments_chapter_id", table_name="library_chapter_comments"
+    )
     op.drop_table("library_chapter_comments")

@@ -36,7 +36,9 @@ class LibraryTitleVariant(SQLModel, table=True):
 
     __tablename__: ClassVar[Any] = "library_title_variants"
     __table_args__ = (
-        UniqueConstraint("source_id", "title_url", name="uq_library_variant_source_title"),
+        UniqueConstraint(
+            "source_id", "title_url", name="uq_library_variant_source_title"
+        ),
     )
 
     id: int | None = Field(default=None, primary_key=True)
@@ -68,7 +70,9 @@ class LibraryChapter(SQLModel, table=True):
 
     __tablename__: ClassVar[Any] = "library_chapters"
     __table_args__ = (
-        UniqueConstraint("variant_id", "chapter_url", name="uq_library_chapter_variant_url"),
+        UniqueConstraint(
+            "variant_id", "chapter_url", name="uq_library_chapter_variant_url"
+        ),
     )
 
     id: int | None = Field(default=None, primary_key=True)
@@ -79,7 +83,9 @@ class LibraryChapter(SQLModel, table=True):
     name: str
     chapter_number: float = 0.0
     scanlator: str | None = None
-    date_upload: datetime = Field(default_factory=lambda: datetime.fromtimestamp(0, tz=timezone.utc))
+    date_upload: datetime = Field(
+        default_factory=lambda: datetime.fromtimestamp(0, tz=timezone.utc)
+    )
     position: int = 0
 
     is_read: bool = Field(default=False, index=True)
@@ -106,7 +112,9 @@ class LibraryChapterPage(SQLModel, table=True):
 
     __tablename__: ClassVar[Any] = "library_chapter_pages"
     __table_args__ = (
-        UniqueConstraint("chapter_id", "page_index", name="uq_library_page_chapter_index"),
+        UniqueConstraint(
+            "chapter_id", "page_index", name="uq_library_page_chapter_index"
+        ),
     )
 
     id: int | None = Field(default=None, primary_key=True)
@@ -377,7 +385,9 @@ class LibraryCollection(SQLModel, table=True):
 class LibraryCollectionTitle(SQLModel, table=True):
     __tablename__: ClassVar[Any] = "library_collection_titles"
     __table_args__ = (
-        UniqueConstraint("collection_id", "library_title_id", name="uq_collection_title"),
+        UniqueConstraint(
+            "collection_id", "library_title_id", name="uq_collection_title"
+        ),
     )
 
     id: int | None = Field(default=None, primary_key=True)

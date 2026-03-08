@@ -65,7 +65,9 @@ interface TitleVariantItem {
 
 type VariantAvailabilityState = 'full' | 'behind' | 'partial' | 'unknown';
 
-function normalizeVariantAvailabilityState(value: string | null | undefined): VariantAvailabilityState {
+function normalizeVariantAvailabilityState(
+	value: string | null | undefined
+): VariantAvailabilityState {
 	if (value === 'full' || value === 'behind' || value === 'partial' || value === 'unknown') {
 		return value;
 	}
@@ -198,8 +200,7 @@ function mapVariant(variant: LibraryTitleResource['variants'][number]): TitleVar
 					hasMajorGaps: variant.availability.has_major_gaps ?? false,
 					firstChapterNumber: variant.availability.first_chapter_number ?? undefined,
 					lastChapterNumber: variant.availability.last_chapter_number ?? undefined,
-					globalLastChapterNumber:
-						variant.availability.global_last_chapter_number ?? undefined
+					globalLastChapterNumber: variant.availability.global_last_chapter_number ?? undefined
 				}
 			: undefined;
 	return {

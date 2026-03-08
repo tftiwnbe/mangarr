@@ -788,7 +788,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div
-	class="relative min-h-svh bg-[var(--void-0)] overscroll-none"
+	class="relative min-h-svh overscroll-none bg-[var(--void-0)]"
 	role="presentation"
 	onpointerdown={handleReaderPointerDown}
 	onpointermove={handleReaderPointerMove}
@@ -821,7 +821,7 @@
 	<div
 		bind:this={readerHeaderElement}
 		class="fixed inset-x-0 top-0 z-40 bg-[var(--void-0)]/90 backdrop-blur-sm transition-transform duration-200
-			{readerHeaderVisible ? 'translate-y-0' : '-translate-y-full pointer-events-none'}"
+			{readerHeaderVisible ? 'translate-y-0' : 'pointer-events-none -translate-y-full'}"
 		role="banner"
 		onmouseenter={handleHeaderMouseEnter}
 		onmouseleave={handleHeaderMouseLeave}
@@ -829,7 +829,11 @@
 		<div class="flex h-10 items-center justify-between px-2">
 			<!-- Left: back + title (title is a link on all viewports) -->
 			<div class="flex min-w-0 flex-1 items-center gap-1.5">
-				<Button variant="ghost" size="icon-sm" onclick={() => void navigateBack(canonicalTitlePath ?? '/library')}>
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					onclick={() => void navigateBack(canonicalTitlePath ?? '/library')}
+				>
 					<Icon name="chevron-left" size={18} />
 				</Button>
 				<a
@@ -842,7 +846,7 @@
 
 			<!-- Desktop-only: chapter nav + actions in the header -->
 			{#if pages.length > 0}
-				<div class="hidden md:flex items-center gap-0.5 mx-2">
+				<div class="mx-2 hidden items-center gap-0.5 md:flex">
 					<Button
 						variant="ghost"
 						size="icon-sm"
@@ -912,7 +916,7 @@
 					</Button>
 				{/if}
 				{#if pages.length > 0}
-					<span class="tabular-nums text-[11px] text-[var(--text-ghost)] pr-1">
+					<span class="pr-1 text-[11px] text-[var(--text-ghost)] tabular-nums">
 						{currentPageIndex + 1}/{pages.length}
 					</span>
 				{/if}
@@ -969,7 +973,7 @@
 				{/each}
 			</div>
 
-		<!-- Horizontal paged view -->
+			<!-- Horizontal paged view -->
 		{:else if currentPage}
 			<div class="relative flex min-h-svh items-center justify-center md:px-8">
 				<img
@@ -981,13 +985,13 @@
 				{#if isTouchDevice}
 					<button
 						type="button"
-						class="absolute inset-y-0 left-0 w-1/3 z-20"
+						class="absolute inset-y-0 left-0 z-20 w-1/3"
 						aria-label={$_('reader.prevPage')}
 						onclick={prevPage}
 					></button>
 					<button
 						type="button"
-						class="absolute inset-y-0 right-0 w-1/3 z-20"
+						class="absolute inset-y-0 right-0 z-20 w-1/3"
 						aria-label={$_('reader.nextPage')}
 						onclick={nextPage}
 					></button>
@@ -1003,21 +1007,13 @@
 
 			<div class="flex items-center gap-3">
 				{#if prevChapterId}
-					<Button
-						variant="outline"
-						size="sm"
-						onclick={() => openChapter(prevChapterId)}
-					>
+					<Button variant="outline" size="sm" onclick={() => openChapter(prevChapterId)}>
 						<Icon name="chevron-left" size={14} />
 						{$_('reader.prevChapter')}
 					</Button>
 				{/if}
 				{#if nextChapterId}
-					<Button
-						variant="outline"
-						size="sm"
-						onclick={() => openChapter(nextChapterId)}
-					>
+					<Button variant="outline" size="sm" onclick={() => openChapter(nextChapterId)}>
 						{$_('reader.nextChapter')}
 						<Icon name="chevron-right" size={14} />
 					</Button>
@@ -1051,7 +1047,7 @@
 		<div
 			class="fixed inset-x-0 bottom-0 z-40 bg-[var(--void-0)]/90 backdrop-blur-sm transition-transform duration-200
 				md:hidden
-				{readerHeaderVisible ? 'translate-y-0' : 'translate-y-full pointer-events-none'}"
+				{readerHeaderVisible ? 'translate-y-0' : 'pointer-events-none translate-y-full'}"
 		>
 			<div class="flex h-11 items-center justify-between px-2">
 				<Button
@@ -1126,12 +1122,18 @@
 				<button
 					type="button"
 					class="flex items-center justify-between gap-3 px-2 py-2.5 text-left text-xs transition-colors
-						{isCurrent ? 'text-[var(--text)] bg-[var(--void-3)]' : 'text-[var(--text-ghost)] hover:text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
+						{isCurrent
+						? 'bg-[var(--void-3)] text-[var(--text)]'
+						: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
 					onclick={() => openChapter(chapter.id)}
 				>
-					<p class="min-w-0 flex-1 truncate {isCurrent ? 'text-[var(--text)]' : ''}">{chapter.name}</p>
+					<p class="min-w-0 flex-1 truncate {isCurrent ? 'text-[var(--text)]' : ''}">
+						{chapter.name}
+					</p>
 					{#if chapter.number !== null}
-						<span class="shrink-0 tabular-nums text-[10px] text-[var(--text-ghost)]">{chapter.number}</span>
+						<span class="shrink-0 text-[10px] text-[var(--text-ghost)] tabular-nums"
+							>{chapter.number}</span
+						>
 					{/if}
 				</button>
 			{/each}
@@ -1183,7 +1185,7 @@
 		<!-- Sort toggle -->
 		<button
 			type="button"
-			class="flex items-center gap-1.5 text-[10px] text-[var(--text-ghost)] hover:text-[var(--text-muted)] transition-colors"
+			class="flex items-center gap-1.5 text-[10px] text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 			onclick={() => (commentsSortMode = commentsSortMode === 'time' ? 'page' : 'time')}
 		>
 			<Icon name="clock" size={12} />
@@ -1204,7 +1206,7 @@
 						<div class="flex items-center justify-between text-[10px] text-[var(--text-ghost)]">
 							<button
 								type="button"
-								class="hover:text-[var(--text-muted)] transition-colors"
+								class="transition-colors hover:text-[var(--text-muted)]"
 								onclick={() => jumpToPageIndex(comment.page_index)}
 								title={$_('reader.jumpToPage')}
 							>
@@ -1212,18 +1214,18 @@
 							</button>
 							<span>{formatTimestamp(comment.created_at)}</span>
 						</div>
-						<p class="whitespace-pre-wrap text-xs text-[var(--text-soft)]">{comment.message}</p>
+						<p class="text-xs whitespace-pre-wrap text-[var(--text-soft)]">{comment.message}</p>
 						<div class="flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
 							<button
 								type="button"
-								class="hover:text-[var(--text-muted)] transition-colors"
+								class="transition-colors hover:text-[var(--text-muted)]"
 								onclick={() => startEditComment(comment)}
 							>
 								{$_('common.edit')}
 							</button>
 							<button
 								type="button"
-								class="hover:text-[var(--error)] transition-colors"
+								class="transition-colors hover:text-[var(--error)]"
 								onclick={() => (deleteCommentConfirmId = comment.id)}
 								disabled={deletingCommentId === comment.id}
 							>

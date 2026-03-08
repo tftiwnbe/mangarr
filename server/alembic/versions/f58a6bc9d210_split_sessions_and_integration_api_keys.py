@@ -32,7 +32,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_auth_sessions_user_id", "auth_sessions", ["user_id"], unique=False)
+    op.create_index(
+        "ix_auth_sessions_user_id", "auth_sessions", ["user_id"], unique=False
+    )
     op.create_index(
         "ix_auth_sessions_token_hash", "auth_sessions", ["token_hash"], unique=True
     )
@@ -51,7 +53,10 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(
-        "ix_integration_api_keys_user_id", "integration_api_keys", ["user_id"], unique=False
+        "ix_integration_api_keys_user_id",
+        "integration_api_keys",
+        ["user_id"],
+        unique=False,
     )
     op.create_index(
         "ix_integration_api_keys_key_hash",

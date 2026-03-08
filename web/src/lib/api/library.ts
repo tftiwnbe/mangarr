@@ -23,7 +23,8 @@ export type LibraryCollectionResource = components['schemas']['LibraryCollection
 export type LibraryCollectionCreate = components['schemas']['LibraryCollectionCreate'];
 export type LibraryCollectionUpdate = components['schemas']['LibraryCollectionUpdate'];
 export type LibraryTitlePreferencesUpdate = components['schemas']['LibraryTitlePreferencesUpdate'];
-export type LibraryChapterProgressResource = components['schemas']['LibraryChapterProgressResource'];
+export type LibraryChapterProgressResource =
+	components['schemas']['LibraryChapterProgressResource'];
 export type LibraryChapterProgressUpdate = components['schemas']['LibraryChapterProgressUpdate'];
 export type LibraryChapterCommentResource = components['schemas']['LibraryChapterCommentResource'];
 export type LibraryChapterCommentCreate = components['schemas']['LibraryChapterCommentCreate'];

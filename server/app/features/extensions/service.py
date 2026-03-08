@@ -8,7 +8,10 @@ from app.bridge import tachibridge
 from app.core.cache import PersistentCache
 from app.core.database import sessionmanager
 from app.core.errors import BridgeAPIError
-from app.features.extensions.repo_changes import fetch_repository_changes, load_repository_url
+from app.features.extensions.repo_changes import (
+    fetch_repository_changes,
+    load_repository_url,
+)
 from app.models import (
     Extension,
     ExtensionResource,
@@ -190,13 +193,17 @@ class ExtensionService:
             return []
         pkgs = [e.pkg for e in extensions]
         all_sources = (
-            await self.session.exec(select(Source).where(Source.extension_pkg.in_(pkgs)))
+            await self.session.exec(
+                select(Source).where(Source.extension_pkg.in_(pkgs))
+            )
         ).all()
         sources_by_pkg: dict[str, list[Source]] = {}
         for src in all_sources:
             sources_by_pkg.setdefault(src.extension_pkg, []).append(src)
         return [
-            ExtensionResource(**ext.model_dump(), sources=sources_by_pkg.get(ext.pkg, []))
+            ExtensionResource(
+                **ext.model_dump(), sources=sources_by_pkg.get(ext.pkg, [])
+            )
             for ext in extensions
         ]
 
@@ -221,7 +228,9 @@ class ExtensionService:
         extensions_by_pkg: dict[str, Extension] = {}
         if pkg_candidates:
             rows = (
-                await self.session.exec(select(Extension).where(Extension.pkg.in_(sorted(pkg_candidates))))
+                await self.session.exec(
+                    select(Extension).where(Extension.pkg.in_(sorted(pkg_candidates)))
+                )
             ).all()
             extensions_by_pkg = {extension.pkg: extension for extension in rows}
 
@@ -244,7 +253,9 @@ class ExtensionService:
                     new_version=change.get("new_version"),
                     renamed_to=change.get("renamed_to"),
                     renamed_to_pkg=change.get("renamed_to_pkg"),
-                    installed=bool(extension.installed) if extension is not None else False,
+                    installed=bool(extension.installed)
+                    if extension is not None
+                    else False,
                     known=extension is not None,
                     icon=extension.icon if extension is not None else None,
                     commit_sha=str(change.get("commit_sha") or ""),

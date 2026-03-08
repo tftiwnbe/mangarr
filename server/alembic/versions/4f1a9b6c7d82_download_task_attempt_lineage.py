@@ -17,10 +17,18 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("download_tasks", sa.Column("attempt_group_id", sa.Integer(), nullable=True))
-    op.add_column("download_tasks", sa.Column("retry_of_task_id", sa.Integer(), nullable=True))
+    op.add_column(
+        "download_tasks", sa.Column("attempt_group_id", sa.Integer(), nullable=True)
+    )
+    op.add_column(
+        "download_tasks", sa.Column("retry_of_task_id", sa.Integer(), nullable=True)
+    )
 
-    op.execute(sa.text("UPDATE download_tasks SET attempt_group_id = id WHERE attempt_group_id IS NULL"))
+    op.execute(
+        sa.text(
+            "UPDATE download_tasks SET attempt_group_id = id WHERE attempt_group_id IS NULL"
+        )
+    )
 
     op.create_index(
         "ix_download_tasks_attempt_group_id",

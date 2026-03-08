@@ -14,7 +14,9 @@ class DownloadSettingsResource(SQLModel):
 class DownloadSettingsUpdate(SQLModel):
     root_dir: str | None = None
     parallel_downloads: int | None = Field(default=None, ge=1, le=16)
-    failed_chapter_retry_delay_seconds: int | None = Field(default=None, ge=60, le=604800)
+    failed_chapter_retry_delay_seconds: int | None = Field(
+        default=None, ge=60, le=604800
+    )
     compress_downloaded_chapters: bool | None = None
 
 

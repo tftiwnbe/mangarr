@@ -38,7 +38,9 @@ async def update_download_settings(
     payload: DownloadSettingsUpdate,
     current_user: CurrentUserDep,
 ):
-    return await SettingsService.update_download_settings(payload=payload, current_user=current_user)
+    return await SettingsService.update_download_settings(
+        payload=payload, current_user=current_user
+    )
 
 
 @router.get("/jobs", response_model=JobsSettingsResource)
@@ -82,7 +84,10 @@ async def get_scheduler_status():
 @router.post("/scheduler/{job_name}/trigger", response_model=SchedulerJobResource)
 async def trigger_scheduler_job(job_name: str, _: CurrentAdminDep):
     if not scheduler.trigger_job(job_name):
-        raise HTTPException(status_code=404, detail=f"Job '{job_name}' not found or scheduler not running")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Job '{job_name}' not found or scheduler not running",
+        )
     job = scheduler.find_job(job_name)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job '{job_name}' not found")
@@ -184,4 +189,6 @@ async def update_content_languages(
     payload: ContentLanguagesUpdate,
     current_user: CurrentUserDep,
 ):
-    return await SettingsService.update_content_languages(payload=payload, current_user=current_user)
+    return await SettingsService.update_content_languages(
+        payload=payload, current_user=current_user
+    )

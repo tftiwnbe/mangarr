@@ -131,7 +131,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["collection_id"], ["library_collections.id"]),
         sa.ForeignKeyConstraint(["library_title_id"], ["library_titles.id"]),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("collection_id", "library_title_id", name="uq_collection_title"),
+        sa.UniqueConstraint(
+            "collection_id", "library_title_id", name="uq_collection_title"
+        ),
     )
     op.create_index(
         "ix_library_collection_titles_collection_id",

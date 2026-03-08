@@ -47,7 +47,11 @@ def choose_replacement_chapter_url(
                 score += 2.0
 
         candidate_scanlator = _normalize(source_chapter.scanlator)
-        if target_scanlator and candidate_scanlator and target_scanlator == candidate_scanlator:
+        if (
+            target_scanlator
+            and candidate_scanlator
+            and target_scanlator == candidate_scanlator
+        ):
             score += 1.0
 
         if score > best_score:

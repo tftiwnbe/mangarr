@@ -31,7 +31,9 @@ export interface TitleDetail extends Omit<Title, 'chapters'> {
 
 // Sample detailed title data
 export function getTitleById(id: string): TitleDetail | undefined {
-	const title = [...popularTitles, ...latestTitles, ...recentlyAddedTitles].find(t => t.id === id);
+	const title = [...popularTitles, ...latestTitles, ...recentlyAddedTitles].find(
+		(t) => t.id === id
+	);
 	if (!title) return undefined;
 
 	// Generate mock chapters
@@ -50,7 +52,9 @@ export function getTitleById(id: string): TitleDetail | undefined {
 
 	return {
 		...title,
-		description: title.description || `An incredible story that will keep you on the edge of your seat. Follow the journey of our protagonist as they navigate through challenges, make friends, and discover their true potential. This ${title.genres?.[0]?.toLowerCase() || 'amazing'} series has captivated millions of readers worldwide.`,
+		description:
+			title.description ||
+			`An incredible story that will keep you on the edge of your seat. Follow the journey of our protagonist as they navigate through challenges, make friends, and discover their true potential. This ${title.genres?.[0]?.toLowerCase() || 'amazing'} series has captivated millions of readers worldwide.`,
 		alternativeTitles: ['Alternative Title 1', 'Alternative Title 2'],
 		chapters
 	};
@@ -222,7 +226,7 @@ export const latestTitles: Title[] = [
 export const recentlyAddedTitles: Title[] = [
 	{
 		id: '15',
-		title: 'Frieren: Beyond Journey\'s End',
+		title: "Frieren: Beyond Journey's End",
 		cover: covers[6],
 		author: 'Kanehito Yamada',
 		artist: 'Tsukasa Abe',
@@ -242,7 +246,7 @@ export const recentlyAddedTitles: Title[] = [
 	},
 	{
 		id: '17',
-		title: 'Hell\'s Paradise',
+		title: "Hell's Paradise",
 		cover: covers[0],
 		author: 'Yuji Kaku',
 		genres: ['Action', 'Adventure', 'Supernatural'],
@@ -443,7 +447,7 @@ export const libraryTitles: LibraryTitle[] = [
 	},
 	{
 		id: '15',
-		title: 'Frieren: Beyond Journey\'s End',
+		title: "Frieren: Beyond Journey's End",
 		cover: covers[6],
 		author: 'Kanehito Yamada',
 		status: 'ongoing',
@@ -454,7 +458,7 @@ export const libraryTitles: LibraryTitle[] = [
 	},
 	{
 		id: '17',
-		title: 'Hell\'s Paradise',
+		title: "Hell's Paradise",
 		cover: covers[0],
 		author: 'Yuji Kaku',
 		status: 'completed',

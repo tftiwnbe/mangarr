@@ -139,6 +139,7 @@ class Settings(MangarrBaseSettings):
     def save_settings(self) -> None:
         """Persist settings back to YAML config file (atomic write)."""
         import os
+
         path = self.app.config_path
         data = self.model_dump(exclude={"app"}, mode="json")
         tmp = path.with_suffix(".yaml.tmp")

@@ -130,6 +130,7 @@ class TachibridgeProcess:
         if not self._kcef_downloading:
             return False
         import time
+
         return (time.monotonic() - self._kcef_last_progress_time) < stale_threshold
 
     def consume_kcef_restart_request(self) -> bool:
@@ -163,7 +164,10 @@ class TachibridgeProcess:
                     if "KCEF download progress" in message:
                         self._kcef_downloading = True
                         self._kcef_last_progress_time = time.monotonic()
-                    elif "KCEF initialized" in message or "KCEF already installed" in message:
+                    elif (
+                        "KCEF initialized" in message
+                        or "KCEF already installed" in message
+                    ):
                         self._kcef_downloading = False
 
                     if "KCEF restart required" in message:
@@ -224,9 +228,7 @@ class TachibridgeProcess:
             if jar_candidates:
                 return jar_candidates[-1]
 
-        raise RuntimeError(
-            "Tachibridge JAR not found. Run 'just bridge' to build it."
-        )
+        raise RuntimeError("Tachibridge JAR not found. Run 'just bridge' to build it.")
 
     def _build_env(self, config_dir: Path) -> dict[str, str] | None:
         libcef_path = self._kcef_libcef_path(config_dir)
@@ -236,7 +238,9 @@ class TachibridgeProcess:
 
         env = os.environ.copy()
         existing = env.get("LD_PRELOAD")
-        env["LD_PRELOAD"] = f"{libcef_path}:{existing}" if existing else str(libcef_path)
+        env["LD_PRELOAD"] = (
+            f"{libcef_path}:{existing}" if existing else str(libcef_path)
+        )
         self._logger.info("Using LD_PRELOAD for KCEF: {}", env["LD_PRELOAD"])
         return env
 

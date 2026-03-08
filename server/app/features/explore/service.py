@@ -10,7 +10,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.bridge import tachibridge
 from app.core.database import sessionmanager
 from app.core.utils import normalize_text
-from app.domain.title_identity import canonical_title_key, title_only_key, title_url_group_key
+from app.domain.title_identity import (
+    canonical_title_key,
+    title_only_key,
+    title_url_group_key,
+)
 from app.features.extensions import ExtensionService
 from app.models import (
     ExploreCacheItem,
@@ -273,14 +277,8 @@ class ExploreService:
 
             for page in range(1, max_pages + 1):
                 await self._run_refreshes(
-                    [
-                        ("popular", source.id, page)
-                        for source in sources
-                    ]
-                    + [
-                        ("latest", source.id, page)
-                        for source in latest_sources
-                    ],
+                    [("popular", source.id, page) for source in sources]
+                    + [("latest", source.id, page) for source in latest_sources],
                     force=True,
                 )
 
@@ -735,7 +733,9 @@ class ExploreService:
                     except Exception:
                         continue
 
-            item.imported_library_id = int(imported_id) if imported_id is not None else None
+            item.imported_library_id = (
+                int(imported_id) if imported_id is not None else None
+            )
 
     @staticmethod
     def _merge_cached_items(
@@ -764,8 +764,7 @@ class ExploreService:
         created_by_source: dict[str, int] = {source.id: 0 for source in sources}
 
         per_source_items = {
-            source.id: list(source_items.get(source.id, []))
-            for source in sources
+            source.id: list(source_items.get(source.id, [])) for source in sources
         }
         max_source_items = max(
             (len(items) for items in per_source_items.values()),
@@ -798,7 +797,10 @@ class ExploreService:
                 ]
                 if not key_candidates:
                     key_candidates = [f"raw::{source.id}::{item.page}:{item.rank}"]
-                existing_key = next((candidate for candidate in key_candidates if candidate in merged), None)
+                existing_key = next(
+                    (candidate for candidate in key_candidates if candidate in merged),
+                    None,
+                )
                 key = existing_key or key_candidates[0]
 
                 source_link = ExploreSourceLink(
@@ -822,7 +824,9 @@ class ExploreService:
                         links=[source_link],
                     )
                     ordering.append(key)
-                    created_by_source[source.id] = created_by_source.get(source.id, 0) + 1
+                    created_by_source[source.id] = (
+                        created_by_source.get(source.id, 0) + 1
+                    )
                     continue
 
                 if not any(

@@ -53,4 +53,3 @@ def downgrade() -> None:
         table_name="library_titles",
     )
     op.drop_column("library_titles", "preferred_variant_id")
-

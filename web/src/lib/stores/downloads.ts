@@ -38,12 +38,10 @@ export async function runDownloadWatch(limit = 25): Promise<void> {
 	await downloadsDashboardStore.refresh();
 }
 
-export async function runDownloadCycle(
-	options?: {
-		watchLimit?: number;
-		workerBatchSize?: number;
-	}
-): Promise<void> {
+export async function runDownloadCycle(options?: {
+	watchLimit?: number;
+	workerBatchSize?: number;
+}): Promise<void> {
 	await downloadsApi.runDownloadWatch(options?.watchLimit ?? 25);
 	await downloadsApi.runDownloadWorker(options?.workerBatchSize);
 	await downloadsDashboardStore.refresh();

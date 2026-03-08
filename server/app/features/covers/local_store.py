@@ -34,20 +34,26 @@ def _active_downloads_root() -> Path:
             continue
     return _downloads_root_candidates()[0]
 
+
 def is_downloaded_title_cover_path(local_cover_path: str | None) -> bool:
     relative_path = (local_cover_path or "").strip()
     if not relative_path:
         return False
 
     normalized = Path(relative_path).as_posix().strip("/")
-    return normalized.endswith("/cover.jpg") or normalized.endswith("/cover.jpeg") or normalized.endswith(
-        "/cover.png"
-    ) or normalized.endswith("/cover.webp") or normalized.endswith("/cover.gif") or normalized.endswith(
-        "/cover.avif"
+    return (
+        normalized.endswith("/cover.jpg")
+        or normalized.endswith("/cover.jpeg")
+        or normalized.endswith("/cover.png")
+        or normalized.endswith("/cover.webp")
+        or normalized.endswith("/cover.gif")
+        or normalized.endswith("/cover.avif")
     )
 
 
-def library_cover_route(title_id: int | None, local_cover_path: str | None) -> str | None:
+def library_cover_route(
+    title_id: int | None, local_cover_path: str | None
+) -> str | None:
     if title_id is None or not (local_cover_path or "").strip():
         return None
     return f"/api/v2/covers/library/{int(title_id)}"

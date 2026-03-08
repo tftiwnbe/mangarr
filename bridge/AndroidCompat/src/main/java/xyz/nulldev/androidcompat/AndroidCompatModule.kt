@@ -9,8 +9,8 @@ import xyz.nulldev.androidcompat.info.ApplicationInfoImpl
 import xyz.nulldev.androidcompat.io.AndroidFiles
 import xyz.nulldev.androidcompat.pm.PackageController
 import xyz.nulldev.androidcompat.service.ServiceSupport
-import xyz.nulldev.ts.config.GlobalConfigManager
 import xyz.nulldev.ts.config.ConfigManager
+import xyz.nulldev.ts.config.GlobalConfigManager
 
 /**
  * AndroidCompatModule
@@ -37,12 +37,12 @@ fun androidCompatModule(): Module =
         single<Context> { get<CustomContext>() }
         // Provide a default InitBrowserHandler implementation.
         // The KcefWebViewProvider expects an instance of this interface via Koin injection.
-        // In the absence of a custom implementation, provide a no‑op stub so that the
+        // In the absence of a custom implementation, provide a no-op stub so that the
         // provider can be constructed without throwing NoDefinitionFoundException.
         single<xyz.nulldev.androidcompat.webkit.KcefWebViewProvider.InitBrowserHandler> {
             object : xyz.nulldev.androidcompat.webkit.KcefWebViewProvider.InitBrowserHandler {
                 override fun init(provider: xyz.nulldev.androidcompat.webkit.KcefWebViewProvider) {
-                    // Default stub – does nothing.
+                    // Default stub - does nothing.
                 }
             }
         }

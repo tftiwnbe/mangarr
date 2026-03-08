@@ -29,7 +29,9 @@ async def get_last_cleanup_run_at() -> datetime | None:
     return _parse_last_run(payload)
 
 
-async def run_unassigned_cleanup(force: bool = False) -> tuple[bool, int, datetime | None]:
+async def run_unassigned_cleanup(
+    force: bool = False,
+) -> tuple[bool, int, datetime | None]:
     if not settings.jobs.cleanup_unassigned_enabled and not force:
         return False, 0, None
 
@@ -37,9 +39,7 @@ async def run_unassigned_cleanup(force: bool = False) -> tuple[bool, int, dateti
     last_run = await get_last_cleanup_run_at()
     interval_days = max(1, int(settings.jobs.cleanup_unassigned_interval_days))
     is_due = (
-        force
-        or last_run is None
-        or (now - last_run) >= timedelta(days=interval_days)
+        force or last_run is None or (now - last_run) >= timedelta(days=interval_days)
     )
     if not is_due:
         return False, 0, last_run

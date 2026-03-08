@@ -86,7 +86,10 @@ def upgrade() -> None:
         ),
     )
     op.create_index(
-        "ix_discover_cache_items_section", "discover_cache_items", ["section"], unique=False
+        "ix_discover_cache_items_section",
+        "discover_cache_items",
+        ["section"],
+        unique=False,
     )
     op.create_index(
         "ix_discover_cache_items_source_id",
@@ -122,7 +125,10 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(
-        "ix_library_titles_canonical_key", "library_titles", ["canonical_key"], unique=False
+        "ix_library_titles_canonical_key",
+        "library_titles",
+        ["canonical_key"],
+        unique=False,
     )
 
     op.create_table(
@@ -230,7 +236,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_library_chapter_pages_chapter_id", table_name="library_chapter_pages")
+    op.drop_index(
+        "ix_library_chapter_pages_chapter_id", table_name="library_chapter_pages"
+    )
     op.drop_table("library_chapter_pages")
     op.drop_index("ix_library_chapters_is_downloaded", table_name="library_chapters")
     op.drop_index("ix_library_chapters_is_read", table_name="library_chapters")
@@ -248,9 +256,13 @@ def downgrade() -> None:
     op.drop_index("ix_library_titles_canonical_key", table_name="library_titles")
     op.drop_table("library_titles")
 
-    op.drop_index("ix_discover_cache_items_dedupe_key", table_name="discover_cache_items")
+    op.drop_index(
+        "ix_discover_cache_items_dedupe_key", table_name="discover_cache_items"
+    )
     op.drop_index("ix_discover_cache_items_page", table_name="discover_cache_items")
-    op.drop_index("ix_discover_cache_items_source_id", table_name="discover_cache_items")
+    op.drop_index(
+        "ix_discover_cache_items_source_id", table_name="discover_cache_items"
+    )
     op.drop_index("ix_discover_cache_items_section", table_name="discover_cache_items")
     op.drop_table("discover_cache_items")
     op.drop_table("discover_cache_pages")
@@ -320,7 +332,9 @@ def downgrade() -> None:
         sa.Column("genre", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
         sa.Column("source_id", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("canonical_title_id", sa.Integer(), nullable=False),
-        sa.ForeignKeyConstraint(["canonical_title_id"], ["canonical_title.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["canonical_title_id"], ["canonical_title.id"], ondelete="CASCADE"
+        ),
         sa.ForeignKeyConstraint(["source_id"], ["sources.id"]),
         sa.PrimaryKeyConstraint("url"),
     )

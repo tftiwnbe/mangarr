@@ -4,6 +4,7 @@ from typing import Any, ClassVar
 from pydantic import HttpUrl, model_validator
 from sqlmodel import Field, Relationship, SQLModel
 
+
 class PreferenceType(str, Enum):
     list = "list"
     toggle = "toggle"

@@ -223,7 +223,9 @@ class TachibridgeService:
             request = config_pb2.SetFlareSolverrConfigRequest(config=flare_config)
             response = await stub.SetFlareSolverrConfig(request, timeout=10.0)
             if not response.success:
-                raise BridgeAPIError(500, response.error or "Failed to set FlareSolverr config")
+                raise BridgeAPIError(
+                    500, response.error or "Failed to set FlareSolverr config"
+                )
             return True
         except AioRpcError as e:
             self._handle_grpc_error(e, "set_flaresolverr_config")
@@ -273,7 +275,9 @@ class TachibridgeService:
             request = config_pb2.SetProxyConfigRequest(config=proxy_config)
             response = await stub.SetProxyConfig(request, timeout=10.0)
             if not response.success:
-                raise BridgeAPIError(500, response.error or "Failed to set proxy config")
+                raise BridgeAPIError(
+                    500, response.error or "Failed to set proxy config"
+                )
             return True
         except AioRpcError as e:
             self._handle_grpc_error(e, "set_proxy_config")
@@ -293,7 +297,9 @@ class TachibridgeService:
             )
             response = await stub.SetExtensionProxy(request, timeout=10.0)
             if not response.success:
-                raise BridgeAPIError(500, response.error or "Failed to set extension proxy")
+                raise BridgeAPIError(
+                    500, response.error or "Failed to set extension proxy"
+                )
             return True
         except AioRpcError as e:
             self._handle_grpc_error(e, "set_extension_proxy")
@@ -435,10 +441,12 @@ class TachibridgeService:
         preferences: dict[str, Any],
     ) -> None:
         """Set multiple source preferences concurrently."""
-        await asyncio.gather(*(
-            self.set_source_preference(source_id=source_id, key=k, value=v)
-            for k, v in preferences.items()
-        ))
+        await asyncio.gather(
+            *(
+                self.set_source_preference(source_id=source_id, key=k, value=v)
+                for k, v in preferences.items()
+            )
+        )
 
     # Title Explore
 
@@ -509,7 +517,9 @@ class TachibridgeService:
                 page=page or 1,
                 filters=filters,
             )
-            response = await stub.SearchTitle(request, timeout=SOURCE_RPC_TIMEOUT_SECONDS)
+            response = await stub.SearchTitle(
+                request, timeout=SOURCE_RPC_TIMEOUT_SECONDS
+            )
 
             titles = [
                 self._proto_to_extension_title(title) for title in response.titles
@@ -569,7 +579,9 @@ class TachibridgeService:
             request = extensions_pb2.GetPagesListRequest(
                 source_id=int(source_id), chapter_url=chapter_url
             )
-            response = await stub.GetPageList(request, timeout=SOURCE_RPC_TIMEOUT_SECONDS)
+            response = await stub.GetPageList(
+                request, timeout=SOURCE_RPC_TIMEOUT_SECONDS
+            )
 
             return [self._proto_to_page(page) for page in response.pages]
         except AioRpcError as e:
@@ -599,13 +611,10 @@ class TachibridgeService:
 
         # gRPC sometimes returns UNKNOWN with an empty grpc_message payload.
         # Replace opaque peer text with a readable actionable message.
-        peer_unknown = (
-            status_code == grpc.StatusCode.UNKNOWN
-            and (
-                not details
-                or "Error received from peer" in details
-                or (debug_details and "Error received from peer" in debug_details)
-            )
+        peer_unknown = status_code == grpc.StatusCode.UNKNOWN and (
+            not details
+            or "Error received from peer" in details
+            or (debug_details and "Error received from peer" in debug_details)
         )
         if peer_unknown:
             grpc_message = ""

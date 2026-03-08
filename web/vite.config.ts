@@ -17,7 +17,10 @@ const proxy: Record<string, string | ProxyOptions> = {
 };
 
 export default defineConfig({
-	build: { target: 'es2022' },
+	build: {
+		target: 'es2022',
+		chunkSizeWarningLimit: 600
+	},
 	resolve: {
 		alias: { '@': path.resolve(__dirname, './src') }
 	},

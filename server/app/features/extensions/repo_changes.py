@@ -21,7 +21,9 @@ DEFAULT_REPOSITORY_URL = (
 GITHUB_API_BASE_URL = "https://api.github.com"
 REQUEST_TIMEOUT_SECONDS = 20.0
 
-_APK_FILENAME_RE = re.compile(r"(?P<slug>.+?)(?:-v(?P<version>[^/]+))?\.apk$", re.IGNORECASE)
+_APK_FILENAME_RE = re.compile(
+    r"(?P<slug>.+?)(?:-v(?P<version>[^/]+))?\.apk$", re.IGNORECASE
+)
 _SLUG_RE = re.compile(r".+-(?P<lang>[a-z0-9_]+)\.(?P<name>.+)$", re.IGNORECASE)
 
 
@@ -152,7 +154,11 @@ async def fetch_repository_changes(
             )
         except httpx.HTTPError as exc:
             message = str(exc).strip() or exc.__class__.__name__
-            return (f"Unable to fetch repository changes: {message}", track.tracked_path, [])
+            return (
+                f"Unable to fetch repository changes: {message}",
+                track.tracked_path,
+                [],
+            )
 
     return (None, track.tracked_path, changes[:limit])
 
@@ -208,11 +214,13 @@ async def _fetch_commit_changes(
 
 
 async def _gather_changes(
-    tasks: list[Awaitable[list[dict[str, object]]]]
+    tasks: list[Awaitable[list[dict[str, object]]]],
 ) -> list[list[dict[str, object]]]:
     semaphore = asyncio.Semaphore(6)
 
-    async def run_one(task_coro: Awaitable[list[dict[str, object]]]) -> list[dict[str, object]]:
+    async def run_one(
+        task_coro: Awaitable[list[dict[str, object]]],
+    ) -> list[dict[str, object]]:
         async with semaphore:
             return await task_coro
 
@@ -236,7 +244,9 @@ async def _fetch_single_commit_changes(
     if not isinstance(files, list):
         return []
 
-    committed_at = str(payload.get("commit", {}).get("committer", {}).get("date") or "").strip()
+    committed_at = str(
+        payload.get("commit", {}).get("committer", {}).get("date") or ""
+    ).strip()
     commit_message = str(payload.get("commit", {}).get("message") or "").strip()
     commit_title = commit_message.splitlines()[0] if commit_message else None
 
@@ -257,7 +267,10 @@ async def _fetch_single_commit_changes(
             previous = parse_extension_file(file_entry.get("previous_filename"))
             if previous is None:
                 continue
-            if previous.extension_pkg == parsed.extension_pkg and previous.name == parsed.name:
+            if (
+                previous.extension_pkg == parsed.extension_pkg
+                and previous.name == parsed.name
+            ):
                 changes.append(
                     _build_change(
                         status=RepoChangeStatus.UPDATED,
@@ -324,7 +337,9 @@ async def _fetch_single_commit_changes(
             continue
         changes.append(
             _build_change(
-                status=RepoChangeStatus.ADDED if added_item is not None else RepoChangeStatus.REMOVED,
+                status=RepoChangeStatus.ADDED
+                if added_item is not None
+                else RepoChangeStatus.REMOVED,
                 current=item,
                 sha=sha,
                 committed_at=committed_at,

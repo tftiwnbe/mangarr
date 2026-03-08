@@ -44,7 +44,10 @@
 			fromPath.startsWith(prefix) && toPath.startsWith(prefix);
 		const idSegment = (path: string, prefix: string) =>
 			path.slice(prefix.length).split('/')[0]?.split('--')[0];
-		if (sameRoutePrefix('/title/') && idSegment(fromPath, '/title/') === idSegment(toPath, '/title/'))
+		if (
+			sameRoutePrefix('/title/') &&
+			idSegment(fromPath, '/title/') === idSegment(toPath, '/title/')
+		)
 			return;
 
 		pushNavHistory(fromPath + from.url.search);
@@ -103,7 +106,7 @@
 
 			<!-- Orbital ring -->
 			<div
-				class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-[1400px] w-[1400px] animate-spin-slow"
+				class="animate-spin-slow absolute top-1/2 left-1/2 h-[1400px] w-[1400px] -translate-x-1/2 -translate-y-1/2"
 				style="animation-duration: 200s;"
 			>
 				<svg viewBox="0 0 200 200" class="h-full w-full">
@@ -124,7 +127,7 @@
 	{#if isCheckingAuth}
 		<div class="flex min-h-svh items-center justify-center">
 			<div class="flex flex-col items-center gap-4">
-				<Icon name="loader" size={24} class="text-[var(--text-muted)] animate-spin" />
+				<Icon name="loader" size={24} class="animate-spin text-[var(--text-muted)]" />
 				<p class="text-sm text-[var(--text-ghost)]">{$_('auth.checkingSession')}</p>
 			</div>
 		</div>
@@ -144,7 +147,9 @@
 
 		<!-- Bottom navigation (mobile) -->
 		{#if !isReaderRoute && !$panelOverlayOpen}
-			<nav class="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--line)] bg-[var(--void-1)]/95 backdrop-blur-sm md:hidden">
+			<nav
+				class="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--line)] bg-[var(--void-1)]/95 backdrop-blur-sm md:hidden"
+			>
 				<div class="flex items-center justify-around">
 					{#each navItems as item (item.href)}
 						{@const isActive = currentPath.startsWith(item.href)}
@@ -163,15 +168,19 @@
 		{/if}
 
 		<!-- Desktop sidebar -->
-		<aside class="fixed inset-y-0 left-0 z-40 hidden w-16 flex-col border-r border-[var(--line)] bg-[var(--void-1)] {isReaderRoute ? '' : 'md:flex'}">
+		<aside
+			class="fixed inset-y-0 left-0 z-40 hidden w-16 flex-col border-r border-[var(--line)] bg-[var(--void-1)] {isReaderRoute
+				? ''
+				: 'md:flex'}"
+		>
 			<div class="flex flex-1 flex-col items-center gap-1 py-4">
 				{#each navItems as item (item.href)}
 					{@const isActive = currentPath.startsWith(item.href)}
 					<a
 						href={item.href}
 						class="flex h-10 w-10 items-center justify-center transition-all {isActive
-							? 'text-[var(--text)] bg-[var(--void-4)] shadow-[0_0_12px_rgba(255,255,255,0.12)]'
-							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)] hover:bg-[var(--void-3)] hover:shadow-[0_0_10px_rgba(255,255,255,0.08)]'}"
+							? 'bg-[var(--void-4)] text-[var(--text)] shadow-[0_0_12px_rgba(255,255,255,0.12)]'
+							: 'text-[var(--text-ghost)] hover:bg-[var(--void-3)] hover:text-[var(--text-muted)] hover:shadow-[0_0_10px_rgba(255,255,255,0.08)]'}"
 						title={$_(`nav.${item.label}`)}
 					>
 						<Icon name={item.icon} size={20} />
@@ -179,6 +188,5 @@
 				{/each}
 			</div>
 		</aside>
-
 	{/if}
 </div>

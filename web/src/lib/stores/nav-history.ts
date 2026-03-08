@@ -73,18 +73,11 @@ export function peekNavHistory(skipPrefixes: string[] = []): string | null {
 }
 
 /** Return previous URL or fallback using the same rules as navigateBack(). */
-export function resolveNavBackTarget(
-	fallback = '/library',
-	options?: NavBackOptions
-): string {
-	const currentUrl =
-		options?.currentUrl ?? window.location.pathname + window.location.search;
+export function resolveNavBackTarget(fallback = '/library', options?: NavBackOptions): string {
+	const currentUrl = options?.currentUrl ?? window.location.pathname + window.location.search;
 	const skipPrefixes = options?.skipPrefixes ?? [];
 	let stack = discardCurrentUrl(load(), currentUrl);
-	while (
-		stack.length > 0 &&
-		matchesSkippedPrefix(stack[stack.length - 1] ?? '', skipPrefixes)
-	) {
+	while (stack.length > 0 && matchesSkippedPrefix(stack[stack.length - 1] ?? '', skipPrefixes)) {
 		stack = stack.slice(0, -1);
 	}
 
@@ -102,19 +95,12 @@ export function resolveNavBackTarget(
  * happens when the user navigates with the browser's native back button,
  * which bypasses our stack.
  */
-export async function navigateBack(
-	fallback = '/library',
-	options?: NavBackOptions
-): Promise<void> {
+export async function navigateBack(fallback = '/library', options?: NavBackOptions): Promise<void> {
 	const resolvedTarget = resolveNavBackTarget(fallback, options);
-	const currentUrl =
-		options?.currentUrl ?? window.location.pathname + window.location.search;
+	const currentUrl = options?.currentUrl ?? window.location.pathname + window.location.search;
 	const skipPrefixes = options?.skipPrefixes ?? [];
 	let stack = discardCurrentUrl(load(), currentUrl);
-	while (
-		stack.length > 0 &&
-		matchesSkippedPrefix(stack[stack.length - 1] ?? '', skipPrefixes)
-	) {
+	while (stack.length > 0 && matchesSkippedPrefix(stack[stack.length - 1] ?? '', skipPrefixes)) {
 		stack = stack.slice(0, -1);
 	}
 

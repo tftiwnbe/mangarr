@@ -1,4 +1,8 @@
-import type { DownloadDashboardResource, DownloadTaskResource, DownloadTaskStatus } from '$lib/api/downloads';
+import type {
+	DownloadDashboardResource,
+	DownloadTaskResource,
+	DownloadTaskStatus
+} from '$lib/api/downloads';
 import { getCachedCoverUrl } from '$lib/api/covers';
 
 export type DownloadStatus = DownloadTaskStatus;
@@ -162,10 +166,7 @@ function groupStatus(group: MutableTaskGroup): DownloadStatus {
 
 function groupProgress(group: MutableTaskGroup): number {
 	if (group.totalPages > 0) {
-		return Math.max(
-			0,
-			Math.min(100, Math.round((group.downloadedPages / group.totalPages) * 100))
-		);
+		return Math.max(0, Math.min(100, Math.round((group.downloadedPages / group.totalPages) * 100)));
 	}
 	if (group.chaptersTotal > 0) {
 		const completed = group.chaptersCompleted + group.chaptersCancelled;
@@ -227,7 +228,8 @@ function mapRecentTaskGroups(
 		const attemptGroup = Number(
 			(task as { attempt_group_id?: number | null }).attempt_group_id ?? task.id
 		);
-		const key = Number.isFinite(attemptGroup) && attemptGroup > 0 ? String(attemptGroup) : String(task.id);
+		const key =
+			Number.isFinite(attemptGroup) && attemptGroup > 0 ? String(attemptGroup) : String(task.id);
 		const existing = grouped.get(key);
 		if (!existing) {
 			const created = createTaskGroup(task, coverByTitleId);

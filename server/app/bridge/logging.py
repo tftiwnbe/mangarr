@@ -37,7 +37,9 @@ def parse_bridge_log_line(
             part for part in (throwable_class, throwable_message) if part
         ).strip()
         if throwable_summary:
-            message = f"{message} | {throwable_summary}" if message else throwable_summary
+            message = (
+                f"{message} | {throwable_summary}" if message else throwable_summary
+            )
     elif stack_trace:
         first_trace_line = next(
             (entry.strip() for entry in stack_trace.splitlines() if entry.strip()),

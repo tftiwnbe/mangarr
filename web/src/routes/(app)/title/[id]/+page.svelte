@@ -27,11 +27,7 @@
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
 	import { libraryTitleDetailStore } from '$lib/stores/library';
-	import {
-		navigateBack,
-		navHistoryRevision,
-		resolveNavBackTarget
-	} from '$lib/stores/nav-history';
+	import { navigateBack, navHistoryRevision, resolveNavBackTarget } from '$lib/stores/nav-history';
 	import { panelOverlayOpen } from '$lib/stores/ui';
 	import { buildReaderPath, buildTitlePath, parseTitleRouteParam } from '$lib/utils/routes';
 	import { mapLibraryChapterResources, type TitleChapterItem } from '$lib/utils/title-mappers';
@@ -225,7 +221,9 @@
 	const fallbackPrimaryReadingChapter = $derived(
 		hasReadProgress ? continueChapterForReading : firstChapterForReading
 	);
-	const primaryReadingChapter = $derived(chapterWithServerProgress ?? fallbackPrimaryReadingChapter);
+	const primaryReadingChapter = $derived(
+		chapterWithServerProgress ?? fallbackPrimaryReadingChapter
+	);
 	const completedChapterCount = $derived(
 		orderedChaptersForReading.filter((chapter) => chapter.isRead).length
 	);
@@ -312,7 +310,8 @@
 			} catch (cause) {
 				if (requestId !== titleCommentsRequestId) return;
 				titleComments = [];
-				titleCommentsError = cause instanceof Error ? cause.message : $_('title.commentsLoadFailed');
+				titleCommentsError =
+					cause instanceof Error ? cause.message : $_('title.commentsLoadFailed');
 			} finally {
 				if (requestId === titleCommentsRequestId) {
 					titleCommentsLoading = false;
@@ -469,9 +468,7 @@
 		return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '');
 	}
 
-	function variantAvailabilityLabel(
-		variant: (typeof visibleVariants)[number]
-	): string | null {
+	function variantAvailabilityLabel(variant: (typeof visibleVariants)[number]): string | null {
 		const availability = variant.availability;
 		if (!availability) return null;
 
@@ -492,9 +489,7 @@
 		return 'unknown';
 	}
 
-	function variantAvailabilityClass(
-		variant: (typeof visibleVariants)[number]
-	): string {
+	function variantAvailabilityClass(variant: (typeof visibleVariants)[number]): string {
 		const state = variant.availability?.state ?? 'unknown';
 		if (state === 'full') {
 			return 'text-[var(--success)]';
@@ -532,9 +527,7 @@
 		try {
 			const sources = await listSources({ enabled: true });
 			enabledSourceIds = new Set(
-				sources
-					.map((source) => source.id?.trim() ?? '')
-					.filter((sourceId) => sourceId.length > 0)
+				sources.map((source) => source.id?.trim() ?? '').filter((sourceId) => sourceId.length > 0)
 			);
 		} catch {
 			enabledSourceIds = null;
@@ -754,7 +747,7 @@
 
 	{#if isLoading && !title}
 		<!-- Loading skeleton — mobile: full-bleed, desktop: grid -->
-		<div class="md:hidden -mx-4">
+		<div class="-mx-4 md:hidden">
 			<div class="aspect-[3/4] max-h-[70vh] w-full animate-pulse bg-[var(--void-3)]"></div>
 		</div>
 		<div class="md:grid md:grid-cols-[260px_1fr] md:gap-8">
@@ -767,10 +760,11 @@
 	{:else if title}
 		<!-- Responsive layout: full-bleed mobile / side-cover desktop -->
 		<div class="flex flex-col md:grid md:grid-cols-[260px_1fr] md:items-start md:gap-8">
-
 			<!-- COVER COLUMN -->
-			<div class="-mx-4 relative md:sticky md:top-8 md:mx-0">
-				<div class="aspect-[3/4] max-h-[70vh] w-full overflow-hidden bg-[var(--void-2)] md:aspect-[2/3] md:max-h-none">
+			<div class="relative -mx-4 md:sticky md:top-8 md:mx-0">
+				<div
+					class="aspect-[3/4] max-h-[70vh] w-full overflow-hidden bg-[var(--void-2)] md:aspect-[2/3] md:max-h-none"
+				>
 					<LazyImage
 						src={displayCover || title.cover}
 						alt={displayTitle || title.title}
@@ -787,7 +781,7 @@
 				<!-- Mobile back button overlay -->
 				<button
 					type="button"
-					class="absolute left-4 top-4 flex h-8 w-8 items-center justify-center bg-[var(--void-0)]/60 text-[var(--text)] backdrop-blur-sm transition-colors hover:bg-[var(--void-0)]/80 md:hidden"
+					class="absolute top-4 left-4 flex h-8 w-8 items-center justify-center bg-[var(--void-0)]/60 text-[var(--text)] backdrop-blur-sm transition-colors hover:bg-[var(--void-0)]/80 md:hidden"
 					onclick={handleBack}
 				>
 					<Icon name="chevron-left" size={18} />
@@ -802,10 +796,16 @@
 								class="flex h-10 flex-1 items-center justify-center gap-2 bg-[var(--void-5)] text-xs text-[var(--text)] transition-all hover:bg-[var(--void-6)]"
 							>
 								<Icon name="play" size={14} />
-								<span>{hasAnyReadingProgress ? $_('title.continueReading') : $_('title.startReading')}</span>
+								<span
+									>{hasAnyReadingProgress
+										? $_('title.continueReading')
+										: $_('title.startReading')}</span
+								>
 							</a>
 						{:else}
-							<div class="flex h-10 flex-1 items-center justify-center text-xs text-[var(--text-ghost)]">
+							<div
+								class="flex h-10 flex-1 items-center justify-center text-xs text-[var(--text-ghost)]"
+							>
 								{$_('title.noChapters')}
 							</div>
 						{/if}
@@ -825,7 +825,7 @@
 									style="width: {Math.round(readingProgressRatio * 100)}%"
 								></div>
 							</div>
-							<span class="shrink-0 text-[11px] tabular-nums text-[var(--void-7)]">
+							<span class="shrink-0 text-[11px] text-[var(--void-7)] tabular-nums">
 								{progressedChapterCount}/{orderedChaptersForReading.length}
 							</span>
 						</div>
@@ -846,7 +846,9 @@
 			<div class="flex flex-col">
 				<!-- Title identity -->
 				<div class="relative -mt-20 flex flex-col gap-2 sm:-mt-24 md:mt-0">
-					<h1 class="text-display text-2xl leading-tight text-[var(--text)] sm:text-3xl md:text-2xl">
+					<h1
+						class="text-display text-2xl leading-tight text-[var(--text)] sm:text-3xl md:text-2xl"
+					>
 						{displayTitle || title.title}
 					</h1>
 					<p class="text-sm text-[var(--text-ghost)]">
@@ -854,7 +856,9 @@
 							{displayAuthor}
 						{/if}
 						{#if displayArtist && displayArtist !== displayAuthor}
-							{#if displayAuthor} · {/if}{displayArtist}
+							{#if displayAuthor}
+								·
+							{/if}{displayArtist}
 						{/if}
 					</p>
 					<p class="text-xs text-[var(--void-6)]">
@@ -862,11 +866,15 @@
 							{displayStatusLabel}
 						{/if}
 						{#if displayedChapters.length > 0}
-							{#if displayStatusLabel} · {/if}
+							{#if displayStatusLabel}
+								·
+							{/if}
 							{displayChapterCountLabel}
 						{/if}
 						{#if visibleVariants.length > 0}
-							{#if displayStatusLabel || displayedChapters.length > 0} · {/if}
+							{#if displayStatusLabel || displayedChapters.length > 0}
+								·
+							{/if}
 							{displaySourceCountLabel}
 						{/if}
 					</p>
@@ -881,10 +889,16 @@
 								class="flex h-12 flex-1 items-center justify-center gap-2 bg-[var(--void-5)] text-sm text-[var(--text)] transition-all hover:bg-[var(--void-6)]"
 							>
 								<Icon name="play" size={16} />
-								<span>{hasAnyReadingProgress ? $_('title.continueReading') : $_('title.startReading')}</span>
+								<span
+									>{hasAnyReadingProgress
+										? $_('title.continueReading')
+										: $_('title.startReading')}</span
+								>
 							</a>
 						{:else}
-							<div class="flex h-12 flex-1 items-center justify-center text-sm text-[var(--text-ghost)]">
+							<div
+								class="flex h-12 flex-1 items-center justify-center text-sm text-[var(--text-ghost)]"
+							>
 								{$_('title.noChapters')}
 							</div>
 						{/if}
@@ -906,7 +920,7 @@
 									style="width: {Math.round(readingProgressRatio * 100)}%"
 								></div>
 							</div>
-							<span class="shrink-0 text-xs tabular-nums text-[var(--void-7)]">
+							<span class="shrink-0 text-xs text-[var(--void-7)] tabular-nums">
 								{progressedChapterCount}/{orderedChaptersForReading.length}
 							</span>
 						</div>
@@ -946,7 +960,11 @@
 					>
 						{$_('title.chapters')}
 						{#if displayedChapters.length > 0}
-							<span class="ml-1 text-[10px] {activeTab === 'chapters' ? 'text-[var(--text-muted)]' : 'text-[var(--void-6)]'}">
+							<span
+								class="ml-1 text-[10px] {activeTab === 'chapters'
+									? 'text-[var(--text-muted)]'
+									: 'text-[var(--void-6)]'}"
+							>
 								{displayedChapters.length}
 							</span>
 						{/if}
@@ -960,7 +978,11 @@
 					>
 						{$_('title.comments')}
 						{#if titleComments.length > 0}
-							<span class="ml-1 text-[10px] {activeTab === 'comments' ? 'text-[var(--text-muted)]' : 'text-[var(--void-6)]'}">
+							<span
+								class="ml-1 text-[10px] {activeTab === 'comments'
+									? 'text-[var(--text-muted)]'
+									: 'text-[var(--void-6)]'}"
+							>
 								{titleComments.length}
 							</span>
 						{/if}
@@ -974,7 +996,11 @@
 						<div class="flex flex-col gap-8">
 							{#if displayDescription}
 								<div>
-									<p class="text-sm leading-relaxed text-[var(--text-soft)] {!showFullDescription ? 'line-clamp-6' : ''}">
+									<p
+										class="text-sm leading-relaxed text-[var(--text-soft)] {!showFullDescription
+											? 'line-clamp-6'
+											: ''}"
+									>
 										{displayDescription}
 									</p>
 									{#if displayDescription.length > 300}
@@ -992,7 +1018,9 @@
 							{#if displayGenres.length > 0}
 								<div class="flex flex-wrap gap-2">
 									{#each displayGenres as genre (genre)}
-										<span class="bg-[var(--void-2)] px-2.5 py-1 text-[11px] text-[var(--text-ghost)]">
+										<span
+											class="bg-[var(--void-2)] px-2.5 py-1 text-[11px] text-[var(--text-ghost)]"
+										>
 											{genre}
 										</span>
 									{/each}
@@ -1003,7 +1031,7 @@
 								<div class="flex flex-col gap-3">
 									{#if displayAuthor}
 										<div class="flex items-baseline justify-between gap-4">
-											<span class="text-[10px] uppercase tracking-widest text-[var(--void-6)]">
+											<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
 												{$_('title.author')}
 											</span>
 											<span class="text-xs text-[var(--text-muted)]">{displayAuthor}</span>
@@ -1011,7 +1039,7 @@
 									{/if}
 									{#if displayArtist && displayArtist !== displayAuthor}
 										<div class="flex items-baseline justify-between gap-4">
-											<span class="text-[10px] uppercase tracking-widest text-[var(--void-6)]">
+											<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
 												{$_('title.artist')}
 											</span>
 											<span class="text-xs text-[var(--text-muted)]">{displayArtist}</span>
@@ -1023,7 +1051,7 @@
 							<div class="flex flex-col gap-3">
 								{#if displayStatusLabel}
 									<div class="flex items-baseline justify-between gap-4">
-										<span class="text-[10px] uppercase tracking-widest text-[var(--void-6)]">
+										<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
 											{$_('title.status')}
 										</span>
 										<span class="text-xs text-[var(--text-muted)]">{displayStatusLabel}</span>
@@ -1031,26 +1059,28 @@
 								{/if}
 								{#if displaySourceLabel}
 									<div class="flex items-baseline justify-between gap-4">
-										<span class="text-[10px] uppercase tracking-widest text-[var(--void-6)]">
+										<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
 											{$_('title.readingSource')}
 										</span>
-										<span class="text-right text-xs text-[var(--text-muted)]">{displaySourceLabel}</span>
+										<span class="text-right text-xs text-[var(--text-muted)]"
+											>{displaySourceLabel}</span
+										>
 									</div>
 								{/if}
 								<div class="flex items-baseline justify-between gap-4">
-									<span class="text-[10px] uppercase tracking-widest text-[var(--void-6)]">
+									<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
 										{$_('title.chapters')}
 									</span>
 									<span class="text-xs text-[var(--text-muted)]">{displayChapterCountLabel}</span>
 								</div>
 								<div class="flex items-baseline justify-between gap-4">
-									<span class="text-[10px] uppercase tracking-widest text-[var(--void-6)]">
+									<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
 										{$_('title.sources')}
 									</span>
 									<span class="text-xs text-[var(--text-muted)]">{displaySourceCountLabel}</span>
 								</div>
 								<div class="flex items-baseline justify-between gap-4">
-									<span class="text-[10px] uppercase tracking-widest text-[var(--void-6)]">
+									<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
 										{$_('title.downloadMonitoring')}
 									</span>
 									<span class="text-xs text-[var(--text-muted)]">{displayUpdatesStateLabel}</span>
@@ -1081,7 +1111,9 @@
 											chapterName: chapter.title,
 											chapterNumber: chapter.number
 										})}
-										class="group flex items-center gap-4 py-3 transition-colors hover:bg-[var(--void-2)] {chapter.isRead ? 'opacity-30' : ''}"
+										class="group flex items-center gap-4 py-3 transition-colors hover:bg-[var(--void-2)] {chapter.isRead
+											? 'opacity-30'
+											: ''}"
 									>
 										<div class="min-w-0 flex-1">
 											<div class="flex items-baseline gap-2">
@@ -1096,7 +1128,9 @@
 													</span>
 												{/if}
 											</div>
-											<div class="mt-1 flex items-center gap-2 text-[11px] text-[var(--text-ghost)]">
+											<div
+												class="mt-1 flex items-center gap-2 text-[11px] text-[var(--text-ghost)]"
+											>
 												<span>{formatDate(chapter.uploadDate)}</span>
 												{#if chapter.scanlator}
 													<span class="text-[var(--void-5)]">·</span>
@@ -1109,7 +1143,7 @@
 										</div>
 										<div class="flex shrink-0 items-center gap-2 text-[var(--text-ghost)]">
 											{#if chapterProgress !== undefined}
-												<span class="text-[10px] tabular-nums text-[var(--void-7)]">
+												<span class="text-[10px] text-[var(--void-7)] tabular-nums">
 													p.{chapterProgress + 1}
 												</span>
 											{/if}
@@ -1144,7 +1178,9 @@
 									<Icon name="loader" size={18} class="animate-spin text-[var(--text-ghost)]" />
 								</div>
 							{:else if titleComments.length === 0}
-								<p class="py-6 text-center text-sm text-[var(--text-ghost)]">{$_('title.noComments')}</p>
+								<p class="py-6 text-center text-sm text-[var(--text-ghost)]">
+									{$_('title.noComments')}
+								</p>
 							{:else}
 								<div class="flex flex-col gap-2">
 									{#each titleComments as comment (comment.id)}
@@ -1152,9 +1188,12 @@
 											href={titleCommentReaderHref(comment)}
 											class="block bg-[var(--void-2)] px-4 py-3 text-xs transition-colors hover:bg-[var(--void-3)]"
 										>
-											<div class="mb-1.5 flex items-center justify-between gap-2 text-[10px] text-[var(--text-ghost)]">
+											<div
+												class="mb-1.5 flex items-center justify-between gap-2 text-[10px] text-[var(--text-ghost)]"
+											>
 												<span class="truncate">
-													{comment.chapter_name} · {$_('reader.page')} {comment.page_index + 1}
+													{comment.chapter_name} · {$_('reader.page')}
+													{comment.page_index + 1}
 												</span>
 												<span class="shrink-0">{formatDateTime(comment.created_at)}</span>
 											</div>
@@ -1229,7 +1268,8 @@
 							{@const val = i + 1}
 							<button
 								type="button"
-								class="flex h-10 w-10 items-center justify-center text-lg transition-colors {selectedRating >= val
+								class="flex h-10 w-10 items-center justify-center text-lg transition-colors {selectedRating >=
+								val
 									? 'text-[var(--text)]'
 									: 'text-[var(--void-5)] hover:text-[var(--void-7)]'}"
 								onclick={() => setRating(val)}
@@ -1290,7 +1330,8 @@
 							{@const availabilityLabel = variantAvailabilityLabel(variant)}
 							<button
 								type="button"
-								class="flex items-center gap-3 py-2.5 text-left text-xs transition-colors {variant.id === selectedVariantId
+								class="flex items-center gap-3 py-2.5 text-left text-xs transition-colors {variant.id ===
+								selectedVariantId
 									? 'text-[var(--text)]'
 									: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 								onclick={() => chooseReadingVariant(variant.id)}

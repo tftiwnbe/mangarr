@@ -35,16 +35,16 @@
 			id={inputId}
 			bind:value
 			class="
-				peer w-full h-12 px-4
-				bg-[var(--void-2)]
-				border border-[var(--line)]
-				text-[var(--text)] text-sm
-				placeholder:text-[var(--text-ghost)]
-				transition-all duration-150
+				peer h-12 w-full border
+				border-[var(--line)]
+				bg-[var(--void-2)] px-4
+				text-sm text-[var(--text)]
+				transition-all
+				duration-150 placeholder:text-[var(--text-ghost)]
 				hover:border-[var(--void-5)]
 				focus:border-[var(--void-6)] focus:bg-[var(--void-3)]
 				focus:outline-none
-				disabled:opacity-40 disabled:pointer-events-none
+				disabled:pointer-events-none disabled:opacity-40
 				{error ? 'border-[var(--error)]' : ''}
 				{className}
 			"
@@ -53,9 +53,9 @@
 		<!-- Subtle glow on focus -->
 		<div
 			class="
-				absolute inset-0 pointer-events-none
-				opacity-0 peer-focus:opacity-100
-				transition-opacity duration-200
+				pointer-events-none absolute inset-0
+				opacity-0 transition-opacity
+				duration-200 peer-focus:opacity-100
 			"
 			style="box-shadow: 0 0 20px rgba(113, 113, 122, 0.08)"
 		></div>

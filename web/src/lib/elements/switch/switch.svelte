@@ -48,10 +48,10 @@
 	{disabled}
 	{onCheckedChange}
 	class="flex h-5 w-9 shrink-0 items-center px-0.5 transition-colors
-		disabled:opacity-30 disabled:pointer-events-none focus-visible:outline-none
+		focus-visible:outline-none disabled:pointer-events-none disabled:opacity-30
 		{trackClass} {className}"
 >
-	<Switch.Thumb class="h-4 w-4 flex items-center justify-center transition-colors {thumbBg}">
+	<Switch.Thumb class="flex h-4 w-4 items-center justify-center transition-colors {thumbBg}">
 		{#if loading}
 			<Icon name="loader" size={10} class="animate-spin text-[var(--text-ghost)]" />
 		{/if}

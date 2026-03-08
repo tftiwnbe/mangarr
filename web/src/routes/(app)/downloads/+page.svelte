@@ -152,7 +152,10 @@
 	}
 
 	function normalizeImportText(value: string): string {
-		return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+		return value
+			.trim()
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, ' ');
 	}
 
 	function buildImportCandidates(items: ExploreSearchItem[], sourceId: string): ImportCandidate[] {
@@ -185,9 +188,13 @@
 		}
 		const normalizedQuery = normalizeImportText(query);
 		if (normalizedQuery) {
-			const exact = candidates.find((entry) => normalizeImportText(entry.title) === normalizedQuery);
+			const exact = candidates.find(
+				(entry) => normalizeImportText(entry.title) === normalizedQuery
+			);
 			if (exact) return exact.titleUrl;
-			const partial = candidates.find((entry) => normalizeImportText(entry.title).includes(normalizedQuery));
+			const partial = candidates.find((entry) =>
+				normalizeImportText(entry.title).includes(normalizedQuery)
+			);
 			if (partial) return partial.titleUrl;
 		}
 		return candidates[0]?.titleUrl ?? null;
@@ -590,14 +597,16 @@
 				</p>
 			{/if}
 			<div class="relative">
-				<div class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-ghost)]">
+				<div
+					class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-ghost)]"
+				>
 					<Icon name="search" size={13} />
 				</div>
 				<input
 					type="search"
 					placeholder={$_('downloads.externalSearchPlaceholder')}
 					bind:value={externalSearch}
-					class="h-11 w-full bg-[var(--void-2)] border border-[var(--void-4)] pl-9 pr-3 text-sm text-[var(--text)] placeholder:text-[var(--text-ghost)] transition-colors hover:border-[var(--void-5)] focus:border-[var(--void-6)] focus:outline-none"
+					class="h-11 w-full border border-[var(--void-4)] bg-[var(--void-2)] pr-3 pl-9 text-sm text-[var(--text)] transition-colors placeholder:text-[var(--text-ghost)] hover:border-[var(--void-5)] focus:border-[var(--void-6)] focus:outline-none"
 				/>
 			</div>
 			{#if reconcileLoading}
@@ -608,11 +617,15 @@
 				{:else}
 					<div class="flex flex-col">
 						{#each filteredExternalTitles as item (item.key)}
-							<div class="flex items-center justify-between gap-4 border-b border-[var(--void-3)] py-3.5">
+							<div
+								class="flex items-center justify-between gap-4 border-b border-[var(--void-3)] py-3.5"
+							>
 								<div class="min-w-0 flex-1">
 									<p class="line-clamp-1 text-sm text-[var(--text)]">{item.title}</p>
 									<div class="mt-1 flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
-										<span>{item.source_name}{#if item.source_lang}&thinsp;[{item.source_lang}]{/if}</span>
+										<span
+											>{item.source_name}{#if item.source_lang}&thinsp;[{item.source_lang}]{/if}</span
+										>
 										<span class="opacity-30">·</span>
 										<span class="tabular-nums">{item.chapters_count} ch</span>
 										{#if item.reason}
@@ -623,7 +636,7 @@
 								</div>
 								<button
 									type="button"
-									class="shrink-0 text-[10px] tracking-widest uppercase text-[var(--text-ghost)] transition-colors hover:text-[var(--text)] disabled:opacity-30 disabled:pointer-events-none"
+									class="shrink-0 text-[10px] tracking-widest text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text)] disabled:pointer-events-none disabled:opacity-30"
 									onclick={() => openImportDialog(item)}
 									disabled={importingExternalKey === item.key}
 								>
@@ -852,16 +865,17 @@
 >
 	{#if importDialogItem}
 		<div class="flex flex-col">
-
 			<!-- Title context -->
-			<div class="pb-5 mb-5 border-b border-[var(--void-3)]">
-				<p class="text-base font-medium text-[var(--text)] leading-snug line-clamp-2">
+			<div class="mb-5 border-b border-[var(--void-3)] pb-5">
+				<p class="line-clamp-2 text-base leading-snug font-medium text-[var(--text)]">
 					{importDialogItem.title}
 				</p>
 				<div class="mt-2 flex items-baseline gap-2 text-[10px] text-[var(--text-ghost)]">
-					<span class="tabular-nums">{importDialogItem.chapters_count} {$_('title.chapters').toLowerCase()}</span>
+					<span class="tabular-nums"
+						>{importDialogItem.chapters_count} {$_('title.chapters').toLowerCase()}</span
+					>
 					<span class="opacity-30">·</span>
-					<span class="line-clamp-1 opacity-60 break-all">{importDialogItem.path}</span>
+					<span class="line-clamp-1 break-all opacity-60">{importDialogItem.path}</span>
 				</div>
 			</div>
 
@@ -896,7 +910,7 @@
 				<div class="flex gap-2">
 					<input
 						type="text"
-						class="h-11 flex-1 min-w-0 bg-[var(--void-2)] border border-[var(--void-4)] px-3 text-sm text-[var(--text)] placeholder:text-[var(--text-ghost)] transition-colors hover:border-[var(--void-5)] focus:border-[var(--void-6)] focus:outline-none disabled:opacity-40 disabled:pointer-events-none"
+						class="h-11 min-w-0 flex-1 border border-[var(--void-4)] bg-[var(--void-2)] px-3 text-sm text-[var(--text)] transition-colors placeholder:text-[var(--text-ghost)] hover:border-[var(--void-5)] focus:border-[var(--void-6)] focus:outline-none disabled:pointer-events-none disabled:opacity-40"
 						placeholder={$_('downloads.importDialogSearchPlaceholder')}
 						bind:value={importDialogQuery}
 						onkeydown={(event) => {
@@ -908,9 +922,11 @@
 					/>
 					<button
 						type="button"
-						class="h-11 w-11 shrink-0 flex items-center justify-center border border-[var(--void-4)] text-[var(--text-ghost)] transition-colors hover:text-[var(--text)] hover:border-[var(--void-6)] disabled:opacity-30 disabled:pointer-events-none"
+						class="flex h-11 w-11 shrink-0 items-center justify-center border border-[var(--void-4)] text-[var(--text-ghost)] transition-colors hover:border-[var(--void-6)] hover:text-[var(--text)] disabled:pointer-events-none disabled:opacity-30"
 						onclick={runImportSearch}
-						disabled={!importDialogSourceId.trim() || importDialogSearching || importDialogSubmitting}
+						disabled={!importDialogSourceId.trim() ||
+							importDialogSearching ||
+							importDialogSubmitting}
 						title={$_('common.search')}
 					>
 						{#if importDialogSearching}
@@ -933,32 +949,54 @@
 					<Icon name="loader" size={16} class="animate-spin text-[var(--text-ghost)]" />
 				</div>
 			{:else if importDialogCandidates.length > 0}
-				<div class="flex flex-col -mx-4 mb-5">
+				<div class="-mx-4 mb-5 flex flex-col">
 					{#each importDialogCandidates as candidate (`${candidate.titleUrl}`)}
 						{@const isSelected = importDialogSelectedTitleUrl === candidate.titleUrl}
 						<button
 							type="button"
-							class="flex items-center gap-3 px-4 py-3.5 text-left border-b border-[var(--void-3)] transition-all {isSelected ? 'bg-[var(--void-2)]' : 'hover:bg-[var(--void-3)]'}"
+							class="flex items-center gap-3 border-b border-[var(--void-3)] px-4 py-3.5 text-left transition-all {isSelected
+								? 'bg-[var(--void-2)]'
+								: 'hover:bg-[var(--void-3)]'}"
 							onclick={() => (importDialogSelectedTitleUrl = candidate.titleUrl)}
 						>
 							{#if candidate.thumbnailUrl}
 								<LazyImage
 									src={candidate.thumbnailUrl}
 									alt={candidate.title}
-									class="h-16 w-11 shrink-0 transition-opacity {isSelected ? 'opacity-100' : 'opacity-40'}"
+									class="h-16 w-11 shrink-0 transition-opacity {isSelected
+										? 'opacity-100'
+										: 'opacity-40'}"
 								/>
 							{:else}
-								<div class="h-16 w-11 shrink-0 flex items-center justify-center bg-[var(--void-3)] transition-opacity {isSelected ? 'opacity-100' : 'opacity-40'}">
+								<div
+									class="flex h-16 w-11 shrink-0 items-center justify-center bg-[var(--void-3)] transition-opacity {isSelected
+										? 'opacity-100'
+										: 'opacity-40'}"
+								>
 									<Icon name="book-open" size={14} class="text-[var(--text-ghost)]" />
 								</div>
 							{/if}
-							<div class="min-w-0 flex-1 transition-opacity {isSelected ? 'opacity-100' : 'opacity-50'}">
-								<p class="line-clamp-2 text-sm {isSelected ? 'text-[var(--text)]' : 'text-[var(--text-muted)]'}">{candidate.title}</p>
+							<div
+								class="min-w-0 flex-1 transition-opacity {isSelected
+									? 'opacity-100'
+									: 'opacity-50'}"
+							>
+								<p
+									class="line-clamp-2 text-sm {isSelected
+										? 'text-[var(--text)]'
+										: 'text-[var(--text-muted)]'}"
+								>
+									{candidate.title}
+								</p>
 								<p class="mt-1 text-[10px] text-[var(--text-ghost)]">
 									{candidate.sourceName}{#if candidate.sourceLang}&thinsp;[{candidate.sourceLang}]{/if}
 								</p>
 							</div>
-							<div class="shrink-0 w-0.5 self-stretch transition-all {isSelected ? 'bg-[var(--text-muted)]' : 'bg-transparent'}"></div>
+							<div
+								class="w-0.5 shrink-0 self-stretch transition-all {isSelected
+									? 'bg-[var(--text-muted)]'
+									: 'bg-transparent'}"
+							></div>
 						</button>
 					{/each}
 				</div>
@@ -973,7 +1011,12 @@
 
 			<!-- Actions -->
 			<div class="flex gap-2">
-				<Button variant="ghost" size="sm" onclick={closeImportDialog} disabled={importDialogSubmitting}>
+				<Button
+					variant="ghost"
+					size="sm"
+					onclick={closeImportDialog}
+					disabled={importDialogSubmitting}
+				>
 					{$_('common.cancel')}
 				</Button>
 				<Button
@@ -987,7 +1030,6 @@
 					{$_('downloads.importDialogConfirm')}
 				</Button>
 			</div>
-
 		</div>
 	{/if}
 </SlidePanel>

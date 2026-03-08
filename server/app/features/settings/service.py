@@ -81,7 +81,9 @@ class SettingsService:
             raise BridgeAPIError(400, "No download settings changes provided")
 
         async with _settings_lock:
-            was_compression_enabled = bool(settings.downloads.compress_downloaded_chapters)
+            was_compression_enabled = bool(
+                settings.downloads.compress_downloaded_chapters
+            )
 
             if payload.root_dir is not None:
                 candidate = Path(payload.root_dir).expanduser()
@@ -104,7 +106,9 @@ class SettingsService:
                 )
 
             settings.save_settings()
-            is_compression_enabled = bool(settings.downloads.compress_downloaded_chapters)
+            is_compression_enabled = bool(
+                settings.downloads.compress_downloaded_chapters
+            )
 
         if (not was_compression_enabled) and is_compression_enabled:
             SettingsService._schedule_existing_downloads_compression()
@@ -256,7 +260,9 @@ class SettingsService:
 
     @staticmethod
     def get_content_languages() -> ContentLanguagesResource:
-        return ContentLanguagesResource(preferred=list(settings.content_languages.preferred))
+        return ContentLanguagesResource(
+            preferred=list(settings.content_languages.preferred)
+        )
 
     @staticmethod
     async def update_content_languages(
@@ -264,9 +270,13 @@ class SettingsService:
         current_user: User,
     ) -> ContentLanguagesResource:
         if not current_user.is_admin:
-            raise BridgeAPIError(403, "Only admins can update content language settings")
+            raise BridgeAPIError(
+                403, "Only admins can update content language settings"
+            )
         async with _settings_lock:
-            settings.content_languages.preferred = [lang.lower() for lang in payload.preferred]
+            settings.content_languages.preferred = [
+                lang.lower() for lang in payload.preferred
+            ]
             settings.save_settings()
         return SettingsService.get_content_languages()
 

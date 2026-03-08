@@ -6,7 +6,10 @@ export const SUPPORTED_LOCALES = ['en', 'ru'] as const;
 export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
 
 // Locale metadata
-export const LOCALE_META: Record<SupportedLocale, { name: string; nativeName: string; flag: string }> = {
+export const LOCALE_META: Record<
+	SupportedLocale,
+	{ name: string; nativeName: string; flag: string }
+> = {
 	en: { name: 'English', nativeName: 'English', flag: '🇺🇸' },
 	ru: { name: 'Russian', nativeName: 'Русский', flag: '🇷🇺' }
 };

@@ -33,11 +33,12 @@ _WS_TOKEN_TTL_SECONDS = 30
 class WsTokenResponse(BaseModel):
     token: str
 
+
 # ---------------------------------------------------------------------------
 # Simple in-memory login rate limiter (per client IP)
 # ---------------------------------------------------------------------------
-_RATE_WINDOW = 15 * 60   # 15-minute sliding window
-_RATE_MAX_FAILS = 10     # max failed attempts before lockout
+_RATE_WINDOW = 15 * 60  # 15-minute sliding window
+_RATE_MAX_FAILS = 10  # max failed attempts before lockout
 
 _rate_lock = Lock()
 _rate_failures: dict[str, list[float]] = defaultdict(list)

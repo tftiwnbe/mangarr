@@ -50,13 +50,17 @@ class DownloadProfile(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    watch_variants: list["DownloadProfileVariant"] = Relationship(back_populates="profile")
+    watch_variants: list["DownloadProfileVariant"] = Relationship(
+        back_populates="profile"
+    )
 
 
 class DownloadProfileVariant(SQLModel, table=True):
     __tablename__: ClassVar[Any] = "download_profile_variants"
     __table_args__ = (
-        UniqueConstraint("profile_id", "variant_id", name="uq_download_profile_variant"),
+        UniqueConstraint(
+            "profile_id", "variant_id", name="uq_download_profile_variant"
+        ),
     )
 
     id: int | None = Field(default=None, primary_key=True)
@@ -90,7 +94,9 @@ class DownloadTask(SQLModel, table=True):
     priority: int = Field(default=100, index=True)
     attempts: int = 0
     max_attempts: int = 4
-    available_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    available_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc), index=True
+    )
 
     downloaded_pages: int = 0
     total_pages: int = 0

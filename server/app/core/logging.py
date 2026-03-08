@@ -9,7 +9,14 @@ from app.config import settings
 
 # Extra keys used for log routing/filtering — excluded from output pairs
 _INTERNAL_EXTRA_KEYS = frozenset(
-    {"module", "access", "bridge_logger", "bridge_thread", "bridge_raw", "bridge_stream"}
+    {
+        "module",
+        "access",
+        "bridge_logger",
+        "bridge_thread",
+        "bridge_raw",
+        "bridge_stream",
+    }
 )
 
 _BASE_FORMAT = (
@@ -33,7 +40,9 @@ def _with_extra(base: str) -> Callable:
     """Returns a Loguru format callable that appends non-internal extra fields as key=value pairs."""
 
     def formatter(record: dict) -> str:
-        extra = {k: v for k, v in record["extra"].items() if k not in _INTERNAL_EXTRA_KEYS}
+        extra = {
+            k: v for k, v in record["extra"].items() if k not in _INTERNAL_EXTRA_KEYS
+        }
         if extra:
             parts = [
                 "{}={}".format(k, str(v).replace("{", "{{").replace("}", "}}"))

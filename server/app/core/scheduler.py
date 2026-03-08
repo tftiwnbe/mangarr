@@ -82,7 +82,8 @@ class TaskScheduler:
             job.next_run_at = None if job.paused else self._next_run_at(loop, next_run)
             trigger_event = self._trigger_events[job.name]
             task = asyncio.create_task(
-                self._run_job(job, next_run, trigger_event), name=f"scheduler:{job.name}"
+                self._run_job(job, next_run, trigger_event),
+                name=f"scheduler:{job.name}",
             )
             self._tasks.add(task)
             task.add_done_callback(self._tasks.discard)
@@ -157,7 +158,9 @@ class TaskScheduler:
                 return job
         return None
 
-    async def _run_job(self, job: _Job, next_run: float, trigger_event: asyncio.Event) -> None:
+    async def _run_job(
+        self, job: _Job, next_run: float, trigger_event: asyncio.Event
+    ) -> None:
         loop = asyncio.get_running_loop()
 
         while not self._stop_event.is_set():
@@ -227,7 +230,9 @@ class TaskScheduler:
             next_run = loop.time() + job.interval
             job.next_run_at = self._next_run_at(loop, next_run)
 
-    async def _interruptible_wait(self, timeout: float, trigger_event: asyncio.Event) -> None:
+    async def _interruptible_wait(
+        self, timeout: float, trigger_event: asyncio.Event
+    ) -> None:
         """Wait for timeout, stop event, or trigger — whichever fires first."""
         stop_task = asyncio.create_task(self._stop_event.wait())
         trigger_task = asyncio.create_task(trigger_event.wait())
@@ -291,7 +296,11 @@ class TaskScheduler:
         last_status = raw.get("last_status")
         job.last_status = str(last_status) if isinstance(last_status, str) else None
         last_duration_ms = raw.get("last_duration_ms")
-        job.last_duration_ms = int(last_duration_ms) if isinstance(last_duration_ms, (int, float)) else None
+        job.last_duration_ms = (
+            int(last_duration_ms)
+            if isinstance(last_duration_ms, (int, float))
+            else None
+        )
         last_error = raw.get("last_error")
         job.last_error = str(last_error) if isinstance(last_error, str) else None
 

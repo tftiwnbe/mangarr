@@ -126,7 +126,9 @@ class AuthService:
 
         return RotateApiKeyResponse(api_key=api_key, rotated_at=now)
 
-    async def list_integration_api_keys(self, user: User) -> list[IntegrationApiKeyResource]:
+    async def list_integration_api_keys(
+        self, user: User
+    ) -> list[IntegrationApiKeyResource]:
         user_id = self._require_user_id(user)
         keys = (
             await self.session.exec(

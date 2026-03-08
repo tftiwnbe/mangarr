@@ -32,10 +32,14 @@ def upgrade() -> None:
             sa.Column("id", sa.Integer(), primary_key=True, nullable=False),
             sa.Column("profile_id", sa.Integer(), nullable=False),
             sa.Column("variant_id", sa.Integer(), nullable=False),
-            sa.Column("position", sa.Integer(), nullable=False, server_default=sa.text("0")),
+            sa.Column(
+                "position", sa.Integer(), nullable=False, server_default=sa.text("0")
+            ),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
             sa.ForeignKeyConstraint(["profile_id"], ["download_profiles.id"]),
-            sa.UniqueConstraint("profile_id", "variant_id", name="uq_download_profile_variant"),
+            sa.UniqueConstraint(
+                "profile_id", "variant_id", name="uq_download_profile_variant"
+            ),
         )
         op.create_index(
             "ix_download_profile_variants_profile_id",

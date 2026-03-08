@@ -25,10 +25,7 @@
 		type LibraryCollectionResource,
 		type LibraryUserStatusResource
 	} from '$lib/api/library';
-	import {
-		updateExtensionRepository,
-		listInstalledExtensions
-	} from '$lib/api/extensions';
+	import { updateExtensionRepository, listInstalledExtensions } from '$lib/api/extensions';
 	import {
 		getFlareSolverrSettings,
 		getDownloadSettings,
@@ -774,7 +771,9 @@
 		try {
 			const timeout = Math.max(5, Math.min(300, Math.round(flareTimeoutSeconds || 45)));
 			const sessionTtlRaw = flareSessionTtlMinutes.trim();
-			const sessionTtl = sessionTtlRaw ? Math.max(1, Math.min(1440, Math.round(Number(sessionTtlRaw)))) : null;
+			const sessionTtl = sessionTtlRaw
+				? Math.max(1, Math.min(1440, Math.round(Number(sessionTtlRaw))))
+				: null;
 			const updated = await updateFlareSolverrSettings({
 				enabled: flareEnabled,
 				url: flareUrl.trim(),
@@ -841,7 +840,7 @@
 	<title>{$_('nav.settings')} | {$_('app.name')}</title>
 </svelte:head>
 
-<div class="flex flex-col gap-6 max-w-xl">
+<div class="flex max-w-xl flex-col gap-6">
 	<h1 class="text-display text-xl text-[var(--text)]">{$_('nav.settings').toLowerCase()}</h1>
 
 	{#if loading}
@@ -853,7 +852,7 @@
 		<p class="text-sm text-[var(--error)]">{error}</p>
 	{:else}
 		<!-- Tabs -->
-		<div class="flex gap-1 overflow-x-auto no-scrollbar">
+		<div class="no-scrollbar flex gap-1 overflow-x-auto">
 			<button
 				type="button"
 				class="shrink-0 px-3 py-1.5 text-xs font-medium transition-colors {activeTab === 'account'
@@ -903,7 +902,9 @@
 					</div>
 					<div class="flex items-baseline justify-between">
 						<span class="text-label">{$_('settings.role')}</span>
-						<span class="text-sm text-[var(--text)]">{user?.is_admin ? $_('settings.roleAdmin') : $_('settings.roleUser')}</span>
+						<span class="text-sm text-[var(--text)]"
+							>{user?.is_admin ? $_('settings.roleAdmin') : $_('settings.roleUser')}</span
+						>
 					</div>
 					<Button variant="ghost" size="sm" onclick={handleSignOut} class="self-start">
 						<Icon name="arrow-left" size={14} />
@@ -913,7 +914,9 @@
 
 				<!-- Change Password -->
 				<section class="flex flex-col gap-4">
-					<h2 class="text-sm font-medium text-[var(--text-soft)]">{$_('settings.changePassword').toLowerCase()}</h2>
+					<h2 class="text-sm font-medium text-[var(--text-soft)]">
+						{$_('settings.changePassword').toLowerCase()}
+					</h2>
 					<form class="flex flex-col gap-4" onsubmit={handleChangePassword}>
 						<Input
 							type="password"
@@ -938,10 +941,12 @@
 						/>
 
 						{#if passwordError}
-							<p class="text-xs text-[var(--error)] animate-fade-in">{passwordError}</p>
+							<p class="animate-fade-in text-xs text-[var(--error)]">{passwordError}</p>
 						{/if}
 						{#if passwordSuccess}
-							<p class="text-xs text-[var(--success)] animate-fade-in">{$_('settings.passwordChanged')}</p>
+							<p class="animate-fade-in text-xs text-[var(--success)]">
+								{$_('settings.passwordChanged')}
+							</p>
 						{/if}
 
 						<Button
@@ -959,7 +964,9 @@
 
 				<!-- API Key -->
 				<section class="flex flex-col gap-3">
-					<h2 class="text-sm font-medium text-[var(--text-soft)]">{$_('settings.apiKey').toLowerCase()}</h2>
+					<h2 class="text-sm font-medium text-[var(--text-soft)]">
+						{$_('settings.apiKey').toLowerCase()}
+					</h2>
 					<p class="text-xs text-[var(--text-ghost)]">{$_('settings.apiKeyDescription')}</p>
 					<div class="flex items-center gap-3">
 						<Button
@@ -973,7 +980,9 @@
 							{$_('settings.rotateApiKey').toLowerCase()}
 						</Button>
 						{#if apiKeySuccess}
-							<span class="text-xs text-[var(--success)] animate-fade-in">{$_('settings.apiKeyRotated')}</span>
+							<span class="animate-fade-in text-xs text-[var(--success)]"
+								>{$_('settings.apiKeyRotated')}</span
+							>
 						{/if}
 					</div>
 				</section>
@@ -981,8 +990,12 @@
 				<!-- Integration API Keys -->
 				<section class="flex flex-col gap-4">
 					<div class="flex flex-col gap-1">
-						<h2 class="text-sm font-medium text-[var(--text-soft)]">{$_('settings.integrationApiKeys').toLowerCase()}</h2>
-						<p class="text-xs text-[var(--text-ghost)]">{$_('settings.integrationApiKeysDescription')}</p>
+						<h2 class="text-sm font-medium text-[var(--text-soft)]">
+							{$_('settings.integrationApiKeys').toLowerCase()}
+						</h2>
+						<p class="text-xs text-[var(--text-ghost)]">
+							{$_('settings.integrationApiKeysDescription')}
+						</p>
 					</div>
 
 					<!-- Create new key -->
@@ -1007,13 +1020,13 @@
 
 					<!-- Created key banner -->
 					{#if createdIntegrationKeyValue}
-						<div class="bg-[var(--void-3)] p-4 animate-fade-in">
+						<div class="animate-fade-in bg-[var(--void-3)] p-4">
 							<p class="text-xs text-[var(--text-ghost)]">
 								{$_('settings.integrationApiKeyCreated', {
 									values: { name: createdIntegrationKeyName ?? '' }
 								})}
 							</p>
-							<p class="mt-2 break-all text-xs text-[var(--text)]">
+							<p class="mt-2 text-xs break-all text-[var(--text)]">
 								{createdIntegrationKeyValue}
 							</p>
 							<div class="mt-3 flex gap-2">
@@ -1042,11 +1055,15 @@
 					{:else}
 						<div class="flex flex-col">
 							{#each integrationApiKeys as key (key.id)}
-								<div class="flex items-center justify-between gap-3 py-3 border-b border-[var(--void-3)]/30 last:border-b-0">
+								<div
+									class="flex items-center justify-between gap-3 border-b border-[var(--void-3)]/30 py-3 last:border-b-0"
+								>
 									<div class="min-w-0 flex-1">
 										<p class="truncate text-sm text-[var(--text)]">{key.name}</p>
 										<p class="mt-1 text-xs text-[var(--text-ghost)]">
-											{key.key_prefix} · {$_('settings.createdAt')}: {formatDateTime(key.created_at)}
+											{key.key_prefix} · {$_('settings.createdAt')}: {formatDateTime(
+												key.created_at
+											)}
 										</p>
 										{#if key.last_used_at}
 											<p class="mt-0.5 text-xs text-[var(--text-ghost)]">
@@ -1069,19 +1086,23 @@
 					{/if}
 
 					{#if integrationKeysError}
-						<p class="text-xs text-[var(--error)] animate-fade-in">{integrationKeysError}</p>
+						<p class="animate-fade-in text-xs text-[var(--error)]">{integrationKeysError}</p>
 					{/if}
 				</section>
 			</div>
 
-		<!-- ═══════════════════ LIBRARY ═══════════════════ -->
+			<!-- ═══════════════════ LIBRARY ═══════════════════ -->
 		{:else if activeTab === 'library'}
 			<div class="flex flex-col gap-8">
 				<!-- Statuses -->
 				<section class="flex flex-col gap-3">
 					<div class="flex flex-col gap-1">
-						<h2 class="text-sm font-medium text-[var(--text-soft)]">{$_('settings.libraryStatuses').toLowerCase()}</h2>
-						<p class="text-xs text-[var(--text-ghost)]">{$_('settings.libraryStatusesDescription')}</p>
+						<h2 class="text-sm font-medium text-[var(--text-soft)]">
+							{$_('settings.libraryStatuses').toLowerCase()}
+						</h2>
+						<p class="text-xs text-[var(--text-ghost)]">
+							{$_('settings.libraryStatusesDescription')}
+						</p>
 					</div>
 
 					{#if statusesLoading}
@@ -1089,13 +1110,18 @@
 					{:else}
 						<div class="flex flex-col">
 							{#each statuses as status (status.id)}
-								<div class="flex items-center gap-2 py-2.5 border-b border-[var(--void-3)]/30 last:border-b-0">
+								<div
+									class="flex items-center gap-2 border-b border-[var(--void-3)]/30 py-2.5 last:border-b-0"
+								>
 									<input
 										type="text"
 										class="settings-input-compact min-w-0 flex-1"
 										value={status.label}
 										oninput={(event) =>
-											handleStatusFieldChange(status.id, (event.currentTarget as HTMLInputElement).value)}
+											handleStatusFieldChange(
+												status.id,
+												(event.currentTarget as HTMLInputElement).value
+											)}
 									/>
 									<span
 										class="hidden shrink-0 text-[10px] text-[var(--text-ghost)] sm:inline-flex"
@@ -1115,7 +1141,7 @@
 									{#if !status.is_default}
 										<button
 											type="button"
-											class="flex h-10 w-10 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--error)] hover:bg-[var(--error-soft)]"
+											class="flex h-10 w-10 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:bg-[var(--error-soft)] hover:text-[var(--error)]"
 											onclick={() => handleDeleteStatus(status.id)}
 											disabled={deletingStatusId === status.id}
 											title={$_('common.delete')}
@@ -1154,15 +1180,19 @@
 					{/if}
 
 					{#if statusesError}
-						<p class="text-xs text-[var(--error)] animate-fade-in">{statusesError}</p>
+						<p class="animate-fade-in text-xs text-[var(--error)]">{statusesError}</p>
 					{/if}
 				</section>
 
 				<!-- Collections -->
 				<section class="flex flex-col gap-3">
 					<div class="flex flex-col gap-1">
-						<h2 class="text-sm font-medium text-[var(--text-soft)]">{$_('settings.libraryCollections').toLowerCase()}</h2>
-						<p class="text-xs text-[var(--text-ghost)]">{$_('settings.libraryCollectionsDescription')}</p>
+						<h2 class="text-sm font-medium text-[var(--text-soft)]">
+							{$_('settings.libraryCollections').toLowerCase()}
+						</h2>
+						<p class="text-xs text-[var(--text-ghost)]">
+							{$_('settings.libraryCollectionsDescription')}
+						</p>
 					</div>
 
 					{#if collectionsLoading}
@@ -1173,7 +1203,9 @@
 								<p class="py-2 text-xs text-[var(--text-ghost)]">{$_('settings.noCollections')}</p>
 							{:else}
 								{#each sortedCollections as collection (collection.id)}
-									<div class="flex items-center gap-2 py-2.5 border-b border-[var(--void-3)]/30 last:border-b-0">
+									<div
+										class="flex items-center gap-2 border-b border-[var(--void-3)]/30 py-2.5 last:border-b-0"
+									>
 										<input
 											type="text"
 											class="settings-input-compact min-w-0 flex-1"
@@ -1195,9 +1227,10 @@
 										</Button>
 										<button
 											type="button"
-											class="flex h-10 w-10 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--error)] hover:bg-[var(--error-soft)]"
+											class="flex h-10 w-10 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:bg-[var(--error-soft)] hover:text-[var(--error)]"
 											onclick={() => handleDeleteCollection(collection.id)}
-											disabled={deletingCollectionId === collection.id || collectionSavingId === collection.id}
+											disabled={deletingCollectionId === collection.id ||
+												collectionSavingId === collection.id}
 											title={$_('common.delete')}
 										>
 											{#if deletingCollectionId === collection.id}
@@ -1232,19 +1265,21 @@
 					{/if}
 
 					{#if collectionsError}
-						<p class="text-xs text-[var(--error)] animate-fade-in">{collectionsError}</p>
+						<p class="animate-fade-in text-xs text-[var(--error)]">{collectionsError}</p>
 					{/if}
 				</section>
 			</div>
 
-		<!-- ═══════════════════ SYSTEM ═══════════════════ -->
+			<!-- ═══════════════════ SYSTEM ═══════════════════ -->
 		{:else if activeTab === 'system'}
 			<div class="flex flex-col gap-8">
 				<!-- Extensions -->
 				<section class="flex flex-col gap-4">
 					<div class="flex flex-col gap-1">
 						<h2 class="text-sm font-medium text-[var(--text-soft)]">extensions</h2>
-						<p class="text-xs text-[var(--text-ghost)]">manage extension repository and content language preferences</p>
+						<p class="text-xs text-[var(--text-ghost)]">
+							manage extension repository and content language preferences
+						</p>
 					</div>
 
 					{#if extensionRepoLoading}
@@ -1269,10 +1304,10 @@
 						</div>
 
 						{#if extensionRepoError}
-							<p class="text-xs text-[var(--error)] animate-fade-in">{extensionRepoError}</p>
+							<p class="animate-fade-in text-xs text-[var(--error)]">{extensionRepoError}</p>
 						{/if}
 						{#if extensionRepoSuccess}
-							<p class="text-xs text-[var(--success)] animate-fade-in">repository updated</p>
+							<p class="animate-fade-in text-xs text-[var(--success)]">repository updated</p>
 						{/if}
 
 						<!-- Content languages -->
@@ -1307,10 +1342,10 @@
 										{@const isSelected = $contentLanguages.includes(lang)}
 										<button
 											type="button"
-											class="h-7 min-w-[32px] px-2.5 text-[10px] uppercase tracking-wider transition-all
+											class="h-7 min-w-[32px] px-2.5 text-[10px] tracking-wider uppercase transition-all
 												{isSelected
 												? 'bg-[var(--void-4)] text-[var(--text)]'
-												: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
+												: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
 											onclick={() => handleToggleContentLang(lang)}
 										>
 											{lang}
@@ -1331,8 +1366,12 @@
 				<!-- Downloads -->
 				<section class="flex flex-col gap-4">
 					<div class="flex flex-col gap-1">
-						<h2 class="text-sm font-medium text-[var(--text-soft)]">{$_('settings.downloadSettings').toLowerCase()}</h2>
-						<p class="text-xs text-[var(--text-ghost)]">{$_('settings.downloadSettingsDescription')}</p>
+						<h2 class="text-sm font-medium text-[var(--text-soft)]">
+							{$_('settings.downloadSettings').toLowerCase()}
+						</h2>
+						<p class="text-xs text-[var(--text-ghost)]">
+							{$_('settings.downloadSettingsDescription')}
+						</p>
 					</div>
 
 					{#if downloadsSettingsLoading}
@@ -1388,7 +1427,9 @@
 							</p>
 						</div>
 
-						<label class="flex items-center gap-3 py-1 text-sm text-[var(--text)] cursor-pointer select-none">
+						<label
+							class="flex cursor-pointer items-center gap-3 py-1 text-sm text-[var(--text)] select-none"
+						>
 							<input
 								type="checkbox"
 								class="h-5 w-5 accent-[var(--void-8)]"
@@ -1436,10 +1477,12 @@
 						</div>
 
 						{#if downloadsSettingsError}
-							<p class="text-xs text-[var(--error)] animate-fade-in">{downloadsSettingsError}</p>
+							<p class="animate-fade-in text-xs text-[var(--error)]">{downloadsSettingsError}</p>
 						{/if}
 						{#if downloadsSettingsSuccess}
-							<p class="text-xs text-[var(--success)] animate-fade-in">{$_('settings.downloadSettingsSaved')}</p>
+							<p class="animate-fade-in text-xs text-[var(--success)]">
+								{$_('settings.downloadSettingsSaved')}
+							</p>
 						{/if}
 					{/if}
 				</section>
@@ -1449,14 +1492,18 @@
 				<!-- Jobs / Cleanup -->
 				<section class="flex flex-col gap-4">
 					<div class="flex flex-col gap-1">
-						<h2 class="text-sm font-medium text-[var(--text-soft)]">{$_('settings.jobs').toLowerCase()}</h2>
+						<h2 class="text-sm font-medium text-[var(--text-soft)]">
+							{$_('settings.jobs').toLowerCase()}
+						</h2>
 						<p class="text-xs text-[var(--text-ghost)]">{$_('settings.jobsDescription')}</p>
 					</div>
 
 					{#if jobsSettingsLoading}
 						<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
 					{:else}
-						<label class="flex items-center gap-3 py-1 text-sm text-[var(--text)] cursor-pointer select-none">
+						<label
+							class="flex cursor-pointer items-center gap-3 py-1 text-sm text-[var(--text)] select-none"
+						>
 							<input
 								type="checkbox"
 								class="h-5 w-5 accent-[var(--void-8)]"
@@ -1548,13 +1595,15 @@
 						</div>
 
 						{#if jobsSettingsError}
-							<p class="text-xs text-[var(--error)] animate-fade-in">{jobsSettingsError}</p>
+							<p class="animate-fade-in text-xs text-[var(--error)]">{jobsSettingsError}</p>
 						{/if}
 						{#if jobsSettingsSuccess}
-							<p class="text-xs text-[var(--success)] animate-fade-in">{$_('settings.jobsSettingsSaved')}</p>
+							<p class="animate-fade-in text-xs text-[var(--success)]">
+								{$_('settings.jobsSettingsSaved')}
+							</p>
 						{/if}
 						{#if jobsCleanupInfo}
-							<p class="text-xs text-[var(--text-muted)] animate-fade-in">{jobsCleanupInfo}</p>
+							<p class="animate-fade-in text-xs text-[var(--text-muted)]">{jobsCleanupInfo}</p>
 						{/if}
 					{/if}
 				</section>
@@ -1573,7 +1622,11 @@
 					{#if proxySettingsLoading}
 						<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
 					{:else}
-						<Input label="Proxy hostname" bind:value={proxyHostname} placeholder="proxy.example.com" />
+						<Input
+							label="Proxy hostname"
+							bind:value={proxyHostname}
+							placeholder="proxy.example.com"
+						/>
 
 						<div class="flex flex-col gap-1.5">
 							<label class="text-label" for="proxy-port">Proxy port</label>
@@ -1602,7 +1655,9 @@
 							Use <code>;</code> as separator and <code>*</code> for wildcard matching.
 						</p>
 
-						<label class="flex items-center gap-3 py-1 text-sm text-[var(--text)] cursor-pointer select-none">
+						<label
+							class="flex cursor-pointer items-center gap-3 py-1 text-sm text-[var(--text)] select-none"
+						>
 							<input
 								type="checkbox"
 								class="h-5 w-5 accent-[var(--void-8)]"
@@ -1630,10 +1685,10 @@
 						</div>
 
 						{#if proxySettingsError}
-							<p class="text-xs text-[var(--error)] animate-fade-in">{proxySettingsError}</p>
+							<p class="animate-fade-in text-xs text-[var(--error)]">{proxySettingsError}</p>
 						{/if}
 						{#if proxySettingsSuccess}
-							<p class="text-xs text-[var(--success)] animate-fade-in">Proxy settings saved</p>
+							<p class="animate-fade-in text-xs text-[var(--success)]">Proxy settings saved</p>
 						{/if}
 					{/if}
 				</section>
@@ -1652,7 +1707,9 @@
 					{#if flareSettingsLoading}
 						<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
 					{:else}
-						<label class="flex items-center gap-3 py-1 text-sm text-[var(--text)] cursor-pointer select-none">
+						<label
+							class="flex cursor-pointer items-center gap-3 py-1 text-sm text-[var(--text)] select-none"
+						>
 							<input
 								type="checkbox"
 								class="h-5 w-5 accent-[var(--void-8)]"
@@ -1664,7 +1721,11 @@
 							Enable FlareSolverr
 						</label>
 
-						<Input label="FlareSolverr URL" bind:value={flareUrl} placeholder="http://localhost:8191" />
+						<Input
+							label="FlareSolverr URL"
+							bind:value={flareUrl}
+							placeholder="http://localhost:8191"
+						/>
 
 						<div class="flex flex-col gap-1.5">
 							<label class="text-label" for="flare-timeout-seconds">Timeout (seconds)</label>
@@ -1682,7 +1743,9 @@
 							/>
 						</div>
 
-						<label class="flex items-center gap-3 py-1 text-sm text-[var(--text)] cursor-pointer select-none">
+						<label
+							class="flex cursor-pointer items-center gap-3 py-1 text-sm text-[var(--text)] select-none"
+						>
 							<input
 								type="checkbox"
 								class="h-5 w-5 accent-[var(--void-8)]"
@@ -1694,8 +1757,8 @@
 							Response fallback
 						</label>
 						<p class="text-xs text-[var(--text-dim)]">
-							If enabled, requests fall back to the extension's direct response when
-							FlareSolverr fails or times out.
+							If enabled, requests fall back to the extension's direct response when FlareSolverr
+							fails or times out.
 						</p>
 
 						<Input
@@ -1705,7 +1768,9 @@
 						/>
 
 						<div class="flex flex-col gap-1.5">
-							<label class="text-label" for="flare-session-ttl">Session TTL minutes (optional)</label>
+							<label class="text-label" for="flare-session-ttl"
+								>Session TTL minutes (optional)</label
+							>
 							<input
 								id="flare-session-ttl"
 								type="number"
@@ -1735,16 +1800,18 @@
 						</div>
 
 						{#if flareSettingsError}
-							<p class="text-xs text-[var(--error)] animate-fade-in">{flareSettingsError}</p>
+							<p class="animate-fade-in text-xs text-[var(--error)]">{flareSettingsError}</p>
 						{/if}
 						{#if flareSettingsSuccess}
-							<p class="text-xs text-[var(--success)] animate-fade-in">FlareSolverr settings saved</p>
+							<p class="animate-fade-in text-xs text-[var(--success)]">
+								FlareSolverr settings saved
+							</p>
 						{/if}
 					{/if}
 				</section>
 			</div>
 
-		<!-- ═══════════════════ ABOUT ═══════════════════ -->
+			<!-- ═══════════════════ ABOUT ═══════════════════ -->
 		{:else}
 			<div class="flex flex-col gap-6">
 				<!-- App info -->
@@ -1761,11 +1828,11 @@
 
 				<!-- Scheduled jobs -->
 				<div class="flex flex-col gap-0">
-					<div class="flex items-center justify-between mb-3">
+					<div class="mb-3 flex items-center justify-between">
 						<span class="text-label">scheduled jobs</span>
 						<button
 							type="button"
-							class="text-[10px] uppercase tracking-widest text-[var(--text-ghost)] hover:text-[var(--text-muted)] transition-colors"
+							class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text-muted)]"
 							onclick={loadSchedulerStatus}
 						>
 							{#if schedulerLoading}
@@ -1777,7 +1844,7 @@
 					</div>
 
 					{#if schedulerError}
-						<p class="text-xs text-[var(--error)] mb-2">{schedulerError}</p>
+						<p class="mb-2 text-xs text-[var(--error)]">{schedulerError}</p>
 					{/if}
 
 					{#if schedulerBridgeMetrics}
@@ -1795,50 +1862,74 @@
 							<span class="text-xs">loading…</span>
 						</div>
 					{:else if schedulerJobs.length === 0}
-						<p class="text-xs text-[var(--text-ghost)] py-4">no jobs registered</p>
+						<p class="py-4 text-xs text-[var(--text-ghost)]">no jobs registered</p>
 					{:else}
 						{#each schedulerJobs as job (job.name)}
 							{@const isActing = schedulerActingJob === job.name}
-							<div class="flex items-center gap-3 py-3 border-b border-[var(--void-2)] last:border-0">
+							<div
+								class="flex items-center gap-3 border-b border-[var(--void-2)] py-3 last:border-0"
+							>
 								<!-- Job info -->
-								<div class="flex-1 min-w-0">
+								<div class="min-w-0 flex-1">
 									<div class="flex items-center gap-2">
-										<span class="text-xs text-[var(--text-soft)] truncate">{job.label}</span>
+										<span class="truncate text-xs text-[var(--text-soft)]">{job.label}</span>
 										<!-- Status chip -->
 										{#if job.running}
-											<span class="text-[9px] uppercase tracking-widest text-[var(--success)] shrink-0">running</span>
+											<span
+												class="shrink-0 text-[9px] tracking-widest text-[var(--success)] uppercase"
+												>running</span
+											>
 										{:else if job.paused}
-											<span class="text-[9px] uppercase tracking-widest text-[var(--text-ghost)] shrink-0">paused</span>
+											<span
+												class="shrink-0 text-[9px] tracking-widest text-[var(--text-ghost)] uppercase"
+												>paused</span
+											>
 										{:else if job.last_status === 'error'}
-											<span class="text-[9px] uppercase tracking-widest text-[var(--error)] shrink-0">error</span>
+											<span
+												class="shrink-0 text-[9px] tracking-widest text-[var(--error)] uppercase"
+												>error</span
+											>
 										{:else}
-											<span class="text-[9px] uppercase tracking-widest text-[var(--text-muted)] shrink-0">idle</span>
+											<span
+												class="shrink-0 text-[9px] tracking-widest text-[var(--text-muted)] uppercase"
+												>idle</span
+											>
 										{/if}
 									</div>
-									<div class="flex items-center gap-2 mt-0.5">
-										<span class="text-[10px] text-[var(--text-ghost)]">every {formatInterval(job.interval_seconds)}</span>
+									<div class="mt-0.5 flex items-center gap-2">
+										<span class="text-[10px] text-[var(--text-ghost)]"
+											>every {formatInterval(job.interval_seconds)}</span
+										>
 										<span class="text-[var(--void-4)]">·</span>
-										<span class="text-[10px] text-[var(--text-ghost)]">{formatLastRun(job.last_run_at)}</span>
+										<span class="text-[10px] text-[var(--text-ghost)]"
+											>{formatLastRun(job.last_run_at)}</span
+										>
 										{#if !job.running}
 											<span class="text-[var(--void-4)]">·</span>
-											<span class="text-[10px] text-[var(--text-ghost)]">{formatNextRun(job.next_run_at)}</span>
+											<span class="text-[10px] text-[var(--text-ghost)]"
+												>{formatNextRun(job.next_run_at)}</span
+											>
 										{/if}
 										{#if job.last_duration_ms !== null && job.last_duration_ms !== undefined}
 											<span class="text-[var(--void-4)]">·</span>
-											<span class="text-[10px] text-[var(--text-ghost)]">{job.last_duration_ms} ms</span>
+											<span class="text-[10px] text-[var(--text-ghost)]"
+												>{job.last_duration_ms} ms</span
+											>
 										{/if}
 									</div>
 									{#if job.last_error}
-										<p class="mt-1 line-clamp-1 text-[10px] text-[var(--error)]">{job.last_error}</p>
+										<p class="mt-1 line-clamp-1 text-[10px] text-[var(--error)]">
+											{job.last_error}
+										</p>
 									{/if}
 								</div>
 
 								<!-- Actions -->
-								<div class="flex items-center gap-1 shrink-0">
+								<div class="flex shrink-0 items-center gap-1">
 									<!-- Run now -->
 									<button
 										type="button"
-										class="h-7 w-7 flex items-center justify-center text-[var(--text-ghost)] hover:text-[var(--text)] hover:bg-[var(--void-2)] transition-colors disabled:opacity-30"
+										class="flex h-7 w-7 items-center justify-center text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-2)] hover:text-[var(--text)] disabled:opacity-30"
 										title="run now"
 										disabled={isActing || job.running}
 										onclick={() => void handleJobTrigger(job.name)}
@@ -1854,7 +1945,7 @@
 									{#if job.paused}
 										<button
 											type="button"
-											class="h-7 w-7 flex items-center justify-center text-[var(--text-ghost)] hover:text-[var(--text)] hover:bg-[var(--void-2)] transition-colors disabled:opacity-30"
+											class="flex h-7 w-7 items-center justify-center text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-2)] hover:text-[var(--text)] disabled:opacity-30"
 											title="resume"
 											disabled={isActing}
 											onclick={() => void handleJobResume(job.name)}
@@ -1868,7 +1959,7 @@
 									{:else}
 										<button
 											type="button"
-											class="h-7 w-7 flex items-center justify-center text-[var(--text-ghost)] hover:text-[var(--text)] hover:bg-[var(--void-2)] transition-colors disabled:opacity-30"
+											class="flex h-7 w-7 items-center justify-center text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-2)] hover:text-[var(--text)] disabled:opacity-30"
 											title="pause"
 											disabled={isActing || job.running}
 											onclick={() => void handleJobPause(job.name)}
@@ -1900,7 +1991,9 @@
 		padding: 0 1rem;
 		font-size: 0.875rem;
 		color: var(--text);
-		transition: border-color 150ms, background-color 150ms;
+		transition:
+			border-color 150ms,
+			background-color 150ms;
 	}
 	.settings-input::placeholder {
 		color: var(--text-ghost);
@@ -1922,7 +2015,9 @@
 		padding: 0 0.75rem;
 		font-size: 0.875rem;
 		color: var(--text);
-		transition: border-color 150ms, background-color 150ms;
+		transition:
+			border-color 150ms,
+			background-color 150ms;
 	}
 	.settings-input-compact::placeholder {
 		color: var(--text-ghost);

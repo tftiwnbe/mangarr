@@ -11,7 +11,8 @@ export interface AsyncResourceState<T> {
 	lastLoadedAt: number | null;
 }
 
-export interface AsyncResourceStore<T, A extends unknown[]> extends Readable<AsyncResourceState<T>> {
+export interface AsyncResourceStore<T, A extends unknown[]>
+	extends Readable<AsyncResourceState<T>> {
 	load: (...args: A) => Promise<T>;
 	refresh: (...args: A) => Promise<T>;
 	reset: () => void;

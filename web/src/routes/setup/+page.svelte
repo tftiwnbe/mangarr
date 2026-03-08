@@ -21,10 +21,7 @@
 		locale,
 		type SupportedLocale
 	} from '$lib/i18n';
-	import {
-		setContentLanguages,
-		setKnownContentLanguages
-	} from '$lib/stores/content-languages';
+	import { setContentLanguages, setKnownContentLanguages } from '$lib/stores/content-languages';
 	import { toMainContentLanguages } from '$lib/utils/content-languages';
 
 	let step = $state(1);
@@ -143,7 +140,7 @@
 		<!-- Stars -->
 		{#each Array(40) as _, i (i)}
 			<div
-				class="absolute rounded-full bg-white animate-pulse-glow"
+				class="animate-pulse-glow absolute rounded-full bg-white"
 				style="
 					width: {1 + Math.random() * 2}px;
 					height: {1 + Math.random() * 2}px;
@@ -158,7 +155,7 @@
 
 		<!-- Orbital ring -->
 		<div
-			class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-[900px] w-[900px] animate-spin-slow opacity-[0.03]"
+			class="animate-spin-slow absolute top-1/2 left-1/2 h-[900px] w-[900px] -translate-x-1/2 -translate-y-1/2 opacity-[0.03]"
 		>
 			<svg viewBox="0 0 200 200" class="h-full w-full">
 				<ellipse
@@ -194,9 +191,10 @@
 			<!-- Step indicator -->
 			<div class="mb-6 flex items-center justify-center gap-3">
 				<div
-					class="flex h-7 w-7 items-center justify-center text-xs font-medium transition-colors {step >= 1
-						? 'bg-[var(--void-5)] text-[var(--text)] border border-[var(--void-6)]'
-						: 'bg-[var(--void-3)] text-[var(--text-ghost)] border border-[var(--line)]'}"
+					class="flex h-7 w-7 items-center justify-center text-xs font-medium transition-colors {step >=
+					1
+						? 'border border-[var(--void-6)] bg-[var(--void-5)] text-[var(--text)]'
+						: 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text-ghost)]'}"
 				>
 					{#if step > 1}
 						<Icon name="check" size={12} />
@@ -206,9 +204,10 @@
 				</div>
 				<div class="h-px w-8 bg-[var(--line)]"></div>
 				<div
-					class="flex h-7 w-7 items-center justify-center text-xs font-medium transition-colors {step >= 2
-						? 'bg-[var(--void-5)] text-[var(--text)] border border-[var(--void-6)]'
-						: 'bg-[var(--void-3)] text-[var(--text-ghost)] border border-[var(--line)]'}"
+					class="flex h-7 w-7 items-center justify-center text-xs font-medium transition-colors {step >=
+					2
+						? 'border border-[var(--void-6)] bg-[var(--void-5)] text-[var(--text)]'
+						: 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text-ghost)]'}"
 				>
 					{#if step > 2}
 						<Icon name="check" size={12} />
@@ -218,9 +217,10 @@
 				</div>
 				<div class="h-px w-8 bg-[var(--line)]"></div>
 				<div
-					class="flex h-7 w-7 items-center justify-center text-xs font-medium transition-colors {step >= 3
-						? 'bg-[var(--void-5)] text-[var(--text)] border border-[var(--void-6)]'
-						: 'bg-[var(--void-3)] text-[var(--text-ghost)] border border-[var(--line)]'}"
+					class="flex h-7 w-7 items-center justify-center text-xs font-medium transition-colors {step >=
+					3
+						? 'border border-[var(--void-6)] bg-[var(--void-5)] text-[var(--text)]'
+						: 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text-ghost)]'}"
 				>
 					3
 				</div>
@@ -232,14 +232,26 @@
 					{#if step === 1}
 						<!-- Step 1: Repository URL -->
 						<div class="mb-6 text-center">
-							<div class="mx-auto mb-3 flex h-10 w-10 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]">
+							<div
+								class="mx-auto mb-3 flex h-10 w-10 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]"
+							>
 								<Icon name="link" size={18} class="text-[var(--text-muted)]" />
 							</div>
-							<h2 class="text-base font-medium text-[var(--text)]">{$_('setup.repoTitle').toLowerCase()}</h2>
-							<p class="mt-1 text-xs text-[var(--text-ghost)]">{$_('setup.repoDescription').toLowerCase()}</p>
+							<h2 class="text-base font-medium text-[var(--text)]">
+								{$_('setup.repoTitle').toLowerCase()}
+							</h2>
+							<p class="mt-1 text-xs text-[var(--text-ghost)]">
+								{$_('setup.repoDescription').toLowerCase()}
+							</p>
 						</div>
 
-						<form class="flex flex-col gap-4" onsubmit={(e) => { e.preventDefault(); handleRepoSubmit(); }}>
+						<form
+							class="flex flex-col gap-4"
+							onsubmit={(e) => {
+								e.preventDefault();
+								handleRepoSubmit();
+							}}
+						>
 							<Input
 								type="url"
 								label={$_('setup.repoUrl')}
@@ -248,7 +260,9 @@
 							/>
 
 							{#if error}
-								<div class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)] animate-fade-in">
+								<div
+									class="animate-fade-in border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]"
+								>
 									{error}
 								</div>
 							{/if}
@@ -257,7 +271,7 @@
 								type="submit"
 								size="lg"
 								disabled={loading || !repoUrl.trim()}
-								loading={loading}
+								{loading}
 								class="w-full justify-center"
 							>
 								{#if loading}
@@ -278,15 +292,19 @@
 					{:else if step === 2}
 						<!-- Step 2: Content Languages -->
 						<div class="mb-6 text-center">
-							<div class="mx-auto mb-3 flex h-10 w-10 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]">
+							<div
+								class="mx-auto mb-3 flex h-10 w-10 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]"
+							>
 								<Icon name="globe" size={18} class="text-[var(--text-muted)]" />
 							</div>
 							<h2 class="text-base font-medium text-[var(--text)]">content languages</h2>
-							<p class="mt-1 text-xs text-[var(--text-ghost)]">select which languages you want to see in your sources</p>
+							<p class="mt-1 text-xs text-[var(--text-ghost)]">
+								select which languages you want to see in your sources
+							</p>
 						</div>
 
 						{#if availableContentLangs.length > 0}
-							<div class="flex items-center justify-between mb-3">
+							<div class="mb-3 flex items-center justify-between">
 								<span class="text-[11px] text-[var(--text-ghost)]">
 									{selectedContentLangs.size === 0
 										? 'none selected — all will be shown'
@@ -301,15 +319,15 @@
 								</button>
 							</div>
 
-							<div class="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto no-scrollbar">
+							<div class="no-scrollbar flex max-h-48 flex-wrap gap-1.5 overflow-y-auto">
 								{#each availableContentLangs as lang (lang)}
 									{@const isSelected = selectedContentLangs.has(lang)}
 									<button
 										type="button"
-										class="h-8 min-w-[36px] px-2.5 text-[10px] uppercase tracking-wider transition-all
+										class="h-8 min-w-[36px] px-2.5 text-[10px] tracking-wider uppercase transition-all
 											{isSelected
-											? 'bg-[var(--void-5)] text-[var(--text)] border border-[var(--void-6)]'
-											: 'text-[var(--text-ghost)] border border-[var(--line)] hover:text-[var(--text-muted)] hover:border-[var(--void-5)]'}"
+											? 'border border-[var(--void-6)] bg-[var(--void-5)] text-[var(--text)]'
+											: 'border border-[var(--line)] text-[var(--text-ghost)] hover:border-[var(--void-5)] hover:text-[var(--text-muted)]'}"
 										onclick={() => handleToggleContentLang(lang)}
 									>
 										{lang}
@@ -317,7 +335,7 @@
 								{/each}
 							</div>
 						{:else}
-							<p class="text-xs text-[var(--text-ghost)] text-center py-4">
+							<p class="py-4 text-center text-xs text-[var(--text-ghost)]">
 								no repository configured — skip to continue
 							</p>
 						{/if}
@@ -340,15 +358,20 @@
 					{:else if step === 3}
 						<!-- Step 3: UI Language -->
 						<div class="mb-6 text-center">
-							<h2 class="text-base font-medium text-[var(--text)]">{$_('setup.languageTitle').toLowerCase()}</h2>
-							<p class="mt-1 text-xs text-[var(--text-ghost)]">{$_('setup.languageDescription').toLowerCase()}</p>
+							<h2 class="text-base font-medium text-[var(--text)]">
+								{$_('setup.languageTitle').toLowerCase()}
+							</h2>
+							<p class="mt-1 text-xs text-[var(--text-ghost)]">
+								{$_('setup.languageDescription').toLowerCase()}
+							</p>
 						</div>
 
 						<div class="flex flex-col gap-2">
 							{#each SUPPORTED_LOCALES as lang (lang)}
 								<button
 									type="button"
-									class="flex w-full items-center gap-3 border p-3 text-left transition-all hover:bg-[var(--void-3)] {$locale === lang
+									class="flex w-full items-center gap-3 border p-3 text-left transition-all hover:bg-[var(--void-3)] {$locale ===
+									lang
 										? 'border-[var(--void-6)] bg-[var(--void-3)]'
 										: 'border-[var(--line)]'}"
 									onclick={() => handleLanguageSelect(lang)}
@@ -365,11 +388,7 @@
 							{/each}
 						</div>
 
-						<Button
-							size="lg"
-							class="mt-6 w-full justify-center"
-							onclick={handleComplete}
-						>
+						<Button size="lg" class="mt-6 w-full justify-center" onclick={handleComplete}>
 							{$_('setup.getStarted').toLowerCase()}
 						</Button>
 					{/if}
@@ -379,7 +398,9 @@
 	</div>
 
 	<!-- Domain watermark -->
-	<div class="absolute bottom-4 left-1/2 -translate-x-1/2 text-[10px] font-mono text-[var(--void-6)] tracking-wider">
+	<div
+		class="absolute bottom-4 left-1/2 -translate-x-1/2 font-mono text-[10px] tracking-wider text-[var(--void-6)]"
+	>
 		hmphin.space
 	</div>
 </main>
