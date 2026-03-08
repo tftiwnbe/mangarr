@@ -23,7 +23,19 @@
 	import { Button } from '$lib/elements/button';
 	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
 	import { Input } from '$lib/elements/input';
-	import { Icon } from '$lib/elements/icon';
+	import {
+	SpinnerIcon,
+	XIcon,
+	PuzzlePieceIcon,
+	GearIcon,
+	PlusIcon,
+	CheckIcon,
+	GitCommitIcon,
+	CaretDownIcon,
+	CaretRightIcon,
+	ArrowsClockwiseIcon,
+	MagnifyingGlassIcon
+} from 'phosphor-svelte';
 	import { Switch } from '$lib/elements/switch';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
@@ -621,7 +633,7 @@
 <div class="flex flex-col gap-4">
 	<!-- ── Header ───────────────────────────────────────────────────────── -->
 	<div class="flex items-center gap-3">
-		<h1 class="text-display flex-1 text-xl tracking-tight text-[var(--text)]">
+		<h1 class="text-display flex-1 text-xl text-[var(--text)]">
 			{$_('nav.extensions').toLowerCase()}
 		</h1>
 		<button
@@ -630,8 +642,7 @@
 			onclick={() => Promise.all([loadExtensions(), loadRepoChanges()])}
 			disabled={loading || repoChangesLoading}
 		>
-			<Icon
-				name="refresh-cw"
+			<ArrowsClockwiseIcon
 				size={15}
 				class={loading || repoChangesLoading ? 'animate-spin' : ''}
 			/>
@@ -672,8 +683,7 @@
 
 	<!-- ── Search ───────────────────────────────────────────────────────── -->
 	<div class="relative">
-		<Icon
-			name="search"
+		<MagnifyingGlassIcon
 			size={13}
 			class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-ghost)]"
 		/>
@@ -693,7 +703,7 @@
 				class="absolute top-1/2 right-2 -translate-y-1/2 text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 				onclick={() => (searchQuery = '')}
 			>
-				<Icon name="x" size={13} />
+				<XIcon size={13} />
 			</button>
 		{/if}
 	</div>
@@ -775,7 +785,7 @@
 		{#if installedExtensions.length === 0}
 			<div class="flex flex-col items-center gap-5 py-20 text-center">
 				<div class="flex h-16 w-16 items-center justify-center bg-[var(--void-2)]">
-					<Icon name="puzzle" size={24} class="text-[var(--text-ghost)]" />
+					<PuzzlePieceIcon size={24} class="text-[var(--text-ghost)]" />
 				</div>
 				<div>
 					<p class="text-sm text-[var(--text)]">{$_('extensions.noExtensions')}</p>
@@ -818,7 +828,7 @@
 								<img src={ext.icon} alt="" class="h-11 w-11 shrink-0 object-contain" />
 							{:else}
 								<div class="flex h-11 w-11 shrink-0 items-center justify-center bg-[var(--void-2)]">
-									<Icon name="puzzle" size={20} class="text-[var(--text-ghost)]" />
+									<PuzzlePieceIcon size={20} class="text-[var(--text-ghost)]" />
 								</div>
 							{/if}
 
@@ -838,11 +848,7 @@
 							</div>
 
 							<!-- Chevron -->
-							<Icon
-								name={isExpanded ? 'chevron-down' : 'chevron-right'}
-								size={14}
-								class="shrink-0 text-[var(--text-ghost)]"
-							/>
+							{#if isExpanded}<CaretDownIcon size={14} class="shrink-0 text-[var(--text-ghost)]" />{:else}<CaretRightIcon size={14} class="shrink-0 text-[var(--text-ghost)]" />{/if}
 						</button>
 
 						<!-- ── Expanded detail ─────────────────────────────────── -->
@@ -876,7 +882,7 @@
 														onclick={() => openSourceSettings(source.id)}
 														title={$_('extensions.sourceSettings')}
 													>
-														<Icon name="settings" size={14} />
+														<GearIcon size={14} />
 													</button>
 													<Switch
 														checked={source.enabled}
@@ -909,7 +915,7 @@
 										disabled={isUninstalling}
 									>
 										{#if isUninstalling}
-											<Icon name="loader" size={12} class="mr-1 inline-block animate-spin" />
+											<SpinnerIcon size={12} class="mr-1 inline-block animate-spin" />
 										{/if}
 										{$_('extensions.uninstall').toLowerCase()}
 									</button>
@@ -927,7 +933,7 @@
 	{:else if activeTab === 'updates'}
 		{#if repoChangesLoading && repoChangeItems.length === 0}
 			<div class="flex items-center justify-center py-20">
-				<Icon name="loader" size={16} class="animate-spin text-[var(--text-ghost)]" />
+				<SpinnerIcon size={16} class="animate-spin text-[var(--text-ghost)]" />
 			</div>
 		{:else if repoChangesError}
 			<div class="bg-[var(--error-soft)] px-4 py-3 text-xs text-[var(--error)]">
@@ -940,7 +946,7 @@
 		{:else if repoChangeItems.length === 0}
 			<div class="flex flex-col items-center gap-5 py-20 text-center">
 				<div class="flex h-16 w-16 items-center justify-center bg-[var(--void-2)]">
-					<Icon name="git-commit-horizontal" size={24} class="text-[var(--text-ghost)]" />
+					<GitCommitIcon size={24} class="text-[var(--text-ghost)]" />
 				</div>
 				<div>
 					<p class="text-sm text-[var(--text)]">{$_('extensions.noRecentUpdates')}</p>
@@ -972,7 +978,7 @@
 							<img src={change.icon} alt="" class="h-10 w-10 shrink-0 object-contain" />
 						{:else}
 							<div class="flex h-10 w-10 shrink-0 items-center justify-center bg-[var(--void-2)]">
-								<Icon name="puzzle" size={16} class="text-[var(--text-ghost)]" />
+								<PuzzlePieceIcon size={16} class="text-[var(--text-ghost)]" />
 							</div>
 						{/if}
 						<div class="min-w-0 flex-1">
@@ -1034,9 +1040,9 @@
 								title={$_('extensions.install')}
 							>
 								{#if installingPkg === change.extension_pkg}
-									<Icon name="loader" size={14} class="animate-spin" />
+									<SpinnerIcon size={14} class="animate-spin" />
 								{:else}
-									<Icon name="plus" size={16} />
+									<PlusIcon size={16} />
 								{/if}
 							</button>
 						{/if}
@@ -1051,7 +1057,7 @@
 	{:else if availableExtensions.length === 0}
 		<div class="flex flex-col items-center gap-5 py-20 text-center">
 			<div class="flex h-16 w-16 items-center justify-center bg-[var(--void-2)]">
-				<Icon name="check" size={24} class="text-[var(--text-muted)]" />
+				<CheckIcon size={24} class="text-[var(--text-muted)]" />
 			</div>
 			<div>
 				<p class="text-sm text-[var(--text)]">{$_('extensions.allInstalled')}</p>
@@ -1084,7 +1090,7 @@
 						<img src={ext.icon} alt="" class="h-10 w-10 shrink-0 object-contain" />
 					{:else}
 						<div class="flex h-10 w-10 shrink-0 items-center justify-center bg-[var(--void-2)]">
-							<Icon name="puzzle" size={16} class="text-[var(--text-ghost)]" />
+							<PuzzlePieceIcon size={16} class="text-[var(--text-ghost)]" />
 						</div>
 					{/if}
 					<div class="min-w-0 flex-1">
@@ -1107,9 +1113,9 @@
 						title={$_('extensions.install')}
 					>
 						{#if isInstalling}
-							<Icon name="loader" size={14} class="animate-spin" />
+							<SpinnerIcon size={14} class="animate-spin" />
 						{:else}
-							<Icon name="plus" size={16} />
+							<PlusIcon size={16} />
 						{/if}
 					</button>
 				</div>
@@ -1119,7 +1125,7 @@
 		<!-- Progressive render sentinel -->
 		{#if visibleAvailable.length < filteredAvailable.length}
 			<div bind:this={sentinelEl} class="flex justify-center py-4">
-				<Icon name="loader" size={16} class="animate-spin text-[var(--text-ghost)]" />
+				<SpinnerIcon size={16} class="animate-spin text-[var(--text-ghost)]" />
 			</div>
 		{/if}
 	{/if}
@@ -1137,7 +1143,7 @@
 >
 	{#if sourceSettingsLoading}
 		<div class="flex flex-col items-center gap-4 py-16">
-			<Icon name="loader" size={20} class="animate-spin text-[var(--text-muted)]" />
+			<SpinnerIcon size={20} class="animate-spin text-[var(--text-muted)]" />
 			<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
 		</div>
 	{:else if sourceSettingsError}
@@ -1152,7 +1158,7 @@
 
 		{#if !hasAnyPrefs}
 			<div class="flex flex-col items-center gap-4 py-16 text-center">
-				<Icon name="settings" size={28} class="text-[var(--text-ghost)]" />
+				<GearIcon size={28} class="text-[var(--text-ghost)]" />
 				<p class="text-xs text-[var(--text-ghost)]">
 					{$_('extensions.noPreferences')}
 				</p>
@@ -1232,7 +1238,7 @@
 												: ''}"
 										>
 											{#if isSelected}
-												<Icon name="check" size={10} class="text-[var(--void-0)]" />
+												<CheckIcon size={10} class="text-[var(--void-0)]" />
 											{/if}
 										</div>
 										{entry}
@@ -1263,7 +1269,7 @@
 							class="flex w-full items-center gap-2 py-2 text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 							onclick={() => (advancedOpen = !advancedOpen)}
 						>
-							<Icon name={advancedOpen ? 'chevron-down' : 'chevron-right'} size={12} />
+							{#if advancedOpen}<CaretDownIcon size={12} />{:else}<CaretRightIcon size={12} />{/if}
 							advanced
 						</button>
 

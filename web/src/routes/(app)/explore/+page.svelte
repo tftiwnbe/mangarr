@@ -21,8 +21,17 @@
 	import { importLibraryTitle, listLibraryTitles } from '$lib/api/library';
 	import { Button } from '$lib/elements/button';
 	import { Input } from '$lib/elements/input';
-	import { Icon } from '$lib/elements/icon';
+	import {
+	SpinnerIcon,
+	MagnifyingGlassIcon,
+	XIcon,
+	FunnelIcon,
+	ImageIcon,
+	CheckIcon,
+	CompassIcon
+} from 'phosphor-svelte';
 	import { LazyImage } from '$lib/elements/lazy-image';
+	import { Tabs } from '$lib/elements/tabs';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { panelOverlayOpen } from '$lib/stores/ui';
 	import { _ } from '$lib/i18n';
@@ -932,19 +941,11 @@
 	</div>
 
 	<!-- Tabs -->
-	<div class="flex gap-1">
-		{#each tabs as tab (tab)}
-			<button
-				type="button"
-				class="px-3 py-1.5 text-xs font-medium transition-colors {activeTab === tab
-					? 'bg-[var(--void-4)] text-[var(--text)]'
-					: 'text-[var(--text-ghost)] hover:bg-[var(--void-3)] hover:text-[var(--text-muted)]'}"
-				onclick={() => setTab(tab)}
-			>
-				{tabLabel(tab)}
-			</button>
-		{/each}
-	</div>
+	<Tabs
+		tabs={tabs.map((t) => ({ value: t, label: tabLabel(t) }))}
+		value={activeTab}
+		onValueChange={(v) => setTab(v as TabValue)}
+	/>
 
 	<!-- Search tab controls -->
 	{#if activeTab === 'search'}
@@ -954,7 +955,7 @@
 				<div
 					class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-ghost)]"
 				>
-					<Icon name="search" size={14} />
+					<MagnifyingGlassIcon size={14} />
 				</div>
 				<input
 					type="search"
@@ -972,7 +973,7 @@
 							void handleSearch('');
 						}}
 					>
-						<Icon name="x" size={14} />
+						<XIcon size={14} />
 					</button>
 				{/if}
 			</div>
@@ -991,7 +992,7 @@
 								class="flex items-center gap-1.5 text-[10px] text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 								onclick={() => selectedSource && openSearchFilters(selectedSource.id)}
 							>
-								<Icon name="filter" size={10} />
+								<FunnelIcon size={10} />
 								{$_('explore.advancedFilters')}
 								{#if hasAppliedSearchFilters}
 									<span class="text-[var(--text-muted)]">· {appliedSearchFilterCount}</span>
@@ -1034,7 +1035,7 @@
 								class="flex items-center gap-1 text-[10px] text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 								onclick={clearAppliedSearchFilters}
 							>
-								<Icon name="x" size={10} />
+								<XIcon size={10} />
 								{$_('common.clear')}
 								{appliedSearchFilterCount}
 								{appliedSearchFilterCount === 1 ? 'filter' : 'filters'}
@@ -1155,7 +1156,7 @@
 		</p>
 		{#if loading || loadingMore}
 			<p class="flex items-center gap-1">
-				<Icon name="loader" size={14} class="animate-spin" />
+				<SpinnerIcon size={14} class="animate-spin" />
 				{$_('common.loading')}
 			</p>
 		{/if}
@@ -1206,7 +1207,7 @@
 							/>
 						{:else}
 							<div class="flex h-full w-full items-center justify-center">
-								<Icon name="image" size={24} class="text-[var(--text-ghost)]" />
+								<ImageIcon size={24} class="text-[var(--text-ghost)]" />
 							</div>
 						{/if}
 
@@ -1232,7 +1233,7 @@
 							<div
 								class="absolute inset-0 flex items-center justify-center bg-[var(--void-0)]/60 backdrop-blur-[1px]"
 							>
-								<Icon name="loader" size={18} class="animate-spin text-[var(--text)]" />
+								<SpinnerIcon size={18} class="animate-spin text-[var(--text)]" />
 							</div>
 						{/if}
 					</div>
@@ -1248,7 +1249,7 @@
 			<div class="flex items-center justify-center py-4" use:observeInfiniteScroll>
 				{#if loadingMore}
 					<p class="flex items-center gap-2 text-sm text-[var(--text-ghost)]">
-						<Icon name="loader" size={14} class="animate-spin" />
+						<SpinnerIcon size={14} class="animate-spin" />
 						{$_('common.loading')}
 					</p>
 				{/if}
@@ -1260,11 +1261,7 @@
 			<div
 				class="flex h-16 w-16 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]"
 			>
-				<Icon
-					name={isSearchTab ? 'search' : 'compass'}
-					size={24}
-					class="text-[var(--text-ghost)]"
-				/>
+				{#if isSearchTab}<MagnifyingGlassIcon size={24} class="text-[var(--text-ghost)]" />{:else}<CompassIcon size={24} class="text-[var(--text-ghost)]" />{/if}
 			</div>
 			<div>
 				<p class="text-[var(--text)]">
@@ -1301,7 +1298,7 @@
 >
 	{#if searchFiltersLoading}
 		<div class="flex flex-col items-center gap-4 py-12">
-			<Icon name="loader" size={24} class="animate-spin text-[var(--text-muted)]" />
+			<SpinnerIcon size={24} class="animate-spin text-[var(--text-muted)]" />
 			<p class="text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
 		</div>
 	{:else if searchFiltersError}
@@ -1313,7 +1310,7 @@
 	{:else if searchFiltersData}
 		{#if searchFiltersData.preferences.length === 0}
 			<div class="flex flex-col items-center gap-4 py-12 text-center">
-				<Icon name="filter" size={32} class="text-[var(--text-ghost)]" />
+				<FunnelIcon size={32} class="text-[var(--text-ghost)]" />
 				<p class="text-sm text-[var(--text-ghost)]">{$_('common.empty')}</p>
 			</div>
 		{:else}
@@ -1389,7 +1386,7 @@
 											disabled={!pref.enabled}
 										>
 											{#if isSelected}
-												<Icon name="check" size={10} />
+												<CheckIcon size={10} />
 											{/if}
 											{entry}
 										</button>
