@@ -21,7 +21,9 @@
 </script>
 
 <span
-	class="inline-flex items-center border px-1.5 py-0.5 font-mono text-[10px] tracking-widest uppercase leading-none {variantClass[variant]} {className}"
+	class="inline-flex items-center border px-1.5 py-0.5 font-mono text-[10px] leading-none tracking-widest uppercase {variantClass[
+		variant
+	]} {className}"
 >
 	{@render children()}
 </span>

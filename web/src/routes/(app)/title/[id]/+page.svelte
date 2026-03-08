@@ -23,15 +23,15 @@
 	import { Button } from '$lib/elements/button';
 	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
 	import {
-	SpinnerIcon,
-	CaretLeftIcon,
-	PlayIcon,
-	GearIcon,
-	BookIcon,
-	DownloadIcon,
-	CheckIcon,
-	ClockIcon
-} from 'phosphor-svelte';
+		SpinnerIcon,
+		CaretLeftIcon,
+		PlayIcon,
+		GearIcon,
+		BookIcon,
+		DownloadIcon,
+		CheckIcon,
+		ClockIcon
+	} from 'phosphor-svelte';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';

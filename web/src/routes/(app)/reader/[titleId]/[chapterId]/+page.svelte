@@ -23,21 +23,21 @@
 	import { Button } from '$lib/elements/button';
 	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
 	import {
-	SpinnerIcon,
-	CaretLeftIcon,
-	CaretRightIcon,
-	SkipBackIcon,
-	SkipForwardIcon,
-	ListIcon,
-	ChatIcon,
-	ArrowsOutIcon,
-	ArrowsInIcon,
-	BookmarkSimpleIcon,
-	WarningCircleIcon,
-	FileIcon,
-	PlusIcon,
-	ClockIcon
-} from 'phosphor-svelte';
+		SpinnerIcon,
+		CaretLeftIcon,
+		CaretRightIcon,
+		SkipBackIcon,
+		SkipForwardIcon,
+		ListIcon,
+		ChatIcon,
+		ArrowsOutIcon,
+		ArrowsInIcon,
+		BookmarkSimpleIcon,
+		WarningCircleIcon,
+		FileIcon,
+		PlusIcon,
+		ClockIcon
+	} from 'phosphor-svelte';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
 	import { navigateBack } from '$lib/stores/nav-history';
@@ -897,7 +897,9 @@
 						title={mode === 'vertical' ? $_('reader.horizontal') : $_('reader.vertical')}
 						aria-label={mode === 'vertical' ? $_('reader.horizontal') : $_('reader.vertical')}
 					>
-						{#if mode === 'vertical'}<ArrowsOutIcon size={16} />{:else}<ArrowsInIcon size={16} />{/if}
+						{#if mode === 'vertical'}<ArrowsOutIcon size={16} />{:else}<ArrowsInIcon
+								size={16}
+							/>{/if}
 					</Button>
 					<Button
 						variant="ghost"
@@ -1102,7 +1104,9 @@
 						title={mode === 'vertical' ? $_('reader.horizontal') : $_('reader.vertical')}
 						aria-label={mode === 'vertical' ? $_('reader.horizontal') : $_('reader.vertical')}
 					>
-						{#if mode === 'vertical'}<ArrowsOutIcon size={16} />{:else}<ArrowsInIcon size={16} />{/if}
+						{#if mode === 'vertical'}<ArrowsOutIcon size={16} />{:else}<ArrowsInIcon
+								size={16}
+							/>{/if}
 					</Button>
 				</div>
 

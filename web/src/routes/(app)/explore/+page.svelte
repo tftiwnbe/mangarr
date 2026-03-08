@@ -22,14 +22,14 @@
 	import { Button } from '$lib/elements/button';
 	import { Input } from '$lib/elements/input';
 	import {
-	SpinnerIcon,
-	MagnifyingGlassIcon,
-	XIcon,
-	FunnelIcon,
-	ImageIcon,
-	CheckIcon,
-	CompassIcon
-} from 'phosphor-svelte';
+		SpinnerIcon,
+		MagnifyingGlassIcon,
+		XIcon,
+		FunnelIcon,
+		ImageIcon,
+		CheckIcon,
+		CompassIcon
+	} from 'phosphor-svelte';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { Tabs } from '$lib/elements/tabs';
 	import { SlidePanel } from '$lib/elements/slide-panel';
@@ -1261,7 +1261,10 @@
 			<div
 				class="flex h-16 w-16 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]"
 			>
-				{#if isSearchTab}<MagnifyingGlassIcon size={24} class="text-[var(--text-ghost)]" />{:else}<CompassIcon size={24} class="text-[var(--text-ghost)]" />{/if}
+				{#if isSearchTab}<MagnifyingGlassIcon
+						size={24}
+						class="text-[var(--text-ghost)]"
+					/>{:else}<CompassIcon size={24} class="text-[var(--text-ghost)]" />{/if}
 			</div>
 			<div>
 				<p class="text-[var(--text)]">

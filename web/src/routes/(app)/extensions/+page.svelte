@@ -24,18 +24,18 @@
 	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
 	import { Input } from '$lib/elements/input';
 	import {
-	SpinnerIcon,
-	XIcon,
-	PuzzlePieceIcon,
-	GearIcon,
-	PlusIcon,
-	CheckIcon,
-	GitCommitIcon,
-	CaretDownIcon,
-	CaretRightIcon,
-	ArrowsClockwiseIcon,
-	MagnifyingGlassIcon
-} from 'phosphor-svelte';
+		SpinnerIcon,
+		XIcon,
+		PuzzlePieceIcon,
+		GearIcon,
+		PlusIcon,
+		CheckIcon,
+		GitCommitIcon,
+		CaretDownIcon,
+		CaretRightIcon,
+		ArrowsClockwiseIcon,
+		MagnifyingGlassIcon
+	} from 'phosphor-svelte';
 	import { Switch } from '$lib/elements/switch';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
@@ -642,10 +642,7 @@
 			onclick={() => Promise.all([loadExtensions(), loadRepoChanges()])}
 			disabled={loading || repoChangesLoading}
 		>
-			<ArrowsClockwiseIcon
-				size={15}
-				class={loading || repoChangesLoading ? 'animate-spin' : ''}
-			/>
+			<ArrowsClockwiseIcon size={15} class={loading || repoChangesLoading ? 'animate-spin' : ''} />
 		</button>
 	</div>
 
@@ -848,7 +845,10 @@
 							</div>
 
 							<!-- Chevron -->
-							{#if isExpanded}<CaretDownIcon size={14} class="shrink-0 text-[var(--text-ghost)]" />{:else}<CaretRightIcon size={14} class="shrink-0 text-[var(--text-ghost)]" />{/if}
+							{#if isExpanded}<CaretDownIcon
+									size={14}
+									class="shrink-0 text-[var(--text-ghost)]"
+								/>{:else}<CaretRightIcon size={14} class="shrink-0 text-[var(--text-ghost)]" />{/if}
 						</button>
 
 						<!-- ── Expanded detail ─────────────────────────────────── -->

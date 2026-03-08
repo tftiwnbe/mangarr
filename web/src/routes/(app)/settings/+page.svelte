@@ -45,14 +45,14 @@
 	} from '$lib/api/settings';
 	import { Button } from '$lib/elements/button';
 	import {
-	SpinnerIcon,
-	ArrowLeftIcon,
-	ArrowsClockwiseIcon,
-	TrashIcon,
-	PlayIcon,
-	SkipForwardIcon,
-	PauseIcon
-} from 'phosphor-svelte';
+		SpinnerIcon,
+		ArrowLeftIcon,
+		ArrowsClockwiseIcon,
+		TrashIcon,
+		PlayIcon,
+		SkipForwardIcon,
+		PauseIcon
+	} from 'phosphor-svelte';
 	import { Input } from '$lib/elements/input';
 	import { Switch } from '$lib/elements/switch';
 	import { Tabs, type TabItem } from '$lib/elements/tabs';
@@ -1677,10 +1677,7 @@
 					{:else}
 						<div class="flex items-center justify-between gap-3 py-1">
 							<span class="text-sm text-[var(--text-soft)]">Enable FlareSolverr</span>
-							<Switch
-								checked={flareEnabled}
-								onCheckedChange={(v) => (flareEnabled = v)}
-							/>
+							<Switch checked={flareEnabled} onCheckedChange={(v) => (flareEnabled = v)} />
 						</div>
 
 						<Input

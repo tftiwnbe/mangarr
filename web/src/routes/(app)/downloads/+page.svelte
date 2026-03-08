@@ -834,9 +834,7 @@
 							>
 								{#if profileActionTitleId === task.titleId}
 									<SpinnerIcon size={15} class="animate-spin" />
-								{:else}
-									{#if task.isPaused}<PlayIcon size={15} />{:else}<PauseIcon size={15} />{/if}
-								{/if}
+								{:else if task.isPaused}<PlayIcon size={15} />{:else}<PauseIcon size={15} />{/if}
 							</button>
 						{/if}
 					</div>
