@@ -58,8 +58,8 @@ async def get_current_user(
 
     auth_session = (
         await db.exec(
-            select(User)
-            .join(AuthSession, AuthSession.user_id == User.id)
+            select(AuthSession, User)
+            .join(User, AuthSession.user_id == User.id)
             .where(
                 AuthSession.token_hash == hashed_credential,
                 AuthSession.revoked_at.is_(None),
@@ -68,12 +68,16 @@ async def get_current_user(
         )
     ).first()
     if auth_session is not None:
-        return auth_session
+        session_row, user = auth_session
+        session_row.last_used_at = now
+        db.add(session_row)
+        await db.commit()
+        return user
 
     integration_key = (
         await db.exec(
-            select(User)
-            .join(IntegrationApiKey, IntegrationApiKey.user_id == User.id)
+            select(IntegrationApiKey, User)
+            .join(User, IntegrationApiKey.user_id == User.id)
             .where(
                 IntegrationApiKey.key_hash == hashed_credential,
                 IntegrationApiKey.revoked_at.is_(None),
@@ -81,7 +85,11 @@ async def get_current_user(
         )
     ).first()
     if integration_key is not None:
-        return integration_key
+        key_row, user = integration_key
+        key_row.last_used_at = now
+        db.add(key_row)
+        await db.commit()
+        return user
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
