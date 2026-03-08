@@ -22,7 +22,16 @@
 	import { listSources } from '$lib/api/explore';
 	import { Button } from '$lib/elements/button';
 	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
-	import { Icon } from '$lib/elements/icon';
+	import {
+		SpinnerIcon,
+		CaretLeftIcon,
+		PlayIcon,
+		GearIcon,
+		BookIcon,
+		DownloadIcon,
+		CheckIcon,
+		ClockIcon
+	} from 'phosphor-svelte';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
@@ -738,7 +747,7 @@
 	<!-- Desktop-only back navigation -->
 	<div class="mb-6 hidden items-center gap-2 md:flex">
 		<Button variant="ghost" size="icon-sm" onclick={handleBack}>
-			<Icon name="chevron-left" size={18} />
+			<CaretLeftIcon size={18} />
 		</Button>
 		<span class="text-xs text-[var(--text-ghost)]">
 			{backLabel}
@@ -784,7 +793,7 @@
 					class="absolute top-4 left-4 flex h-8 w-8 items-center justify-center bg-[var(--void-0)]/60 text-[var(--text)] backdrop-blur-sm transition-colors hover:bg-[var(--void-0)]/80 md:hidden"
 					onclick={handleBack}
 				>
-					<Icon name="chevron-left" size={18} />
+					<CaretLeftIcon size={18} />
 				</button>
 
 				<!-- Desktop: CTA + progress under cover -->
@@ -795,7 +804,7 @@
 								href={primaryReadingHref}
 								class="flex h-10 flex-1 items-center justify-center gap-2 bg-[var(--void-5)] text-xs text-[var(--text)] transition-all hover:bg-[var(--void-6)]"
 							>
-								<Icon name="play" size={14} />
+								<PlayIcon size={14} />
 								<span
 									>{hasAnyReadingProgress
 										? $_('title.continueReading')
@@ -814,7 +823,7 @@
 							class="flex h-10 w-10 shrink-0 items-center justify-center bg-[var(--void-3)] text-[var(--text-muted)] transition-colors hover:bg-[var(--void-4)] hover:text-[var(--text)]"
 							onclick={() => (showManagementPanel = true)}
 						>
-							<Icon name="settings" size={16} />
+							<GearIcon size={16} />
 						</button>
 					</div>
 					{#if orderedChaptersForReading.length > 0}
@@ -888,7 +897,7 @@
 								href={primaryReadingHref}
 								class="flex h-12 flex-1 items-center justify-center gap-2 bg-[var(--void-5)] text-sm text-[var(--text)] transition-all hover:bg-[var(--void-6)]"
 							>
-								<Icon name="play" size={16} />
+								<PlayIcon size={16} />
 								<span
 									>{hasAnyReadingProgress
 										? $_('title.continueReading')
@@ -908,7 +917,7 @@
 							class="flex h-12 w-12 shrink-0 items-center justify-center bg-[var(--void-3)] text-[var(--text-muted)] transition-colors hover:bg-[var(--void-4)] hover:text-[var(--text)]"
 							onclick={() => (showManagementPanel = true)}
 						>
-							<Icon name="settings" size={18} />
+							<GearIcon size={18} />
 						</button>
 					</div>
 
@@ -1091,11 +1100,11 @@
 						<!-- CHAPTERS TAB -->
 						{#if variantChaptersLoading && displayedChapters.length === 0}
 							<div class="flex justify-center py-12">
-								<Icon name="loader" size={18} class="animate-spin text-[var(--text-ghost)]" />
+								<SpinnerIcon size={18} class="animate-spin text-[var(--text-ghost)]" />
 							</div>
 						{:else if displayedChapters.length === 0}
 							<div class="flex flex-col items-center gap-3 py-16">
-								<Icon name="book" size={28} class="text-[var(--void-5)]" />
+								<BookIcon size={28} class="text-[var(--void-5)]" />
 								<p class="text-sm text-[var(--text-ghost)]">{$_('title.noChapters')}</p>
 							</div>
 						{:else}
@@ -1148,10 +1157,10 @@
 												</span>
 											{/if}
 											{#if chapter.isDownloaded}
-												<Icon name="download" size={13} class="text-[var(--void-7)]" />
+												<DownloadIcon size={13} class="text-[var(--void-7)]" />
 											{/if}
 											{#if chapter.isRead}
-												<Icon name="check" size={13} />
+												<CheckIcon size={13} />
 											{/if}
 										</div>
 									</a>
@@ -1167,7 +1176,7 @@
 									size="sm"
 									onclick={() => (titleCommentsNewestFirst = !titleCommentsNewestFirst)}
 								>
-									<Icon name="clock" size={13} />
+									<ClockIcon size={13} />
 									{titleCommentsNewestFirst ? $_('reader.sortNewest') : $_('reader.sortOldest')}
 								</Button>
 							</div>
@@ -1175,7 +1184,7 @@
 								<p class="text-xs text-[var(--error)]">{titleCommentsError}</p>
 							{:else if titleCommentsLoading}
 								<div class="flex justify-center py-8">
-									<Icon name="loader" size={18} class="animate-spin text-[var(--text-ghost)]" />
+									<SpinnerIcon size={18} class="animate-spin text-[var(--text-ghost)]" />
 								</div>
 							{:else if titleComments.length === 0}
 								<p class="py-6 text-center text-sm text-[var(--text-ghost)]">
@@ -1212,7 +1221,7 @@
 	{:else}
 		<!-- Not found -->
 		<div class="flex flex-col items-center gap-4 py-20 text-center">
-			<Icon name="book" size={28} class="text-[var(--void-6)]" />
+			<BookIcon size={28} class="text-[var(--void-6)]" />
 			<div>
 				<p class="text-sm text-[var(--text-ghost)]">{$_('title.notFound')}</p>
 				<p class="mt-1 text-xs text-[var(--void-6)]">
@@ -1316,7 +1325,7 @@
 					onclick={toggleWatchForSelectedVariant}
 					disabled={!hasAssignedStatus || selectedVariantId === null}
 				>
-					<Icon name="download" size={14} />
+					<DownloadIcon size={14} />
 					{isWatchedSelectedVariant ? $_('downloads.enabled') : $_('downloads.disabled')}
 				</button>
 			</div>

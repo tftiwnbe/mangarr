@@ -9,7 +9,8 @@
 	import { clearAuthSession, getStoredApiKey, type ApiKeyPersistence } from '$lib/api/session';
 	import { Button } from '$lib/elements/button';
 	import { Input } from '$lib/elements/input';
-	import { Icon } from '$lib/elements/icon';
+	import { Switch } from '$lib/elements/switch';
+	import { SpinnerIcon, EyeIcon, EyeSlashIcon } from 'phosphor-svelte';
 	import { _ } from '$lib/i18n';
 
 	// State
@@ -176,7 +177,7 @@
 			<!-- Checking session state -->
 			<div class="flex flex-col items-center gap-6">
 				<div class="relative h-6 w-6">
-					<Icon name="loader" size={24} class="text-[var(--text-muted)]" />
+					<SpinnerIcon size={24} class="text-[var(--text-muted)]" />
 				</div>
 				<p class="text-sm text-[var(--text-ghost)]">{$_('auth.checkingSession')}</p>
 			</div>
@@ -222,26 +223,16 @@
 								tabindex={-1}
 								aria-label={showPassword ? 'Hide password' : 'Show password'}
 							>
-								<Icon name={showPassword ? 'eye-off' : 'eye'} size={16} />
+								{#if showPassword}<EyeSlashIcon size={16} />{:else}<EyeIcon size={16} />{/if}
 							</button>
 						</div>
 
 						<!-- Remember session (only for login, not registration) -->
 						{#if !needsSetup}
-							<label class="flex cursor-pointer items-center gap-3">
-								<div class="relative">
-									<input type="checkbox" bind:checked={rememberSession} class="peer sr-only" />
-									<div
-										class="h-4 w-4 border border-[var(--line)] bg-[var(--void-2)] transition-all peer-checked:border-[var(--void-6)] peer-checked:bg-[var(--void-5)] peer-focus-visible:ring-1 peer-focus-visible:ring-[var(--accent-line)]"
-									></div>
-									<Icon
-										name="check"
-										size={10}
-										class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[var(--text)] opacity-0 transition-opacity peer-checked:opacity-100"
-									/>
-								</div>
+							<div class="flex cursor-pointer items-center justify-between gap-3">
 								<span class="text-sm text-[var(--text-ghost)]">{$_('auth.rememberMe')}</span>
-							</label>
+								<Switch checked={rememberSession} onCheckedChange={(v) => (rememberSession = v)} />
+							</div>
 						{/if}
 
 						<!-- Error message -->

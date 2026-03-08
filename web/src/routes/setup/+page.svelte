@@ -12,8 +12,8 @@
 	import { clearAuthSession, getStoredApiKey } from '$lib/api/session';
 	import { Button } from '$lib/elements/button';
 	import { Input } from '$lib/elements/input';
-	import { Icon } from '$lib/elements/icon';
 	import { _ } from '$lib/i18n';
+	import { SpinnerIcon, CheckIcon, LinkIcon, GlobeIcon } from 'phosphor-svelte';
 	import {
 		SUPPORTED_LOCALES,
 		LOCALE_META,
@@ -178,7 +178,7 @@
 	>
 		{#if checkingAuth}
 			<div class="flex flex-col items-center gap-6">
-				<Icon name="loader" size={24} class="text-[var(--text-muted)]" />
+				<SpinnerIcon size={24} class="text-[var(--text-muted)]" />
 			</div>
 		{:else}
 			<!-- Logo -->
@@ -197,7 +197,7 @@
 						: 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text-ghost)]'}"
 				>
 					{#if step > 1}
-						<Icon name="check" size={12} />
+						<CheckIcon size={12} />
 					{:else}
 						1
 					{/if}
@@ -210,7 +210,7 @@
 						: 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text-ghost)]'}"
 				>
 					{#if step > 2}
-						<Icon name="check" size={12} />
+						<CheckIcon size={12} />
 					{:else}
 						2
 					{/if}
@@ -235,7 +235,7 @@
 							<div
 								class="mx-auto mb-3 flex h-10 w-10 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]"
 							>
-								<Icon name="link" size={18} class="text-[var(--text-muted)]" />
+								<LinkIcon size={18} class="text-[var(--text-muted)]" />
 							</div>
 							<h2 class="text-base font-medium text-[var(--text)]">
 								{$_('setup.repoTitle').toLowerCase()}
@@ -295,7 +295,7 @@
 							<div
 								class="mx-auto mb-3 flex h-10 w-10 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]"
 							>
-								<Icon name="globe" size={18} class="text-[var(--text-muted)]" />
+								<GlobeIcon size={18} class="text-[var(--text-muted)]" />
 							</div>
 							<h2 class="text-base font-medium text-[var(--text)]">content languages</h2>
 							<p class="mt-1 text-xs text-[var(--text-ghost)]">
@@ -382,7 +382,7 @@
 										<div class="text-xs text-[var(--text-ghost)]">{LOCALE_META[lang].name}</div>
 									</div>
 									{#if $locale === lang}
-										<Icon name="check" size={14} class="text-[var(--text)]" />
+										<CheckIcon size={14} class="text-[var(--text)]" />
 									{/if}
 								</button>
 							{/each}

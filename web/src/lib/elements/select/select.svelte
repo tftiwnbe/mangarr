@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Select } from 'bits-ui';
-	import { Icon } from '$lib/elements/icon';
+	import { CaretDownIcon } from 'phosphor-svelte';
 
 	export interface SelectOption {
 		value: string;
@@ -45,7 +45,7 @@
 		<div
 			class="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-[var(--text-ghost)]"
 		>
-			<Icon name="chevron-down" size={12} />
+			<CaretDownIcon size={12} weight="bold" />
 		</div>
 	</Select.Trigger>
 

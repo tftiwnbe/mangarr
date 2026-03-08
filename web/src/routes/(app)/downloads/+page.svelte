@@ -12,10 +12,18 @@
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
 	import { Button } from '$lib/elements/button';
-	import { Icon } from '$lib/elements/icon';
 	import { LazyImage } from '$lib/elements/lazy-image';
+	import {
+		SpinnerIcon,
+		PlayIcon,
+		PauseIcon,
+		HardDriveIcon,
+		MagnifyingGlassIcon,
+		BookOpenIcon
+	} from 'phosphor-svelte';
 	import { Select } from '$lib/elements/select';
 	import { Switch } from '$lib/elements/switch';
+	import { Tabs } from '$lib/elements/tabs';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { downloadsDashboardStore, runDownloadCycle } from '$lib/stores/downloads';
 	import { wsManager } from '$lib/stores/ws';
@@ -525,7 +533,7 @@
 <div class="flex flex-col gap-6">
 	<!-- Header -->
 	<div class="flex items-center justify-between">
-		<h1 class="text-display text-lg tracking-tight text-[var(--text)]">
+		<h1 class="text-display text-xl text-[var(--text)]">
 			{$_('nav.downloads').toLowerCase()}
 		</h1>
 		<div class="flex items-center gap-1">
@@ -539,9 +547,9 @@
 				title={$_('downloads.runNow')}
 			>
 				{#if runningAction === 'cycle'}
-					<Icon name="loader" size={14} class="animate-spin" />
+					<SpinnerIcon size={14} class="animate-spin" />
 				{:else}
-					<Icon name="play" size={14} />
+					<PlayIcon size={14} />
 				{/if}
 			</button>
 			<button
@@ -554,9 +562,9 @@
 				title={$_('downloads.scanDownloads')}
 			>
 				{#if reconcileLoading}
-					<Icon name="loader" size={14} class="animate-spin" />
+					<SpinnerIcon size={14} class="animate-spin" />
 				{:else}
-					<Icon name="hard-drive" size={14} />
+					<HardDriveIcon size={14} />
 				{/if}
 			</button>
 		</div>
@@ -600,7 +608,7 @@
 				<div
 					class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-ghost)]"
 				>
-					<Icon name="search" size={13} />
+					<MagnifyingGlassIcon size={13} />
 				</div>
 				<input
 					type="search"
@@ -641,7 +649,7 @@
 									disabled={importingExternalKey === item.key}
 								>
 									{#if importingExternalKey === item.key}
-										<Icon name="loader" size={12} class="animate-spin" />
+										<SpinnerIcon size={12} class="animate-spin" />
 									{:else}
 										{item.in_library ? $_('downloads.linkChapters') : $_('downloads.importTitle')}
 									{/if}
@@ -658,36 +666,16 @@
 	{/if}
 
 	<!-- Tabs -->
-	<div class="flex gap-6 border-b border-[var(--void-3)]">
-		{#each tabs as tab (tab.key)}
-			{@const count = tabCount(tab.key)}
-			<button
-				type="button"
-				class="relative pb-2.5 text-xs font-medium tracking-wide transition-colors {activeTab ===
-				tab.key
-					? 'text-[var(--text)]'
-					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-				onclick={() => (activeTab = tab.key)}
-			>
-				{$_(tab.labelKey)}
-				{#if count > 0}
-					<span
-						class="ml-1.5 text-[10px] tabular-nums {activeTab === tab.key
-							? 'text-[var(--text-muted)]'
-							: 'text-[var(--void-6)]'}">{count}</span
-					>
-				{/if}
-				{#if activeTab === tab.key}
-					<div class="absolute inset-x-0 -bottom-px h-px bg-[var(--text)]"></div>
-				{/if}
-			</button>
-		{/each}
-	</div>
+	<Tabs
+		tabs={tabs.map((t) => ({ value: t.key, label: $_(t.labelKey), count: tabCount(t.key) }))}
+		value={activeTab}
+		onValueChange={(v) => (activeTab = v as TabValue)}
+	/>
 
 	<!-- Content -->
 	{#if isLoading && !dashboard.generatedAt}
 		<div class="flex items-center justify-center py-20">
-			<Icon name="loader" size={16} class="animate-spin text-[var(--text-ghost)]" />
+			<SpinnerIcon size={16} class="animate-spin text-[var(--text-ghost)]" />
 		</div>
 	{:else if activeTab === 'watched'}
 		<!-- Watched titles -->
@@ -845,10 +833,8 @@
 								title={task.isPaused ? $_('downloads.resume') : $_('downloads.pause')}
 							>
 								{#if profileActionTitleId === task.titleId}
-									<Icon name="loader" size={15} class="animate-spin" />
-								{:else}
-									<Icon name={task.isPaused ? 'play' : 'pause'} size={15} />
-								{/if}
+									<SpinnerIcon size={15} class="animate-spin" />
+								{:else if task.isPaused}<PlayIcon size={15} />{:else}<PauseIcon size={15} />{/if}
 							</button>
 						{/if}
 					</div>
@@ -930,9 +916,9 @@
 						title={$_('common.search')}
 					>
 						{#if importDialogSearching}
-							<Icon name="loader" size={14} class="animate-spin" />
+							<SpinnerIcon size={14} class="animate-spin" />
 						{:else}
-							<Icon name="search" size={14} />
+							<MagnifyingGlassIcon size={14} />
 						{/if}
 					</button>
 				</div>
@@ -946,7 +932,7 @@
 			<!-- Candidates -->
 			{#if importDialogSearching && importDialogCandidates.length === 0}
 				<div class="flex items-center justify-center py-8">
-					<Icon name="loader" size={16} class="animate-spin text-[var(--text-ghost)]" />
+					<SpinnerIcon size={16} class="animate-spin text-[var(--text-ghost)]" />
 				</div>
 			{:else if importDialogCandidates.length > 0}
 				<div class="-mx-4 mb-5 flex flex-col">
@@ -973,7 +959,7 @@
 										? 'opacity-100'
 										: 'opacity-40'}"
 								>
-									<Icon name="book-open" size={14} class="text-[var(--text-ghost)]" />
+									<BookOpenIcon size={14} class="text-[var(--text-ghost)]" />
 								</div>
 							{/if}
 							<div

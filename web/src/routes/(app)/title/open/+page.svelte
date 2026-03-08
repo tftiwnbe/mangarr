@@ -5,7 +5,7 @@
 
 	import { importLibraryTitle } from '$lib/api/library';
 	import { Button } from '$lib/elements/button';
-	import { Icon } from '$lib/elements/icon';
+	import { CaretLeftIcon } from 'phosphor-svelte';
 	import { _ } from '$lib/i18n';
 	import { buildTitlePath } from '$lib/utils/routes';
 
@@ -55,7 +55,7 @@
 <div class="flex flex-col">
 	<div class="mb-6 hidden items-center gap-2 md:flex">
 		<Button variant="ghost" size="icon-sm" onclick={() => goto('/explore')}>
-			<Icon name="chevron-left" size={18} />
+			<CaretLeftIcon size={18} />
 		</Button>
 		<span class="text-xs text-[var(--text-ghost)]">{$_('nav.explore')}</span>
 	</div>

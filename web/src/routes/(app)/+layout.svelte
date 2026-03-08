@@ -5,8 +5,15 @@
 
 	import { getMe } from '$lib/api/auth';
 	import { clearAuthSession, getStoredApiKey } from '$lib/api/session';
-	import { Icon } from '$lib/elements/icon';
 	import { StarField } from '$lib/elements/starfield';
+	import {
+		BookIcon,
+		CompassIcon,
+		DownloadIcon,
+		PuzzlePieceIcon,
+		GearIcon,
+		SpinnerIcon
+	} from 'phosphor-svelte';
 	import { _ } from '$lib/i18n';
 	import { loadContentLanguages } from '$lib/stores/content-languages';
 	import { pushNavHistory } from '$lib/stores/nav-history';
@@ -20,12 +27,12 @@
 	const redirectTarget = $derived(page.url.pathname + page.url.search);
 
 	const navItems = [
-		{ href: '/library', icon: 'book', label: 'library' },
-		{ href: '/explore', icon: 'compass', label: 'explore' },
-		{ href: '/downloads', icon: 'download', label: 'downloads' },
-		{ href: '/extensions', icon: 'puzzle', label: 'extensions' },
-		{ href: '/settings', icon: 'settings', label: 'settings' }
-	] as const;
+		{ href: '/library', icon: BookIcon, label: 'library' },
+		{ href: '/explore', icon: CompassIcon, label: 'explore' },
+		{ href: '/downloads', icon: DownloadIcon, label: 'downloads' },
+		{ href: '/extensions', icon: PuzzlePieceIcon, label: 'extensions' },
+		{ href: '/settings', icon: GearIcon, label: 'settings' }
+	];
 
 	const currentPath = $derived(page.url.pathname);
 	const isReaderRoute = $derived(currentPath.startsWith('/reader/'));
@@ -127,7 +134,7 @@
 	{#if isCheckingAuth}
 		<div class="flex min-h-svh items-center justify-center">
 			<div class="flex flex-col items-center gap-4">
-				<Icon name="loader" size={24} class="animate-spin text-[var(--text-muted)]" />
+				<SpinnerIcon size={24} class="animate-spin text-[var(--text-muted)]" />
 				<p class="text-sm text-[var(--text-ghost)]">{$_('auth.checkingSession')}</p>
 			</div>
 		</div>
@@ -153,13 +160,14 @@
 				<div class="flex items-center justify-around">
 					{#each navItems as item (item.href)}
 						{@const isActive = currentPath.startsWith(item.href)}
+						{@const NavIcon = item.icon}
 						<a
 							href={item.href}
 							class="flex flex-1 flex-col items-center gap-1 py-3 text-xs transition-colors {isActive
 								? 'text-[var(--text)]'
 								: 'text-[var(--text-ghost)]'}"
 						>
-							<Icon name={item.icon} size={20} />
+							<NavIcon size={20} />
 							<span>{$_(`nav.${item.label}`)}</span>
 						</a>
 					{/each}
@@ -176,6 +184,7 @@
 			<div class="flex flex-1 flex-col items-center gap-1 py-4">
 				{#each navItems as item (item.href)}
 					{@const isActive = currentPath.startsWith(item.href)}
+					{@const NavIcon = item.icon}
 					<a
 						href={item.href}
 						class="flex h-10 w-10 items-center justify-center transition-all {isActive
@@ -183,7 +192,7 @@
 							: 'text-[var(--text-ghost)] hover:bg-[var(--void-3)] hover:text-[var(--text-muted)] hover:shadow-[0_0_10px_rgba(255,255,255,0.08)]'}"
 						title={$_(`nav.${item.label}`)}
 					>
-						<Icon name={item.icon} size={20} />
+						<NavIcon size={20} />
 					</a>
 				{/each}
 			</div>
