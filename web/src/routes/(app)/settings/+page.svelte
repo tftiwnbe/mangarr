@@ -67,7 +67,7 @@
 		getKnownContentLanguages,
 		setKnownContentLanguages
 	} from '$lib/stores/content-languages';
-	import { themePreference, setTheme, type ThemePreference } from '$lib/stores/theme';
+	import { themePreference, setTheme } from '$lib/stores/theme';
 
 	type SettingsTab = 'account' | 'library' | 'system' | 'about';
 
