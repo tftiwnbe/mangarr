@@ -98,20 +98,8 @@
 	<!-- Space background (hidden in reader for clean void canvas) -->
 	{#if !isReaderRoute}
 		<div class="pointer-events-none fixed inset-0">
-			<!-- Subtle grid -->
-			<div
-				class="absolute inset-0"
-				style="
-					opacity: {$resolvedTheme === 'light' ? '0.04' : '0.02'};
-					background-image:
-						linear-gradient({$resolvedTheme === 'light' ? 'rgba(20, 20, 30, 0.5)' : 'rgba(200, 200, 220, 0.6)'} 1px, transparent 1px),
-						linear-gradient(90deg, {$resolvedTheme === 'light' ? 'rgba(20, 20, 30, 0.5)' : 'rgba(200, 200, 220, 0.6)'} 1px, transparent 1px);
-					background-size: 50px 50px;
-				"
-			></div>
-
-			<!-- Sparse stars -->
-			<StarField count={25} />
+			<!-- Stars -->
+			<StarField count={40} />
 
 			<!-- Orbital ring -->
 			<div

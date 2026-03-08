@@ -6,10 +6,21 @@
 		class?: string;
 	}
 
-	let { count = 30, class: className = '' }: Props = $props();
+	let { count = 40, class: className = '' }: Props = $props();
 
-	// Generate deterministic but varied star positions
+	// Simple seeded PRNG (mulberry32) — deterministic but organic-looking
+	function prng(seed: number) {
+		return () => {
+			seed |= 0;
+			seed = (seed + 0x6d2b79f5) | 0;
+			let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+			t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+			return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+		};
+	}
+
 	function generateStars(n: number) {
+		const rand = prng(42);
 		const stars: Array<{
 			x: number;
 			y: number;
@@ -18,24 +29,28 @@
 			delay: number;
 			duration: number;
 			bright: boolean;
+			glow: number;
 		}> = [];
 
 		for (let i = 0; i < n; i++) {
-			// Use golden ratio for better distribution
-			const golden = 1.618033988749;
-			const x = (i * golden * 37) % 100;
-			const y = (i * golden * 53) % 100;
+			const r1 = rand();
+			const r2 = rand();
+			const r3 = rand();
+			const r4 = rand();
+			const r5 = rand();
 
-			// More visible stars
-			const isBright = i % 4 === 0;
+			// ~15% of stars are bright, rest are dim dust
+			const isBright = r3 < 0.15;
+
 			stars.push({
-				x,
-				y,
-				size: isBright ? 2 + (i % 2) : 1.5 + (i % 2) * 0.5,
-				opacity: isBright ? 0.7 + (i % 3) * 0.1 : 0.4 + (i % 4) * 0.1,
-				delay: (i % 7) * 0.6,
-				duration: 2 + (i % 3) * 1.5,
-				bright: isBright
+				x: r1 * 100,
+				y: r2 * 100,
+				size: isBright ? 1.5 + r4 * 1.5 : 0.8 + r4 * 1,
+				opacity: isBright ? 0.6 + r5 * 0.35 : 0.15 + r5 * 0.35,
+				delay: r3 * 6,
+				duration: 2.5 + r4 * 4,
+				bright: isBright,
+				glow: isBright ? 3 + r5 * 5 : 1 + r4 * 2
 			});
 		}
 		return stars;
@@ -56,20 +71,20 @@
 				opacity: {star.opacity};
 				background: {$resolvedTheme === 'light'
 				? star.bright
-					? 'rgba(20, 20, 24, 0.18)'
-					: 'rgba(20, 20, 24, 0.1)'
+					? 'rgba(20, 20, 24, 0.22)'
+					: 'rgba(20, 20, 24, 0.12)'
 				: star.bright
 					? 'rgba(255, 255, 255, 0.95)'
-					: 'rgba(200, 200, 210, 0.7)'};
+					: 'rgba(200, 200, 210, 0.6)'};
 				animation: {star.bright ? 'twinkle' : 'twinkle-slow'} {star.duration}s ease-in-out infinite;
 				animation-delay: {star.delay}s;
-				box-shadow: 0 0 {star.bright ? star.size * 4 : star.size * 2}px {$resolvedTheme === 'light'
+				box-shadow: 0 0 {star.glow}px {$resolvedTheme === 'light'
 				? star.bright
-					? 'rgba(20, 20, 24, 0.08)'
+					? 'rgba(20, 20, 24, 0.1)'
 					: 'rgba(20, 20, 24, 0.04)'
 				: star.bright
 					? 'rgba(255, 255, 255, 0.5)'
-					: 'rgba(200, 200, 210, 0.3)'};
+					: 'rgba(200, 200, 210, 0.2)'};
 			"
 		></div>
 	{/each}
