@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Icon } from '$lib/elements/icon';
+	import { XIcon } from 'phosphor-svelte';
 
 	interface Props {
 		open: boolean;
@@ -53,7 +53,7 @@
 					onclick={onclose}
 					aria-label="Close panel"
 				>
-					<Icon name="x" size={16} />
+					<XIcon size={16} />
 				</button>
 			</div>
 
