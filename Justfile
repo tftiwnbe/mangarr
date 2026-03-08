@@ -124,6 +124,12 @@ format-server:
     @echo "Formatting fastapi application..."
     cd server && uv run --group dev ruff format .
 
+# Check Ruff formatting on the server
+[group('quality')]
+format-check-server:
+    @echo "Checking fastapi formatting..."
+    cd server && uv run --group dev ruff format --check .
+
 # Apply Prettier formatting to the web client
 [group('quality')]
 format-web:
@@ -186,6 +192,22 @@ check-web:
 check-bridge:
     @echo "Running bridge checks..."
     cd bridge && ./gradlew build
+
+# Run all CI checks for the server
+[group('quality')]
+ci-server: format-check-server check-server build-server
+
+# Run all CI checks for the web client
+[group('quality')]
+ci-web: lint-web check-web build-web
+
+# Run all CI checks for the bridge
+[group('quality')]
+ci-bridge: lint-bridge check-bridge build-bridge
+
+# Run all CI checks for the repo
+[group('quality')]
+ci: ci-server ci-web ci-bridge
 
 # Run all major project checks
 [group('quality')]
