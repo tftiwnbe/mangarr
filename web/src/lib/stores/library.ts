@@ -2,6 +2,7 @@ import * as libraryApi from '$lib/api/library';
 import { ApiError } from '$lib/api/errors';
 import type { TitleCardItem, TitleDetailItem } from '$lib/utils/title-mappers';
 import { mapLibrarySummaryToTitleCard, mapLibraryTitleToDetail } from '$lib/utils/title-mappers';
+import { CACHE_MS } from '$lib/utils/cache-durations';
 
 import { createAsyncResourceStore } from './async-resource';
 
@@ -30,7 +31,7 @@ export const libraryTitlesStore = createAsyncResourceStore<
 		const titles = await libraryApi.listLibraryTitles(query);
 		return titles.map(mapLibrarySummaryToTitleCard);
 	},
-	{ initialData: [], cacheMs: 30_000 }
+	{ initialData: [], cacheMs: CACHE_MS.LIBRARY }
 );
 
 export const libraryTitleDetailStore = createAsyncResourceStore<
@@ -59,5 +60,5 @@ export const libraryTitleDetailStore = createAsyncResourceStore<
 			throw error;
 		}
 	},
-	{ initialData: null, cacheMs: 10_000 }
+	{ initialData: null, cacheMs: CACHE_MS.TITLE_DETAIL }
 );

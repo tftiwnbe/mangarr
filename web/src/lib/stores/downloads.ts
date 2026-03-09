@@ -1,6 +1,7 @@
 import * as downloadsApi from '$lib/api/downloads';
 import type { DownloadDashboardViewModel } from '$lib/utils/download-mappers';
 import { emptyDownloadDashboard, mapDownloadDashboard } from '$lib/utils/download-mappers';
+import { CACHE_MS } from '$lib/utils/cache-durations';
 
 import { createAsyncResourceStore } from './async-resource';
 
@@ -15,7 +16,7 @@ async function loadDashboard(): Promise<DownloadDashboardViewModel> {
 
 export const downloadsDashboardStore = createAsyncResourceStore<DownloadDashboardViewModel, []>(
 	loadDashboard,
-	{ initialData: emptyDownloadDashboard(), cacheMs: 5_000 }
+	{ initialData: emptyDownloadDashboard(), cacheMs: CACHE_MS.SHORT }
 );
 
 export async function retryDownloadTask(taskId: number): Promise<void> {

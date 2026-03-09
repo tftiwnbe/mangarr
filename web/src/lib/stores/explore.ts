@@ -2,6 +2,7 @@ import * as exploreApi from '$lib/api/explore';
 import type { SourceSummary } from '$lib/api/explore';
 import type { TitleCardItem } from '$lib/utils/title-mappers';
 import { mapExploreItemToTitleCard } from '$lib/utils/title-mappers';
+import { CACHE_MS } from '$lib/utils/cache-durations';
 
 import { createAsyncResourceStore } from './async-resource';
 
@@ -12,7 +13,7 @@ export const popularTitlesStore = createAsyncResourceStore<TitleCardItem[], []>(
 		const feed = await exploreApi.getPopularFeed({ limit: FEED_LIMIT });
 		return feed.items.map(mapExploreItemToTitleCard);
 	},
-	{ initialData: [], cacheMs: 60_000 }
+	{ initialData: [], cacheMs: CACHE_MS.EXPLORE_FEED }
 );
 
 export const latestTitlesStore = createAsyncResourceStore<TitleCardItem[], []>(
@@ -20,7 +21,7 @@ export const latestTitlesStore = createAsyncResourceStore<TitleCardItem[], []>(
 		const feed = await exploreApi.getLatestFeed({ limit: FEED_LIMIT });
 		return feed.items.map(mapExploreItemToTitleCard);
 	},
-	{ initialData: [], cacheMs: 60_000 }
+	{ initialData: [], cacheMs: CACHE_MS.EXPLORE_FEED }
 );
 
 export const updatesTitlesStore = createAsyncResourceStore<TitleCardItem[], []>(
@@ -32,12 +33,12 @@ export const updatesTitlesStore = createAsyncResourceStore<TitleCardItem[], []>(
 		const fallback = await exploreApi.getLatestFeed({ limit: FEED_LIMIT });
 		return fallback.items.map(mapExploreItemToTitleCard);
 	},
-	{ initialData: [], cacheMs: 60_000 }
+	{ initialData: [], cacheMs: CACHE_MS.EXPLORE_FEED }
 );
 
 export const exploreSourcesStore = createAsyncResourceStore<SourceSummary[], []>(
 	async () => exploreApi.listSources({ enabled: true }),
-	{ initialData: [], cacheMs: 120_000 }
+	{ initialData: [], cacheMs: CACHE_MS.EXPLORE_SOURCES }
 );
 
 export const searchTitlesStore = createAsyncResourceStore<
@@ -56,5 +57,5 @@ export const searchTitlesStore = createAsyncResourceStore<
 		});
 		return feed.items.map(mapExploreItemToTitleCard);
 	},
-	{ initialData: [], cacheMs: 15_000 }
+	{ initialData: [], cacheMs: CACHE_MS.EXPLORE_SEARCH }
 );
