@@ -13,6 +13,7 @@ _SCRYPT_R = 8
 _SCRYPT_P = 1
 _SCRYPT_KEY_LEN = 64
 _SCRYPT_SALT_LEN = 16
+_TOKEN_HASH_KEY_LEN = 32
 
 
 def validate_username(username: str) -> str:
@@ -51,11 +52,14 @@ def generate_api_key() -> str:
 
 
 def hash_api_key(api_key: str) -> str:
-    return hashlib.blake2b(
+    return hashlib.scrypt(
         api_key.encode("utf-8"),
-        key=_TOKEN_HASH_KEY,
-        digest_size=32,
-    ).hexdigest()
+        salt=_TOKEN_HASH_KEY,
+        n=_SCRYPT_N,
+        r=_SCRYPT_R,
+        p=_SCRYPT_P,
+        dklen=_TOKEN_HASH_KEY_LEN,
+    ).hex()
 
 
 def hash_password(password: str) -> str:
