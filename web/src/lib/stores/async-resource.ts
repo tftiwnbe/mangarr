@@ -15,6 +15,12 @@ export interface AsyncResourceStore<T, A extends unknown[]>
 	extends Readable<AsyncResourceState<T>> {
 	load: (...args: A) => Promise<T>;
 	refresh: (...args: A) => Promise<T>;
+	/**
+	 * Expire the cache so the next `load()` call fetches fresh data.
+	 * Unlike `reset()`, existing data and loaded state are preserved —
+	 * the UI continues to show stale data until the next load completes.
+	 */
+	invalidate: () => void;
 	reset: () => void;
 	setData: (nextData: T) => void;
 }
@@ -134,6 +140,11 @@ export function createAsyncResourceStore<T, A extends unknown[]>(
 		subscribe: baseStore.subscribe,
 		load: (...args: A) => execute(false, args),
 		refresh: (...args: A) => execute(true, args),
+		invalidate: () => {
+			// Expire the cache by clearing lastLoadedAt — existing data is kept.
+			lastArgsKey = null;
+			baseStore.update((state) => ({ ...state, lastLoadedAt: null }));
+		},
 		reset: () => {
 			activeRequestId += 1;
 			inFlight = null;
