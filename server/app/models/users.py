@@ -51,6 +51,7 @@ class RegisterFirstUserRequest(SQLModel):
 class LoginRequest(SQLModel):
     username: str
     password: str
+    remember_me: bool = False
 
 
 class UserProfileResource(SQLModel):
@@ -80,6 +81,10 @@ class RotateApiKeyResponse(SQLModel):
 class ChangePasswordRequest(SQLModel):
     current_password: str
     new_password: str
+
+
+class ChangePasswordResponse(SQLModel):
+    api_key: str
 
 
 class IntegrationApiKeyResource(SQLModel):

@@ -88,7 +88,7 @@
 				await registerFirstUser({ username, password }, { persistence });
 			} else {
 				// Normal login
-				await login({ username, password }, { persistence });
+				await login({ username, password, remember_me: rememberSession }, { persistence });
 			}
 			await redirectToApp();
 		} catch (cause: unknown) {

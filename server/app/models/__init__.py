@@ -115,6 +115,7 @@ from app.models.titles import (
 from app.models.users import (
     AuthSession,
     ChangePasswordRequest,
+    ChangePasswordResponse,
     CreateIntegrationApiKeyRequest,
     CreateIntegrationApiKeyResponse,
     IntegrationApiKey,
@@ -228,6 +229,7 @@ __all__ = [
     "WatchRunResponse",
     "AuthSession",
     "ChangePasswordRequest",
+    "ChangePasswordResponse",
     "CreateIntegrationApiKeyRequest",
     "CreateIntegrationApiKeyResponse",
     "IntegrationApiKey",

@@ -555,8 +555,8 @@
 		}
 	}
 
-	function handleSignOut() {
-		signOut();
+	async function handleSignOut() {
+		await signOut();
 		goto('/login', { replaceState: true });
 	}
 

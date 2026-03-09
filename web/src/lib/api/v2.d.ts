@@ -55,6 +55,23 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v2/auth/logout': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Logout */
+		post: operations['logout_api_v2_auth_logout_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v2/auth/me': {
 		parameters: {
 			query?: never;
@@ -1330,6 +1347,11 @@ export interface components {
 			/** New Password */
 			new_password: string;
 		};
+		/** ChangePasswordResponse */
+		ChangePasswordResponse: {
+			/** Api Key */
+			api_key: string;
+		};
 		/** ContentLanguagesResource */
 		ContentLanguagesResource: {
 			/** Preferred */
@@ -2442,6 +2464,11 @@ export interface components {
 			username: string;
 			/** Password */
 			password: string;
+			/**
+			 * Remember Me
+			 * @default false
+			 */
+			remember_me?: boolean;
 		};
 		/** LoginResponse */
 		LoginResponse: {
@@ -2900,6 +2927,27 @@ export interface operations {
 			};
 		};
 	};
+	logout_api_v2_auth_logout_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+		};
+	};
 	get_me_api_v2_auth_me_get: {
 		parameters: {
 			query?: never;
@@ -3113,11 +3161,13 @@ export interface operations {
 		};
 		responses: {
 			/** @description Successful Response */
-			204: {
+			200: {
 				headers: {
 					[name: string]: unknown;
 				};
-				content?: never;
+				content: {
+					'application/json': components['schemas']['ChangePasswordResponse'];
+				};
 			};
 			/** @description Validation Error */
 			422: {

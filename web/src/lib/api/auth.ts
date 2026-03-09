@@ -107,14 +107,23 @@ export async function revokeIntegrationApiKey(keyId: number): Promise<void> {
 	);
 }
 
+export type ChangePasswordResponse = components['schemas']['ChangePasswordResponse'];
+
 export async function changePassword(payload: ChangePasswordRequest): Promise<void> {
-	expectNoContent(
+	const data = expectData(
 		await httpClient.POST('/api/v2/auth/me/password', { body: payload }),
 		'Unable to update password'
 	);
+	const persistence = getApiKeyPersistence() ?? 'session';
+	setStoredApiKey(data.api_key, persistence);
 }
 
-export function signOut(): void {
+export async function signOut(): Promise<void> {
+	try {
+		await httpClient.POST('/api/v2/auth/logout');
+	} catch {
+		// Best-effort server-side revocation; always clear local state
+	}
 	clearAuthSession();
 }
 
