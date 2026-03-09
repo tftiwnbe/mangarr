@@ -9,8 +9,6 @@ Create Date: 2026-03-09 00:00:00.000000
 from collections.abc import Sequence
 
 from alembic import op
-import sqlalchemy as sa
-import sqlmodel
 
 
 # revision identifiers, used by Alembic.
@@ -30,20 +28,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("users") as batch:
-        batch.add_column(
-            sa.Column(
-                "last_api_key_rotated_at",
-                sa.DateTime(),
-                nullable=True,
-            )
-        )
-        batch.add_column(
-            sa.Column(
-                "api_key_hash",
-                sqlmodel.sql.sqltypes.AutoString(),
-                nullable=False,
-                server_default="",
-            )
-        )
-        batch.create_index("ix_users_api_key_hash", ["api_key_hash"], unique=True)
+    raise NotImplementedError(
+        "Downgrade is not supported: dropped API key hashes cannot be reconstructed."
+    )
