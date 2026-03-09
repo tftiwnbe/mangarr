@@ -10,12 +10,10 @@ class User(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     username: str = Field(index=True, unique=True)
     password_hash: str
-    api_key_hash: str = Field(index=True, unique=True)
     is_admin: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_login_at: datetime | None = None
-    last_api_key_rotated_at: datetime | None = None
 
 
 class AuthSession(SQLModel, table=True):
@@ -51,6 +49,7 @@ class RegisterFirstUserRequest(SQLModel):
 class LoginRequest(SQLModel):
     username: str
     password: str
+    remember_me: bool = False
 
 
 class UserProfileResource(SQLModel):
@@ -58,7 +57,6 @@ class UserProfileResource(SQLModel):
     username: str
     is_admin: bool
     created_at: datetime
-    last_api_key_rotated_at: datetime | None = None
 
 
 class RegisterFirstUserResponse(SQLModel):
@@ -72,14 +70,13 @@ class LoginResponse(SQLModel):
     issued_at: datetime
 
 
-class RotateApiKeyResponse(SQLModel):
-    api_key: str
-    rotated_at: datetime
-
-
 class ChangePasswordRequest(SQLModel):
     current_password: str
     new_password: str
+
+
+class ChangePasswordResponse(SQLModel):
+    api_key: str
 
 
 class IntegrationApiKeyResource(SQLModel):

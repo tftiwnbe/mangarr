@@ -8,7 +8,6 @@
 		getMe,
 		listIntegrationApiKeys,
 		revokeIntegrationApiKey,
-		rotateApiKey,
 		signOut,
 		type IntegrationApiKeyResource,
 		type UserProfile
@@ -97,8 +96,6 @@
 	let passwordError = $state<string | null>(null);
 	let passwordSuccess = $state(false);
 
-	let apiKeyLoading = $state(false);
-	let apiKeySuccess = $state(false);
 	let integrationApiKeys = $state<IntegrationApiKeyResource[]>([]);
 	let integrationKeysLoading = $state(true);
 	let integrationKeysError = $state<string | null>(null);
@@ -495,22 +492,6 @@
 		}
 	}
 
-	async function handleRotateApiKey() {
-		if (apiKeyLoading) return;
-
-		apiKeyLoading = true;
-		apiKeySuccess = false;
-		try {
-			await rotateApiKey();
-			apiKeySuccess = true;
-			setTimeout(() => (apiKeySuccess = false), 3000);
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Failed to rotate API key';
-		} finally {
-			apiKeyLoading = false;
-		}
-	}
-
 	async function handleCreateIntegrationApiKey() {
 		const name = integrationKeyName.trim();
 		if (!name || creatingIntegrationKey) return;
@@ -555,8 +536,8 @@
 		}
 	}
 
-	function handleSignOut() {
-		signOut();
+	async function handleSignOut() {
+		await signOut();
 		goto('/login', { replaceState: true });
 	}
 
@@ -977,31 +958,6 @@
 							{$_('settings.updatePassword').toLowerCase()}
 						</Button>
 					</form>
-				</section>
-
-				<!-- API Key -->
-				<section class="flex flex-col gap-3">
-					<h2 class="text-sm font-medium text-[var(--text-soft)]">
-						{$_('settings.apiKey').toLowerCase()}
-					</h2>
-					<p class="text-xs text-[var(--text-ghost)]">{$_('settings.apiKeyDescription')}</p>
-					<div class="flex items-center gap-3">
-						<Button
-							variant="outline"
-							size="sm"
-							onclick={handleRotateApiKey}
-							disabled={apiKeyLoading}
-							loading={apiKeyLoading}
-						>
-							<ArrowsClockwiseIcon size={14} />
-							{$_('settings.rotateApiKey').toLowerCase()}
-						</Button>
-						{#if apiKeySuccess}
-							<span class="animate-fade-in text-xs text-[var(--success)]"
-								>{$_('settings.apiKeyRotated')}</span
-							>
-						{/if}
-					</div>
 				</section>
 
 				<!-- Integration API Keys -->
