@@ -27,7 +27,6 @@ from app.models import (
     LoginResponse,
     RegisterFirstUserRequest,
     RegisterFirstUserResponse,
-    RotateApiKeyResponse,
     SetupStatusResponse,
     UserProfileResource,
 )
@@ -138,14 +137,6 @@ async def get_me(
     service: AuthService = Depends(get_service),
 ):
     return service.to_user_profile(current_user)
-
-
-@router.post("/me/api-key/roll", response_model=RotateApiKeyResponse)
-async def roll_api_key(
-    current_user: CurrentUserDep,
-    service: AuthService = Depends(get_service),
-):
-    return await service.rotate_api_key(current_user)
 
 
 @router.get("/me/api-keys", response_model=list[IntegrationApiKeyResource])

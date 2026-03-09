@@ -22,7 +22,6 @@ from app.models import (
     LoginResponse,
     RegisterFirstUserRequest,
     RegisterFirstUserResponse,
-    RotateApiKeyResponse,
     SetupStatusResponse,
     User,
     UserProfileResource,
@@ -57,11 +56,9 @@ class AuthService:
         user = User(
             username=username,
             password_hash=hash_password(request.password),
-            api_key_hash=hash_api_key(bootstrap_integration_api_key),
             is_admin=True,
             created_at=now,
             updated_at=now,
-            last_api_key_rotated_at=now,
         )
         self.session.add(user)
         await self.session.flush()
@@ -117,25 +114,6 @@ class AuthService:
             issued_at=now,
         )
 
-    async def rotate_api_key(self, user: User) -> RotateApiKeyResponse:
-        now = datetime.now(timezone.utc)
-        user_id = self._require_user_id(user)
-        await self._revoke_active_integration_api_keys(user_id=user_id, revoked_at=now)
-        api_key = generate_api_key()
-        await self._store_integration_api_key(
-            user_id=user_id,
-            name="default",
-            api_key=api_key,
-            created_at=now,
-        )
-        user.api_key_hash = hash_api_key(api_key)
-        user.updated_at = now
-        user.last_api_key_rotated_at = now
-        self.session.add(user)
-        await self.session.commit()
-
-        return RotateApiKeyResponse(api_key=api_key, rotated_at=now)
-
     async def list_integration_api_keys(
         self, user: User
     ) -> list[IntegrationApiKeyResource]:
@@ -163,7 +141,6 @@ class AuthService:
             created_at=now,
         )
         user.updated_at = now
-        user.last_api_key_rotated_at = now
         self.session.add(user)
         await self.session.commit()
         await self.session.refresh(key)
@@ -248,7 +225,6 @@ class AuthService:
             username=user.username,
             is_admin=user.is_admin,
             created_at=user.created_at,
-            last_api_key_rotated_at=user.last_api_key_rotated_at,
         )
 
     @staticmethod
@@ -307,21 +283,6 @@ class AuthService:
             )
         ).all()
         for item in sessions:
-            item.revoked_at = revoked_at
-            self.session.add(item)
-
-    async def _revoke_active_integration_api_keys(
-        self, user_id: int, revoked_at: datetime
-    ) -> None:
-        keys = (
-            await self.session.exec(
-                select(IntegrationApiKey).where(
-                    IntegrationApiKey.user_id == user_id,
-                    IntegrationApiKey.revoked_at.is_(None),
-                )
-            )
-        ).all()
-        for item in keys:
             item.revoked_at = revoked_at
             self.session.add(item)
 

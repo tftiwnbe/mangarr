@@ -89,23 +89,6 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
-	'/api/v2/auth/me/api-key/roll': {
-		parameters: {
-			query?: never;
-			header?: never;
-			path?: never;
-			cookie?: never;
-		};
-		get?: never;
-		put?: never;
-		/** Roll Api Key */
-		post: operations['roll_api_key_api_v2_auth_me_api_key_roll_post'];
-		delete?: never;
-		options?: never;
-		head?: never;
-		patch?: never;
-		trace?: never;
-	};
 	'/api/v2/auth/me/api-keys': {
 		parameters: {
 			query?: never;
@@ -2646,16 +2629,6 @@ export interface components {
 			 */
 			url: string;
 		};
-		/** RotateApiKeyResponse */
-		RotateApiKeyResponse: {
-			/** Api Key */
-			api_key: string;
-			/**
-			 * Rotated At
-			 * Format: date-time
-			 */
-			rotated_at: string;
-		};
 		/** BridgePageMetricsResource */
 		BridgePageMetricsResource: {
 			/** Page Fetch Attempts */
@@ -2803,8 +2776,6 @@ export interface components {
 			 * Format: date-time
 			 */
 			created_at: string;
-			/** Last Api Key Rotated At */
-			last_api_key_rotated_at?: string | null;
 		};
 		/** ValidationError */
 		ValidationError: {
@@ -2967,38 +2938,6 @@ export interface operations {
 				};
 				content: {
 					'application/json': components['schemas']['UserProfileResource'];
-				};
-			};
-			/** @description Validation Error */
-			422: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					'application/json': components['schemas']['HTTPValidationError'];
-				};
-			};
-		};
-	};
-	roll_api_key_api_v2_auth_me_api_key_roll_post: {
-		parameters: {
-			query?: never;
-			header?: {
-				'X-API-Key'?: string | null;
-				Authorization?: string | null;
-			};
-			path?: never;
-			cookie?: never;
-		};
-		requestBody?: never;
-		responses: {
-			/** @description Successful Response */
-			200: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					'application/json': components['schemas']['RotateApiKeyResponse'];
 				};
 			};
 			/** @description Validation Error */

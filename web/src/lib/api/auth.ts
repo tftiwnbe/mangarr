@@ -12,7 +12,6 @@ import type { components } from './v2';
 export type RegisterFirstUserRequest = components['schemas']['RegisterFirstUserRequest'];
 export type RegisterFirstUserResponse = components['schemas']['RegisterFirstUserResponse'];
 export type ChangePasswordRequest = components['schemas']['ChangePasswordRequest'];
-export type RotateApiKeyResponse = components['schemas']['RotateApiKeyResponse'];
 export type IntegrationApiKeyResource = components['schemas']['IntegrationApiKeyResource'];
 export type CreateIntegrationApiKeyRequest =
 	components['schemas']['CreateIntegrationApiKeyRequest'];
@@ -68,18 +67,6 @@ export async function getMe(): Promise<UserProfile> {
 	const persistence = getApiKeyPersistence() ?? 'session';
 	setCachedUserProfile(profile, persistence);
 	return profile;
-}
-
-export async function rotateApiKey(options?: {
-	persistence?: ApiKeyPersistence;
-}): Promise<RotateApiKeyResponse> {
-	const data = expectData(
-		await httpClient.POST('/api/v2/auth/me/api-key/roll'),
-		'Unable to rotate API key'
-	);
-	const persistence = options?.persistence ?? getApiKeyPersistence() ?? 'session';
-	setStoredApiKey(data.api_key, persistence);
-	return data;
 }
 
 export async function listIntegrationApiKeys(): Promise<IntegrationApiKeyResource[]> {
