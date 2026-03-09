@@ -1,3 +1,5 @@
+import { browser } from '$app/environment';
+
 import * as libraryApi from '$lib/api/library';
 import { ApiError } from '$lib/api/errors';
 import type { TitleCardItem, TitleDetailItem } from '$lib/utils/title-mappers';
@@ -5,6 +7,7 @@ import { mapLibrarySummaryToTitleCard, mapLibraryTitleToDetail } from '$lib/util
 import { CACHE_MS, REQUEST_TIMEOUT_MS } from '$lib/utils/cache-durations';
 
 import { createAsyncResourceStore } from './async-resource';
+import { wsManager } from './ws';
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 	let timer: ReturnType<typeof setTimeout> | null = null;
@@ -68,3 +71,11 @@ export const libraryTitleDetailStore = createAsyncResourceStore<
 	},
 	{ initialData: null, cacheMs: CACHE_MS.TITLE_DETAIL }
 );
+
+// Invalidate the library list whenever the server signals a change.
+// job.run covers chapter updates; title.imported / titles.cleanup cover list mutations.
+if (browser) {
+	wsManager.on('job.run', () => libraryTitlesStore.invalidate());
+	wsManager.on('title.imported', () => libraryTitlesStore.invalidate());
+	wsManager.on('titles.cleanup', () => libraryTitlesStore.invalidate());
+}

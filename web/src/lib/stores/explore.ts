@@ -1,3 +1,5 @@
+import { browser } from '$app/environment';
+
 import * as exploreApi from '$lib/api/explore';
 import type { SourceSummary } from '$lib/api/explore';
 import type { TitleCardItem } from '$lib/utils/title-mappers';
@@ -5,6 +7,7 @@ import { mapExploreItemToTitleCard } from '$lib/utils/title-mappers';
 import { CACHE_MS } from '$lib/utils/cache-durations';
 
 import { createAsyncResourceStore } from './async-resource';
+import { wsManager } from './ws';
 
 const FEED_LIMIT = 24;
 
@@ -59,3 +62,12 @@ export const searchTitlesStore = createAsyncResourceStore<
 	},
 	{ initialData: [], cacheMs: CACHE_MS.EXPLORE_SEARCH }
 );
+
+// Invalidate feed caches when the server signals a cache refresh.
+if (browser) {
+	wsManager.on('explore.cache_refresh', () => {
+		popularTitlesStore.invalidate();
+		latestTitlesStore.invalidate();
+		updatesTitlesStore.invalidate();
+	});
+}
