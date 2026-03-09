@@ -1098,6 +1098,9 @@
 						</div>
 					{:else if activeTab === 'chapters'}
 						<!-- CHAPTERS TAB -->
+						{#if title.chaptersError && !variantChapters}
+							<p class="mt-2 text-xs text-[var(--error)]">{title.chaptersError}</p>
+						{/if}
 						{#if variantChaptersLoading && displayedChapters.length === 0}
 							<div class="flex justify-center py-12">
 								<SpinnerIcon size={18} class="animate-spin text-[var(--text-ghost)]" />

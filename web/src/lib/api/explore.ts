@@ -1,5 +1,5 @@
 import { httpClient } from './client';
-import { expectData } from './errors';
+import { expectData, expectNoContent } from './errors';
 import type { components } from './v2';
 
 export type ExploreFeed = components['schemas']['ExploreFeed'];
@@ -32,8 +32,8 @@ export async function listCategories(limit = 30): Promise<ExploreCategory[]> {
 	);
 }
 
-export async function refreshExploreCache(pages = 2): Promise<unknown> {
-	return expectData(
+export async function refreshExploreCache(pages = 2): Promise<void> {
+	expectNoContent(
 		await httpClient.POST('/api/v2/explore/refresh', { params: { query: { pages } } }),
 		'Unable to refresh explore cache'
 	);

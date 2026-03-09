@@ -21,7 +21,10 @@ function safeGet(storage: Storage | null, key: string): string | null {
 	}
 	try {
 		return storage.getItem(key);
-	} catch {
+	} catch (err) {
+		if (import.meta.env.DEV) {
+			console.warn('[session] storage.getItem failed for key:', key, err);
+		}
 		return null;
 	}
 }
@@ -32,8 +35,12 @@ function safeSet(storage: Storage | null, key: string, value: string): void {
 	}
 	try {
 		storage.setItem(key, value);
-	} catch {
-		// ignore browser storage exceptions (private mode/quota)
+	} catch (err) {
+		// Silently tolerate storage errors (private mode, quota exceeded, etc.)
+		// but surface them in development so they're not invisible.
+		if (import.meta.env.DEV) {
+			console.warn('[session] storage.setItem failed for key:', key, err);
+		}
 	}
 }
 
@@ -43,8 +50,10 @@ function safeRemove(storage: Storage | null, key: string): void {
 	}
 	try {
 		storage.removeItem(key);
-	} catch {
-		// ignore browser storage exceptions (private mode/quota)
+	} catch (err) {
+		if (import.meta.env.DEV) {
+			console.warn('[session] storage.removeItem failed for key:', key, err);
+		}
 	}
 }
 
