@@ -12,7 +12,6 @@ import type { components } from './v2';
 export type RegisterFirstUserRequest = components['schemas']['RegisterFirstUserRequest'];
 export type RegisterFirstUserResponse = components['schemas']['RegisterFirstUserResponse'];
 export type ChangePasswordRequest = components['schemas']['ChangePasswordRequest'];
-export type RotateApiKeyResponse = components['schemas']['RotateApiKeyResponse'];
 export type IntegrationApiKeyResource = components['schemas']['IntegrationApiKeyResource'];
 export type CreateIntegrationApiKeyRequest =
 	components['schemas']['CreateIntegrationApiKeyRequest'];
@@ -70,18 +69,6 @@ export async function getMe(): Promise<UserProfile> {
 	return profile;
 }
 
-export async function rotateApiKey(options?: {
-	persistence?: ApiKeyPersistence;
-}): Promise<RotateApiKeyResponse> {
-	const data = expectData(
-		await httpClient.POST('/api/v2/auth/me/api-key/roll'),
-		'Unable to rotate API key'
-	);
-	const persistence = options?.persistence ?? getApiKeyPersistence() ?? 'session';
-	setStoredApiKey(data.api_key, persistence);
-	return data;
-}
-
 export async function listIntegrationApiKeys(): Promise<IntegrationApiKeyResource[]> {
 	return expectData(
 		await httpClient.GET('/api/v2/auth/me/api-keys'),
@@ -107,14 +94,23 @@ export async function revokeIntegrationApiKey(keyId: number): Promise<void> {
 	);
 }
 
+export type ChangePasswordResponse = components['schemas']['ChangePasswordResponse'];
+
 export async function changePassword(payload: ChangePasswordRequest): Promise<void> {
-	expectNoContent(
+	const data = expectData(
 		await httpClient.POST('/api/v2/auth/me/password', { body: payload }),
 		'Unable to update password'
 	);
+	const persistence = getApiKeyPersistence() ?? 'session';
+	setStoredApiKey(data.api_key, persistence);
 }
 
-export function signOut(): void {
+export async function signOut(): Promise<void> {
+	try {
+		await httpClient.POST('/api/v2/auth/logout');
+	} catch {
+		// Best-effort server-side revocation; always clear local state
+	}
 	clearAuthSession();
 }
 

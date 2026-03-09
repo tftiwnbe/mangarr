@@ -13,6 +13,7 @@ _SCRYPT_R = 8
 _SCRYPT_P = 1
 _SCRYPT_KEY_LEN = 64
 _SCRYPT_SALT_LEN = 16
+_TOKEN_HASH_KEY_LEN = 32
 
 
 def validate_username(username: str) -> str:
@@ -43,17 +44,22 @@ def validate_password_strength(password: str) -> None:
         )
 
 
+_TOKEN_HASH_KEY = b"mangarr-token-hash-v2"
+
+
 def generate_api_key() -> str:
     return secrets.token_urlsafe(32)
 
 
 def hash_api_key(api_key: str) -> str:
-    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
-
-
-def verify_api_key(api_key: str, api_key_hash: str) -> bool:
-    candidate = hash_api_key(api_key)
-    return hmac.compare_digest(candidate, api_key_hash)
+    return hashlib.scrypt(
+        api_key.encode("utf-8"),
+        salt=_TOKEN_HASH_KEY,
+        n=_SCRYPT_N,
+        r=_SCRYPT_R,
+        p=_SCRYPT_P,
+        dklen=_TOKEN_HASH_KEY_LEN,
+    ).hex()
 
 
 def hash_password(password: str) -> str:

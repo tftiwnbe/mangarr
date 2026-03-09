@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from sqlmodel import func, select
@@ -22,11 +22,14 @@ from app.models import (
     LoginResponse,
     RegisterFirstUserRequest,
     RegisterFirstUserResponse,
-    RotateApiKeyResponse,
     SetupStatusResponse,
     User,
     UserProfileResource,
 )
+
+
+_SESSION_TTL_REMEMBERED = timedelta(days=30)
+_SESSION_TTL_EPHEMERAL = timedelta(hours=24)
 
 
 class AuthService:
@@ -53,17 +56,19 @@ class AuthService:
         user = User(
             username=username,
             password_hash=hash_password(request.password),
-            api_key_hash=hash_api_key(bootstrap_integration_api_key),
             is_admin=True,
             created_at=now,
             updated_at=now,
-            last_api_key_rotated_at=now,
         )
         self.session.add(user)
         await self.session.flush()
 
         user_id = self._require_user_id(user)
-        session_token = await self._create_session(user_id=user_id, issued_at=now)
+        session_token = await self._create_session(
+            user_id=user_id,
+            issued_at=now,
+            expires_at=now + _SESSION_TTL_REMEMBERED,
+        )
         await self._store_integration_api_key(
             user_id=user_id,
             name="default",
@@ -95,7 +100,9 @@ class AuthService:
                 detail="Invalid username or password",
             )
 
-        session_token = await self._create_session_token(user)
+        session_token = await self._create_session_token(
+            user, remember_me=request.remember_me
+        )
         user.updated_at = now
         user.last_login_at = now
         self.session.add(user)
@@ -106,25 +113,6 @@ class AuthService:
             api_key=session_token,
             issued_at=now,
         )
-
-    async def rotate_api_key(self, user: User) -> RotateApiKeyResponse:
-        now = datetime.now(timezone.utc)
-        user_id = self._require_user_id(user)
-        await self._revoke_active_integration_api_keys(user_id=user_id, revoked_at=now)
-        api_key = generate_api_key()
-        await self._store_integration_api_key(
-            user_id=user_id,
-            name="default",
-            api_key=api_key,
-            created_at=now,
-        )
-        user.api_key_hash = hash_api_key(api_key)
-        user.updated_at = now
-        user.last_api_key_rotated_at = now
-        self.session.add(user)
-        await self.session.commit()
-
-        return RotateApiKeyResponse(api_key=api_key, rotated_at=now)
 
     async def list_integration_api_keys(
         self, user: User
@@ -153,7 +141,6 @@ class AuthService:
             created_at=now,
         )
         user.updated_at = now
-        user.last_api_key_rotated_at = now
         self.session.add(user)
         await self.session.commit()
         await self.session.refresh(key)
@@ -182,9 +169,23 @@ class AuthService:
         self.session.add(api_key)
         await self.session.commit()
 
+    async def logout(self, token_hash: str) -> None:
+        session = (
+            await self.session.exec(
+                select(AuthSession).where(
+                    AuthSession.token_hash == token_hash,
+                    AuthSession.revoked_at.is_(None),
+                )
+            )
+        ).first()
+        if session is not None:
+            session.revoked_at = datetime.now(timezone.utc)
+            self.session.add(session)
+            await self.session.commit()
+
     async def change_password(
         self, user: User, current_password: str, new_password: str
-    ) -> None:
+    ) -> str:
         if not verify_password(current_password, user.password_hash):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -199,14 +200,18 @@ class AuthService:
             )
 
         now = datetime.now(timezone.utc)
+        user_id = self._require_user_id(user)
         user.password_hash = hash_password(new_password)
         user.updated_at = now
-        await self._revoke_active_sessions(
-            user_id=self._require_user_id(user),
-            revoked_at=now,
+        await self._revoke_active_sessions(user_id=user_id, revoked_at=now)
+        session_token = await self._create_session(
+            user_id=user_id,
+            issued_at=now,
+            expires_at=now + _SESSION_TTL_REMEMBERED,
         )
         self.session.add(user)
         await self.session.commit()
+        return session_token
 
     async def _count_users(self) -> int:
         return int(await self.session.scalar(select(func.count(User.id))) or 0)
@@ -220,7 +225,6 @@ class AuthService:
             username=user.username,
             is_admin=user.is_admin,
             created_at=user.created_at,
-            last_api_key_rotated_at=user.last_api_key_rotated_at,
         )
 
     @staticmethod
@@ -238,14 +242,25 @@ class AuthService:
             revoked_at=key.revoked_at,
         )
 
-    async def _create_session_token(self, user: User) -> str:
+    async def _create_session_token(
+        self, user: User, *, remember_me: bool = False
+    ) -> str:
         user_id = self._require_user_id(user)
+        now = datetime.now(timezone.utc)
+        ttl = _SESSION_TTL_REMEMBERED if remember_me else _SESSION_TTL_EPHEMERAL
         return await self._create_session(
             user_id=user_id,
-            issued_at=datetime.now(timezone.utc),
+            issued_at=now,
+            expires_at=now + ttl,
         )
 
-    async def _create_session(self, user_id: int, issued_at: datetime) -> str:
+    async def _create_session(
+        self,
+        user_id: int,
+        issued_at: datetime,
+        *,
+        expires_at: datetime | None = None,
+    ) -> str:
         session_token = generate_api_key()
         self.session.add(
             AuthSession(
@@ -253,6 +268,7 @@ class AuthService:
                 token_hash=hash_api_key(session_token),
                 created_at=issued_at,
                 last_used_at=issued_at,
+                expires_at=expires_at,
             )
         )
         return session_token
@@ -267,21 +283,6 @@ class AuthService:
             )
         ).all()
         for item in sessions:
-            item.revoked_at = revoked_at
-            self.session.add(item)
-
-    async def _revoke_active_integration_api_keys(
-        self, user_id: int, revoked_at: datetime
-    ) -> None:
-        keys = (
-            await self.session.exec(
-                select(IntegrationApiKey).where(
-                    IntegrationApiKey.user_id == user_id,
-                    IntegrationApiKey.revoked_at.is_(None),
-                )
-            )
-        ).all()
-        for item in keys:
             item.revoked_at = revoked_at
             self.session.add(item)
 

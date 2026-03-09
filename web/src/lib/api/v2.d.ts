@@ -55,6 +55,23 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v2/auth/logout': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/** Logout */
+		post: operations['logout_api_v2_auth_logout_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v2/auth/me': {
 		parameters: {
 			query?: never;
@@ -66,23 +83,6 @@ export interface paths {
 		get: operations['get_me_api_v2_auth_me_get'];
 		put?: never;
 		post?: never;
-		delete?: never;
-		options?: never;
-		head?: never;
-		patch?: never;
-		trace?: never;
-	};
-	'/api/v2/auth/me/api-key/roll': {
-		parameters: {
-			query?: never;
-			header?: never;
-			path?: never;
-			cookie?: never;
-		};
-		get?: never;
-		put?: never;
-		/** Roll Api Key */
-		post: operations['roll_api_key_api_v2_auth_me_api_key_roll_post'];
 		delete?: never;
 		options?: never;
 		head?: never;
@@ -1330,6 +1330,11 @@ export interface components {
 			/** New Password */
 			new_password: string;
 		};
+		/** ChangePasswordResponse */
+		ChangePasswordResponse: {
+			/** Api Key */
+			api_key: string;
+		};
 		/** ContentLanguagesResource */
 		ContentLanguagesResource: {
 			/** Preferred */
@@ -2442,6 +2447,11 @@ export interface components {
 			username: string;
 			/** Password */
 			password: string;
+			/**
+			 * Remember Me
+			 * @default false
+			 */
+			remember_me?: boolean;
 		};
 		/** LoginResponse */
 		LoginResponse: {
@@ -2619,16 +2629,6 @@ export interface components {
 			 */
 			url: string;
 		};
-		/** RotateApiKeyResponse */
-		RotateApiKeyResponse: {
-			/** Api Key */
-			api_key: string;
-			/**
-			 * Rotated At
-			 * Format: date-time
-			 */
-			rotated_at: string;
-		};
 		/** BridgePageMetricsResource */
 		BridgePageMetricsResource: {
 			/** Page Fetch Attempts */
@@ -2776,8 +2776,6 @@ export interface components {
 			 * Format: date-time
 			 */
 			created_at: string;
-			/** Last Api Key Rotated At */
-			last_api_key_rotated_at?: string | null;
 		};
 		/** ValidationError */
 		ValidationError: {
@@ -2900,6 +2898,27 @@ export interface operations {
 			};
 		};
 	};
+	logout_api_v2_auth_logout_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				'X-API-Key'?: string | null;
+				Authorization?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+		};
+	};
 	get_me_api_v2_auth_me_get: {
 		parameters: {
 			query?: never;
@@ -2919,38 +2938,6 @@ export interface operations {
 				};
 				content: {
 					'application/json': components['schemas']['UserProfileResource'];
-				};
-			};
-			/** @description Validation Error */
-			422: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					'application/json': components['schemas']['HTTPValidationError'];
-				};
-			};
-		};
-	};
-	roll_api_key_api_v2_auth_me_api_key_roll_post: {
-		parameters: {
-			query?: never;
-			header?: {
-				'X-API-Key'?: string | null;
-				Authorization?: string | null;
-			};
-			path?: never;
-			cookie?: never;
-		};
-		requestBody?: never;
-		responses: {
-			/** @description Successful Response */
-			200: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					'application/json': components['schemas']['RotateApiKeyResponse'];
 				};
 			};
 			/** @description Validation Error */
@@ -3113,11 +3100,13 @@ export interface operations {
 		};
 		responses: {
 			/** @description Successful Response */
-			204: {
+			200: {
 				headers: {
 					[name: string]: unknown;
 				};
-				content?: never;
+				content: {
+					'application/json': components['schemas']['ChangePasswordResponse'];
+				};
 			};
 			/** @description Validation Error */
 			422: {
