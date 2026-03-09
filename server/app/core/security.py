@@ -43,17 +43,17 @@ def validate_password_strength(password: str) -> None:
         )
 
 
+_TOKEN_HMAC_KEY = b"mangarr-token-hmac-v1"
+
+
 def generate_api_key() -> str:
     return secrets.token_urlsafe(32)
 
 
 def hash_api_key(api_key: str) -> str:
-    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
-
-
-def verify_api_key(api_key: str, api_key_hash: str) -> bool:
-    candidate = hash_api_key(api_key)
-    return hmac.compare_digest(candidate, api_key_hash)
+    return hmac.new(
+        _TOKEN_HMAC_KEY, api_key.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
 
 
 def hash_password(password: str) -> str:
