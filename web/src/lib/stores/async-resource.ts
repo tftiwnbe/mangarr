@@ -141,7 +141,11 @@ export function createAsyncResourceStore<T, A extends unknown[]>(
 		load: (...args: A) => execute(false, args),
 		refresh: (...args: A) => execute(true, args),
 		invalidate: () => {
-			// Expire the cache by clearing lastLoadedAt — existing data is kept.
+			// Retire the in-flight request so its result doesn't repopulate the
+			// cache after the invalidation (race: WS event arrives while a load
+			// is pending → old promise resolves → stale data re-cached for full TTL).
+			activeRequestId += 1;
+			inFlight = null;
 			lastArgsKey = null;
 			baseStore.update((state) => ({ ...state, lastLoadedAt: null }));
 		},
