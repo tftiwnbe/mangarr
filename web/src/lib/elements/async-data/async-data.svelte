@@ -12,13 +12,7 @@
 		children: Snippet;
 	}
 
-	let {
-		isLoading,
-		error = null,
-		loadingSnippet,
-		errorSnippet,
-		children
-	}: Props = $props();
+	let { isLoading, error = null, loadingSnippet, errorSnippet, children }: Props = $props();
 </script>
 
 {#if isLoading}

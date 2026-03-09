@@ -43,10 +43,7 @@ export const libraryTitleDetailStore = createAsyncResourceStore<
 >(
 	async (titleId) => {
 		try {
-			const title = await withTimeout(
-				libraryApi.getLibraryTitle(titleId),
-				REQUEST_TIMEOUT_MS
-			);
+			const title = await withTimeout(libraryApi.getLibraryTitle(titleId), REQUEST_TIMEOUT_MS);
 			let chapters: libraryApi.LibraryChapterResource[] = [];
 			let chaptersError: string | undefined;
 			try {
@@ -58,8 +55,7 @@ export const libraryTitleDetailStore = createAsyncResourceStore<
 				);
 			} catch (err) {
 				chapters = [];
-				chaptersError =
-					err instanceof Error ? err.message : 'Failed to load chapters';
+				chaptersError = err instanceof Error ? err.message : 'Failed to load chapters';
 			}
 			return mapLibraryTitleToDetail(title, chapters, chaptersError);
 		} catch (error: unknown) {

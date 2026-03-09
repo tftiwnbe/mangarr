@@ -62,7 +62,11 @@
 
 	const SOURCE_STATUS_FILTERS: { key: string; label: string; values: number[] }[] = [
 		{ key: 'ongoing', label: 'ongoing', values: [TITLE_STATUS.ONGOING] },
-		{ key: 'completed', label: 'completed', values: [TITLE_STATUS.COMPLETED, TITLE_STATUS.COMPLETED_ALT] },
+		{
+			key: 'completed',
+			label: 'completed',
+			values: [TITLE_STATUS.COMPLETED, TITLE_STATUS.COMPLETED_ALT]
+		},
 		{ key: 'hiatus', label: 'hiatus', values: [TITLE_STATUS.HIATUS] }
 	];
 
