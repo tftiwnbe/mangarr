@@ -1,8 +1,12 @@
+import { browser } from '$app/environment';
+
 import * as downloadsApi from '$lib/api/downloads';
 import type { DownloadDashboardViewModel } from '$lib/utils/download-mappers';
 import { emptyDownloadDashboard, mapDownloadDashboard } from '$lib/utils/download-mappers';
+import { CACHE_MS } from '$lib/utils/cache-durations';
 
 import { createAsyncResourceStore } from './async-resource';
+import { wsManager } from './ws';
 
 async function loadDashboard(): Promise<DownloadDashboardViewModel> {
 	const dashboard = await downloadsApi.getDownloadDashboard({
@@ -15,7 +19,7 @@ async function loadDashboard(): Promise<DownloadDashboardViewModel> {
 
 export const downloadsDashboardStore = createAsyncResourceStore<DownloadDashboardViewModel, []>(
 	loadDashboard,
-	{ initialData: emptyDownloadDashboard(), cacheMs: 5_000 }
+	{ initialData: emptyDownloadDashboard(), cacheMs: CACHE_MS.SHORT }
 );
 
 export async function retryDownloadTask(taskId: number): Promise<void> {
@@ -45,4 +49,12 @@ export async function runDownloadCycle(options?: {
 	await downloadsApi.runDownloadWatch(options?.watchLimit ?? 25);
 	await downloadsApi.runDownloadWorker(options?.workerBatchSize);
 	await downloadsDashboardStore.refresh();
+}
+
+// Invalidate the dashboard cache on server-pushed download events so that
+// any subscriber (not just the downloads page) sees fresh data on next load.
+if (browser) {
+	wsManager.on('task.done', () => downloadsDashboardStore.invalidate());
+	wsManager.on('watch.run', () => downloadsDashboardStore.invalidate());
+	wsManager.on('worker.run', () => downloadsDashboardStore.invalidate());
 }

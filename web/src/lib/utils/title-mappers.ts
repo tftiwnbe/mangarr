@@ -6,6 +6,7 @@ import type {
 import { getCachedCoverUrl } from '$lib/api/covers';
 import type { components } from '$lib/api/v2';
 import { buildTitlePath, inferChapterNumber } from '$lib/utils/routes';
+import { TITLE_STATUS } from '$lib/utils/title-status';
 
 export type TitleStatus = 'ongoing' | 'completed' | 'hiatus';
 
@@ -106,6 +107,8 @@ export interface TitleDetailItem extends TitleDetailBase {
 	variants: TitleVariantItem[];
 	preferredVariantId?: number;
 	chapters: TitleChapterItem[];
+	/** Set when the chapters request failed; chapters will be empty. */
+	chaptersError?: string;
 	userStatus?: TitleUserStatusItem;
 	userRating?: number;
 	collections: TitleCollectionItem[];
@@ -121,12 +124,12 @@ function normalizeCover(url: string | null | undefined): string {
 
 function normalizeStatus(status: number): TitleStatus | undefined {
 	switch (status) {
-		case 1:
+		case TITLE_STATUS.ONGOING:
 			return 'ongoing';
-		case 2:
-		case 4:
+		case TITLE_STATUS.COMPLETED:
+		case TITLE_STATUS.COMPLETED_ALT:
 			return 'completed';
-		case 6:
+		case TITLE_STATUS.HIATUS:
 			return 'hiatus';
 		default:
 			return undefined;
@@ -297,7 +300,8 @@ function mapCollection(
 
 export function mapLibraryTitleToDetail(
 	title: LibraryTitleResource,
-	chapters: LibraryChapterResource[]
+	chapters: LibraryChapterResource[],
+	chaptersError?: string
 ): TitleDetailItem {
 	return {
 		id: String(title.id),
@@ -313,6 +317,7 @@ export function mapLibraryTitleToDetail(
 		variants: title.variants.map(mapVariant),
 		preferredVariantId: title.preferred_variant_id ?? undefined,
 		chapters: mapLibraryChapterResources(chapters),
+		chaptersError,
 		userStatus: mapUserStatus(title.user_status),
 		userRating: title.user_rating ?? undefined,
 		collections: title.collections.map(mapCollection),
