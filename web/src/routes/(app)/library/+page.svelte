@@ -27,6 +27,7 @@
 	import { panelOverlayOpen } from '$lib/stores/ui';
 	import { buildTitlePath } from '$lib/utils/routes';
 	import { DebouncedValue } from '$lib/hooks/use-debounced-value.svelte';
+	import { TITLE_STATUS } from '$lib/utils/title-status';
 
 	let titles = $state<LibraryTitleSummary[]>([]);
 	let collections = $state<LibraryCollectionResource[]>([]);
@@ -60,9 +61,9 @@
 	let activeGenres = $state<string[]>([]);
 
 	const SOURCE_STATUS_FILTERS: { key: string; label: string; values: number[] }[] = [
-		{ key: 'ongoing', label: 'ongoing', values: [1] },
-		{ key: 'completed', label: 'completed', values: [2, 4] },
-		{ key: 'hiatus', label: 'hiatus', values: [6] }
+		{ key: 'ongoing', label: 'ongoing', values: [TITLE_STATUS.ONGOING] },
+		{ key: 'completed', label: 'completed', values: [TITLE_STATUS.COMPLETED, TITLE_STATUS.COMPLETED_ALT] },
+		{ key: 'hiatus', label: 'hiatus', values: [TITLE_STATUS.HIATUS] }
 	];
 
 	const debouncedSearch = new DebouncedValue(() => searchQuery, 150);
@@ -201,12 +202,12 @@
 
 	function getStatusText(status: number): string {
 		switch (status) {
-			case 1:
+			case TITLE_STATUS.ONGOING:
 				return $_('status.ongoing');
-			case 2:
-			case 4:
+			case TITLE_STATUS.COMPLETED:
+			case TITLE_STATUS.COMPLETED_ALT:
 				return $_('status.completed');
-			case 6:
+			case TITLE_STATUS.HIATUS:
 				return $_('status.hiatus');
 			default:
 				return '';
