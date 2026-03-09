@@ -180,21 +180,30 @@
 		loading = true;
 		error = null;
 		try {
-			const [loadedTitles, loadedCollections] = await Promise.all([
+			const [titlesResult, collectionsResult] = await Promise.allSettled([
 				listLibraryTitles({ limit: 100 }),
 				listLibraryCollections()
 			]);
-			titles = loadedTitles;
-			collections = loadedCollections;
 
-			if (
-				selectedCollectionId !== null &&
-				!loadedCollections.some((collection) => collection.id === selectedCollectionId)
-			) {
-				selectedCollectionId = null;
+			if (titlesResult.status === 'fulfilled') {
+				titles = titlesResult.value;
+			} else {
+				error =
+					titlesResult.reason instanceof Error
+						? titlesResult.reason.message
+						: 'Failed to load library';
 			}
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load library';
+
+			if (collectionsResult.status === 'fulfilled') {
+				collections = collectionsResult.value;
+				if (
+					selectedCollectionId !== null &&
+					!collectionsResult.value.some((collection) => collection.id === selectedCollectionId)
+				) {
+					selectedCollectionId = null;
+				}
+			}
+			// Collections failure is non-fatal — filters simply won't be available.
 		} finally {
 			loading = false;
 		}
