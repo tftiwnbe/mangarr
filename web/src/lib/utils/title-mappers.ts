@@ -107,6 +107,8 @@ export interface TitleDetailItem extends TitleDetailBase {
 	variants: TitleVariantItem[];
 	preferredVariantId?: number;
 	chapters: TitleChapterItem[];
+	/** Set when the chapters request failed; chapters will be empty. */
+	chaptersError?: string;
 	userStatus?: TitleUserStatusItem;
 	userRating?: number;
 	collections: TitleCollectionItem[];
@@ -298,7 +300,8 @@ function mapCollection(
 
 export function mapLibraryTitleToDetail(
 	title: LibraryTitleResource,
-	chapters: LibraryChapterResource[]
+	chapters: LibraryChapterResource[],
+	chaptersError?: string
 ): TitleDetailItem {
 	return {
 		id: String(title.id),
@@ -314,6 +317,7 @@ export function mapLibraryTitleToDetail(
 		variants: title.variants.map(mapVariant),
 		preferredVariantId: title.preferred_variant_id ?? undefined,
 		chapters: mapLibraryChapterResources(chapters),
+		chaptersError,
 		userStatus: mapUserStatus(title.user_status),
 		userRating: title.user_rating ?? undefined,
 		collections: title.collections.map(mapCollection),

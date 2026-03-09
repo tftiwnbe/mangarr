@@ -16,3 +16,6 @@ export const CACHE_MS = {
 	/** Explore search results. */
 	EXPLORE_SEARCH: 15_000
 } as const;
+
+/** Timeout for individual API calls that may be slow (title detail, chapters). */
+export const REQUEST_TIMEOUT_MS = 12_000;
