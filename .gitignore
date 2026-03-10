@@ -11,3 +11,6 @@ Thumbs.db
 .env.*
 !.env.example
 !.env.test
+
+server-ref/
+web-ref/

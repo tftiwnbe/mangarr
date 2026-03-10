@@ -1,9 +1,8 @@
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 set unstable := true
 
-server_port := `cd server && uv run python -c "from app.config import settings; print(settings.server.port)"`
-web_port := "3000"
-static_dir := "server/app/static"
+web_port := "3737"
+worker_port := "3212"
 
 # Show available commands
 [group('meta')]
@@ -19,8 +18,8 @@ help:
 [group('setup')]
 install:
     @echo "Installing development dependencies..."
-    cd server && uv sync --group dev
     cd web && pnpm install
+    cd ../worker && pnpm install
 
 # Refresh Android compatibility stubs
 [group('generate')]
@@ -28,39 +27,30 @@ android-stubs:
     @echo "Refreshing android-stubs..."
     ./bridge/AndroidCompat/getAndroid.sh
 
-# Generate Python gRPC stubs
-[group('generate')]
-generate-stubs:
-    @echo "Generating stubs..."
-    cd server && uv run -m grpc_tools.protoc \
-      --proto_path ../bridge/app/src/main/proto \
-      --python_out=./app/bridge/proto \
-      --pyi_out=./app/bridge/proto \
-      --grpc_python_out=./app/bridge/proto \
-      mangarr/tachibridge/tachibridge.proto \
-      mangarr/tachibridge/extensions/extensions.proto \
-      mangarr/tachibridge/config/config.proto
-    cd server && uv run python -c "from pathlib import Path; files=(Path('app/bridge/proto/mangarr/tachibridge/tachibridge_pb2.py'), Path('app/bridge/proto/mangarr/tachibridge/tachibridge_pb2_grpc.py')); replacements=(('from mangarr.tachibridge.config import config_pb2 as','from .config import config_pb2 as'), ('from mangarr.tachibridge.extensions import extensions_pb2 as','from .extensions import extensions_pb2 as'), ('from mangarr.tachibridge import tachibridge_pb2 as','from . import tachibridge_pb2 as')); [file.write_text((lambda text: [text := text.replace(src, dst) for src, dst in replacements] and text)(file.read_text())) for file in files]"
-
-# Generate TypeScript API types from the running backend
-[group('generate')]
-generate-types:
-    @echo "Checking if backend is running..."
-    if ! nc -z localhost {{ server_port }}; then echo "Backend not running on port {{ server_port }}"; exit 1; fi
-    @echo "Generating types for endpoints..."
-    cd web && pnpm run generate:api
-
-# Start FastAPI in dev mode
-[group('dev')]
-dev-server:
-    @echo "Starting fastapi in dev mode..."
-    cd server && uv run fastapi dev --host 0.0.0.0 --port {{ server_port }}
-
 # Start Vite dev server
 [group('dev')]
 dev-web:
     @echo "Starting vite dev server..."
-    cd web && pnpm run dev --open
+    cd web && pnpm run dev -- --host 0.0.0.0 --port {{ web_port }} --open
+
+# Start Convex dev process
+[group('dev')]
+dev-convex:
+    @echo "Starting convex dev..."
+    cd web && CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210 CONVEX_SELF_HOSTED_ADMIN_KEY='mangarr-dev|017d2981db031fce1d83c074abf4c2cf7a51bce8874e23b9964936b367eac682d6b7097b86' pnpm run convex:dev --typecheck disable --codegen disable
+
+# Push Convex functions and schema to the local self-hosted backend once
+[group('dev')]
+convex-push:
+    @echo "Pushing Convex functions to local self-hosted backend..."
+    cd web && CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210 CONVEX_SELF_HOSTED_ADMIN_KEY='mangarr-dev|017d2981db031fce1d83c074abf4c2cf7a51bce8874e23b9964936b367eac682d6b7097b86' pnpm run convex:dev --once --typecheck disable --codegen disable
+    if [ -f web/.env.local ]; then rm web/.env.local; fi
+
+# Start worker dev server
+[group('dev')]
+dev-worker:
+    @echo "Starting worker dev server..."
+    cd worker && pnpm run dev
 
 # Start container stack for development
 [group('dev')]
@@ -80,13 +70,12 @@ docker:
     @echo "Starting docker compose stack..."
     docker compose up --build
 
-# Build web, then start the server
+# Build web and worker
 [group('runtime')]
 run:
-    @echo "Building web..."
+    @echo "Building web and worker..."
     cd web && pnpm run build
-    @echo "Starting uvicorn..."
-    cd server && uv run python -m app.main
+    cd ../worker && pnpm run build
 
 # Build tachibridge jar
 [group('build')]
@@ -102,20 +91,20 @@ bridge:
 build target="all":
     @case "{{ target }}" in \
       all) \
-        echo "Building server, web, and bridge..."; \
-        cd server && uv run python -m compileall app; \
-        cd ../web && pnpm run build; \
+        echo "Building web, worker, and bridge..."; \
+        cd web && pnpm run build; \
+        cd ../worker && pnpm run build; \
         if [ ! -f "../bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ../bridge/AndroidCompat/getAndroid.sh; fi; \
         cd ../bridge && ./gradlew shadowJar; \
         cd .. && mkdir -p config/bin && cp -f bridge/app/build/*.jar config/bin/; \
         ;; \
-      server) \
-        echo "Building fastapi application..."; \
-        cd server && uv run python -m compileall app; \
-        ;; \
       web) \
         echo "Building web client..."; \
         cd web && pnpm run build; \
+        ;; \
+      worker) \
+        echo "Building worker service..."; \
+        cd worker && pnpm run build; \
         ;; \
       bridge) \
         echo "Building bridge jar..."; \
@@ -124,7 +113,7 @@ build target="all":
         cd .. && mkdir -p config/bin && cp -f bridge/app/build/*.jar config/bin/; \
         ;; \
       *) \
-        echo "Unknown build target: {{ target }} (expected: all|server|web|bridge)"; \
+        echo "Unknown build target: {{ target }} (expected: all|web|worker|bridge)"; \
         exit 1; \
         ;; \
     esac
@@ -134,59 +123,50 @@ build target="all":
 format target="all":
     @case "{{ target }}" in \
       all) \
-        echo "Formatting server, web, and bridge..."; \
-        cd server && uv run --group dev ruff format .; \
-        cd ../web && pnpm run format; \
-        cd ../bridge && ./gradlew ktlintFormat; \
-        ;; \
-      server) \
-        echo "Formatting fastapi application..."; \
-        cd server && uv run --group dev ruff format .; \
+        echo "Web formatter is not configured yet; skipping web format."; \
+        echo "Worker formatter is not configured yet; skipping worker format."; \
+        cd bridge && ./gradlew ktlintFormat; \
         ;; \
       web) \
-        echo "Formatting web client..."; \
-        cd web && pnpm run format; \
+        echo "Web formatter is not configured yet; skipping."; \
+        ;; \
+      worker) \
+        echo "Worker formatter is not configured yet; skipping."; \
         ;; \
       bridge) \
         echo "Formatting bridge sources..."; \
         cd bridge && ./gradlew ktlintFormat; \
         ;; \
       *) \
-        echo "Unknown format target: {{ target }} (expected: all|server|web|bridge)"; \
+        echo "Unknown format target: {{ target }} (expected: all|web|worker|bridge)"; \
         exit 1; \
         ;; \
     esac
-
-# Run server tests
-[group('quality')]
-test:
-    @echo "Testing fastapi application..."
-    cd server && if rg --files -g 'test_*.py' -g '*_test.py' >/dev/null; then uv run --group dev pytest; else echo "No server tests found; skipping pytest."; fi
 
 # Lint code
 [group('quality')]
 lint target="all":
     @case "{{ target }}" in \
       all) \
-        echo "Linting server, web, and bridge..."; \
-        cd server && uv run --group dev ruff check .; \
-        cd ../web && pnpm run lint; \
+        echo "Linting web, worker, and bridge..."; \
+        cd web && pnpm run lint; \
+        cd ../worker && pnpm run check; \
         cd ../bridge && ./gradlew ktlintCheck; \
-        ;; \
-      server) \
-        echo "Linting fastapi application..."; \
-        cd server && uv run --group dev ruff check .; \
         ;; \
       web) \
         echo "Linting web client..."; \
         cd web && pnpm run lint; \
+        ;; \
+      worker) \
+        echo "Linting worker service..."; \
+        cd worker && pnpm run check; \
         ;; \
       bridge) \
         echo "Linting bridge sources..."; \
         cd bridge && ./gradlew ktlintCheck; \
         ;; \
       *) \
-        echo "Unknown lint target: {{ target }} (expected: all|server|web|bridge)"; \
+        echo "Unknown lint target: {{ target }} (expected: all|web|worker|bridge)"; \
         exit 1; \
         ;; \
     esac
@@ -196,27 +176,24 @@ lint target="all":
 check target="all":
     @case "{{ target }}" in \
       all) \
-        echo "Checking server, web, and bridge..."; \
-        (cd server && uv run --group dev ruff check .); \
-        (cd server && if rg --files -g 'test_*.py' -g '*_test.py' >/dev/null; then uv run --group dev pytest; else echo "No server tests found; skipping pytest."; fi); \
         (cd web && pnpm run check:all); \
+        (cd worker && pnpm run check); \
         (cd bridge && ./gradlew build); \
-        ;; \
-      server) \
-        echo "Running server checks..."; \
-        (cd server && uv run --group dev ruff check .); \
-        (cd server && if rg --files -g 'test_*.py' -g '*_test.py' >/dev/null; then uv run --group dev pytest; else echo "No server tests found; skipping pytest."; fi); \
         ;; \
       web) \
         echo "Running web checks..."; \
         cd web && pnpm run check:all; \
+        ;; \
+      worker) \
+        echo "Running worker checks..."; \
+        cd worker && pnpm run check; \
         ;; \
       bridge) \
         echo "Running bridge checks..."; \
         cd bridge && ./gradlew build; \
         ;; \
       *) \
-        echo "Unknown check target: {{ target }} (expected: all|server|web|bridge)"; \
+        echo "Unknown check target: {{ target }} (expected: all|web|worker|bridge)"; \
         exit 1; \
         ;; \
     esac
@@ -226,32 +203,26 @@ check target="all":
 ci target="all":
     @case "{{ target }}" in \
       all) \
-        echo "Running CI checks for server, web, and bridge..."; \
-        (cd server && uv run --group dev ruff format --check .); \
-        (cd server && uv run --group dev ruff check .); \
-        (cd server && if rg --files -g 'test_*.py' -g '*_test.py' >/dev/null; then uv run --group dev pytest; else echo "No server tests found; skipping pytest."; fi); \
-        (cd server && uv run python -m compileall app); \
+        echo "Running CI checks for web, worker, and bridge..."; \
         (cd web && pnpm run lint); \
         (cd web && pnpm run check:all); \
-        (cd web && pnpm run build); \
+        (cd worker && pnpm run check); \
+        (cd worker && pnpm run build); \
         (cd bridge && ./gradlew ktlintCheck); \
         (cd bridge && ./gradlew build); \
         if [ ! -f "bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ./bridge/AndroidCompat/getAndroid.sh; fi; \
         (cd bridge && ./gradlew shadowJar); \
         mkdir -p config/bin && cp -f bridge/app/build/*.jar config/bin/; \
         ;; \
-      server) \
-        echo "Running server CI checks..."; \
-        (cd server && uv run --group dev ruff format --check .); \
-        (cd server && uv run --group dev ruff check .); \
-        (cd server && if rg --files -g 'test_*.py' -g '*_test.py' >/dev/null; then uv run --group dev pytest; else echo "No server tests found; skipping pytest."; fi); \
-        (cd server && uv run python -m compileall app); \
-        ;; \
       web) \
         echo "Running web CI checks..."; \
         (cd web && pnpm run lint); \
         (cd web && pnpm run check:all); \
-        (cd web && pnpm run build); \
+        ;; \
+      worker) \
+        echo "Running worker CI checks..."; \
+        (cd worker && pnpm run check); \
+        (cd worker && pnpm run build); \
         ;; \
       bridge) \
         echo "Running bridge CI checks..."; \
@@ -262,17 +233,17 @@ ci target="all":
         mkdir -p config/bin && cp -f bridge/app/build/*.jar config/bin/; \
         ;; \
       *) \
-        echo "Unknown ci target: {{ target }} (expected: all|server|web|bridge)"; \
+        echo "Unknown ci target: {{ target }} (expected: all|web|worker|bridge)"; \
         exit 1; \
         ;; \
     esac
 
-# Smoke-test running server/web endpoints
+# Smoke-test running web/worker endpoints
 [group('quality')]
 smoke:
     @echo "Running smoke checks..."
-    curl -fsS "http://127.0.0.1:{{ server_port }}/api/v2/health" >/dev/null
     curl -fsS "http://127.0.0.1:{{ web_port }}" >/dev/null
+    curl -fsS "http://127.0.0.1:{{ worker_port }}/health" >/dev/null
     echo "Smoke checks passed."
 
 # Audit dependencies
@@ -280,20 +251,20 @@ smoke:
 audit target="all":
     @case "{{ target }}" in \
       all) \
-        echo "Auditing server and web dependencies..."; \
-        cd server && uv run pip-audit; \
-        cd ../web && pnpm audit --prod; \
-        ;; \
-      server) \
-        echo "Auditing Python dependencies..."; \
-        cd server && uv run pip-audit; \
+        echo "Auditing web and worker dependencies..."; \
+        cd web && pnpm audit --prod; \
+        cd ../worker && pnpm audit --prod; \
         ;; \
       web) \
         echo "Auditing Node dependencies..."; \
         cd web && pnpm audit --prod; \
         ;; \
+      worker) \
+        echo "Auditing worker dependencies..."; \
+        cd worker && pnpm audit --prod; \
+        ;; \
       *) \
-        echo "Unknown audit target: {{ target }} (expected: all|server|web)"; \
+        echo "Unknown audit target: {{ target }} (expected: all|web|worker)"; \
         exit 1; \
         ;; \
     esac
@@ -310,7 +281,6 @@ release:
 [group('maintenance')]
 clean:
     @echo "Removing runtime files..."
-    find . -name ".venv" -type d -prune -exec rm -rf {} +
     find . -name "node_modules" -type d -prune -exec rm -rf {} +
     find . -name "dist" -type d -prune -exec rm -rf '{}' +
     find . -name "build" -type d -prune -exec rm -rf '{}' +
@@ -318,4 +288,3 @@ clean:
     find . -name "coverage" -type d -prune -exec rm -rf '{}' +
     find . -name ".pnpm-store" -type d -prune -exec rm -rf '{}' +
     find . -name ".gradle" -type d -prune -exec rm -rf '{}' +
-    if [ -d "{{ static_dir }}" ]; then echo "Removing generated static files in {{ static_dir }}"; rm -rf {{ static_dir }}/*; fi

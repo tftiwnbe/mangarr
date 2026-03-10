@@ -2,7 +2,7 @@
 
 Mangarr is a self-hosted manga manager for people who want one place to discover series, build a personal library, monitor downloads, and read through a browser without depending on a hosted service.
 
-It combines a FastAPI backend, a Svelte web client, and a JVM bridge that loads Tachiyomi-compatible extensions. The goal is practical: keep the parts that make source-driven manga management powerful, but package them into a cleaner server-first workflow you can run yourself.
+The current `v2.0.0-alpha` branch is being rebuilt around a SvelteKit web app, a self-hosted Convex backend, and a Node worker that owns bridge and filesystem side effects. The goal is practical: keep the parts that make source-driven manga management powerful, but package them into a cleaner single-stack workflow you can run yourself.
 
 ## What It Does
 
@@ -23,46 +23,63 @@ Fresh-install screens from a local `v2.0.0` build:
 
 ## Project Layout
 
-- `server/` FastAPI application, SQLModel models, Alembic migrations, jobs, and API routes
-- `web/` SvelteKit frontend
+- `web/` active SvelteKit v2 app plus Convex functions under `web/src/convex/`
+- `worker/` Fastify-based worker for bridge supervision and host-side effects
 - `bridge/` Kotlin/JVM bridge for extension loading and source access
+- `web-ref/` local frontend reference from the archived FastAPI prototype
+- `server-ref/` local backend reference from the archived FastAPI prototype
 
 ## Getting Started
 
 Prerequisites:
 
-- Python with `uv`
-- Node.js with `pnpm`
-- Java for the bridge build
+ - Node.js with `pnpm`
+ - Docker with Compose
 
-Install dependencies and build the bridge once:
+Bring up the local v2 stack:
 
 ```bash
-just install
-just bridge
+docker compose -f compose.dev.yaml up --build
 ```
 
-Run the app:
+The Compose stack starts:
+
+- `web` on `http://localhost:3737`
+- self-hosted Convex backend on `http://127.0.0.1:3210`
+- Convex site proxy on `http://127.0.0.1:3211`
+- Convex dashboard on `http://localhost:6791`
+- `worker` health endpoint on `http://127.0.0.1:3212/health`
+
+The dev compose file pins a deterministic self-hosted Convex admin key so the CLI can talk to the local backend without a separate setup step:
 
 ```bash
-just run
+export CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210
+export CONVEX_SELF_HOSTED_ADMIN_KEY='mangarr-dev|017d2981db031fce1d83c074abf4c2cf7a51bce8874e23b9964936b367eac682d6b7097b86'
+```
+
+Telemetry is disabled for the self-hosted Convex backend in both compose files via `DISABLE_BEACON=true`.
+
+After the stack is up, push the local Convex schema/functions into the self-hosted backend:
+
+```bash
+just convex-push
 ```
 
 Default URLs:
 
-- App/API: `http://localhost:3737`
-- Web dev server: `http://localhost:3000`
+- Web UI: `http://localhost:3737`
+- Convex backend: `http://127.0.0.1:3210`
+- Convex dashboard: `http://localhost:6791`
 
-Mutable state lives under `config/` and `data/`.
+Bridge and worker artifacts live under `config/` and `data/`. Convex persists its local self-hosted state in the Docker-managed `convex_data` volume by default.
 
 ## Development Workflow
 
 Common commands are grouped in the `Justfile`:
 
 ```bash
-just format
 just lint
-just check-all
+just check
 just build
 just release
 ```
@@ -70,17 +87,18 @@ just release
 Development servers:
 
 ```bash
-just dev-server
-just dev-web
 just dev-docker
+just dev-web
+just dev-worker
+just dev-convex
+just convex-push
 ```
 
 Other useful tasks:
 
 ```bash
-just generate-stubs
-just generate-types
 just smoke
+just bridge
 just clean
 ```
 
