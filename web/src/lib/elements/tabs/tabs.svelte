@@ -15,22 +15,31 @@
 	let { tabs, value, class: className = '', onValueChange }: Props = $props();
 </script>
 
-<div class="flex gap-6 border-b border-[var(--void-3)] {className}">
+<div class="flex gap-6 {className}">
 	{#each tabs as tab (tab.value)}
+		{@const isActive = value === tab.value}
+
 		<button
 			type="button"
-			class="relative pb-2.5 text-xs font-medium tracking-wide transition-colors focus-visible:outline-none
-				{value === tab.value
-				? 'text-[var(--text)]'
-				: 'text-[var(--text-ghost)] hover:text-[var(--text-soft)]'}"
+			class="relative pb-2 text-xs font-medium tracking-wide transition-colors focus-visible:outline-none
+				{isActive ? 'text-[var(--text)]' : 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 			onclick={() => onValueChange?.(tab.value)}
 		>
-			{tab.label}
-			{#if tab.count !== undefined && tab.count > 0}
-				<span class="ml-1.5 text-[10px] tabular-nums opacity-60">{tab.count}</span>
-			{/if}
-			{#if value === tab.value}
-				<div class="absolute inset-x-0 -bottom-px h-px bg-[var(--text)]"></div>
+			<span class="flex items-center gap-1.5">
+				{tab.label}
+
+				{#if tab.count !== undefined && tab.count > 0}
+					<span
+						class="text-[10px] tabular-nums
+						{isActive ? 'text-[var(--text-muted)]' : 'text-[var(--void-7)]'}"
+					>
+						{tab.count}
+					</span>
+				{/if}
+			</span>
+
+			{#if isActive}
+				<span class="absolute inset-x-0 bottom-0 h-px bg-[var(--text-muted)]"></span>
 			{/if}
 		</button>
 	{/each}

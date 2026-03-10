@@ -23,6 +23,7 @@
 	import { Button } from '$lib/elements/button';
 	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
 	import { Input } from '$lib/elements/input';
+	import { Tabs } from '$lib/elements/tabs';
 	import {
 		SpinnerIcon,
 		XIcon,
@@ -47,6 +48,12 @@
 	} from '$lib/utils/content-languages';
 
 	type TabValue = 'installed' | 'available' | 'updates';
+
+	const tabs: { value: TabValue; labelKey: string }[] = [
+		{ value: 'installed', labelKey: 'extensions.installed' },
+		{ value: 'available', labelKey: 'extensions.available' },
+		{ value: 'updates', labelKey: 'extensions.updates' }
+	];
 
 	// ── Core state ──────────────────────────────────────────────────────────
 	let installedExtensions = $state<ExtensionResource[]>([]);
@@ -647,36 +654,20 @@
 	</div>
 
 	<!-- ── Tab bar ──────────────────────────────────────────────────────── -->
-	<div class="flex gap-6">
-		{#each ['installed', 'available', 'updates'] as tab (tab)}
-			{@const isActive = activeTab === tab}
-			{@const count =
-				tab === 'installed'
+	<Tabs
+		tabs={tabs.map((tab) => ({
+			value: tab.value,
+			label: $_(tab.labelKey),
+			count:
+				tab.value === 'installed'
 					? installedExtensions.length
-					: tab === 'available'
+					: tab.value === 'available'
 						? availableExtensions.length
-						: repoChangeItems.length}
-			<button
-				type="button"
-				class="relative pb-2 text-xs font-medium tracking-wide uppercase transition-colors
-					{isActive ? 'text-[var(--text)]' : 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-				onclick={() => switchTab(tab as TabValue)}
-			>
-				<span class="flex items-center gap-1.5">
-					{$_(`extensions.${tab}`).toLowerCase()}
-					{#if count > 0}
-						<span
-							class="text-[10px] {isActive ? 'text-[var(--text-muted)]' : 'text-[var(--void-7)]'}"
-							>{count}</span
-						>
-					{/if}
-				</span>
-				{#if isActive}
-					<span class="absolute inset-x-0 bottom-0 h-px bg-[var(--text-muted)]"></span>
-				{/if}
-			</button>
-		{/each}
-	</div>
+						: repoChangeItems.length
+		}))}
+		value={activeTab}
+		onValueChange={(value) => switchTab(value as TabValue)}
+	/>
 
 	<!-- ── Search ───────────────────────────────────────────────────────── -->
 	<div class="relative">
