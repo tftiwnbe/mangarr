@@ -15,7 +15,6 @@ export function loadConfig() {
   return {
     host: process.env.MANGARR_WORKER_HOST ?? '127.0.0.1',
     port: parsePort(process.env.MANGARR_WORKER_PORT, DEFAULT_WORKER_PORT),
-    serviceSecret: process.env.MANGARR_WORKER_SERVICE_SECRET ?? '',
     workerId: process.env.MANGARR_WORKER_ID ?? 'main',
     version: process.env.npm_package_version ?? '0.0.1',
     convexUrl: process.env.CONVEX_URL ?? process.env.CONVEX_SELF_HOSTED_URL ?? '',

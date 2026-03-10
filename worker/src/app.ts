@@ -1,14 +1,9 @@
-import Fastify, { type FastifyRequest } from 'fastify';
+import Fastify from 'fastify';
 
 import { BridgeSupervisor } from './bridge-supervisor.js';
 import type { WorkerConfig } from './config.js';
 import { createConvexClient } from './convex.js';
 import { HeartbeatReporter } from './heartbeat-reporter.js';
-
-function readServiceSecret(request: FastifyRequest) {
-  const header = request.headers['x-mangarr-service-secret'];
-  return Array.isArray(header) ? header[0] ?? '' : header ?? '';
-}
 
 export function buildApp(config: WorkerConfig) {
   const app = Fastify({ logger: true });
@@ -33,30 +28,6 @@ export function buildApp(config: WorkerConfig) {
     convex: heartbeat.snapshot(),
     bridge: bridge.snapshot()
   }));
-
-  app.addHook('onRequest', async (request, reply) => {
-    if (request.url === '/health') {
-      return;
-    }
-
-    if (!config.serviceSecret) {
-      reply.code(503);
-      return reply.send({
-        ok: false,
-        code: 'worker_secret_missing',
-        message: 'MANGARR_WORKER_SERVICE_SECRET is not configured'
-      });
-    }
-
-    if (readServiceSecret(request) !== config.serviceSecret) {
-      reply.code(401);
-      return reply.send({
-        ok: false,
-        code: 'worker_unauthorized',
-        message: 'Missing or invalid worker service secret'
-      });
-    }
-  });
 
   app.get('/bridge', async () => ({
     workerId: config.workerId,

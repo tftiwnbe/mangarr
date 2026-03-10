@@ -132,20 +132,11 @@ jobs:
         run: |
           docker compose -f compose.yaml up --build -d
 
-      - name: Push Convex functions to self-hosted backend
-        run: |
-          admin_key=$(docker compose -f compose.yaml exec -T convex-backend ./generate_admin_key.sh | tail -n 1)
-          cd web
-          CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210 \
-          CONVEX_SELF_HOSTED_ADMIN_KEY="$admin_key" \
-          pnpm exec convex dev --once --typecheck disable --codegen disable
-          rm -f .env.local
-
       - name: Wait for web and worker endpoints
         run: |
-          for attempt in $(seq 1 45); do
-            if docker compose -f compose.yaml exec -T web sh -lc 'wget -qO- http://127.0.0.1:3737 >/dev/null' && \
-               docker compose -f compose.yaml exec -T worker curl -fsS http://127.0.0.1:3212/health >/dev/null; then
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3737 >/dev/null && \
+               docker compose -f compose.yaml exec -T mangarr curl -fsS http://127.0.0.1:3212/health >/dev/null; then
               exit 0
             fi
             sleep 2
