@@ -2,7 +2,7 @@ set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 set unstable := true
 
 web_port := "3000"
-worker_port := "3211"
+worker_port := "3212"
 
 # Show available commands
 [group('meta')]

@@ -1,4 +1,4 @@
-const DEFAULT_WORKER_PORT = 3211;
+const DEFAULT_WORKER_PORT = 3212;
 const DEFAULT_BRIDGE_PORT = 8181;
 
 function parsePort(value: string | undefined, fallback: number) {

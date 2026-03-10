@@ -1,16 +1,43 @@
 # syntax=docker/dockerfile:1
 
-FROM node:20-alpine AS frontend-build
+FROM node:24-alpine AS web-base
 WORKDIR /app/web
 
 RUN corepack enable
 
-COPY web/pnpm-lock.yaml web/package.json ./
-COPY web/pnpm-workspace.yaml ./pnpm-workspace.yaml
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
+
+FROM web-base AS web-dev
+CMD ["sh", "-c", "if [ ! -d node_modules/.pnpm ]; then pnpm install --frozen-lockfile; fi && pnpm run dev --host 0.0.0.0 --port 3000"]
+
+
+FROM web-base AS web-build
 COPY web/ .
-RUN pnpm build
+RUN pnpm run build
+
+
+FROM node:24-alpine AS web-runtime
+WORKDIR /app/web
+
+ENV NODE_ENV=production \
+    HOST=0.0.0.0 \
+    PORT=3000
+
+RUN corepack enable
+
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile --prod
+
+COPY --from=web-build /app/web/build ./build
+
+EXPOSE 3000
+
+CMD ["node", "build"]
+
+
+FROM eclipse-temurin:21-jre AS java-runtime
 
 
 FROM eclipse-temurin:21-jdk AS bridge-build
@@ -35,55 +62,65 @@ RUN bash ./AndroidCompat/getAndroid.sh
 RUN --mount=type=cache,id=mangarr-gradle-wrapper,target=/root/.gradle/wrapper,sharing=locked \
     --mount=type=cache,id=mangarr-gradle-caches,target=/root/.gradle/caches,sharing=locked \
     --mount=type=cache,id=mangarr-gradle-project,target=/app/bridge/.gradle,sharing=locked \
-    ./gradlew --no-daemon shadowJar && \
-    echo "JAR files built:" && ls -la /app/bridge/app/build/*.jar
+    ./gradlew --no-daemon shadowJar
 
 
-FROM python:3.13-slim AS runtime
-ARG TARGETARCH
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+FROM node:24-bookworm-slim AS worker-base
+WORKDIR /app/worker
 
-WORKDIR /app
+ENV JAVA_HOME=/opt/java/openjdk \
+    PATH=/opt/java/openjdk/bin:$PATH
 
-RUN mkdir -p /app/config/bin /app/bin
-RUN mkdir -p /opt/kcef/jcef
+COPY --from=java-runtime /opt/java/openjdk /opt/java/openjdk
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    openjdk-21-jre \
-    libx11-6 libxext6 libxrender1 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libxkbcommon0 \
-    libxcb1 libx11-xcb1 libxss1 libxtst6 libxi6 \
-    libgbm1 libexpat1 libdrm2 \
-    libglib2.0-0 libgobject-2.0-0 libgio-2.0-0 \
-    libatk1.0-0 libatk-bridge2.0-0 libatspi2.0-0 \
-    libcups2 libpango-1.0-0 libcairo2 libasound2 \
-    libdbus-1-3 libnss3 \
-    libjogl2-jni libgluegen2-jni \
-    xvfb xauth && \
-    rm -rf /var/lib/apt/lists/* && \
-    mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix && \
-    if [ -f /usr/lib/jni/libgluegen2_rt.so ]; then ln -sf /usr/lib/jni/libgluegen2_rt.so /usr/lib/jni/libgluegen_rt.so; fi
+RUN corepack enable && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir uv
+COPY worker/package.json worker/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
-ENV UV_LINK_MODE=copy
-ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-${TARGETARCH}
-ENV LD_LIBRARY_PATH=$JAVA_HOME/lib/server:$JAVA_HOME/lib
-ENV KCEF_INSTALL_DIR=/opt/kcef/jcef
-ENV MANGARR__SERVER__HOST=0.0.0.0
 
-COPY server/pyproject.toml server/uv.lock /app/server/
-WORKDIR /app/server
-RUN uv sync --frozen --no-dev
-
-COPY server /app/server
-COPY --from=frontend-build /app/server/app/static /app/server/app/static
+FROM worker-base AS worker-dev
+RUN mkdir -p /app/bin
 COPY --from=bridge-build /app/bridge/app/build/tachibridge-*.jar /app/bin/
+RUN sh -c 'jar=$(echo /app/bin/tachibridge-*.jar); cp "$jar" /app/bin/tachibridge.jar'
 
-RUN echo "Verifying JAR file:" && ls -la /app/bin/*.jar
+CMD ["sh", "-c", "if [ ! -d node_modules/.pnpm ]; then pnpm install --frozen-lockfile; fi && pnpm run dev"]
 
-EXPOSE 3737
 
-CMD ["uv", "run", "--frozen", "--no-dev", "python", "-m", "app.main"]
+FROM worker-base AS worker-build
+COPY worker/ .
+RUN pnpm run build
+
+
+FROM node:24-bookworm-slim AS worker-runtime
+WORKDIR /app/worker
+
+ENV NODE_ENV=production \
+    JAVA_HOME=/opt/java/openjdk \
+    PATH=/opt/java/openjdk/bin:$PATH \
+    MANGARR_WORKER_HOST=0.0.0.0 \
+    MANGARR_WORKER_PORT=3212 \
+    TACHIBRIDGE_JAR_PATH=/app/bin/tachibridge.jar
+
+COPY --from=java-runtime /opt/java/openjdk /opt/java/openjdk
+
+RUN corepack enable && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY worker/package.json worker/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --prod
+
+COPY --from=worker-build /app/worker/dist ./dist
+
+RUN mkdir -p /app/bin
+COPY --from=bridge-build /app/bridge/app/build/tachibridge-*.jar /app/bin/
+RUN sh -c 'jar=$(echo /app/bin/tachibridge-*.jar); cp "$jar" /app/bin/tachibridge.jar'
+
+EXPOSE 3212
+
+CMD ["pnpm", "run", "start"]
