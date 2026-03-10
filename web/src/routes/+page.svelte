@@ -1,5 +1,8 @@
 <script lang="ts">
+	import type { PageData } from './$types';
 	import { getConvexUrl } from '$lib/convex/client';
+
+	let { data }: { data: PageData } = $props();
 
 	const convexConfigured = Boolean(getConvexUrl());
 </script>
@@ -36,6 +39,21 @@
 	</section>
 
 	<section class="status">
+		<div class="status-card">
+			<span>Auth state</span>
+			<strong>
+				{#if data.auth.user}
+					Signed in as {data.auth.user.username}
+				{:else if data.auth.setupOpen}
+					Setup required
+				{:else}
+					Ready for login
+				{/if}
+			</strong>
+		</div>
+	</section>
+
+	<section class="status">
 		<div class:ready={convexConfigured} class="status-card">
 			<span>Convex URL</span>
 			<strong>{convexConfigured ? 'Configured' : 'Not configured yet'}</strong>
@@ -44,6 +62,16 @@
 			<span>Archive reference</span>
 			<strong>`web-ref/` kept local-only in this branch</strong>
 		</div>
+	</section>
+
+	<section class="actions" aria-label="Auth actions">
+		{#if data.auth.user}
+			<a href="/" class="primary">Current session is active</a>
+		{:else if data.auth.setupOpen}
+			<a href="/setup" class="primary">Create the first admin</a>
+		{:else}
+			<a href="/login" class="primary">Sign in</a>
+		{/if}
 	</section>
 
 	<section class="grid" aria-label="Runtime components">
@@ -74,6 +102,7 @@
 
 	.hero,
 	.status,
+	.actions,
 	.grid {
 		margin: 0 auto;
 		max-width: 70rem;
@@ -109,7 +138,7 @@
 	.status {
 		display: grid;
 		gap: 1rem;
-		margin-bottom: 2rem;
+		margin-bottom: 1rem;
 	}
 
 	.status-card,
@@ -138,6 +167,22 @@
 
 	.status-card.ready {
 		border-color: rgba(89, 204, 156, 0.45);
+	}
+
+	.actions {
+		margin-bottom: 2rem;
+	}
+
+	.primary {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.95rem 1.25rem;
+		border-radius: 999px;
+		background: linear-gradient(135deg, #e4b85f, #d97745);
+		color: #0b1118;
+		font-weight: 700;
+		text-decoration: none;
 	}
 
 	.grid {

@@ -34,6 +34,19 @@ export default defineSchema({
     .index('by_owner_user_id', ['ownerUserId'])
     .index('by_expires_at', ['expiresAt']),
 
+  integrationApiKeys: defineTable({
+    ownerUserId: v.id('users'),
+    name: v.string(),
+    keyHash: v.string(),
+    keyPrefix: v.string(),
+    createdAt: v.float64(),
+    lastUsedAt: v.optional(v.float64()),
+    revokedAt: v.optional(v.float64())
+  })
+    .index('by_key_hash', ['keyHash'])
+    .index('by_owner_user_id', ['ownerUserId'])
+    .index('by_revoked_at', ['revokedAt']),
+
   workerState: defineTable({
     workerId: v.string(),
     version: v.string(),
