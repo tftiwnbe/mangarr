@@ -55,6 +55,8 @@ services:
       - MANGARR_WORKER_HOST=0.0.0.0
       - MANGARR_WORKER_PORT=3212
       - MANGARR_WORKER_SERVICE_SECRET=mangarr-internal-service-secret
+      - CONVEX_SELF_HOSTED_URL=http://convex-backend:3210
+      - CONVEX_URL=http://convex-backend:3210
       - TACHIBRIDGE_PORT=8181
       - TACHIBRIDGE_JAR_PATH=/app/bin/tachibridge.jar
     restart: unless-stopped

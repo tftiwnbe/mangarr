@@ -59,6 +59,12 @@ export CONVEX_SELF_HOSTED_ADMIN_KEY='mangarr-dev|017d2981db031fce1d83c074abf4c2c
 
 Telemetry is disabled for the self-hosted Convex backend in both compose files via `DISABLE_BEACON=true`.
 
+After the stack is up, push the local Convex schema/functions into the self-hosted backend:
+
+```bash
+just convex-push
+```
+
 Default URLs:
 
 - Web UI: `http://localhost:3737`
@@ -85,6 +91,7 @@ just dev-docker
 just dev-web
 just dev-worker
 just dev-convex
+just convex-push
 ```
 
 Other useful tasks:

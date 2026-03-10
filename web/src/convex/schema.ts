@@ -56,7 +56,9 @@ export default defineSchema({
     bridgePort: v.optional(v.float64()),
     bridgeReady: v.boolean(),
     restartCount: v.float64(),
-    lastStartupError: v.optional(v.string())
+    lastStartupError: v.optional(v.string()),
+    lastHeartbeatError: v.optional(v.string()),
+    updatedAt: v.float64()
   })
     .index('by_worker_id', ['workerId'])
     .index('by_last_heartbeat_at', ['lastHeartbeatAt']),

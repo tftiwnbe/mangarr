@@ -12,6 +12,9 @@ export const convexApi = {
     revokeUserSessions: makeFunctionReference<'mutation'>('auth:revokeUserSessions'),
     touchBrowserSession: makeFunctionReference<'mutation'>('auth:touchBrowserSession')
   },
+  worker: {
+    reportHeartbeat: makeFunctionReference<'mutation'>('worker:reportHeartbeat')
+  },
   app: {
     bootstrap: makeFunctionReference<'query'>('app:bootstrap')
   }

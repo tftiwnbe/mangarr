@@ -2,6 +2,8 @@ import Fastify, { type FastifyRequest } from 'fastify';
 
 import { BridgeSupervisor } from './bridge-supervisor.js';
 import type { WorkerConfig } from './config.js';
+import { createConvexClient } from './convex.js';
+import { HeartbeatReporter } from './heartbeat-reporter.js';
 
 function readServiceSecret(request: FastifyRequest) {
   const header = request.headers['x-mangarr-service-secret'];
@@ -11,13 +13,24 @@ function readServiceSecret(request: FastifyRequest) {
 export function buildApp(config: WorkerConfig) {
   const app = Fastify({ logger: true });
   const bridge = new BridgeSupervisor(config);
+  const convex = createConvexClient(config);
+  const heartbeat = new HeartbeatReporter(app.log, config, bridge, convex);
   const startedAt = Date.now();
+
+  app.addHook('onReady', async () => {
+    heartbeat.start();
+  });
+
+  app.addHook('onClose', async () => {
+    heartbeat.stop();
+  });
 
   app.get('/health', async () => ({
     ok: true,
     workerId: config.workerId,
     version: config.version,
     uptimeMs: Date.now() - startedAt,
+    convex: heartbeat.snapshot(),
     bridge: bridge.snapshot()
   }));
 

@@ -37,7 +37,14 @@ dev-web:
 [group('dev')]
 dev-convex:
     @echo "Starting convex dev..."
-    cd web && pnpm run convex:dev
+    cd web && CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210 CONVEX_SELF_HOSTED_ADMIN_KEY='mangarr-dev|017d2981db031fce1d83c074abf4c2cf7a51bce8874e23b9964936b367eac682d6b7097b86' pnpm run convex:dev --typecheck disable --codegen disable
+
+# Push Convex functions and schema to the local self-hosted backend once
+[group('dev')]
+convex-push:
+    @echo "Pushing Convex functions to local self-hosted backend..."
+    cd web && CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210 CONVEX_SELF_HOSTED_ADMIN_KEY='mangarr-dev|017d2981db031fce1d83c074abf4c2cf7a51bce8874e23b9964936b367eac682d6b7097b86' pnpm run convex:dev --once --typecheck disable --codegen disable
+    if [ -f web/.env.local ]; then rm web/.env.local; fi
 
 # Start worker dev server
 [group('dev')]
