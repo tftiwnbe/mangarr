@@ -1,7 +1,7 @@
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 set unstable := true
 
-web_port := "3000"
+web_port := "3737"
 worker_port := "3212"
 
 # Show available commands
@@ -31,7 +31,7 @@ android-stubs:
 [group('dev')]
 dev-web:
     @echo "Starting vite dev server..."
-    cd web && pnpm run dev --open
+    cd web && pnpm run dev -- --host 0.0.0.0 --port {{ web_port }} --open
 
 # Start Convex dev process
 [group('dev')]

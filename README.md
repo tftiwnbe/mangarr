@@ -33,35 +33,35 @@ Fresh-install screens from a local `v2.0.0` build:
 
 Prerequisites:
 
-- Node.js with `pnpm`
+ - Node.js with `pnpm`
  - Docker with Compose
 
 Bring up the local v2 stack:
 
 ```bash
-cp .env.example .env
 docker compose -f compose.dev.yaml up --build
 ```
 
 The Compose stack starts:
 
-- `web` on `http://localhost:3000`
+- `web` on `http://localhost:3737`
 - self-hosted Convex backend on `http://127.0.0.1:3210`
 - Convex site proxy on `http://127.0.0.1:3211`
 - Convex dashboard on `http://localhost:6791`
 - `worker` health endpoint on `http://127.0.0.1:3212/health`
 
-Generate a Convex admin key after the backend is up:
+The dev compose file pins a deterministic self-hosted Convex admin key so the CLI can talk to the local backend without a separate setup step:
 
 ```bash
-docker compose -f compose.dev.yaml exec convex-backend ./generate_admin_key.sh
+export CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210
+export CONVEX_SELF_HOSTED_ADMIN_KEY='mangarr-dev|017d2981db031fce1d83c074abf4c2cf7a51bce8874e23b9964936b367eac682d6b7097b86'
 ```
 
-Then copy the value into `.env` as `CONVEX_SELF_HOSTED_ADMIN_KEY` before running Convex CLI commands against the self-hosted backend.
+Telemetry is disabled for the self-hosted Convex backend in both compose files via `DISABLE_BEACON=true`.
 
 Default URLs:
 
-- Web dev server: `http://localhost:3000`
+- Web UI: `http://localhost:3737`
 - Convex backend: `http://127.0.0.1:3210`
 - Convex dashboard: `http://localhost:6791`
 

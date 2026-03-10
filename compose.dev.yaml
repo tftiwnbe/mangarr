@@ -4,19 +4,17 @@ services:
     stop_grace_period: 10s
     stop_signal: SIGINT
     ports:
-      - "${CONVEX_BACKEND_PORT:-3210}:3210"
-      - "${CONVEX_SITE_PROXY_PORT:-3211}:3211"
+      - "3210:3210"
+      - "3211:3211"
     volumes:
       - convex_data:/convex/data
     environment:
-      - CONVEX_CLOUD_ORIGIN=${CONVEX_BACKEND_ORIGIN:-http://127.0.0.1:${CONVEX_BACKEND_PORT:-3210}}
-      - CONVEX_SITE_ORIGIN=${CONVEX_SITE_ORIGIN:-http://127.0.0.1:${CONVEX_SITE_PROXY_PORT:-3211}}
-      - DISABLE_METRICS_ENDPOINT=${DISABLE_METRICS_ENDPOINT:-true}
-      - INSTANCE_NAME
-      - INSTANCE_SECRET
-      - POSTGRES_URL
-      - MYSQL_URL
-      - DATABASE_URL
+      - CONVEX_CLOUD_ORIGIN=http://127.0.0.1:3210
+      - CONVEX_SITE_ORIGIN=http://127.0.0.1:3211
+      - DISABLE_BEACON=true
+      - DISABLE_METRICS_ENDPOINT=true
+      - INSTANCE_NAME=mangarr-dev
+      - INSTANCE_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3210/version"]
       interval: 5s
@@ -27,10 +25,9 @@ services:
     stop_grace_period: 10s
     stop_signal: SIGINT
     ports:
-      - "${CONVEX_DASHBOARD_PORT:-6791}:6791"
+      - "6791:6791"
     environment:
-      - NEXT_PUBLIC_DEPLOYMENT_URL=${CONVEX_BACKEND_ORIGIN:-http://127.0.0.1:${CONVEX_BACKEND_PORT:-3210}}
-      - NEXT_PUBLIC_LOAD_MONACO_INTERNALLY=true
+      - NEXT_PUBLIC_DEPLOYMENT_URL=http://127.0.0.1:3210
     depends_on:
       convex-backend:
         condition: service_healthy
@@ -46,19 +43,20 @@ services:
       convex-backend:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      - "3737:3000"
     environment:
-      - PUBLIC_CONVEX_URL=${CONVEX_BACKEND_ORIGIN:-http://127.0.0.1:${CONVEX_BACKEND_PORT:-3210}}
+      - CI=true
+      - PUBLIC_CONVEX_URL=http://127.0.0.1:3210
       - CONVEX_SELF_HOSTED_URL=http://convex-backend:3210
       - CONVEX_URL=http://convex-backend:3210
-      - CONVEX_ADMIN_KEY=${CONVEX_SELF_HOSTED_ADMIN_KEY:-}
-      - CONVEX_SELF_HOSTED_ADMIN_KEY=${CONVEX_SELF_HOSTED_ADMIN_KEY:-}
+      - CONVEX_ADMIN_KEY=mangarr-dev|017d2981db031fce1d83c074abf4c2cf7a51bce8874e23b9964936b367eac682d6b7097b86
+      - CONVEX_SELF_HOSTED_ADMIN_KEY=mangarr-dev|017d2981db031fce1d83c074abf4c2cf7a51bce8874e23b9964936b367eac682d6b7097b86
       - MANGARR_WORKER_URL=http://worker:3212
-      - MANGARR_WORKER_SERVICE_SECRET=${MANGARR_WORKER_SERVICE_SECRET:-change-me}
+      - MANGARR_WORKER_SERVICE_SECRET=mangarr-internal-service-secret
       - CHOKIDAR_USEPOLLING=true
       - WATCHPACK_POLLING=true
     command: >
-      sh -c "if [ ! -d node_modules/.pnpm ]; then pnpm install --frozen-lockfile; fi && pnpm run dev --host 0.0.0.0 --port 3000"
+      sh -c "pnpm install --frozen-lockfile && pnpm run dev --host 0.0.0.0 --port 3000"
     volumes:
       - ./web:/app/web
       - web_node_modules:/app/web/node_modules
@@ -76,15 +74,16 @@ services:
     ports:
       - "3212:3212"
     environment:
+      - CI=true
       - MANGARR_WORKER_HOST=0.0.0.0
       - MANGARR_WORKER_PORT=3212
-      - MANGARR_WORKER_SERVICE_SECRET=${MANGARR_WORKER_SERVICE_SECRET:-change-me}
+      - MANGARR_WORKER_SERVICE_SECRET=mangarr-internal-service-secret
+      - CONVEX_ADMIN_KEY=mangarr-dev|017d2981db031fce1d83c074abf4c2cf7a51bce8874e23b9964936b367eac682d6b7097b86
+      - CONVEX_SELF_HOSTED_ADMIN_KEY=mangarr-dev|017d2981db031fce1d83c074abf4c2cf7a51bce8874e23b9964936b367eac682d6b7097b86
       - TACHIBRIDGE_PORT=8181
       - TACHIBRIDGE_JAR_PATH=/app/bin/tachibridge.jar
-      - CONVEX_SELF_HOSTED_URL=http://convex-backend:3210
-      - CONVEX_SELF_HOSTED_ADMIN_KEY=${CONVEX_SELF_HOSTED_ADMIN_KEY:-}
     command: >
-      sh -c "if [ ! -d node_modules/.pnpm ]; then pnpm install --frozen-lockfile; fi && pnpm run dev"
+      sh -c "pnpm install --frozen-lockfile && pnpm run dev"
     volumes:
       - ./worker:/app/worker
       - worker_node_modules:/app/worker/node_modules
