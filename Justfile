@@ -21,6 +21,7 @@ install:
     @echo "Installing development dependencies..."
     cd server && uv sync --group dev
     cd web && pnpm install
+    cd ../worker && pnpm install
 
 # Refresh Android compatibility stubs
 [group('generate')]
@@ -62,6 +63,18 @@ dev-web:
     @echo "Starting vite dev server..."
     cd web && pnpm run dev --open
 
+# Start Convex dev process
+[group('dev')]
+dev-convex:
+    @echo "Starting convex dev..."
+    cd web && pnpm run convex:dev
+
+# Start worker dev server
+[group('dev')]
+dev-worker:
+    @echo "Starting worker dev server..."
+    cd worker && pnpm run dev
+
 # Start container stack for development
 [group('dev')]
 dev-docker:
@@ -102,9 +115,10 @@ bridge:
 build target="all":
     @case "{{ target }}" in \
       all) \
-        echo "Building server, web, and bridge..."; \
+        echo "Building server, web, worker, and bridge..."; \
         cd server && uv run python -m compileall app; \
         cd ../web && pnpm run build; \
+        cd ../worker && pnpm run build; \
         if [ ! -f "../bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ../bridge/AndroidCompat/getAndroid.sh; fi; \
         cd ../bridge && ./gradlew shadowJar; \
         cd .. && mkdir -p config/bin && cp -f bridge/app/build/*.jar config/bin/; \
@@ -117,6 +131,10 @@ build target="all":
         echo "Building web client..."; \
         cd web && pnpm run build; \
         ;; \
+      worker) \
+        echo "Building worker service..."; \
+        cd worker && pnpm run build; \
+        ;; \
       bridge) \
         echo "Building bridge jar..."; \
         if [ ! -f "bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ./bridge/AndroidCompat/getAndroid.sh; fi; \
@@ -124,7 +142,7 @@ build target="all":
         cd .. && mkdir -p config/bin && cp -f bridge/app/build/*.jar config/bin/; \
         ;; \
       *) \
-        echo "Unknown build target: {{ target }} (expected: all|server|web|bridge)"; \
+        echo "Unknown build target: {{ target }} (expected: all|server|web|worker|bridge)"; \
         exit 1; \
         ;; \
     esac
@@ -134,9 +152,10 @@ build target="all":
 format target="all":
     @case "{{ target }}" in \
       all) \
-        echo "Formatting server, web, and bridge..."; \
+        echo "Formatting server, web, worker, and bridge..."; \
         cd server && uv run --group dev ruff format .; \
-        cd ../web && pnpm run format; \
+        echo "Web formatter is not configured yet; skipping web format."; \
+        echo "Worker formatter is not configured yet; skipping worker format."; \
         cd ../bridge && ./gradlew ktlintFormat; \
         ;; \
       server) \
@@ -144,15 +163,17 @@ format target="all":
         cd server && uv run --group dev ruff format .; \
         ;; \
       web) \
-        echo "Formatting web client..."; \
-        cd web && pnpm run format; \
+        echo "Web formatter is not configured yet; skipping."; \
+        ;; \
+      worker) \
+        echo "Worker formatter is not configured yet; skipping."; \
         ;; \
       bridge) \
         echo "Formatting bridge sources..."; \
         cd bridge && ./gradlew ktlintFormat; \
         ;; \
       *) \
-        echo "Unknown format target: {{ target }} (expected: all|server|web|bridge)"; \
+        echo "Unknown format target: {{ target }} (expected: all|server|web|worker|bridge)"; \
         exit 1; \
         ;; \
     esac
@@ -168,9 +189,10 @@ test:
 lint target="all":
     @case "{{ target }}" in \
       all) \
-        echo "Linting server, web, and bridge..."; \
+        echo "Linting server, web, worker, and bridge..."; \
         cd server && uv run --group dev ruff check .; \
         cd ../web && pnpm run lint; \
+        cd ../worker && pnpm run check; \
         cd ../bridge && ./gradlew ktlintCheck; \
         ;; \
       server) \
@@ -181,12 +203,16 @@ lint target="all":
         echo "Linting web client..."; \
         cd web && pnpm run lint; \
         ;; \
+      worker) \
+        echo "Linting worker service..."; \
+        cd worker && pnpm run check; \
+        ;; \
       bridge) \
         echo "Linting bridge sources..."; \
         cd bridge && ./gradlew ktlintCheck; \
         ;; \
       *) \
-        echo "Unknown lint target: {{ target }} (expected: all|server|web|bridge)"; \
+        echo "Unknown lint target: {{ target }} (expected: all|server|web|worker|bridge)"; \
         exit 1; \
         ;; \
     esac
@@ -196,10 +222,11 @@ lint target="all":
 check target="all":
     @case "{{ target }}" in \
       all) \
-        echo "Checking server, web, and bridge..."; \
+        echo "Checking server, web, worker, and bridge..."; \
         (cd server && uv run --group dev ruff check .); \
         (cd server && if rg --files -g 'test_*.py' -g '*_test.py' >/dev/null; then uv run --group dev pytest; else echo "No server tests found; skipping pytest."; fi); \
         (cd web && pnpm run check:all); \
+        (cd worker && pnpm run check); \
         (cd bridge && ./gradlew build); \
         ;; \
       server) \
@@ -211,12 +238,16 @@ check target="all":
         echo "Running web checks..."; \
         cd web && pnpm run check:all; \
         ;; \
+      worker) \
+        echo "Running worker checks..."; \
+        cd worker && pnpm run check; \
+        ;; \
       bridge) \
         echo "Running bridge checks..."; \
         cd bridge && ./gradlew build; \
         ;; \
       *) \
-        echo "Unknown check target: {{ target }} (expected: all|server|web|bridge)"; \
+        echo "Unknown check target: {{ target }} (expected: all|server|web|worker|bridge)"; \
         exit 1; \
         ;; \
     esac
@@ -226,14 +257,15 @@ check target="all":
 ci target="all":
     @case "{{ target }}" in \
       all) \
-        echo "Running CI checks for server, web, and bridge..."; \
+        echo "Running CI checks for server, web, worker, and bridge..."; \
         (cd server && uv run --group dev ruff format --check .); \
         (cd server && uv run --group dev ruff check .); \
         (cd server && if rg --files -g 'test_*.py' -g '*_test.py' >/dev/null; then uv run --group dev pytest; else echo "No server tests found; skipping pytest."; fi); \
         (cd server && uv run python -m compileall app); \
         (cd web && pnpm run lint); \
         (cd web && pnpm run check:all); \
-        (cd web && pnpm run build); \
+        (cd worker && pnpm run check); \
+        (cd worker && pnpm run build); \
         (cd bridge && ./gradlew ktlintCheck); \
         (cd bridge && ./gradlew build); \
         if [ ! -f "bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ./bridge/AndroidCompat/getAndroid.sh; fi; \
@@ -251,7 +283,11 @@ ci target="all":
         echo "Running web CI checks..."; \
         (cd web && pnpm run lint); \
         (cd web && pnpm run check:all); \
-        (cd web && pnpm run build); \
+        ;; \
+      worker) \
+        echo "Running worker CI checks..."; \
+        (cd worker && pnpm run check); \
+        (cd worker && pnpm run build); \
         ;; \
       bridge) \
         echo "Running bridge CI checks..."; \
@@ -262,7 +298,7 @@ ci target="all":
         mkdir -p config/bin && cp -f bridge/app/build/*.jar config/bin/; \
         ;; \
       *) \
-        echo "Unknown ci target: {{ target }} (expected: all|server|web|bridge)"; \
+        echo "Unknown ci target: {{ target }} (expected: all|server|web|worker|bridge)"; \
         exit 1; \
         ;; \
     esac
@@ -280,9 +316,10 @@ smoke:
 audit target="all":
     @case "{{ target }}" in \
       all) \
-        echo "Auditing server and web dependencies..."; \
+        echo "Auditing server, web, and worker dependencies..."; \
         cd server && uv run pip-audit; \
         cd ../web && pnpm audit --prod; \
+        cd ../worker && pnpm audit --prod; \
         ;; \
       server) \
         echo "Auditing Python dependencies..."; \
@@ -292,8 +329,12 @@ audit target="all":
         echo "Auditing Node dependencies..."; \
         cd web && pnpm audit --prod; \
         ;; \
+      worker) \
+        echo "Auditing worker dependencies..."; \
+        cd worker && pnpm audit --prod; \
+        ;; \
       *) \
-        echo "Unknown audit target: {{ target }} (expected: all|server|web)"; \
+        echo "Unknown audit target: {{ target }} (expected: all|server|web|worker)"; \
         exit 1; \
         ;; \
     esac
