@@ -14,43 +14,6 @@ permissions:
   contents: read
 
 jobs:
-  server:
-    name: server
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Install uv
-        run: python -m pip install --upgrade uv
-
-      - name: Install server dependencies
-        run: cd server && uv sync --group dev
-
-      - name: Check server formatting
-        run: cd server && uv run --group dev ruff format --check .
-
-      - name: Run server lint
-        run: cd server && uv run --group dev ruff check .
-
-      - name: Run server tests if present
-        run: |
-          cd server
-          if rg --files -g 'test_*.py' -g '*_test.py' >/dev/null; then
-            uv run --group dev pytest
-          else
-            echo "No server tests found; skipping pytest."
-          fi
-
-      - name: Byte-compile server
-        run: cd server && uv run python -m compileall app
-
   web:
     name: web
     runs-on: ubuntu-latest
@@ -84,6 +47,36 @@ jobs:
       - name: Build web client
         run: cd web && pnpm run build
 
+  worker:
+    name: worker
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: worker/pnpm-lock.yaml
+
+      - name: Install worker dependencies
+        run: cd worker && pnpm install --frozen-lockfile
+
+      - name: Run worker checks
+        run: cd worker && pnpm run check
+
+      - name: Build worker
+        run: cd worker && pnpm run build
+
   bridge:
     name: bridge
     runs-on: ubuntu-latest
@@ -116,37 +109,54 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install web dependencies
+        run: cd web && pnpm install --frozen-lockfile
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          load: true
-          tags: mangarr:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Start container
-        run: docker run -d --name mangarr-smoke -p 3737:3737 mangarr:ci
-
-      - name: Wait for health endpoint
+      - name: Start compose stack
         run: |
-          for attempt in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:3737/api/v2/health >/dev/null; then
+          docker compose -f compose.yaml up --build -d
+
+      - name: Push Convex functions to self-hosted backend
+        run: |
+          admin_key=$(docker compose -f compose.yaml exec -T convex-backend ./generate_admin_key.sh | tail -n 1)
+          cd web
+          CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210 \
+          CONVEX_SELF_HOSTED_ADMIN_KEY="$admin_key" \
+          pnpm exec convex dev --once --typecheck disable --codegen disable
+          rm -f .env.local
+
+      - name: Wait for web and worker endpoints
+        run: |
+          for attempt in $(seq 1 45); do
+            if docker compose -f compose.yaml exec -T web sh -lc 'wget -qO- http://127.0.0.1:3000 >/dev/null' && \
+               docker compose -f compose.yaml exec -T worker curl -fsS http://127.0.0.1:3212/health >/dev/null; then
               exit 0
             fi
             sleep 2
           done
-          echo "Health check did not pass in time."
+          echo "Compose smoke endpoints did not pass in time."
           exit 1
 
-      - name: Show container logs on failure
+      - name: Show compose logs on failure
         if: failure()
-        run: docker logs mangarr-smoke
+        run: docker compose -f compose.yaml logs
 
-      - name: Stop container
+      - name: Stop compose stack
         if: always()
-        run: docker rm -f mangarr-smoke || true
+        run: docker compose -f compose.yaml down -v || true

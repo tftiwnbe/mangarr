@@ -3,20 +3,6 @@
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<script>
-			// Prevent FOUC: apply theme before first paint
-			(function () {
-				var pref = 'dark';
-				try {
-					pref = localStorage.getItem('mangarr-theme') || 'dark';
-				} catch (e) {}
-				var theme = pref;
-				if (pref === 'system') {
-					theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-				}
-				document.documentElement.setAttribute('data-theme', theme);
-			})();
-		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

@@ -17,8 +17,8 @@ permissions:
   security-events: write
 
 jobs:
-  python-javascript:
-    name: python-javascript
+  javascript-typescript:
+    name: javascript-typescript
     runs-on: ubuntu-latest
 
     steps:
@@ -28,7 +28,7 @@ jobs:
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
-          languages: python,javascript-typescript
+          languages: javascript-typescript
           build-mode: none
           queries: security-and-quality
 
