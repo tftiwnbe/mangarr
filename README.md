@@ -44,22 +44,12 @@ docker compose -f compose.dev.yaml up --build
 
 The Compose stack starts:
 
-- `web` on `http://localhost:3737`
-- self-hosted Convex backend on `http://127.0.0.1:3210`
-- Convex site proxy on `http://127.0.0.1:3211`
+- `mangarr` on `http://localhost:3737`
 - Convex dashboard on `http://localhost:6791`
-- `worker` health endpoint on `http://127.0.0.1:3212/health`
 
-The dev compose file pins a deterministic self-hosted Convex admin key so the CLI can talk to the local backend without a separate setup step:
+The `mangarr` container starts the Convex binary directly, syncs the local schema/functions, then launches the worker and web processes. In development it will generate and log a Convex `INSTANCE_SECRET` on first boot unless you provide one yourself. Mutable app settings continue to belong in Convex.
 
-```bash
-export CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210
-export CONVEX_SELF_HOSTED_ADMIN_KEY='mangarr-dev|017d2981db031fce1d83c074abf4c2cf7a51bce8874e23b9964936b367eac682d6b7097b86'
-```
-
-Telemetry is disabled for the self-hosted Convex backend in both compose files via `DISABLE_BEACON=true`.
-
-After the stack is up, push the local Convex schema/functions into the self-hosted backend:
+If you want to re-push the local Convex schema/functions manually after the stack is up:
 
 ```bash
 just convex-push
@@ -68,10 +58,9 @@ just convex-push
 Default URLs:
 
 - Web UI: `http://localhost:3737`
-- Convex backend: `http://127.0.0.1:3210`
 - Convex dashboard: `http://localhost:6791`
 
-Bridge and worker artifacts live under `config/` and `data/`. Convex persists its local self-hosted state in the Docker-managed `convex_data` volume by default.
+`config/` stores bridge artifacts and Convex runtime state. `data/` is reserved for content and other user-managed payloads.
 
 ## Development Workflow
 
@@ -90,7 +79,6 @@ Development servers:
 just dev-docker
 just dev-web
 just dev-worker
-just dev-convex
 just convex-push
 ```
 
