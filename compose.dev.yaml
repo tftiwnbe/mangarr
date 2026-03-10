@@ -43,7 +43,7 @@ services:
       convex-backend:
         condition: service_healthy
     ports:
-      - "3737:3000"
+      - "3737:3737"
     environment:
       - CI=true
       - PUBLIC_CONVEX_URL=http://127.0.0.1:3210
@@ -56,7 +56,7 @@ services:
       - CHOKIDAR_USEPOLLING=true
       - WATCHPACK_POLLING=true
     command: >
-      sh -c "pnpm install --frozen-lockfile --force && pnpm run dev --host 0.0.0.0 --port 3000"
+      sh -c "pnpm install --frozen-lockfile --force && pnpm run dev"
     volumes:
       - ./web:/app/web
       - web_node_modules:/app/web/node_modules
