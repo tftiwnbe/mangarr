@@ -3,6 +3,7 @@ import { makeFunctionReference } from 'convex/server';
 export const convexApi = {
 	auth: {
 		getSetupState: makeFunctionReference<'query'>('auth:getSetupState'),
+		getViewer: makeFunctionReference<'query'>('auth:getViewer'),
 		getUserByUsername: makeFunctionReference<'query'>('auth:getUserByUsername'),
 		getSessionByTokenHash: makeFunctionReference<'query'>('auth:getSessionByTokenHash'),
 		getUserProfile: makeFunctionReference<'query'>('auth:getUserProfile'),

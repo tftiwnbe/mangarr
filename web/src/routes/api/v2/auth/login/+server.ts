@@ -14,9 +14,9 @@ export const POST: RequestHandler = async (event) => {
 		remember_me?: boolean;
 	};
 	const username = String(payload.username ?? '').trim();
-	const password = String(payload.password ?? '').trim();
+	const password = String(payload.password ?? '');
 
-	if (!username || !password) {
+	if (!username || password.length === 0) {
 		throw error(400, 'Username and password are required');
 	}
 

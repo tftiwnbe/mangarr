@@ -1,4 +1,5 @@
 import { mutationGeneric, queryGeneric } from 'convex/server';
+import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
 
 const publicUser = v.object({
@@ -291,6 +292,32 @@ export const getUserProfile = queryGeneric({
 		const user = await ctx.db.get(args.userId);
 		if (!user) {
 			throw new Error('User not found');
+		}
+
+		return {
+			_id: user._id,
+			username: user.username,
+			isAdmin: user.isAdmin,
+			status: user.status,
+			createdAt: user.createdAt,
+			updatedAt: user.updatedAt,
+			lastLoginAt: user.lastLoginAt
+		};
+	}
+});
+
+export const getViewer = queryGeneric({
+	args: {},
+	returns: v.union(publicUser, v.null()),
+	handler: async (ctx) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return null;
+		}
+
+		const user = await ctx.db.get(identity.subject as GenericId<'users'>);
+		if (!user || user.status !== 'active') {
+			return null;
 		}
 
 		return {

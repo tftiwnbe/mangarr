@@ -58,8 +58,6 @@
 			}
 		} catch {
 			clearAuthSession();
-			await goto('/login?redirect=/setup');
-			return;
 		} finally {
 			checkingAuth = false;
 		}

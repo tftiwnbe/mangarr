@@ -1,23 +1,55 @@
 import { browser } from '$app/environment';
 import { env } from '$env/dynamic/public';
-import { setupConvex } from 'convex-svelte';
+import { ConvexClient, type AuthTokenFetcher } from 'convex/browser';
+import { setConvexClientContext } from 'convex-svelte';
 
-let initialized = false;
+let client: ConvexClient | null = null;
 
 export function setupConvexClient() {
-	if (!browser || initialized) {
-		return;
+	if (!browser) {
+		return null;
 	}
 
 	const url = env.PUBLIC_CONVEX_URL;
 	if (!url) {
-		return;
+		return null;
 	}
 
-	setupConvex(url);
-	initialized = true;
+	if (!client) {
+		client = new ConvexClient(url);
+		client.setAuth(fetchConvexToken);
+	}
+
+	setConvexClientContext(client);
+	return client;
 }
 
 export function getConvexUrl() {
 	return env.PUBLIC_CONVEX_URL ?? '';
 }
+
+const fetchConvexToken: AuthTokenFetcher = async ({ forceRefreshToken }) => {
+	const response = await fetch('/api/v2/auth/convex-token', {
+		method: 'POST',
+		headers: forceRefreshToken
+			? {
+					'cache-control': 'no-cache'
+				}
+			: undefined
+	});
+
+	if (response.status === 401) {
+		return null;
+	}
+
+	if (!response.ok) {
+		throw new Error(`Failed to refresh Convex auth token (${response.status})`);
+	}
+
+	const payload = (await response.json()) as { token?: string };
+	if (!payload.token) {
+		throw new Error('Convex auth token response was missing a token');
+	}
+
+	return payload.token;
+};

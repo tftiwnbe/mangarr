@@ -26,6 +26,9 @@ importers:
       convex-svelte:
         specifier: ^0.0.12
         version: 0.0.12(convex@1.32.0)(svelte@5.53.9)
+      jose:
+        specifier: ^6.2.1
+        version: 6.2.1
       openapi-fetch:
         specifier: ^0.15.0
         version: 0.15.2
@@ -1459,6 +1462,9 @@ packages:
   jiti@2.6.1:
     resolution: {integrity: sha512-ekilCSN1jwRvIbgeg/57YFh8qQDNbwDb9xT/qu2DAHbFFZUicIl4ygVaAvzveMhMVr3LnpSKTNnwt8PoOfmKhQ==}
     hasBin: true
+
+  jose@6.2.1:
+    resolution: {integrity: sha512-jUaKr1yrbfaImV7R2TN/b3IcZzsw38/chqMpo2XJ7i2F8AfM/lA4G1goC3JVEwg0H7UldTmSt3P68nt31W7/mw==}
 
   js-sha256@0.11.1:
     resolution: {integrity: sha512-o6WSo/LUvY2uC4j7mO50a2ms7E/EAdbP0swigLV+nzHKTTaYnaLIWJ02VdXrsJX0vGedDESQnLsOekr94ryfjg==}
@@ -3387,6 +3393,8 @@ snapshots:
   isexe@2.0.0: {}
 
   jiti@2.6.1: {}
+
+  jose@6.2.1: {}
 
   js-sha256@0.11.1: {}
 
