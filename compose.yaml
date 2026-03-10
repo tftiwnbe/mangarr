@@ -29,7 +29,7 @@ services:
       convex-backend:
         condition: service_healthy
     ports:
-      - "3737:3000"
+      - "3737:3737"
     environment:
       - PUBLIC_CONVEX_URL=http://127.0.0.1:3210
       - CONVEX_SELF_HOSTED_URL=http://convex-backend:3210
@@ -37,7 +37,7 @@ services:
       - MANGARR_WORKER_URL=http://worker:3212
       - MANGARR_WORKER_SERVICE_SECRET=mangarr-internal-service-secret
       - HOST=0.0.0.0
-      - PORT=3000
+      - PORT=3737
     restart: unless-stopped
 
   worker:

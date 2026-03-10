@@ -10,7 +10,7 @@ RUN pnpm install --frozen-lockfile
 
 
 FROM web-base AS web-dev
-CMD ["sh", "-c", "if [ ! -d node_modules/.pnpm ]; then pnpm install --frozen-lockfile; fi && pnpm run dev --host 0.0.0.0 --port 3000"]
+CMD ["sh", "-c", "if [ ! -d node_modules/.pnpm ]; then pnpm install --frozen-lockfile; fi && pnpm run dev"]
 
 
 FROM web-base AS web-build
@@ -23,7 +23,7 @@ WORKDIR /app/web
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
-    PORT=3000
+    PORT=3737
 
 RUN corepack enable
 
@@ -32,7 +32,7 @@ RUN pnpm install --frozen-lockfile --prod
 
 COPY --from=web-build /app/web/build ./build
 
-EXPOSE 3000
+EXPOSE 3737
 
 CMD ["node", "build"]
 
