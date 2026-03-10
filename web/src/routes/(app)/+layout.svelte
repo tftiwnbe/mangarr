@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { useQuery } from 'convex-svelte';
 	import { onMount } from 'svelte';
 
 	import { getMe } from '$lib/api/auth';
 	import { clearAuthSession } from '$lib/api/session';
+	import { convexApi } from '$lib/convex/api';
 	import { StarField } from '$lib/elements/starfield';
 	import {
 		BookIcon,
@@ -24,8 +26,10 @@
 	let { children } = $props();
 	let isCheckingAuth = $state(true);
 	let isAuthenticated = $state(false);
+	let handledConvexAuthFailure = $state(false);
 
 	const redirectTarget = $derived(page.url.pathname + page.url.search);
+	const viewerQuery = useQuery(convexApi.auth.getViewer, () => (isAuthenticated ? {} : 'skip'));
 
 	const navItems = [
 		{ href: '/library', icon: BookIcon, label: 'library' },
@@ -66,6 +70,25 @@
 		await goto(`/login?redirect=${target}`, { replaceState: true });
 	}
 
+	$effect(() => {
+		if (isCheckingAuth || !isAuthenticated || handledConvexAuthFailure) {
+			return;
+		}
+
+		if (viewerQuery.isLoading) {
+			return;
+		}
+
+		if (viewerQuery.error || !viewerQuery.data) {
+			handledConvexAuthFailure = true;
+			void (async () => {
+				clearAuthSession();
+				wsManager.disconnect();
+				await navigateToLogin();
+			})();
+		}
+	});
+
 	onMount(() => {
 		void (async () => {
 			try {
@@ -80,6 +103,7 @@
 				if (isAuthenticated) wsManager.disconnect();
 				await navigateToLogin();
 			} finally {
+				handledConvexAuthFailure = false;
 				isCheckingAuth = false;
 			}
 		})();
