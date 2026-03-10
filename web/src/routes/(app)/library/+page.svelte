@@ -275,7 +275,6 @@
 			{$_('nav.library').toLowerCase()}
 		</h1>
 		{#if !loading}
-			<span class="text-label text-[var(--text-ghost)]">{titles.length}</span>
 			<button
 				type="button"
 				class="relative flex h-8 w-8 items-center justify-center transition-colors {hasActiveControls
