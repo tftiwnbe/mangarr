@@ -45,9 +45,10 @@ docker compose -f compose.dev.yaml up --build
 The Compose stack starts:
 
 - `mangarr` on `http://localhost:3737`
+- self-hosted Convex backend on `http://localhost:3210`
 - Convex dashboard on `http://localhost:6791`
 
-The `mangarr` container starts the Convex binary directly, syncs the local schema/functions, then launches the worker and web processes. In development it will generate and log a Convex `INSTANCE_SECRET` on first boot unless you provide one yourself. Mutable app settings continue to belong in Convex.
+The `mangarr` container starts the Convex binary directly, syncs the local schema/functions, then launches the worker and web processes. Convex keeps a stable instance secret in `config/convex/instance_secret`, and the dev container logs the derived admin key so you can use the dashboard against `localhost:3210`. Mutable app settings continue to belong in Convex.
 
 If you want to re-push the local Convex schema/functions manually after the stack is up:
 
@@ -58,6 +59,7 @@ just convex-push
 Default URLs:
 
 - Web UI: `http://localhost:3737`
+- Convex backend: `http://localhost:3210`
 - Convex dashboard: `http://localhost:6791`
 
 `config/` stores bridge artifacts and Convex runtime state. `data/` is reserved for content and other user-managed payloads.

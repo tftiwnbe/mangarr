@@ -6,7 +6,7 @@ services:
     ports:
       - "6791:6791"
     environment:
-      - NEXT_PUBLIC_DEPLOYMENT_URL=http://mangarr:3210
+      - NEXT_PUBLIC_DEPLOYMENT_URL=http://localhost:3210
     depends_on:
       mangarr:
         condition: service_started
@@ -18,6 +18,7 @@ services:
       target: mangarr-dev
     ports:
       - "3737:3737"
+      - "3210:3210"
     volumes:
       - ./config:/app/config
       - ./data:/app/data
