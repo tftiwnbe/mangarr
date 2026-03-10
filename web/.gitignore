@@ -6,6 +6,7 @@ node_modules
 .netlify
 .wrangler
 /.svelte-kit
+/.pnpm-store
 /build
 
 # OS
@@ -17,8 +18,14 @@ Thumbs.db
 .env.*
 !.env.example
 !.env.test
-src/convex/_generated
 
+# Convex
+src/convex/_generated
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+# Paraglide
+src/lib/paraglide
+project.inlang/cache/
+# Playwright
+test-results

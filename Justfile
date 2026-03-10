@@ -176,13 +176,13 @@ lint target="all":
 check target="all":
     @case "{{ target }}" in \
       all) \
-        (cd web && pnpm run check:all); \
+        (cd web && pnpm run check); \
         (cd worker && pnpm run check); \
         (cd bridge && ./gradlew build); \
         ;; \
       web) \
         echo "Running web checks..."; \
-        cd web && pnpm run check:all; \
+        cd web && pnpm run check; \
         ;; \
       worker) \
         echo "Running worker checks..."; \
@@ -205,7 +205,7 @@ ci target="all":
       all) \
         echo "Running CI checks for web, worker, and bridge..."; \
         (cd web && pnpm run lint); \
-        (cd web && pnpm run check:all); \
+        (cd web && pnpm run check); \
         (cd worker && pnpm run check); \
         (cd worker && pnpm run build); \
         (cd bridge && ./gradlew ktlintCheck); \
@@ -217,7 +217,7 @@ ci target="all":
       web) \
         echo "Running web CI checks..."; \
         (cd web && pnpm run lint); \
-        (cd web && pnpm run check:all); \
+        (cd web && pnpm run check); \
         ;; \
       worker) \
         echo "Running worker CI checks..."; \

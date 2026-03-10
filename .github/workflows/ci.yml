@@ -144,7 +144,7 @@ jobs:
       - name: Wait for web and worker endpoints
         run: |
           for attempt in $(seq 1 45); do
-            if docker compose -f compose.yaml exec -T web sh -lc 'wget -qO- http://127.0.0.1:3000 >/dev/null' && \
+            if docker compose -f compose.yaml exec -T web sh -lc 'wget -qO- http://127.0.0.1:3737 >/dev/null' && \
                docker compose -f compose.yaml exec -T worker curl -fsS http://127.0.0.1:3212/health >/dev/null; then
               exit 0
             fi
