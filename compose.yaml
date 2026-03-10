@@ -1,65 +1,12 @@
 services:
-  convex-backend:
-    image: ghcr.io/get-convex/convex-backend:latest
-    stop_grace_period: 10s
-    stop_signal: SIGINT
-    ports:
-      - "3210:3210"
-      - "3211:3211"
-    volumes:
-      - convex_data:/convex/data
-    environment:
-      - CONVEX_CLOUD_ORIGIN=http://127.0.0.1:3210
-      - CONVEX_SITE_ORIGIN=http://127.0.0.1:3211
-      - DISABLE_BEACON=true
-      - DISABLE_METRICS_ENDPOINT=true
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3210/version"]
-      interval: 5s
-      start_period: 10s
-    restart: unless-stopped
-
-  web:
+  mangarr:
     build:
       context: .
       dockerfile: Dockerfile
-      target: web-runtime
-    init: true
-    depends_on:
-      convex-backend:
-        condition: service_healthy
+      target: mangarr-runtime
     ports:
       - "3737:3737"
-    environment:
-      - PUBLIC_CONVEX_URL=http://127.0.0.1:3210
-      - CONVEX_SELF_HOSTED_URL=http://convex-backend:3210
-      - CONVEX_URL=http://convex-backend:3210
-      - MANGARR_WORKER_URL=http://worker:3212
-      - MANGARR_WORKER_SERVICE_SECRET=mangarr-internal-service-secret
-      - HOST=0.0.0.0
-      - PORT=3737
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
     restart: unless-stopped
-
-  worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: worker-runtime
-    init: true
-    depends_on:
-      convex-backend:
-        condition: service_healthy
-    expose:
-      - "3212"
-    environment:
-      - MANGARR_WORKER_HOST=0.0.0.0
-      - MANGARR_WORKER_PORT=3212
-      - MANGARR_WORKER_SERVICE_SECRET=mangarr-internal-service-secret
-      - CONVEX_SELF_HOSTED_URL=http://convex-backend:3210
-      - CONVEX_URL=http://convex-backend:3210
-      - TACHIBRIDGE_PORT=8181
-      - TACHIBRIDGE_JAR_PATH=/app/bin/tachibridge.jar
-    restart: unless-stopped
-
-volumes:
-  convex_data:

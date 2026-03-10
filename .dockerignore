@@ -11,6 +11,8 @@ server/app/static
 server/.pytest_cache
 server/.ruff_cache
 web/node_modules
+worker/node_modules
+worker/dist
 web/.svelte-kit
 web/.pnpm-store
 web/pnpm-lock.yaml.*

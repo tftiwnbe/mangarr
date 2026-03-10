@@ -36,15 +36,13 @@ dev-web:
 # Start Convex dev process
 [group('dev')]
 dev-convex:
-    @echo "Starting convex dev..."
-    cd web && CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210 CONVEX_SELF_HOSTED_ADMIN_KEY='mangarr-dev|017d2981db031fce1d83c074abf4c2cf7a51bce8874e23b9964936b367eac682d6b7097b86' pnpm run convex:dev --typecheck disable --codegen disable
+    @echo "Convex now starts inside the mangarr container. Use just dev-docker."
 
 # Push Convex functions and schema to the local self-hosted backend once
 [group('dev')]
 convex-push:
-    @echo "Pushing Convex functions to local self-hosted backend..."
-    cd web && CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210 CONVEX_SELF_HOSTED_ADMIN_KEY='mangarr-dev|017d2981db031fce1d83c074abf4c2cf7a51bce8874e23b9964936b367eac682d6b7097b86' pnpm run convex:dev --once --typecheck disable --codegen disable
-    if [ -f web/.env.local ]; then rm web/.env.local; fi
+    @echo "Pushing Convex functions through the running mangarr container..."
+    docker compose -f compose.dev.yaml exec -T mangarr sh -lc 'cd /app/web && pnpm exec convex dev --once --typecheck disable --codegen disable'
 
 # Start worker dev server
 [group('dev')]
@@ -243,7 +241,7 @@ ci target="all":
 smoke:
     @echo "Running smoke checks..."
     curl -fsS "http://127.0.0.1:{{ web_port }}" >/dev/null
-    curl -fsS "http://127.0.0.1:{{ worker_port }}/health" >/dev/null
+    docker compose -f compose.dev.yaml exec -T mangarr curl -fsS "http://127.0.0.1:{{ worker_port }}/health" >/dev/null
     echo "Smoke checks passed."
 
 # Audit dependencies
