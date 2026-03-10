@@ -855,10 +855,10 @@
 		<!-- Tabs -->
 		<Tabs
 			tabs={[
-				{ value: 'account', label: $_('settings.account').toLowerCase() },
-				{ value: 'library', label: $_('nav.library').toLowerCase() },
-				{ value: 'system', label: $_('settings.system').toLowerCase() },
-				{ value: 'about', label: $_('settings.about').toLowerCase() }
+				{ value: 'account', label: $_('settings.account') },
+				{ value: 'library', label: $_('nav.library') },
+				{ value: 'system', label: $_('settings.system') },
+				{ value: 'about', label: $_('settings.about') }
 			] satisfies TabItem[]}
 			value={activeTab}
 			onValueChange={(v) => (activeTab = v as SettingsTab)}
