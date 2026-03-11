@@ -84,8 +84,11 @@ class BridgeCommandRunner(
                                 kotlinx.serialization.json.buildJsonArray {
                                     add(JsonPrimitive("extensions.repo"))
                                     add(JsonPrimitive("extensions.install"))
+                                    add(JsonPrimitive("sources.preferences"))
                                     add(JsonPrimitive("explore.search"))
+                                    add(JsonPrimitive("explore.feed"))
                                     add(JsonPrimitive("explore.title.fetch"))
+                                    add(JsonPrimitive("reader.pages.fetch"))
                                     add(JsonPrimitive("library.import"))
                                 },
                             )
@@ -183,6 +186,11 @@ class BridgeCommandRunner(
                     put("created", persisted.created)
                 }
             }
+            "extensions.repo.search" -> {
+                val query = payload.optionalString("query").orEmpty()
+                val limit = payload.optionalInt("limit") ?: 50
+                service.searchRepository(query, limit)
+            }
             "extensions.install" -> {
                 val pkg = payload.requiredString("pkg")
                 val installed = kotlinx.coroutines.runBlocking { service.installExtension(pkg) }
@@ -196,7 +204,22 @@ class BridgeCommandRunner(
                             put(
                                 "sourceIds",
                                 kotlinx.serialization.json.buildJsonArray {
-                                    installed.sourceIds.forEach { add(JsonPrimitive(it)) }
+                                    installed.sources.forEach { add(JsonPrimitive(it.id)) }
+                                },
+                            )
+                            put(
+                                "sources",
+                                kotlinx.serialization.json.buildJsonArray {
+                                    installed.sources.forEach { source ->
+                                        add(
+                                            buildJsonObject {
+                                                put("id", source.id)
+                                                put("name", source.name)
+                                                put("lang", source.lang)
+                                                put("supportsLatest", source.supportsLatest)
+                                            },
+                                        )
+                                    }
                                 },
                             )
                             put("now", System.currentTimeMillis())
@@ -212,20 +235,123 @@ class BridgeCommandRunner(
                     put(
                         "sourceIds",
                         kotlinx.serialization.json.buildJsonArray {
-                            installed.sourceIds.forEach { add(JsonPrimitive(it)) }
+                            installed.sources.forEach { add(JsonPrimitive(it.id)) }
+                        },
+                    )
+                    put(
+                        "sources",
+                        kotlinx.serialization.json.buildJsonArray {
+                            installed.sources.forEach { source ->
+                                add(
+                                    buildJsonObject {
+                                        put("id", source.id)
+                                        put("name", source.name)
+                                        put("lang", source.lang)
+                                        put("supportsLatest", source.supportsLatest)
+                                    },
+                                )
+                            }
                         },
                     )
                 }
             }
+            "extensions.update" -> {
+                val pkg = payload.requiredString("pkg")
+                val updated = kotlinx.coroutines.runBlocking { service.updateExtension(pkg) }
+                client.upsertInstalledExtension(
+                    client.payload(
+                        buildJsonObject {
+                            put("pkg", updated.pkg)
+                            put("name", updated.name)
+                            put("lang", updated.lang)
+                            put("version", updated.version)
+                            put(
+                                "sourceIds",
+                                kotlinx.serialization.json.buildJsonArray {
+                                    updated.sources.forEach { add(JsonPrimitive(it.id)) }
+                                },
+                            )
+                            put(
+                                "sources",
+                                kotlinx.serialization.json.buildJsonArray {
+                                    updated.sources.forEach { source ->
+                                        add(
+                                            buildJsonObject {
+                                                put("id", source.id)
+                                                put("name", source.name)
+                                                put("lang", source.lang)
+                                                put("supportsLatest", source.supportsLatest)
+                                            },
+                                        )
+                                    }
+                                },
+                            )
+                            put("now", System.currentTimeMillis())
+                        },
+                    ),
+                )
+                buildJsonObject {
+                    put("ok", true)
+                    put("pkg", updated.pkg)
+                    put("name", updated.name)
+                    put("lang", updated.lang)
+                    put("version", updated.version)
+                }
+            }
+            "extensions.uninstall" -> {
+                val pkg = payload.requiredString("pkg")
+                val result = kotlinx.coroutines.runBlocking { service.uninstallExtension(pkg) }
+                client.removeInstalledExtension(
+                    client.payload(
+                        buildJsonObject {
+                            put("pkg", pkg)
+                        },
+                    ),
+                )
+                result
+            }
+            "sources.preferences.fetch" -> {
+                val sourceId = payload.requiredString("sourceId")
+                kotlinx.coroutines.runBlocking { service.fetchSourcePreferences(sourceId) }
+            }
+            "sources.preferences.save" -> {
+                val sourceId = payload.requiredString("sourceId")
+                val values = payload["values"]?.jsonObject ?: error("Missing values")
+                kotlinx.coroutines.runBlocking { service.saveSourcePreferences(sourceId, values) }
+            }
             "explore.search" -> {
                 val query = payload.requiredString("query")
                 val limit = payload.optionalInt("limit") ?: 30
-                kotlinx.coroutines.runBlocking { service.searchTitles(query, limit) }
+                val sourceId = payload.optionalString("sourceId")
+                val searchFilters = payload["searchFilters"]?.jsonObject
+                kotlinx.coroutines.runBlocking { service.searchTitles(query, limit, sourceId, searchFilters) }
+            }
+            "explore.popular" -> {
+                val sourceId = payload.requiredString("sourceId")
+                val page = payload.optionalInt("page") ?: 1
+                val limit = payload.optionalInt("limit") ?: 30
+                kotlinx.coroutines.runBlocking { service.fetchPopular(sourceId, page, limit) }
+            }
+            "explore.latest" -> {
+                val sourceId = payload.requiredString("sourceId")
+                val page = payload.optionalInt("page") ?: 1
+                val limit = payload.optionalInt("limit") ?: 30
+                kotlinx.coroutines.runBlocking { service.fetchLatest(sourceId, page, limit) }
             }
             "explore.title.fetch" -> {
                 val sourceId = payload.requiredString("sourceId")
                 val titleUrl = payload.requiredString("titleUrl")
                 kotlinx.coroutines.runBlocking { service.fetchTitle(sourceId, titleUrl) }
+            }
+            "explore.chapters.fetch" -> {
+                val sourceId = payload.requiredString("sourceId")
+                val titleUrl = payload.requiredString("titleUrl")
+                kotlinx.coroutines.runBlocking { service.fetchChapters(sourceId, titleUrl) }
+            }
+            "reader.pages.fetch" -> {
+                val sourceId = payload.requiredString("sourceId")
+                val chapterUrl = payload.requiredString("chapterUrl")
+                kotlinx.coroutines.runBlocking { service.fetchPages(sourceId, chapterUrl) }
             }
             "library.import" -> {
                 val sourceId = payload.requiredString("sourceId")

@@ -20,16 +20,49 @@ function targetCapabilityFor(commandType: string) {
 	switch (commandType) {
 		case 'extensions.repo.sync':
 			return 'extensions.repo';
+		case 'extensions.repo.search':
+			return 'extensions.repo';
 		case 'extensions.install':
 			return 'extensions.install';
+		case 'extensions.update':
+			return 'extensions.install';
+		case 'extensions.uninstall':
+			return 'extensions.install';
+		case 'sources.preferences.fetch':
+			return 'sources.preferences';
+		case 'sources.preferences.save':
+			return 'sources.preferences';
 		case 'explore.search':
 			return 'explore.search';
+		case 'explore.popular':
+			return 'explore.feed';
+		case 'explore.latest':
+			return 'explore.feed';
 		case 'explore.title.fetch':
 			return 'explore.title.fetch';
+		case 'explore.chapters.fetch':
+			return 'explore.title.fetch';
+		case 'reader.pages.fetch':
+			return 'reader.pages.fetch';
 		case 'library.import':
 			return 'library.import';
 		default:
 			throw new Error(`Unsupported command type: ${commandType}`);
+	}
+}
+
+function requiresAdmin(commandType: string) {
+	switch (commandType) {
+		case 'extensions.repo.sync':
+		case 'extensions.repo.search':
+		case 'extensions.install':
+		case 'extensions.update':
+		case 'extensions.uninstall':
+		case 'sources.preferences.fetch':
+		case 'sources.preferences.save':
+			return true;
+		default:
+			return false;
 	}
 }
 
@@ -45,6 +78,9 @@ export const enqueue = mutation({
 		const identity = await ctx.auth.getUserIdentity();
 		if (!identity) {
 			throw new Error('Not authenticated');
+		}
+		if (requiresAdmin(args.commandType) && identity.isAdmin !== true && identity.role !== 'admin') {
+			throw new Error('Admin privileges are required');
 		}
 		const now = Date.now();
 		const targetCapability = targetCapabilityFor(args.commandType);
@@ -94,6 +130,7 @@ export const listMine = query({
 				id: row._id,
 				commandType: row.commandType,
 				status: row.status,
+				payload: row.payload,
 				result: row.result ?? null,
 				lastErrorMessage: row.lastErrorMessage ?? null,
 				createdAt: row.createdAt,

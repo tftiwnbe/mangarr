@@ -76,6 +76,16 @@ export default defineSchema({
 		lang: v.string(),
 		version: v.string(),
 		sourceIds: v.array(v.string()),
+		sources: v.optional(
+			v.array(
+				v.object({
+					id: v.string(),
+					name: v.string(),
+					lang: v.string(),
+					supportsLatest: v.boolean()
+				})
+			)
+		),
 		status: v.union(v.literal('installed'), v.literal('disabled')),
 		installedAt: v.float64(),
 		updatedAt: v.float64()

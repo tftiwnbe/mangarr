@@ -153,6 +153,7 @@ class BridgeServer(
                     bridgeState = bridgeState,
                     heartbeatReporter = heartbeatReporter,
                     commandRunner = commandRunner,
+                    bridgeService = bridgeService,
                 )
             bridgeState.setRunning()
             heartbeatReporter.start()

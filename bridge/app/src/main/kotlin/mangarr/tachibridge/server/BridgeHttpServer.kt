@@ -10,8 +10,10 @@ import mangarr.tachibridge.runtime.BridgeSnapshot
 import mangarr.tachibridge.runtime.BridgeCommandRunner
 import mangarr.tachibridge.runtime.CommandRunnerSnapshot
 import mangarr.tachibridge.runtime.BridgeHeartbeatReporter
+import mangarr.tachibridge.runtime.BridgeService
 import mangarr.tachibridge.runtime.HeartbeatSnapshot
 import mangarr.tachibridge.runtime.BridgeState
+import java.net.URLDecoder
 import java.net.InetSocketAddress
 import java.util.concurrent.Executors
 
@@ -24,6 +26,7 @@ class BridgeHttpServer(
     private val bridgeState: BridgeState,
     private val heartbeatReporter: BridgeHeartbeatReporter,
     private val commandRunner: BridgeCommandRunner,
+    private val bridgeService: BridgeService,
 ) {
     private val json = Json { prettyPrint = false }
     private val server =
@@ -111,6 +114,34 @@ class BridgeHttpServer(
             sendJson(exchange, 200, buildJsonObject { put("ok", true) })
         }
 
+        server.createContext("/assets/page") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+            if (exchange.requestMethod.uppercase() != "GET") {
+                sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+                return@createContext
+            }
+
+            val sourceId = exchange.queryParam("sourceId")
+            val chapterUrl = exchange.queryParam("chapterUrl")
+            val index = exchange.queryParam("index")?.toIntOrNull()
+            if (sourceId.isNullOrBlank() || chapterUrl.isNullOrBlank() || index == null || index < 0) {
+                sendJson(exchange, 400, buildJsonObject { put("message", "Missing sourceId, chapterUrl, or index") })
+                return@createContext
+            }
+
+            try {
+                val image = kotlinx.coroutines.runBlocking {
+                    bridgeService.fetchPageImage(sourceId, chapterUrl, index)
+                }
+                sendBytes(exchange, 200, image.bytes, image.contentType)
+            } catch (error: Exception) {
+                logger.warn(error) { "Failed to serve page asset for source=$sourceId chapter=$chapterUrl index=$index" }
+                sendJson(exchange, 502, buildJsonObject { put("message", "Bridge page asset is unavailable") })
+            }
+        }
+
         server.start()
         logger.info { "Bridge HTTP server started on $host:$port" }
     }
@@ -141,4 +172,26 @@ class BridgeHttpServer(
         exchange.sendResponseHeaders(status, body.size.toLong())
         exchange.responseBody.use { output -> output.write(body) }
     }
+
+    private fun sendBytes(exchange: HttpExchange, status: Int, body: ByteArray, contentType: String) {
+        exchange.responseHeaders.set("content-type", contentType)
+        exchange.responseHeaders.set("cache-control", "private, max-age=300")
+        exchange.sendResponseHeaders(status, body.size.toLong())
+        exchange.responseBody.use { output -> output.write(body) }
+    }
+
+    private fun HttpExchange.queryParam(name: String): String? =
+        requestURI.rawQuery
+            ?.split('&')
+            ?.asSequence()
+            ?.mapNotNull { part ->
+                if (part.isBlank()) {
+                    null
+                } else {
+                    val key = part.substringBefore('=')
+                    val value = part.substringAfter('=', "")
+                    URLDecoder.decode(key, Charsets.UTF_8) to URLDecoder.decode(value, Charsets.UTF_8)
+                }
+            }?.firstOrNull { (key, _) -> key == name }
+            ?.second
 }

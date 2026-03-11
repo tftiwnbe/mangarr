@@ -20,10 +20,11 @@ export async function proxyBridgeRequest(
 		headers?: HeadersInit;
 		timeoutMs?: number;
 		body?: BodyInit | null;
+		requireAdmin?: boolean;
 	} = {}
 ) {
 	const user = requireUser(event);
-	if (!user.isAdmin) {
+	if (init.requireAdmin !== false && !user.isAdmin) {
 		throw error(403, 'Admin privileges are required');
 	}
 
