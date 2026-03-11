@@ -1,11 +1,7 @@
 <script lang="ts">
 	import { Select } from 'bits-ui';
 	import { CaretDownIcon } from 'phosphor-svelte';
-
-	export interface SelectOption {
-		value: string;
-		label: string;
-	}
+	import type { SelectOption } from './types';
 
 	interface Props {
 		value?: string;

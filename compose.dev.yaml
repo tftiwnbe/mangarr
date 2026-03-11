@@ -23,10 +23,7 @@ services:
       - ./config:/app/config
       - ./data:/app/data
       - ./web:/app/web
-      - ./worker:/app/worker
       - web_node_modules:/app/web/node_modules
-      - worker_node_modules:/app/worker/node_modules
 
 volumes:
   web_node_modules:
-  worker_node_modules:

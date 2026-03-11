@@ -1,9 +1,5 @@
 <script lang="ts">
-	export interface TabItem {
-		value: string;
-		label: string;
-		count?: number;
-	}
+	import type { TabItem } from './types';
 
 	interface Props {
 		tabs: TabItem[];
