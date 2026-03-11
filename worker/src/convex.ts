@@ -1,7 +1,7 @@
 import { ConvexHttpClient } from 'convex/browser';
 
 import type { WorkerConfig } from './config.js';
-import { convexApi } from './generated/convex-api.js';
+import { workerApi } from './convex-api.js';
 
 export type WorkerConvexClient = {
 	reportHeartbeat(args: {
@@ -87,10 +87,10 @@ export function createConvexClient(config: WorkerConfig): WorkerConvexClient | n
 
 	return {
 		async reportHeartbeat(args) {
-			await client.mutation(convexApi.worker.reportHeartbeat, args);
+			await client.mutation(workerApi.worker.reportHeartbeat, args);
 		},
 		async leaseCommands(args) {
-			return (await client.mutation(convexApi.commands.lease, args)) as Array<{
+			return (await client.mutation(workerApi.commands.lease, args)) as Array<{
 				id: string;
 				commandType: string;
 				payload: unknown;
@@ -100,37 +100,37 @@ export function createConvexClient(config: WorkerConfig): WorkerConvexClient | n
 			}>;
 		},
 		async markCommandRunning(args) {
-			return (await client.mutation(convexApi.commands.markRunning, args)) as { ok: boolean };
+			return (await client.mutation(workerApi.commands.markRunning, args)) as { ok: boolean };
 		},
 		async renewCommandLease(args) {
-			return (await client.mutation(convexApi.commands.renewLease, args)) as { ok: boolean };
+			return (await client.mutation(workerApi.commands.renewLease, args)) as { ok: boolean };
 		},
 		async completeCommand(args) {
-			return (await client.mutation(convexApi.commands.complete, args)) as { ok: boolean };
+			return (await client.mutation(workerApi.commands.complete, args)) as { ok: boolean };
 		},
 		async failCommand(args) {
-			return (await client.mutation(convexApi.commands.fail, args)) as {
+			return (await client.mutation(workerApi.commands.fail, args)) as {
 				ok: boolean;
 				retried: boolean;
 			};
 		},
 		async setExtensionRepository(args) {
-			return (await client.mutation(convexApi.extensions.setRepository, args)) as {
+			return (await client.mutation(workerApi.extensions.setRepository, args)) as {
 				updated: boolean;
 				created: boolean;
 			};
 		},
 		async upsertInstalledExtension(args) {
-			return (await client.mutation(convexApi.extensions.upsertInstalled, args)) as { ok: boolean };
+			return (await client.mutation(workerApi.extensions.upsertInstalled, args)) as { ok: boolean };
 		},
 		async searchExplore(args) {
-			return (await client.query(convexApi.explore.search, args)) as unknown[];
+			return (await client.query(workerApi.explore.search, args)) as unknown[];
 		},
 		async fetchExploreTitle(args) {
-			return (await client.query(convexApi.explore.getTitle, args)) as unknown | null;
+			return (await client.query(workerApi.explore.getTitle, args)) as unknown | null;
 		},
 		async importLibraryTitle(args) {
-			return (await client.mutation(convexApi.library.importForUser, args)) as {
+			return (await client.mutation(workerApi.library.importForUser, args)) as {
 				created: boolean;
 				titleId: string;
 			};
