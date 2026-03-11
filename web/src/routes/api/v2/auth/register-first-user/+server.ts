@@ -12,7 +12,12 @@ export const POST: RequestHandler = async (event) => {
 		throw error(409, 'Setup is already complete');
 	}
 
-	const payload = (await request.json()) as { username?: string; password?: string };
+	let payload: { username?: string; password?: string };
+	try {
+		payload = (await request.json()) as { username?: string; password?: string };
+	} catch {
+		throw error(400, 'Request body must be valid JSON');
+	}
 	const username = String(payload.username ?? '').trim();
 	const password = String(payload.password ?? '');
 

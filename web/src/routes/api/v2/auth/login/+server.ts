@@ -8,11 +8,20 @@ import { normalizeUsername } from '$lib/server/security';
 
 export const POST: RequestHandler = async (event) => {
 	const { request } = event;
-	const payload = (await request.json()) as {
+	let payload: {
 		username?: string;
 		password?: string;
 		remember_me?: boolean;
 	};
+	try {
+		payload = (await request.json()) as {
+			username?: string;
+			password?: string;
+			remember_me?: boolean;
+		};
+	} catch {
+		throw error(400, 'Request body must be valid JSON');
+	}
 	const username = String(payload.username ?? '').trim();
 	const password = String(payload.password ?? '');
 
