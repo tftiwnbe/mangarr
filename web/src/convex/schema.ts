@@ -6,7 +6,6 @@ export default defineSchema({
 		key: v.string(),
 		setupState: v.union(v.literal('open'), v.literal('configured')),
 		schemaVersion: v.string(),
-		releaseChannel: v.string(),
 		extensionRepoUrl: v.optional(v.string()),
 		defaultAdminCreatedAt: v.optional(v.float64()),
 		createdAt: v.float64(),
@@ -50,25 +49,25 @@ export default defineSchema({
 		.index('by_owner_user_id_public_id', ['ownerUserId', 'publicId'])
 		.index('by_revoked_at', ['revokedAt']),
 
-	workerState: defineTable({
-		workerId: v.string(),
+	bridgeState: defineTable({
+		bridgeId: v.string(),
 		version: v.string(),
 		capabilities: v.array(v.string()),
 		lastHeartbeatAt: v.float64(),
-		bridgeStatus: v.union(
+		status: v.union(
 			v.literal('stopped'),
 			v.literal('starting'),
 			v.literal('ready'),
 			v.literal('error')
 		),
-		bridgePort: v.optional(v.float64()),
-		bridgeReady: v.boolean(),
+		port: v.optional(v.float64()),
+		ready: v.boolean(),
 		restartCount: v.float64(),
 		lastStartupError: v.optional(v.string()),
 		lastHeartbeatError: v.optional(v.string()),
 		updatedAt: v.float64()
 	})
-		.index('by_worker_id', ['workerId'])
+		.index('by_bridge_id', ['bridgeId'])
 		.index('by_last_heartbeat_at', ['lastHeartbeatAt']),
 
 	installedExtensions: defineTable({
@@ -76,6 +75,7 @@ export default defineSchema({
 		name: v.string(),
 		lang: v.string(),
 		version: v.string(),
+		sourceIds: v.array(v.string()),
 		status: v.union(v.literal('installed'), v.literal('disabled')),
 		installedAt: v.float64(),
 		updatedAt: v.float64()
@@ -83,27 +83,16 @@ export default defineSchema({
 		.index('by_pkg', ['pkg'])
 		.index('by_installed_at', ['installedAt']),
 
-	exploreCatalog: defineTable({
-		extensionPkg: v.string(),
-		canonicalKey: v.string(),
-		title: v.string(),
-		description: v.string(),
-		lang: v.string(),
-		coverRef: v.optional(v.string()),
-		createdAt: v.float64(),
-		updatedAt: v.float64()
-	})
-		.index('by_canonical_key', ['canonicalKey'])
-		.index('by_title', ['title'])
-		.index('by_extension_pkg', ['extensionPkg']),
-
 	libraryTitles: defineTable({
 		ownerUserId: v.id('users'),
 		canonicalKey: v.string(),
 		title: v.string(),
 		sourcePkg: v.string(),
 		sourceLang: v.string(),
-		coverRef: v.optional(v.string()),
+		sourceId: v.string(),
+		titleUrl: v.string(),
+		description: v.optional(v.string()),
+		coverUrl: v.optional(v.string()),
 		createdAt: v.float64(),
 		updatedAt: v.float64(),
 		lastReadAt: v.optional(v.float64())
@@ -129,7 +118,7 @@ export default defineSchema({
 		),
 		priority: v.float64(),
 		runAfter: v.float64(),
-		leaseOwnerWorkerId: v.optional(v.string()),
+		leaseOwnerBridgeId: v.optional(v.string()),
 		leaseExpiresAt: v.optional(v.float64()),
 		attemptCount: v.float64(),
 		maxAttempts: v.float64(),
@@ -141,7 +130,7 @@ export default defineSchema({
 		completedAt: v.optional(v.float64())
 	})
 		.index('by_status_priority_run_after', ['status', 'priority', 'runAfter'])
-		.index('by_lease_owner_worker_id', ['leaseOwnerWorkerId'])
+		.index('by_lease_owner_bridge_id', ['leaseOwnerBridgeId'])
 		.index('by_idempotency_key', ['idempotencyKey'])
 		.index('by_requested_by_user_id_created_at', ['requestedByUserId', 'createdAt'])
 		.index('by_created_at', ['createdAt'])

@@ -2,7 +2,7 @@
 
 Mangarr is a self-hosted manga manager for people who want one place to discover series, build a personal library, monitor downloads, and read through a browser without depending on a hosted service.
 
-The current `v2.0.0-alpha` branch is being rebuilt around a SvelteKit web app, a self-hosted Convex backend, and a Node worker that owns bridge and filesystem side effects. The goal is practical: keep the parts that make source-driven manga management powerful, but package them into a cleaner single-stack workflow you can run yourself.
+The current `v2.0.0` codebase is built around a SvelteKit web app, a self-hosted Convex backend, and a Kotlin bridge that owns source access plus command-side effects. The goal is practical: keep the parts that make source-driven manga management powerful, but package them into a cleaner single-stack workflow you can run yourself.
 
 ## What It Does
 
@@ -24,7 +24,6 @@ Fresh-install screens from a local `v2.0.0` build:
 ## Project Layout
 
 - `web/` active SvelteKit v2 app plus Convex functions under `web/src/convex/`
-- `worker/` Fastify-based worker for bridge supervision and host-side effects
 - `bridge/` Kotlin/JVM bridge for extension loading and source access
 - `web-ref/` local frontend reference from the archived FastAPI prototype
 - `server-ref/` local backend reference from the archived FastAPI prototype
@@ -48,7 +47,7 @@ The Compose stack starts:
 - self-hosted Convex backend on `http://localhost:3210`
 - Convex dashboard on `http://localhost:6791`
 
-The `mangarr` container starts the Convex binary directly, syncs the local schema/functions, then launches the worker and web processes. Convex keeps a stable instance secret in `config/convex/instance_secret`, and the dev container logs the derived admin key so you can use the dashboard against `localhost:3210`. Mutable app settings continue to belong in Convex.
+The `mangarr` container starts the Convex binary directly, syncs the local schema/functions, then launches the bridge and web processes. Convex keeps a stable instance secret in `config/convex/instance_secret`, and the dev container logs the derived admin key so you can use the dashboard against `localhost:3210`. Mutable app settings continue to belong in Convex.
 
 If you want to re-push the local Convex schema/functions manually after the stack is up:
 
@@ -80,7 +79,6 @@ Development servers:
 ```bash
 just dev-docker
 just dev-web
-just dev-worker
 just convex-push
 ```
 

@@ -7,11 +7,11 @@ ktlint_version = "1.7.1"
 kotlin_version = "2.2.21"
 kodein_version = "7.30.0"
 okhttp_version = "4.12.0"
-grpc_version = "1.75.0"
 protoc_version = "4.32.0"
 dex2jar_version = "2.4.32"
 serialization_version = "1.9.0"
 xml_serialization_version = "0.91.3"
+nimbus_version = "10.6"
 
 
 [libraries]
@@ -29,19 +29,10 @@ okhttp-dnsoverhttps = { module = "com.squareup.okhttp3:okhttp-dnsoverhttps", ver
 kotlin-logging = { module = "io.github.oshai:kotlin-logging-jvm", version = "7.0.13" }
 logstash-encoder = { module = "net.logstash.logback:logstash-logback-encoder", version = "8.0"}
 
-grpc-protobuf = { module = "io.grpc:grpc-protobuf", version.ref = "grpc_version" }
-grpc-protobuf-lite = { module = "io.grpc:grpc-protobuf-lite", version.ref = "grpc_version" }
-grpc-netty = { module = "io.grpc:grpc-netty", version.ref = "grpc_version" }
-grpc-okhttp = { module = "io.grpc:grpc-okhttp",version.ref = "grpc_version" }
-grpc-stub = { module = "io.grpc:grpc-stub", version.ref = "grpc_version" }
-grpc-kotlin-stub = { module = "io.grpc:grpc-kotlin-stub", version = "1.4.3" }
-
 protoc = { module = "com.google.protobuf:protoc", version.ref = "protoc_version" }
 protobuf-kotlin = { module = "com.google.protobuf:protobuf-kotlin", version.ref = "protoc_version" }
 protobuf-kotlin-lite = { module = "com.google.protobuf:protobuf-kotlin-lite", version.ref = "protoc_version" }
 protobuf-java-util = { module = "com.google.protobuf:protobuf-java-util", version.ref = "protoc_version" }
-protoc-gen-grpc-java = { module = "io.grpc:protoc-gen-grpc-java", version = "1.75.0" }
-protoc-gen-grpc-kotlin = { module = "io.grpc:protoc-gen-grpc-kotlin", version = "1.4.3" }
 
 injekt = { module = "com.github.mihonapp:injekt", version = "91edab2317" }
 kcef = { module = "dev.datlag:kcef", version = "2024.04.20.4" }
@@ -60,6 +51,7 @@ serialization-json-okio = { module = "org.jetbrains.kotlinx:kotlinx-serializatio
 serialization-protobuf = { module = "org.jetbrains.kotlinx:kotlinx-serialization-protobuf", version.ref = "serialization_version" }
 serialization-xml-core = { module = "io.github.pdvrieze.xmlutil:core-android", version.ref = "xml_serialization_version" }
 serialization-xml = { module = "io.github.pdvrieze.xmlutil:serialization", version.ref = "xml_serialization_version" }
+nimbus-jose = { module = "com.nimbusds:nimbus-jose-jwt", version.ref = "nimbus_version" }
 
 [plugins]
 buildConfig = { id = "com.github.gmazzo.buildconfig", version= "5.7.1"}
@@ -74,8 +66,6 @@ serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref 
 kotlin = ["kotlin-stdlib", "kotlin-coroutines"]
 logging = ["kotlin-logging", "logstash-encoder"]
 network = ["okhttp", "okhttp-logging", "okhttp-brotli", "okhttp-dnsoverhttps", "rxjava"]
-# logging = ["kotlin-logging", "slf4j-simple"]
-grpc = ["grpc-protobuf", "grpc-protobuf-lite", "grpc-netty", "grpc-stub", "grpc-kotlin-stub", "protoc", "protobuf-kotlin", "protobuf-kotlin-lite", "protobuf-java-util", "protoc-gen-grpc-java", "protoc-gen-grpc-kotlin"]
 tachiyomi = ["injekt", "kcef", "bouncycastle", "rxjava", "jsoup"]
 apk = ["asm", "dex2jar-tools", "dex2jar-translator", "apk-parser", "apksig"]
-serialization = ["serialization-json", "serialization-json-okio", "serialization-protobuf", "serialization-xml-core", "serialization-xml"]
+serialization = ["serialization-json", "serialization-json-okio", "serialization-protobuf", "serialization-xml-core", "serialization-xml", "nimbus-jose"]
