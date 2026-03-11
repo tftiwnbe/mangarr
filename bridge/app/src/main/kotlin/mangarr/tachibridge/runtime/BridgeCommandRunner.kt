@@ -18,6 +18,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import mangarr.tachibridge.config.ConfigManager
 
 private val logger = KotlinLogging.logger {}
 
@@ -151,6 +152,12 @@ class BridgeCommandRunner(
             )
         } catch (error: Exception) {
             logger.error(error) { "Bridge command execution failed for ${command.commandType}" }
+            val retryDelayMs =
+                if (command.commandType == "downloads.chapter") {
+                    ConfigManager.config.downloads.failedRetryDelaySeconds * 1000L
+                } else {
+                    5_000L
+                }
             client.failCommand(
                 client.payload(
                     buildJsonObject {
@@ -158,7 +165,7 @@ class BridgeCommandRunner(
                         put("bridgeId", bridgeId)
                         put("now", System.currentTimeMillis())
                         put("message", error.message ?: "Unhandled bridge command error")
-                        put("retryDelayMs", 5000)
+                        put("retryDelayMs", retryDelayMs)
                     },
                 ),
             )

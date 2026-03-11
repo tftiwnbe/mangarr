@@ -184,6 +184,24 @@ object ConfigManager {
         update { config -> config.copy(proxy = proxy) }
     }
 
+    fun updateDownloads(updater: (BridgeConfig.Downloads) -> BridgeConfig.Downloads) {
+        update { config -> config.copy(downloads = updater(config.downloads)) }
+    }
+
+    fun setDownloadPath(path: String) {
+        updateDownloads { it.copy(downloadPath = path.trim()) }
+    }
+
+    fun setDownloadCompressionEnabled(enabled: Boolean) {
+        updateDownloads { it.copy(compressionEnabled = enabled) }
+    }
+
+    fun setFailedRetryDelaySeconds(seconds: Int) {
+        updateDownloads { downloads ->
+            downloads.copy(failedRetryDelaySeconds = seconds.coerceIn(60, 604_800))
+        }
+    }
+
     fun syncExtensions(validPackages: Set<String>) {
         update { config ->
             val cleaned = config.extensions.filter { it.packageName in validPackages }

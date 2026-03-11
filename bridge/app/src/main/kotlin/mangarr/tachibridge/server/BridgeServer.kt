@@ -155,6 +155,8 @@ class BridgeServer(
                     heartbeatReporter = heartbeatReporter,
                     commandRunner = commandRunner,
                     bridgeService = bridgeService,
+                    bridgeClient = convexClient,
+                    bridgeId = config.runtime.bridgeId,
                 )
             bridgeState.setRunning()
             heartbeatReporter.start()

@@ -4,7 +4,15 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import mangarr.tachibridge.runtime.BridgeSnapshot
 import mangarr.tachibridge.runtime.BridgeCommandRunner
@@ -13,6 +21,8 @@ import mangarr.tachibridge.runtime.BridgeHeartbeatReporter
 import mangarr.tachibridge.runtime.BridgeService
 import mangarr.tachibridge.runtime.HeartbeatSnapshot
 import mangarr.tachibridge.runtime.BridgeState
+import mangarr.tachibridge.runtime.ConvexBridgeClient
+import mangarr.tachibridge.runtime.DownloadReconcileChapter
 import java.net.URLDecoder
 import java.net.InetSocketAddress
 import java.util.concurrent.Executors
@@ -27,6 +37,8 @@ class BridgeHttpServer(
     private val heartbeatReporter: BridgeHeartbeatReporter,
     private val commandRunner: BridgeCommandRunner,
     private val bridgeService: BridgeService,
+    private val bridgeClient: ConvexBridgeClient?,
+    private val bridgeId: String,
 ) {
     private val json = Json { prettyPrint = false }
     private val server =
@@ -194,6 +206,172 @@ class BridgeHttpServer(
             }
         }
 
+        server.createContext("/assets/library/chapter-file") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+            if (exchange.requestMethod.uppercase() != "GET") {
+                sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+                return@createContext
+            }
+
+            val localRelativePath = exchange.queryParam("path")
+            val storageKind = exchange.queryParam("storage")
+            if (localRelativePath.isNullOrBlank() || storageKind.isNullOrBlank()) {
+                sendJson(exchange, 400, buildJsonObject { put("message", "Missing path or storage") })
+                return@createContext
+            }
+
+            try {
+                val file = bridgeService.fetchStoredChapterFile(localRelativePath, storageKind)
+                sendBytes(
+                    exchange,
+                    200,
+                    file.bytes,
+                    file.contentType,
+                    mapOf("content-disposition" to """attachment; filename="${file.fileName}""""),
+                )
+            } catch (error: Exception) {
+                logger.warn(error) {
+                    "Failed to serve downloaded chapter file path=$localRelativePath storage=$storageKind"
+                }
+                sendJson(exchange, 404, buildJsonObject { put("message", "Downloaded chapter file is unavailable") })
+            }
+        }
+
+        server.createContext("/settings/downloads") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+
+            when (exchange.requestMethod.uppercase()) {
+                "GET" -> sendJson(exchange, 200, bridgeService.downloadSettings())
+                "PUT" -> {
+                    val payload = readJsonBody(exchange)
+                    val updated =
+                        bridgeService.updateDownloadSettings(
+                            downloadPath = payload.optionalString("downloadPath"),
+                            compressionEnabled = payload.optionalBoolean("compressionEnabled"),
+                            failedRetryDelaySeconds = payload.optionalInt("failedRetryDelaySeconds"),
+                        )
+                    sendJson(exchange, 200, updated)
+                }
+                else -> sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+            }
+        }
+
+        server.createContext("/downloads/reconcile") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+            if (exchange.requestMethod.uppercase() != "POST") {
+                sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+                return@createContext
+            }
+
+            val client = requireBridgeClient(exchange) ?: return@createContext
+            val payload = readJsonBody(exchange)
+            val chapters = payload["chapters"]?.jsonArray?.map(::parseReconcileChapter).orEmpty()
+
+            var fixed = 0
+            var downloaded = 0
+            var missing = 0
+
+            for (chapter in chapters) {
+                val stored = bridgeService.resolveStoredChapter(chapter.titleId, chapter.chapterUrl)
+                if (stored == null) {
+                    if (chapter.currentStatus == "downloaded" || !chapter.localRelativePath.isNullOrBlank()) {
+                        updateChapterState(
+                            client = client,
+                            chapterId = chapter.chapterId,
+                            status = "missing",
+                            downloadedPages = 0,
+                            totalPages = null,
+                            localRelativePath = null,
+                            storageKind = null,
+                            fileSizeBytes = null,
+                        )
+                        fixed += 1
+                    }
+                    missing += 1
+                    continue
+                }
+
+                downloaded += 1
+                if (
+                    chapter.currentStatus != "downloaded" ||
+                    chapter.localRelativePath != stored.localRelativePath ||
+                    chapter.storageKind != stored.storageKind
+                ) {
+                    updateChapterState(
+                        client = client,
+                        chapterId = chapter.chapterId,
+                        status = "downloaded",
+                        downloadedPages = stored.pageCount,
+                        totalPages = stored.pageCount,
+                        localRelativePath = stored.localRelativePath,
+                        storageKind = stored.storageKind,
+                        fileSizeBytes = stored.fileSizeBytes,
+                    )
+                    fixed += 1
+                }
+            }
+
+            sendJson(
+                exchange,
+                200,
+                buildJsonObject {
+                    put("ok", true)
+                    put("fixed", fixed)
+                    put("downloaded", downloaded)
+                    put("missing", missing)
+                },
+            )
+        }
+
+        server.createContext("/downloads/delete") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+            if (exchange.requestMethod.uppercase() != "POST") {
+                sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+                return@createContext
+            }
+
+            val client = requireBridgeClient(exchange) ?: return@createContext
+            val payload = readJsonBody(exchange)
+            val chapterId = payload.requiredString("chapterId")
+            val titleId = payload.requiredString("titleId")
+            val chapterUrl = payload.requiredString("chapterUrl")
+            val deleted =
+                bridgeService.deleteDownloadedChapter(
+                    titleId = titleId,
+                    chapterUrl = chapterUrl,
+                    localRelativePath = payload.optionalString("localRelativePath"),
+                    storageKind = payload.optionalString("storageKind"),
+                )
+
+            updateChapterState(
+                client = client,
+                chapterId = chapterId,
+                status = "missing",
+                downloadedPages = 0,
+                totalPages = null,
+                localRelativePath = null,
+                storageKind = null,
+                fileSizeBytes = null,
+            )
+
+            sendJson(
+                exchange,
+                200,
+                buildJsonObject {
+                    put("ok", true)
+                    put("deleted", deleted)
+                },
+            )
+        }
+
         server.start()
         logger.info { "Bridge HTTP server started on $host:$port" }
     }
@@ -225,9 +403,18 @@ class BridgeHttpServer(
         exchange.responseBody.use { output -> output.write(body) }
     }
 
-    private fun sendBytes(exchange: HttpExchange, status: Int, body: ByteArray, contentType: String) {
+    private fun sendBytes(
+        exchange: HttpExchange,
+        status: Int,
+        body: ByteArray,
+        contentType: String,
+        extraHeaders: Map<String, String> = emptyMap(),
+    ) {
         exchange.responseHeaders.set("content-type", contentType)
         exchange.responseHeaders.set("cache-control", "private, max-age=300")
+        for ((name, value) in extraHeaders) {
+            exchange.responseHeaders.set(name, value)
+        }
         exchange.sendResponseHeaders(status, body.size.toLong())
         exchange.responseBody.use { output -> output.write(body) }
     }
@@ -246,4 +433,75 @@ class BridgeHttpServer(
                 }
             }?.firstOrNull { (key, _) -> key == name }
             ?.second
+
+    private fun readJsonBody(exchange: HttpExchange): JsonObject {
+        val raw = exchange.requestBody.bufferedReader().readText().trim()
+        if (raw.isBlank()) {
+            return JsonObject(emptyMap())
+        }
+        return json.parseToJsonElement(raw).jsonObject
+    }
+
+    private fun requireBridgeClient(exchange: HttpExchange): ConvexBridgeClient? {
+        if (bridgeClient != null) {
+            return bridgeClient
+        }
+        sendJson(exchange, 503, buildJsonObject { put("message", "Convex bridge client is unavailable") })
+        return null
+    }
+
+    private fun parseReconcileChapter(element: kotlinx.serialization.json.JsonElement): DownloadReconcileChapter {
+        val payload = element.jsonObject
+        return DownloadReconcileChapter(
+            chapterId = payload.requiredString("chapterId"),
+            titleId = payload.requiredString("titleId"),
+            chapterUrl = payload.requiredString("chapterUrl"),
+            currentStatus = payload.requiredString("currentStatus"),
+            localRelativePath = payload.optionalString("localRelativePath"),
+            storageKind = payload.optionalString("storageKind"),
+        )
+    }
+
+    private fun updateChapterState(
+        client: ConvexBridgeClient,
+        chapterId: String,
+        status: String,
+        downloadedPages: Int,
+        totalPages: Int?,
+        localRelativePath: String?,
+        storageKind: String?,
+        fileSizeBytes: Long?,
+    ) {
+        client.setLibraryChapterDownloadState(
+            client.payload(
+                buildJsonObject {
+                    put("chapterId", chapterId)
+                    put("status", status)
+                    put("downloadedPages", downloadedPages)
+                    if (totalPages != null) {
+                        put("totalPages", totalPages)
+                    }
+                    put("localRelativePath", localRelativePath?.let(::JsonPrimitive) ?: JsonNull)
+                    put("storageKind", storageKind?.let(::JsonPrimitive) ?: JsonNull)
+                    if (fileSizeBytes != null) {
+                        put("fileSizeBytes", fileSizeBytes)
+                    }
+                    put("lastErrorMessage", JsonNull)
+                    put("now", System.currentTimeMillis())
+                },
+            ),
+        )
+    }
+
+    private fun JsonObject.requiredString(name: String): String =
+        this[name]?.jsonPrimitive?.contentOrNull ?: error("Missing $name")
+
+    private fun JsonObject.optionalString(name: String): String? =
+        this[name]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+
+    private fun JsonObject.optionalInt(name: String): Int? =
+        this[name]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+
+    private fun JsonObject.optionalBoolean(name: String): Boolean? =
+        this[name]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
 }

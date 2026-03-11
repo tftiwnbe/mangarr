@@ -309,7 +309,11 @@ class BridgeService(
             onProgress(index + 1, totalPages)
         }
 
-        val stored = downloadStorage.finalizeChapterDownload(workspace, archive = true)
+        val stored =
+            downloadStorage.finalizeChapterDownload(
+                workspace,
+                archive = ConfigManager.config.downloads.compressionEnabled,
+            )
         return buildJsonObject {
             put("ok", true)
             put("totalPages", totalPages)
@@ -327,6 +331,52 @@ class BridgeService(
     ): PageImagePayload = downloadStorage.readStoredPage(localRelativePath, storageKind, index)
 
     fun fetchStoredCover(localCoverPath: String): PageImagePayload = downloadStorage.readCover(localCoverPath)
+
+    fun fetchStoredChapterFile(
+        localRelativePath: String,
+        storageKind: String,
+    ): StoredChapterFilePayload = downloadStorage.readStoredChapterFile(localRelativePath, storageKind)
+
+    fun downloadSettings(): JsonObject {
+        val settings = ConfigManager.config.downloads
+        val storage = downloadStorage.summary()
+        return buildJsonObject {
+            put("downloadPath", storage.downloadPath)
+            put("compressionEnabled", settings.compressionEnabled)
+            put("failedRetryDelaySeconds", settings.failedRetryDelaySeconds)
+            put("totalSpaceBytes", storage.totalSpaceBytes)
+            put("usedSpaceBytes", storage.usedSpaceBytes)
+            put("freeSpaceBytes", storage.freeSpaceBytes)
+        }
+    }
+
+    fun updateDownloadSettings(
+        downloadPath: String?,
+        compressionEnabled: Boolean?,
+        failedRetryDelaySeconds: Int?,
+    ): JsonObject {
+        ConfigManager.updateDownloads { current ->
+            current.copy(
+                downloadPath = downloadPath?.trim() ?: current.downloadPath,
+                compressionEnabled = compressionEnabled ?: current.compressionEnabled,
+                failedRetryDelaySeconds =
+                    failedRetryDelaySeconds?.coerceIn(60, 604_800) ?: current.failedRetryDelaySeconds,
+            )
+        }
+        return downloadSettings()
+    }
+
+    fun deleteDownloadedChapter(
+        titleId: String,
+        chapterUrl: String,
+        localRelativePath: String?,
+        storageKind: String?,
+    ): Boolean = downloadStorage.deleteStoredChapter(titleId, chapterUrl, localRelativePath, storageKind)
+
+    fun resolveStoredChapter(
+        titleId: String,
+        chapterUrl: String,
+    ): StoredChapterPayload? = downloadStorage.resolveStoredChapter(titleId, chapterUrl)
 
     fun cacheCover(
         titleId: String,
@@ -482,6 +532,15 @@ class BridgeService(
     private fun normalizeFilterInput(raw: JsonObject?): Map<String, String> =
         raw?.mapValues { (_, value) -> json.encodeToString(JsonElement.serializer(), value) } ?: emptyMap()
 }
+
+data class DownloadReconcileChapter(
+    val chapterId: String,
+    val titleId: String,
+    val chapterUrl: String,
+    val currentStatus: String,
+    val localRelativePath: String? = null,
+    val storageKind: String? = null,
+)
 
 data class InstalledExtensionPayload(
     val pkg: String,
