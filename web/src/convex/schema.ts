@@ -7,6 +7,7 @@ export default defineSchema({
 		setupState: v.union(v.literal('open'), v.literal('configured')),
 		schemaVersion: v.string(),
 		releaseChannel: v.string(),
+		extensionRepoUrl: v.optional(v.string()),
 		defaultAdminCreatedAt: v.optional(v.float64()),
 		createdAt: v.float64(),
 		updatedAt: v.float64()
@@ -70,15 +71,42 @@ export default defineSchema({
 		.index('by_worker_id', ['workerId'])
 		.index('by_last_heartbeat_at', ['lastHeartbeatAt']),
 
+	installedExtensions: defineTable({
+		pkg: v.string(),
+		name: v.string(),
+		lang: v.string(),
+		version: v.string(),
+		status: v.union(v.literal('installed'), v.literal('disabled')),
+		installedAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_pkg', ['pkg'])
+		.index('by_installed_at', ['installedAt']),
+
+	exploreCatalog: defineTable({
+		extensionPkg: v.string(),
+		canonicalKey: v.string(),
+		title: v.string(),
+		description: v.string(),
+		lang: v.string(),
+		coverRef: v.optional(v.string()),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_canonical_key', ['canonicalKey'])
+		.index('by_title', ['title'])
+		.index('by_extension_pkg', ['extensionPkg']),
+
 	libraryTitles: defineTable({
 		ownerUserId: v.id('users'),
 		canonicalKey: v.string(),
 		title: v.string(),
+		sourcePkg: v.string(),
+		sourceLang: v.string(),
 		coverRef: v.optional(v.string()),
-		preferredVariantId: v.optional(v.string()),
 		createdAt: v.float64(),
 		updatedAt: v.float64(),
-		lastRefreshedAt: v.optional(v.float64())
+		lastReadAt: v.optional(v.float64())
 	})
 		.index('by_owner_user_id', ['ownerUserId'])
 		.index('by_owner_user_id_canonical_key', ['ownerUserId', 'canonicalKey'])
@@ -87,8 +115,6 @@ export default defineSchema({
 	commands: defineTable({
 		commandType: v.string(),
 		targetCapability: v.string(),
-		scopeType: v.string(),
-		scopeId: v.string(),
 		requestedByUserId: v.optional(v.id('users')),
 		payload: v.any(),
 		idempotencyKey: v.string(),
@@ -107,19 +133,16 @@ export default defineSchema({
 		leaseExpiresAt: v.optional(v.float64()),
 		attemptCount: v.float64(),
 		maxAttempts: v.float64(),
-		lastErrorCode: v.optional(v.string()),
 		lastErrorMessage: v.optional(v.string()),
 		result: v.optional(v.any()),
 		createdAt: v.float64(),
 		updatedAt: v.float64(),
 		startedAt: v.optional(v.float64()),
-		completedAt: v.optional(v.float64()),
-		parentCommandId: v.optional(v.id('commands'))
+		completedAt: v.optional(v.float64())
 	})
 		.index('by_status_priority_run_after', ['status', 'priority', 'runAfter'])
 		.index('by_lease_owner_worker_id', ['leaseOwnerWorkerId'])
 		.index('by_idempotency_key', ['idempotencyKey'])
-		.index('by_scope', ['scopeType', 'scopeId'])
-		.index('by_target_capability', ['targetCapability'])
+		.index('by_requested_by_user_id_created_at', ['requestedByUserId', 'createdAt'])
 		.index('by_created_at', ['createdAt'])
 });

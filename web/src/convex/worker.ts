@@ -1,7 +1,8 @@
-import { mutationGeneric } from 'convex/server';
 import { v } from 'convex/values';
 
-export const reportHeartbeat = mutationGeneric({
+import { mutation } from './_generated/server';
+
+export const reportHeartbeat = mutation({
 	args: {
 		workerId: v.string(),
 		version: v.string(),
