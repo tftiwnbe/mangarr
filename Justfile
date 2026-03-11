@@ -42,7 +42,7 @@ dev-convex:
 [group('dev')]
 convex-push:
     @echo "Pushing Convex functions through the running mangarr container..."
-    docker compose -f compose.dev.yaml exec -T mangarr sh -lc 'cd /app/web && pnpm exec convex dev --once --typecheck disable --codegen disable'
+    docker compose -f compose.dev.yaml exec -T mangarr sh -lc 'cd /app/web && pnpm exec convex dev --once --typecheck disable --codegen enable'
 
 # Start worker dev server
 [group('dev')]

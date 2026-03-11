@@ -167,13 +167,20 @@ fi
 chmod 600 "${SECRET_FILE}"
 INSTANCE_SECRET="$(cat "${SECRET_FILE}")"
 
+SERVICE_SECRET_FILE="${CONVEX_ROOT}/service_secret"
+if [ ! -s "${SERVICE_SECRET_FILE}" ]; then
+  head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "${SERVICE_SECRET_FILE}"
+fi
+chmod 600 "${SERVICE_SECRET_FILE}"
+MANGARR_SERVICE_SECRET="${MANGARR_SERVICE_SECRET:-$(cat "${SERVICE_SECRET_FILE}")}"
+
 : > /app/web/.env.local
 
-ADMIN_KEY="$("/app/convex/generate_key" "${INSTANCE_NAME}" "${INSTANCE_SECRET}")"
+ADMIN_KEY="$("/app/convex/generate_key" "${INSTANCE_NAME}" "${INSTANCE_SECRET}" | tail -n1)"
 if [ "${MANGARR_APP_MODE:-prod}" = "dev" ]; then
   echo "Convex dev admin key: ${ADMIN_KEY}"
 fi
-export HOST="${HOST:-0.0.0.0}" PORT="${PORT:-3737}" PUBLIC_CONVEX_URL="${PUBLIC_CONVEX_URL:-http://127.0.0.1:3210}" CONVEX_URL="${CONVEX_INTERNAL_URL}" CONVEX_SELF_HOSTED_URL="${CONVEX_INTERNAL_URL}" CONVEX_ADMIN_KEY="${ADMIN_KEY}" CONVEX_SELF_HOSTED_ADMIN_KEY="${ADMIN_KEY}" MANGARR_WORKER_HOST="${MANGARR_WORKER_HOST}" MANGARR_WORKER_PORT="${MANGARR_WORKER_PORT}" MANGARR_WORKER_INTERNAL_URL="${MANGARR_WORKER_INTERNAL_URL}" MANGARR_WORKER_ID="${MANGARR_WORKER_ID:-main}" MANGARR_WORKER_HEARTBEAT_INTERVAL_MS="${MANGARR_WORKER_HEARTBEAT_INTERVAL_MS:-15000}" TACHIBRIDGE_PORT="${TACHIBRIDGE_PORT:-8181}" TACHIBRIDGE_JAR_PATH="${TACHIBRIDGE_JAR_PATH:-/app/bin/tachibridge.jar}"
+export HOST="${HOST:-0.0.0.0}" PORT="${PORT:-3737}" PUBLIC_CONVEX_URL="${PUBLIC_CONVEX_URL:-http://127.0.0.1:3210}" CONVEX_URL="${CONVEX_INTERNAL_URL}" CONVEX_SELF_HOSTED_URL="${CONVEX_INTERNAL_URL}" CONVEX_ADMIN_KEY="${ADMIN_KEY}" CONVEX_SELF_HOSTED_ADMIN_KEY="${ADMIN_KEY}" MANGARR_SERVICE_SECRET="${MANGARR_SERVICE_SECRET}" MANGARR_WORKER_HOST="${MANGARR_WORKER_HOST}" MANGARR_WORKER_PORT="${MANGARR_WORKER_PORT}" MANGARR_WORKER_INTERNAL_URL="${MANGARR_WORKER_INTERNAL_URL}" MANGARR_WORKER_ID="${MANGARR_WORKER_ID:-main}" MANGARR_WORKER_HEARTBEAT_INTERVAL_MS="${MANGARR_WORKER_HEARTBEAT_INTERVAL_MS:-15000}" TACHIBRIDGE_PORT="${TACHIBRIDGE_PORT:-8181}" TACHIBRIDGE_JAR_PATH="${TACHIBRIDGE_JAR_PATH:-/app/bin/tachibridge.jar}"
 
 /app/convex/convex-local-backend --instance-name "${INSTANCE_NAME}" --instance-secret "${INSTANCE_SECRET}" --port "${CONVEX_PORT:-3210}" --site-proxy-port "${CONVEX_SITE_PROXY_PORT:-3211}" --convex-origin "${PUBLIC_CONVEX_URL}" --convex-site "${CONVEX_SITE_ORIGIN:-http://127.0.0.1:3211}" --beacon-tag mangarr --disable-beacon --local-storage "${CONVEX_STORAGE_DIR}" "${CONVEX_SQLITE_PATH}" &
 
@@ -191,7 +198,7 @@ if [ "${MANGARR_APP_MODE:-prod}" = "dev" ]; then
   [ -d /app/worker/node_modules/.pnpm ] || (cd /app/worker && pnpm install --frozen-lockfile --force)
 fi
 
-(cd /app/web && pnpm exec convex dev --once --typecheck disable --codegen disable)
+(cd /app/web && pnpm exec convex dev --once --typecheck disable --codegen enable)
 
 if [ "${MANGARR_APP_MODE:-prod}" = "dev" ]; then
   (cd /app/worker && pnpm run dev) &
