@@ -74,15 +74,23 @@
 		if (loading) return;
 
 		error = null;
+		const normalizedUsername = username.trim();
+		if (!normalizedUsername || password.length === 0) {
+			error = 'Username and password are required';
+			return;
+		}
 		loading = true;
 
 		try {
 			if (needsSetup) {
 				// First user registration
-				await registerFirstUser({ username, password }, { persistence });
+				await registerFirstUser({ username: normalizedUsername, password }, { persistence });
 			} else {
 				// Normal login
-				await login({ username, password, remember_me: rememberSession }, { persistence });
+				await login(
+					{ username: normalizedUsername, password, remember_me: rememberSession },
+					{ persistence }
+				);
 			}
 			await redirectToApp();
 		} catch (cause: unknown) {
