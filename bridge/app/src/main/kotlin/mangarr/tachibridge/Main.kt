@@ -12,7 +12,7 @@ import java.nio.file.Paths
 fun main(args: Array<String>) {
     // --- Parse arguments ---
     val dataDir = getArgValue(args, "--data-dir") ?: "./data"
-    val port = getArgValue(args, "--port")?.toIntOrNull() ?: 50051
+    val port = getArgValue(args, "--port")?.toIntOrNull() ?: 3212
     val runtimeConfig = loadBridgeRuntimeConfig(port)
 
     // --- Initialize global BridgeConfig ---

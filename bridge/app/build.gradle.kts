@@ -12,11 +12,11 @@ plugins {
 dependencies {
     implementation(libs.bundles.kotlin)
     implementation(libs.bundles.logging)
-    implementation(libs.bundles.grpc)
     implementation(libs.bundles.network)
     implementation(libs.bundles.tachiyomi)
     implementation(libs.bundles.apk)
     implementation(libs.bundles.serialization)
+    implementation(libs.protobuf.kotlin)
 
     implementation(libs.koin)
 
@@ -27,22 +27,10 @@ dependencies {
 
 protobuf {
     protoc {
-        artifact = libs.protoc.asProvider().get().toString()
-    }
-    plugins {
-        create("grpc") {
-            artifact = libs.protoc.gen.grpc.java.get().toString()
-        }
-        create("grpckt") {
-            artifact = "${libs.protoc.gen.grpc.kotlin.get()}:jdk8@jar"
-        }
+        artifact = libs.protoc.get().toString()
     }
     generateProtoTasks {
         all().forEach {
-            it.plugins {
-                create("grpc")
-                create("grpckt")
-            }
             it.builtins { create("kotlin") }
         }
     }
@@ -90,16 +78,4 @@ tasks {
         manifest { attributes["Main-Class"] = "mangarr.tachibridge.MainKt" }
         exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
     }
-
-    // Copy proto files for main backend
-    // register<Copy>("copyProto") {
-    //     from("src/main/proto")
-    //     into("python/proto")
-    //     include("*.proto")
-    // }
-
-    // Make copyProto part of build
-    // build {
-    //     dependsOn("copyProto")
-    // }
 }
