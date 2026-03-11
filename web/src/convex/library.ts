@@ -415,10 +415,10 @@ export const setChapterDownloadState = mutation({
 		),
 		downloadedPages: v.optional(v.float64()),
 		totalPages: v.optional(v.float64()),
-		localRelativePath: v.optional(v.string()),
-		storageKind: v.optional(v.union(v.literal('directory'), v.literal('archive'))),
+		localRelativePath: v.optional(v.union(v.string(), v.null())),
+		storageKind: v.optional(v.union(v.literal('directory'), v.literal('archive'), v.null())),
 		fileSizeBytes: v.optional(v.float64()),
-		lastErrorMessage: v.optional(v.string()),
+		lastErrorMessage: v.optional(v.union(v.string(), v.null())),
 		now: v.float64()
 	},
 	handler: async (ctx, args) => {
@@ -433,11 +433,16 @@ export const setChapterDownloadState = mutation({
 			downloadedPages: args.downloadedPages ?? chapter.downloadedPages,
 			totalPages: args.totalPages ?? chapter.totalPages,
 			localRelativePath:
-				args.localRelativePath === undefined ? chapter.localRelativePath : args.localRelativePath,
-			storageKind: args.storageKind === undefined ? chapter.storageKind : args.storageKind,
+				args.localRelativePath === undefined
+					? chapter.localRelativePath
+					: (args.localRelativePath ?? undefined),
+			storageKind:
+				args.storageKind === undefined ? chapter.storageKind : (args.storageKind ?? undefined),
 			fileSizeBytes: args.fileSizeBytes === undefined ? chapter.fileSizeBytes : args.fileSizeBytes,
 			lastErrorMessage:
-				args.lastErrorMessage === undefined ? chapter.lastErrorMessage : args.lastErrorMessage,
+				args.lastErrorMessage === undefined
+					? chapter.lastErrorMessage
+					: (args.lastErrorMessage ?? undefined),
 			downloadedAt: args.status === DOWNLOAD_STATUS.DOWNLOADED ? args.now : chapter.downloadedAt,
 			updatedAt: args.now
 		});
