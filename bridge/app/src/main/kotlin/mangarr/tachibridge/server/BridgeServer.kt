@@ -21,11 +21,11 @@ import mangarr.tachibridge.loader.ConfigExtensionsDirectories
 import mangarr.tachibridge.loader.ExtensionLoader
 import mangarr.tachibridge.loader.PackageTools
 import mangarr.tachibridge.repo.ExtensionRepoService
-import mangarr.tachibridge.runtime.BridgeAlphaService
 import mangarr.tachibridge.runtime.BridgeCommandRunner
 import mangarr.tachibridge.runtime.BridgeHeartbeatReporter
 import mangarr.tachibridge.runtime.BridgeJwtSigner
 import mangarr.tachibridge.runtime.BridgeRuntimeConfig
+import mangarr.tachibridge.runtime.BridgeService
 import mangarr.tachibridge.runtime.BridgeState
 import mangarr.tachibridge.runtime.ConvexBridgeClient
 import mangarr.tachibridge.runtime.ConvexBridgeClientConfig
@@ -127,7 +127,7 @@ class BridgeServer(
                 } else {
                     null
                 }
-            val alphaService = BridgeAlphaService(extensionManager, repoService)
+            val bridgeService = BridgeService(extensionManager, repoService)
             bridgeState = BridgeState(config.runtime.bridgeId, config.runtime.port, convexClient != null)
             heartbeatReporter =
                 BridgeHeartbeatReporter(
@@ -140,7 +140,7 @@ class BridgeServer(
             commandRunner =
                 BridgeCommandRunner(
                     bridgeClient = convexClient,
-                    service = alphaService,
+                    service = bridgeService,
                     bridgeId = config.runtime.bridgeId,
                     pollIntervalMs = config.runtime.commandPollIntervalMs,
                     leaseDurationMs = config.runtime.commandLeaseDurationMs,

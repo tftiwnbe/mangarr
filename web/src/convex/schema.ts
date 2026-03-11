@@ -6,7 +6,6 @@ export default defineSchema({
 		key: v.string(),
 		setupState: v.union(v.literal('open'), v.literal('configured')),
 		schemaVersion: v.string(),
-		releaseChannel: v.string(),
 		extensionRepoUrl: v.optional(v.string()),
 		defaultAdminCreatedAt: v.optional(v.float64()),
 		createdAt: v.float64(),

@@ -16,7 +16,6 @@ export const bootstrap = query({
 
 		return {
 			setupOpen: users.length === 0,
-			releaseChannel: installation?.releaseChannel ?? 'v2.0.0-alpha',
 			schemaVersion: installation?.schemaVersion ?? '1',
 			extensionRepoUrl: installation?.extensionRepoUrl ?? null,
 			installedExtensionsCount: installedExtensions.length,

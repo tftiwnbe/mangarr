@@ -2,7 +2,7 @@
 
 Mangarr is a self-hosted manga manager for people who want one place to discover series, build a personal library, monitor downloads, and read through a browser without depending on a hosted service.
 
-The current `v2.0.0-alpha` branch is being rebuilt around a SvelteKit web app, a self-hosted Convex backend, and a Kotlin bridge that owns source access plus command-side effects. The goal is practical: keep the parts that make source-driven manga management powerful, but package them into a cleaner single-stack workflow you can run yourself.
+The current `v2.0.0` codebase is built around a SvelteKit web app, a self-hosted Convex backend, and a Kotlin bridge that owns source access plus command-side effects. The goal is practical: keep the parts that make source-driven manga management powerful, but package them into a cleaner single-stack workflow you can run yourself.
 
 ## What It Does
 

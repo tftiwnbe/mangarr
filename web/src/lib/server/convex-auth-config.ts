@@ -3,7 +3,7 @@ import type { JWK } from 'jose';
 export const DEFAULT_CONVEX_AUTH_ISSUER = 'https://auth.mangarr.local/convex';
 export const DEFAULT_CONVEX_AUTH_APPLICATION_ID = 'mangarr-web';
 export const DEFAULT_TOKEN_TTL_SECONDS = 5 * 60;
-export const DEFAULT_KEY_ID = 'mangarr-alpha-20260310';
+export const DEFAULT_KEY_ID = 'mangarr-20260310';
 export const DEFAULT_PRIVATE_JWK = {
 	kty: 'EC',
 	crv: 'P-256',

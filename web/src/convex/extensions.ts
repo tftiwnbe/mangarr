@@ -49,7 +49,6 @@ export const setRepository = mutation({
 			key: 'main',
 			setupState: 'open',
 			schemaVersion: '1',
-			releaseChannel: 'v2.0.0-alpha',
 			extensionRepoUrl: args.url,
 			createdAt: args.now,
 			updatedAt: args.now

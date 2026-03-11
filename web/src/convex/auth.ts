@@ -145,7 +145,6 @@ export const registerFirstUser = mutation({
 				key: 'main',
 				setupState: 'configured',
 				schemaVersion: '1',
-				releaseChannel: 'v2.0.0-alpha',
 				defaultAdminCreatedAt: args.now,
 				createdAt: args.now,
 				updatedAt: args.now

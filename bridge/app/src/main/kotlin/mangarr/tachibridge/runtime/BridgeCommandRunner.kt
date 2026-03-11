@@ -31,7 +31,7 @@ data class CommandRunnerSnapshot(
 
 class BridgeCommandRunner(
     private val bridgeClient: ConvexBridgeClient?,
-    private val service: BridgeAlphaService,
+    private val service: BridgeService,
     private val bridgeId: String,
     private val pollIntervalMs: Long,
     private val leaseDurationMs: Long,

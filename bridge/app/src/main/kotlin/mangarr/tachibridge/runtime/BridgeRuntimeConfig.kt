@@ -2,7 +2,7 @@ package mangarr.tachibridge.runtime
 
 private const val DEFAULT_CONVEX_AUTH_ISSUER = "https://auth.mangarr.local/convex"
 private const val DEFAULT_CONVEX_AUTH_APPLICATION_ID = "mangarr-web"
-private const val DEFAULT_CONVEX_AUTH_KEY_ID = "mangarr-alpha-20260310"
+private const val DEFAULT_CONVEX_AUTH_KEY_ID = "mangarr-20260310"
 private const val DEFAULT_CONVEX_AUTH_TOKEN_TTL_SECONDS = 300L
 private const val DEFAULT_CONVEX_AUTH_PRIVATE_JWK =
     """{"kty":"EC","crv":"P-256","x":"wQ_V3WF3zt9VDJAjCxSurV-qo9bDqjfE6j4_76Q8JkU","y":"8MDEofdMVTjhKLtpPUKWbgID5F8aJN17eNc5OXmNA5k","d":"VpOZuu2eEPXIAEWRUtt1eSo13Ick2wOH8PWbrP4crz8"}"""

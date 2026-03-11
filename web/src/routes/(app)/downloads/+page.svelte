@@ -9,7 +9,7 @@
 <div class="border border-[var(--line)] bg-[var(--surface)] p-6">
 	<h1 class="text-display text-xl text-[var(--text)]">{$_('nav.downloads').toLowerCase()}</h1>
 	<p class="mt-3 text-sm text-[var(--text-ghost)]">
-		Downloads is intentionally paused for this alpha rewrite wave. The next slice will reintroduce
-		queue execution through the bridge command runner.
+		Downloads are not wired to the bridge runtime yet. Queue execution, file artifacts, and
+		reconcile flows will return as that backend coverage is implemented.
 	</p>
 </div>

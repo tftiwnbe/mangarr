@@ -15,7 +15,7 @@ import java.util.Base64
 private val logger = KotlinLogging.logger {}
 
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-class BridgeAlphaService(
+class BridgeService(
     private val extensionManager: ExtensionManager,
     private val repoService: ExtensionRepoService,
 ) {
