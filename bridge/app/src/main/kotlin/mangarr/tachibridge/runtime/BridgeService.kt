@@ -19,6 +19,8 @@ import mangarr.tachibridge.config.findBySourceId
 import mangarr.tachibridge.extensions.ExtensionManager
 import mangarr.tachibridge.extensions.PageImagePayload
 import mangarr.tachibridge.repo.ExtensionRepoService
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.util.Base64
 
 private val logger = KotlinLogging.logger {}
@@ -28,7 +30,10 @@ private val json = Json { ignoreUnknownKeys = true }
 class BridgeService(
     private val extensionManager: ExtensionManager,
     private val repoService: ExtensionRepoService,
+    private val downloadStorage: DownloadStorage,
 ) {
+    private val httpClient = OkHttpClient()
+
     fun syncRepository(url: String): JsonObject {
         repoService.updateRepoIndexUrl(url)
         ConfigManager.setRepoUrl(url)
@@ -285,6 +290,66 @@ class BridgeService(
     suspend fun fetchPageImage(sourceId: String, chapterUrl: String, index: Int): PageImagePayload {
         extensionManager.awaitReady()
         return extensionManager.getPageImage(sourceId.toLong(), chapterUrl, index)
+    }
+
+    suspend fun downloadChapter(
+        titleId: String,
+        sourceId: String,
+        chapterUrl: String,
+        onProgress: (downloadedPages: Int, totalPages: Int) -> Unit,
+    ): JsonObject {
+        extensionManager.awaitReady()
+        val pages = extensionManager.getPagesList(sourceId.toLong(), chapterUrl)
+        val totalPages = pages.pagesList.size
+        val workspace = downloadStorage.createChapterWorkspace(titleId, chapterUrl)
+
+        for ((index, _) in pages.pagesList.withIndex()) {
+            val image = extensionManager.getPageImage(sourceId.toLong(), chapterUrl, index)
+            downloadStorage.writePage(workspace, index, image)
+            onProgress(index + 1, totalPages)
+        }
+
+        val stored = downloadStorage.finalizeChapterDownload(workspace, archive = true)
+        return buildJsonObject {
+            put("ok", true)
+            put("totalPages", totalPages)
+            put("downloadedPages", totalPages)
+            put("storageKind", stored.storageKind)
+            put("localRelativePath", stored.localRelativePath)
+            put("fileSizeBytes", stored.fileSizeBytes)
+        }
+    }
+
+    fun fetchStoredPage(
+        localRelativePath: String,
+        storageKind: String,
+        index: Int,
+    ): PageImagePayload = downloadStorage.readStoredPage(localRelativePath, storageKind, index)
+
+    fun fetchStoredCover(localCoverPath: String): PageImagePayload = downloadStorage.readCover(localCoverPath)
+
+    fun cacheCover(
+        titleId: String,
+        coverUrl: String?,
+    ): String? {
+        val normalizedUrl = coverUrl?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val request = Request.Builder().url(normalizedUrl).get().build()
+
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                logger.warn { "Failed to cache cover for title=$titleId from $normalizedUrl (${response.code})" }
+                return null
+            }
+            val body = response.body ?: return null
+            return downloadStorage.cacheCover(
+                titleId = titleId,
+                image =
+                    PageImagePayload(
+                        contentType = body.contentType()?.toString() ?: "application/octet-stream",
+                        bytes = body.bytes(),
+                    ),
+            )
+        }
     }
 
     suspend fun resolveImport(

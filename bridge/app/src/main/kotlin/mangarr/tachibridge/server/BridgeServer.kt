@@ -29,6 +29,7 @@ import mangarr.tachibridge.runtime.BridgeService
 import mangarr.tachibridge.runtime.BridgeState
 import mangarr.tachibridge.runtime.ConvexBridgeClient
 import mangarr.tachibridge.runtime.ConvexBridgeClientConfig
+import mangarr.tachibridge.runtime.DownloadStorage
 import mangarr.tachibridge.util.toCefCookie
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.cef.network.CefCookieManager
@@ -127,7 +128,7 @@ class BridgeServer(
                 } else {
                     null
                 }
-            val bridgeService = BridgeService(extensionManager, repoService)
+            val bridgeService = BridgeService(extensionManager, repoService, DownloadStorage(dataPath))
             bridgeState = BridgeState(config.runtime.bridgeId, config.runtime.port, convexClient != null)
             heartbeatReporter =
                 BridgeHeartbeatReporter(

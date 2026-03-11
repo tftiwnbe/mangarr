@@ -86,6 +86,9 @@ class ConvexBridgeClient(
     fun failCommand(args: JsonObject): FailResponse =
         mutation("commands:fail", args)
 
+    fun updateCommandProgress(args: JsonObject): OkResponse =
+        mutation("commands:updateProgress", args)
+
     fun setExtensionRepository(args: JsonObject): UpsertRepositoryResponse =
         mutation("extensions:setRepository", args)
 
@@ -97,6 +100,15 @@ class ConvexBridgeClient(
 
     fun importLibraryTitle(args: JsonObject): ImportLibraryResponse =
         mutation("library:importForUser", args)
+
+    fun upsertLibraryChapters(args: JsonObject): OkResponse =
+        mutation("library:upsertChaptersForTitle", args)
+
+    fun setLibraryTitleLocalCover(args: JsonObject): OkResponse =
+        mutation("library:setLocalCoverPath", args)
+
+    fun setLibraryChapterDownloadState(args: JsonObject): OkResponse =
+        mutation("library:setChapterDownloadState", args)
 
     private inline fun <reified T> mutation(path: String, args: JsonObject): T =
         call("/api/mutation", path, args)

@@ -142,6 +142,58 @@ class BridgeHttpServer(
             }
         }
 
+        server.createContext("/assets/library/page") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+            if (exchange.requestMethod.uppercase() != "GET") {
+                sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+                return@createContext
+            }
+
+            val localRelativePath = exchange.queryParam("path")
+            val storageKind = exchange.queryParam("storage")
+            val index = exchange.queryParam("index")?.toIntOrNull()
+            if (localRelativePath.isNullOrBlank() || storageKind.isNullOrBlank() || index == null || index < 0) {
+                sendJson(exchange, 400, buildJsonObject { put("message", "Missing path, storage, or index") })
+                return@createContext
+            }
+
+            try {
+                val image = bridgeService.fetchStoredPage(localRelativePath, storageKind, index)
+                sendBytes(exchange, 200, image.bytes, image.contentType)
+            } catch (error: Exception) {
+                logger.warn(error) {
+                    "Failed to serve downloaded page asset path=$localRelativePath storage=$storageKind index=$index"
+                }
+                sendJson(exchange, 404, buildJsonObject { put("message", "Downloaded page asset is unavailable") })
+            }
+        }
+
+        server.createContext("/assets/library/cover") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+            if (exchange.requestMethod.uppercase() != "GET") {
+                sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+                return@createContext
+            }
+
+            val localCoverPath = exchange.queryParam("path")
+            if (localCoverPath.isNullOrBlank()) {
+                sendJson(exchange, 400, buildJsonObject { put("message", "Missing path") })
+                return@createContext
+            }
+
+            try {
+                val image = bridgeService.fetchStoredCover(localCoverPath)
+                sendBytes(exchange, 200, image.bytes, image.contentType)
+            } catch (error: Exception) {
+                logger.warn(error) { "Failed to serve cached library cover path=$localCoverPath" }
+                sendJson(exchange, 404, buildJsonObject { put("message", "Library cover asset is unavailable") })
+            }
+        }
+
         server.start()
         logger.info { "Bridge HTTP server started on $host:$port" }
     }
