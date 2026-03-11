@@ -2,7 +2,6 @@ import { browser } from '$app/environment';
 import { env } from '$env/dynamic/public';
 import { ConvexClient, type AuthTokenFetcher } from 'convex/browser';
 import { setConvexClientContext } from 'convex-svelte';
-import { getCachedUserProfile } from '$lib/api/session';
 
 let client: ConvexClient | null = null;
 
@@ -30,10 +29,6 @@ export function getConvexUrl() {
 }
 
 const fetchConvexToken: AuthTokenFetcher = async ({ forceRefreshToken }) => {
-	if (!getCachedUserProfile()) {
-		return null;
-	}
-
 	const response = await fetch('/api/v2/auth/convex-token', {
 		method: 'POST',
 		headers: forceRefreshToken
