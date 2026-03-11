@@ -1,7 +1,3 @@
-import { makeFunctionReference } from 'convex/server';
+import { api } from '$convex/_generated/api';
 
-export const convexApi = {
-	auth: {
-		getViewer: makeFunctionReference<'query'>('auth:getViewer')
-	}
-};
+export const convexApi = api;

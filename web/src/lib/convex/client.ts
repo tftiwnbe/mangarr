@@ -29,7 +29,7 @@ export function getConvexUrl() {
 }
 
 const fetchConvexToken: AuthTokenFetcher = async ({ forceRefreshToken }) => {
-	const response = await fetch('/api/v2/auth/convex-token', {
+	const response = await fetch('/api/auth/convex-token', {
 		method: 'POST',
 		headers: forceRefreshToken
 			? {

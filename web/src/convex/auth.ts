@@ -1,6 +1,7 @@
-import { mutationGeneric, queryGeneric } from 'convex/server';
 import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
+
+import { mutation, query } from './_generated/server';
 
 const publicUser = v.object({
 	_id: v.id('users'),
@@ -21,7 +22,7 @@ const publicIntegrationApiKey = v.object({
 	revokedAt: v.optional(v.float64())
 });
 
-export const getSetupState = queryGeneric({
+export const getSetupState = query({
 	args: {},
 	handler: async (ctx) => {
 		const users = await ctx.db.query('users').take(1);
@@ -29,7 +30,7 @@ export const getSetupState = queryGeneric({
 	}
 });
 
-export const getUserByUsername = queryGeneric({
+export const getUserByUsername = query({
 	args: { username: v.string() },
 	handler: async (ctx, args) => {
 		const user = await ctx.db
@@ -54,7 +55,7 @@ export const getUserByUsername = queryGeneric({
 	}
 });
 
-export const getSessionByTokenHash = queryGeneric({
+export const getSessionByTokenHash = query({
 	args: {
 		sessionTokenHash: v.string(),
 		now: v.float64()
@@ -96,7 +97,7 @@ export const getSessionByTokenHash = queryGeneric({
 	}
 });
 
-export const registerFirstUser = mutationGeneric({
+export const registerFirstUser = mutation({
 	args: {
 		username: v.string(),
 		passwordHash: v.string(),
@@ -143,7 +144,7 @@ export const registerFirstUser = mutationGeneric({
 			await ctx.db.insert('installation', {
 				key: 'main',
 				setupState: 'configured',
-				schemaVersion: '0',
+				schemaVersion: '1',
 				releaseChannel: 'v2.0.0-alpha',
 				defaultAdminCreatedAt: args.now,
 				createdAt: args.now,
@@ -170,7 +171,7 @@ export const registerFirstUser = mutationGeneric({
 	}
 });
 
-export const createBrowserSession = mutationGeneric({
+export const createBrowserSession = mutation({
 	args: {
 		userId: v.id('users'),
 		sessionTokenHash: v.string(),
@@ -210,7 +211,7 @@ export const createBrowserSession = mutationGeneric({
 	}
 });
 
-export const revokeBrowserSessionByTokenHash = mutationGeneric({
+export const revokeBrowserSessionByTokenHash = mutation({
 	args: {
 		sessionTokenHash: v.string(),
 		revokedAt: v.float64()
@@ -234,7 +235,7 @@ export const revokeBrowserSessionByTokenHash = mutationGeneric({
 	}
 });
 
-export const touchBrowserSession = mutationGeneric({
+export const touchBrowserSession = mutation({
 	args: {
 		sessionTokenHash: v.string(),
 		lastUsedAt: v.float64()
@@ -257,7 +258,7 @@ export const touchBrowserSession = mutationGeneric({
 	}
 });
 
-export const revokeUserSessions = mutationGeneric({
+export const revokeUserSessions = mutation({
 	args: {
 		userId: v.id('users'),
 		revokedAt: v.float64()
@@ -285,7 +286,7 @@ export const revokeUserSessions = mutationGeneric({
 	}
 });
 
-export const getUserProfile = queryGeneric({
+export const getUserProfile = query({
 	args: { userId: v.id('users') },
 	returns: publicUser,
 	handler: async (ctx, args) => {
@@ -306,7 +307,7 @@ export const getUserProfile = queryGeneric({
 	}
 });
 
-export const getViewer = queryGeneric({
+export const getViewer = query({
 	args: {},
 	returns: v.union(publicUser, v.null()),
 	handler: async (ctx) => {
@@ -332,7 +333,7 @@ export const getViewer = queryGeneric({
 	}
 });
 
-export const listIntegrationApiKeys = queryGeneric({
+export const listIntegrationApiKeys = query({
 	args: { userId: v.id('users') },
 	returns: v.array(publicIntegrationApiKey),
 	handler: async (ctx, args) => {
@@ -355,7 +356,7 @@ export const listIntegrationApiKeys = queryGeneric({
 	}
 });
 
-export const createIntegrationApiKey = mutationGeneric({
+export const createIntegrationApiKey = mutation({
 	args: {
 		userId: v.id('users'),
 		name: v.string(),
@@ -389,7 +390,7 @@ export const createIntegrationApiKey = mutationGeneric({
 	}
 });
 
-export const revokeIntegrationApiKey = mutationGeneric({
+export const revokeIntegrationApiKey = mutation({
 	args: {
 		userId: v.id('users'),
 		publicId: v.float64(),
@@ -414,7 +415,7 @@ export const revokeIntegrationApiKey = mutationGeneric({
 	}
 });
 
-export const updateUserPassword = mutationGeneric({
+export const updateUserPassword = mutation({
 	args: {
 		userId: v.id('users'),
 		passwordHash: v.string(),

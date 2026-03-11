@@ -1,5 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { Cookies, RequestEvent } from '@sveltejs/kit';
+import type { GenericId } from 'convex/values';
 
 import { env as privateEnv } from '$env/dynamic/private';
 
@@ -260,6 +261,58 @@ export async function loginWithCredentials(
 
 	clearFailures(ip);
 	setSessionCookie(event.cookies, event, sessionToken, expiresAt);
+	return { ok: true as const };
+}
+
+export async function changePasswordWithCredentials(
+	event: RequestEvent,
+	input: { currentPassword: string; newPassword: string }
+) {
+	const currentUser = event.locals.auth.user;
+	if (!currentUser) {
+		return { ok: false as const, field: 'auth', message: 'Not signed in' };
+	}
+
+	const passwordResult = validatePasswordStrength(input.newPassword);
+	if (!passwordResult.ok) {
+		return { ok: false as const, field: 'newPassword', message: passwordResult.message };
+	}
+
+	const client = getConvexClient();
+	const user = await client.query(convexApi.auth.getUserByUsername, {
+		username: currentUser.username
+	});
+	if (!user || !verifyPassword(input.currentPassword, user.passwordHash)) {
+		return { ok: false as const, field: 'currentPassword', message: 'Current password is incorrect' };
+	}
+
+	const currentSessionToken = event.locals.auth.sessionToken;
+	const previousSession =
+		currentSessionToken && isConvexConfigured() ? await fetchSessionByToken(currentSessionToken) : null;
+	const now = Date.now();
+	const expiresAt = previousSession?.session.expiresAt && previousSession.session.expiresAt > now
+		? previousSession.session.expiresAt
+		: now + EPHEMERAL_SESSION_TTL_MS;
+
+	await client.mutation(convexApi.auth.updateUserPassword, {
+		userId: currentUser.id as GenericId<'users'>,
+		passwordHash: hashPassword(passwordResult.value),
+		now
+	});
+
+	await client.mutation(convexApi.auth.revokeUserSessions, {
+		userId: currentUser.id as GenericId<'users'>,
+		revokedAt: now
+	});
+
+	const newSessionToken = generateOpaqueToken();
+	await client.mutation(convexApi.auth.createBrowserSession, {
+		userId: currentUser.id as GenericId<'users'>,
+		sessionTokenHash: hashToken(newSessionToken),
+		expiresAt,
+		now
+	});
+	setSessionCookie(event.cookies, event, newSessionToken, expiresAt);
 	return { ok: true as const };
 }
 
