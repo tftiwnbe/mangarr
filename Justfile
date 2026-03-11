@@ -2,7 +2,7 @@ set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 set unstable := true
 
 web_port := "3737"
-worker_port := "3212"
+bridge_port := "3212"
 
 # Show available commands
 [group('meta')]
@@ -19,7 +19,6 @@ help:
 install:
     @echo "Installing development dependencies..."
     cd web && pnpm install
-    cd ../worker && pnpm install
 
 # Refresh Android compatibility stubs
 [group('generate')]
@@ -50,12 +49,6 @@ convex-codegen:
     @echo "Regenerating Convex generated files through the running mangarr container..."
     docker compose -f compose.dev.yaml exec -T mangarr sh -lc 'cd /app/web && pnpm run convex:codegen'
 
-# Start worker dev server
-[group('dev')]
-dev-worker:
-    @echo "Starting worker dev server..."
-    cd worker && pnpm run dev
-
 # Start container stack for development
 [group('dev')]
 dev-docker:
@@ -74,12 +67,12 @@ docker:
     @echo "Starting docker compose stack..."
     docker compose up --build
 
-# Build web and worker
+# Build web and bridge
 [group('runtime')]
 run:
-    @echo "Building web and worker..."
+    @echo "Building web and bridge..."
     cd web && pnpm run build
-    cd ../worker && pnpm run build
+    cd ../bridge && ./gradlew shadowJar
 
 # Build tachibridge jar
 [group('build')]
@@ -95,9 +88,8 @@ bridge:
 build target="all":
     @case "{{ target }}" in \
       all) \
-        echo "Building web, worker, and bridge..."; \
+        echo "Building web and bridge..."; \
         cd web && pnpm run build; \
-        cd ../worker && pnpm run build; \
         if [ ! -f "../bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ../bridge/AndroidCompat/getAndroid.sh; fi; \
         cd ../bridge && ./gradlew shadowJar; \
         cd .. && mkdir -p config/bin && cp -f bridge/app/build/*.jar config/bin/; \
@@ -106,10 +98,6 @@ build target="all":
         echo "Building web client..."; \
         cd web && pnpm run build; \
         ;; \
-      worker) \
-        echo "Building worker service..."; \
-        cd worker && pnpm run build; \
-        ;; \
       bridge) \
         echo "Building bridge jar..."; \
         if [ ! -f "bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ./bridge/AndroidCompat/getAndroid.sh; fi; \
@@ -117,7 +105,7 @@ build target="all":
         cd .. && mkdir -p config/bin && cp -f bridge/app/build/*.jar config/bin/; \
         ;; \
       *) \
-        echo "Unknown build target: {{ target }} (expected: all|web|worker|bridge)"; \
+        echo "Unknown build target: {{ target }} (expected: all|web|bridge)"; \
         exit 1; \
         ;; \
     esac
@@ -128,21 +116,17 @@ format target="all":
     @case "{{ target }}" in \
       all) \
         echo "Web formatter is not configured yet; skipping web format."; \
-        echo "Worker formatter is not configured yet; skipping worker format."; \
         cd bridge && ./gradlew ktlintFormat; \
         ;; \
       web) \
         echo "Web formatter is not configured yet; skipping."; \
-        ;; \
-      worker) \
-        echo "Worker formatter is not configured yet; skipping."; \
         ;; \
       bridge) \
         echo "Formatting bridge sources..."; \
         cd bridge && ./gradlew ktlintFormat; \
         ;; \
       *) \
-        echo "Unknown format target: {{ target }} (expected: all|web|worker|bridge)"; \
+        echo "Unknown format target: {{ target }} (expected: all|web|bridge)"; \
         exit 1; \
         ;; \
     esac
@@ -152,25 +136,20 @@ format target="all":
 lint target="all":
     @case "{{ target }}" in \
       all) \
-        echo "Linting web, worker, and bridge..."; \
+        echo "Linting web and bridge..."; \
         cd web && pnpm run lint; \
-        cd ../worker && pnpm run check; \
         cd ../bridge && ./gradlew ktlintCheck; \
         ;; \
       web) \
         echo "Linting web client..."; \
         cd web && pnpm run lint; \
         ;; \
-      worker) \
-        echo "Linting worker service..."; \
-        cd worker && pnpm run check; \
-        ;; \
       bridge) \
         echo "Linting bridge sources..."; \
         cd bridge && ./gradlew ktlintCheck; \
         ;; \
       *) \
-        echo "Unknown lint target: {{ target }} (expected: all|web|worker|bridge)"; \
+        echo "Unknown lint target: {{ target }} (expected: all|web|bridge)"; \
         exit 1; \
         ;; \
     esac
@@ -181,23 +160,18 @@ check target="all":
     @case "{{ target }}" in \
       all) \
         (cd web && pnpm run check); \
-        (cd worker && pnpm run check); \
         (cd bridge && ./gradlew build); \
         ;; \
       web) \
         echo "Running web checks..."; \
         cd web && pnpm run check; \
         ;; \
-      worker) \
-        echo "Running worker checks..."; \
-        cd worker && pnpm run check; \
-        ;; \
       bridge) \
         echo "Running bridge checks..."; \
         cd bridge && ./gradlew build; \
         ;; \
       *) \
-        echo "Unknown check target: {{ target }} (expected: all|web|worker|bridge)"; \
+        echo "Unknown check target: {{ target }} (expected: all|web|bridge)"; \
         exit 1; \
         ;; \
     esac
@@ -207,11 +181,9 @@ check target="all":
 ci target="all":
     @case "{{ target }}" in \
       all) \
-        echo "Running CI checks for web, worker, and bridge..."; \
+        echo "Running CI checks for web and bridge..."; \
         (cd web && pnpm run lint); \
         (cd web && pnpm run check); \
-        (cd worker && pnpm run check); \
-        (cd worker && pnpm run build); \
         (cd bridge && ./gradlew ktlintCheck); \
         (cd bridge && ./gradlew build); \
         if [ ! -f "bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ./bridge/AndroidCompat/getAndroid.sh; fi; \
@@ -223,11 +195,6 @@ ci target="all":
         (cd web && pnpm run lint); \
         (cd web && pnpm run check); \
         ;; \
-      worker) \
-        echo "Running worker CI checks..."; \
-        (cd worker && pnpm run check); \
-        (cd worker && pnpm run build); \
-        ;; \
       bridge) \
         echo "Running bridge CI checks..."; \
         (cd bridge && ./gradlew ktlintCheck); \
@@ -237,17 +204,17 @@ ci target="all":
         mkdir -p config/bin && cp -f bridge/app/build/*.jar config/bin/; \
         ;; \
       *) \
-        echo "Unknown ci target: {{ target }} (expected: all|web|worker|bridge)"; \
+        echo "Unknown ci target: {{ target }} (expected: all|web|bridge)"; \
         exit 1; \
         ;; \
     esac
 
-# Smoke-test running web/worker endpoints
+# Smoke-test running web/bridge endpoints
 [group('quality')]
 smoke:
     @echo "Running smoke checks..."
     curl -fsS "http://127.0.0.1:{{ web_port }}" >/dev/null
-    docker compose -f compose.dev.yaml exec -T mangarr curl -fsS "http://127.0.0.1:{{ worker_port }}/health" >/dev/null
+    docker compose -f compose.dev.yaml exec -T mangarr curl -fsS "http://127.0.0.1:{{ bridge_port }}/health" >/dev/null
     echo "Smoke checks passed."
 
 # Audit dependencies
@@ -255,20 +222,15 @@ smoke:
 audit target="all":
     @case "{{ target }}" in \
       all) \
-        echo "Auditing web and worker dependencies..."; \
+        echo "Auditing web dependencies..."; \
         cd web && pnpm audit --prod; \
-        cd ../worker && pnpm audit --prod; \
         ;; \
       web) \
         echo "Auditing Node dependencies..."; \
         cd web && pnpm audit --prod; \
         ;; \
-      worker) \
-        echo "Auditing worker dependencies..."; \
-        cd worker && pnpm audit --prod; \
-        ;; \
       *) \
-        echo "Unknown audit target: {{ target }} (expected: all|web|worker)"; \
+        echo "Unknown audit target: {{ target }} (expected: all|web)"; \
         exit 1; \
         ;; \
     esac

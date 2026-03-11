@@ -10,11 +10,11 @@
 
 import type * as app from "../app.js";
 import type * as auth from "../auth.js";
+import type * as bridge from "../bridge.js";
+import type * as bridge_auth from "../bridge_auth.js";
 import type * as commands from "../commands.js";
-import type * as explore from "../explore.js";
 import type * as extensions from "../extensions.js";
 import type * as library from "../library.js";
-import type * as worker from "../worker.js";
 
 import type {
   ApiFromModules,
@@ -26,11 +26,11 @@ import { anyApi, componentsGeneric } from "convex/server";
 const fullApi: ApiFromModules<{
   app: typeof app;
   auth: typeof auth;
+  bridge: typeof bridge;
+  bridge_auth: typeof bridge_auth;
   commands: typeof commands;
-  explore: typeof explore;
   extensions: typeof extensions;
   library: typeof library;
-  worker: typeof worker;
 }> = anyApi as any;
 
 /**

@@ -2,7 +2,7 @@ set -e
 
 # Configuration
 JAR_FILE="${JAR_FILE:-app/build/libs/tachibridge-2.0.0.jar}"
-PORT="${PORT:-50051}"
+PORT="${PORT:-3212}"
 MAX_HEAP="${MAX_HEAP:-256m}"
 MIN_HEAP="${MIN_HEAP:-128m}"
 
@@ -21,7 +21,7 @@ LOG_DIR="./logs"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/bridge-$(date +%Y%m%d-%H%M%S).log"
 
-echo "Starting Extension Bridge gRPC Server..."
+echo "Starting bridge runtime..."
 echo "Port: $PORT"
 echo "Max Heap: $MAX_HEAP"
 echo "Log: $LOG_FILE"
@@ -41,4 +41,4 @@ if [ "$JAVA_VERSION" -lt 17 ]; then
 fi
 
 # Start server
-exec java -jar "$JAR_FILE" "$PORT" 2>&1 | tee "$LOG_FILE"
+exec java -jar "$JAR_FILE" --port "$PORT" 2>&1 | tee "$LOG_FILE"
