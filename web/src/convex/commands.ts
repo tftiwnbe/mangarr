@@ -44,8 +44,12 @@ function targetCapabilityFor(commandType: string) {
 			return 'explore.title.fetch';
 		case 'reader.pages.fetch':
 			return 'reader.pages.fetch';
+		case 'library.chapters.sync':
+			return 'library.chapters.sync';
 		case 'library.import':
 			return 'library.import';
+		case 'downloads.chapter':
+			return 'downloads.chapter';
 		default:
 			throw new Error(`Unsupported command type: ${commandType}`);
 	}
@@ -131,6 +135,7 @@ export const listMine = query({
 				commandType: row.commandType,
 				status: row.status,
 				payload: row.payload,
+				progress: row.progress ?? null,
 				result: row.result ?? null,
 				lastErrorMessage: row.lastErrorMessage ?? null,
 				createdAt: row.createdAt,
@@ -289,6 +294,7 @@ export const complete = mutation({
 
 		await ctx.db.patch(args.commandId, {
 			status: STATUS.SUCCEEDED,
+			progress: undefined,
 			result: args.result,
 			leaseOwnerBridgeId: undefined,
 			leaseExpiresAt: undefined,
@@ -322,6 +328,7 @@ export const fail = mutation({
 			status: nextStatus,
 			runAfter: shouldRetry ? args.now + retryDelayMs : command.runAfter,
 			lastErrorMessage: args.message,
+			progress: undefined,
 			leaseOwnerBridgeId: undefined,
 			leaseExpiresAt: undefined,
 			completedAt: shouldRetry ? undefined : args.now,
@@ -329,5 +336,30 @@ export const fail = mutation({
 		});
 
 		return { ok: true, retried: shouldRetry };
+	}
+});
+
+export const updateProgress = mutation({
+	args: {
+		commandId: v.id('commands'),
+		bridgeId: v.string(),
+		now: v.float64(),
+		progress: v.any()
+	},
+	handler: async (ctx, args) => {
+		await requireBridgeIdentity(ctx);
+		const command = await ctx.db.get(args.commandId);
+		if (!command || command.leaseOwnerBridgeId !== args.bridgeId) {
+			return { ok: false };
+		}
+		if (command.status !== STATUS.LEASED && command.status !== STATUS.RUNNING) {
+			return { ok: false };
+		}
+
+		await ctx.db.patch(args.commandId, {
+			progress: args.progress,
+			updatedAt: args.now
+		});
+		return { ok: true };
 	}
 });
