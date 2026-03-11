@@ -20,10 +20,15 @@ function extractErrorMessage(payload: unknown, fallback: string): string {
 	if (typeof payload === 'string' && payload.trim().length > 0) {
 		return payload;
 	}
-	if (payload && typeof payload === 'object' && 'detail' in payload) {
+	if (payload && typeof payload === 'object') {
 		const detail = (payload as { detail?: unknown }).detail;
 		if (typeof detail === 'string' && detail.trim().length > 0) {
 			return detail;
+		}
+
+		const message = (payload as { message?: unknown }).message;
+		if (typeof message === 'string' && message.trim().length > 0) {
+			return message;
 		}
 	}
 	return fallback;
