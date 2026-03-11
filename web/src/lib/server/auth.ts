@@ -1,5 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import type { Cookies, RequestEvent } from '@sveltejs/kit';
+import type { GenericId } from 'convex/values';
 
 import { env as privateEnv } from '$env/dynamic/private';
 
@@ -294,19 +295,19 @@ export async function changePasswordWithCredentials(
 		: now + EPHEMERAL_SESSION_TTL_MS;
 
 	await client.mutation(convexApi.auth.updateUserPassword, {
-		userId: currentUser.id,
+		userId: currentUser.id as GenericId<'users'>,
 		passwordHash: hashPassword(passwordResult.value),
 		now
 	});
 
 	await client.mutation(convexApi.auth.revokeUserSessions, {
-		userId: currentUser.id,
+		userId: currentUser.id as GenericId<'users'>,
 		revokedAt: now
 	});
 
 	const newSessionToken = generateOpaqueToken();
 	await client.mutation(convexApi.auth.createBrowserSession, {
-		userId: currentUser.id,
+		userId: currentUser.id as GenericId<'users'>,
 		sessionTokenHash: hashToken(newSessionToken),
 		expiresAt,
 		now

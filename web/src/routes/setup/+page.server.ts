@@ -6,7 +6,5 @@ export const load: PageServerLoad = async ({ locals }) => {
 		throw redirect(303, '/login');
 	}
 
-	if (!locals.auth.setupOpen) {
-		throw redirect(303, '/library');
-	}
+	throw redirect(303, '/extensions');
 };
