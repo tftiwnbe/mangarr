@@ -6,8 +6,6 @@ import dev.datlag.kcef.KCEFBuilder.Settings.LogSeverity
 import eu.kanade.tachiyomi.App
 import eu.kanade.tachiyomi.network.NetworkHelper
 import io.github.oshai.kotlinlogging.KotlinLogging
-import io.grpc.Server
-import io.grpc.netty.NettyServerBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -18,12 +16,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import mangarr.tachibridge.config.ConfigManager
-import mangarr.tachibridge.extensions.ExtensionBridgeService
 import mangarr.tachibridge.extensions.ExtensionManager
 import mangarr.tachibridge.loader.ConfigExtensionsDirectories
 import mangarr.tachibridge.loader.ExtensionLoader
 import mangarr.tachibridge.loader.PackageTools
 import mangarr.tachibridge.repo.ExtensionRepoService
+import mangarr.tachibridge.runtime.BridgeAlphaService
+import mangarr.tachibridge.runtime.BridgeCommandRunner
+import mangarr.tachibridge.runtime.BridgeHeartbeatReporter
+import mangarr.tachibridge.runtime.BridgeJwtSigner
+import mangarr.tachibridge.runtime.BridgeRuntimeConfig
+import mangarr.tachibridge.runtime.BridgeState
+import mangarr.tachibridge.runtime.ConvexBridgeClient
+import mangarr.tachibridge.runtime.ConvexBridgeClientConfig
 import mangarr.tachibridge.util.toCefCookie
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.cef.network.CefCookieManager
@@ -39,13 +44,14 @@ import xyz.nulldev.androidcompat.webkit.KcefWebViewProvider
 import java.io.File
 import java.nio.file.Files
 import java.security.Security
+import java.util.concurrent.CountDownLatch
 import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
 import kotlin.math.roundToInt
 
 data class ServerConfig(
     val dataDir: String,
-    val port: Int,
+    val runtime: BridgeRuntimeConfig,
 )
 
 private val logger = KotlinLogging.logger {}
@@ -64,9 +70,12 @@ class BridgeServer(
     private lateinit var networkHelper: NetworkHelper
     private lateinit var repoService: ExtensionRepoService
     private lateinit var extensionManager: ExtensionManager
-    private lateinit var extensionService: ExtensionBridgeService
-    private lateinit var server: Server
+    private lateinit var bridgeState: BridgeState
+    private lateinit var heartbeatReporter: BridgeHeartbeatReporter
+    private lateinit var commandRunner: BridgeCommandRunner
+    private lateinit var httpServer: BridgeHttpServer
     private val bridgeScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val shutdownLatch = CountDownLatch(1)
 
     @kotlinx.coroutines.DelicateCoroutinesApi
     fun start() =
@@ -106,30 +115,64 @@ class BridgeServer(
                     networkHelper = networkHelper,
                 )
 
-            // Create gRPC service
-            extensionService = ExtensionBridgeService(extensionManager, repoService)
-
-            // Build and start server
-            server =
-                NettyServerBuilder
-                    .forPort(config.port)
-                    .addService(extensionService)
-                    .build()
-
-            server.start()
+            val convexClient =
+                if (config.runtime.convexUrl.isNotBlank()) {
+                    val signer = BridgeJwtSigner(config.runtime.convexAuth, config.runtime.bridgeId)
+                    ConvexBridgeClient(
+                        ConvexBridgeClientConfig(
+                            baseUrl = config.runtime.convexUrl,
+                            authTokenProvider = signer::currentToken,
+                        ),
+                    )
+                } else {
+                    null
+                }
+            val alphaService = BridgeAlphaService(extensionManager, repoService)
+            bridgeState = BridgeState(config.runtime.bridgeId, config.runtime.port, convexClient != null)
+            heartbeatReporter =
+                BridgeHeartbeatReporter(
+                    bridgeClient = convexClient,
+                    bridgeState = bridgeState,
+                    bridgeId = config.runtime.bridgeId,
+                    version = mangarr.tachibridge.generated.BuildConfig.VERSION,
+                    intervalMs = config.runtime.heartbeatIntervalMs,
+                )
+            commandRunner =
+                BridgeCommandRunner(
+                    bridgeClient = convexClient,
+                    service = alphaService,
+                    bridgeId = config.runtime.bridgeId,
+                    pollIntervalMs = config.runtime.commandPollIntervalMs,
+                    leaseDurationMs = config.runtime.commandLeaseDurationMs,
+                )
+            httpServer =
+                BridgeHttpServer(
+                    host = config.runtime.host,
+                    port = config.runtime.port,
+                    serviceSecret = config.runtime.serviceSecret,
+                    bridgeState = bridgeState,
+                    heartbeatReporter = heartbeatReporter,
+                    commandRunner = commandRunner,
+                )
+            bridgeState.setRunning()
+            heartbeatReporter.start()
+            commandRunner.start()
+            httpServer.start()
 
             bridgeScope.launch {
                 try {
                     initializeKCEF()
                     extensionManager.init()
+                    bridgeState.setReady()
                     logger.info { "Bridge warmup complete with ${extensionManager.listSources().size} loaded sources" }
                 } catch (e: Exception) {
+                    bridgeState.setError(e.message ?: "Bridge warmup failed")
                     logger.error(e) { "Bridge warmup failed" }
                 }
             }
 
             logger.info { "==================================================" }
-            logger.info { "Bridge Server started on port ${config.port}" }
+            logger.info { "Bridge Server started on port ${config.runtime.port}" }
             logger.info { "Data directory: $dataPath" }
             logger.info { "Extensions directory: $extensionsPath" }
             logger.info { "Repository: ${ConfigManager.config.repoUrl.ifBlank { "(not configured)" }}" }
@@ -138,7 +181,7 @@ class BridgeServer(
 
             Runtime.getRuntime().addShutdownHook(
                 Thread {
-                    logger.info { "Shutting down gRPC server..." }
+                    logger.info { "Shutting down bridge runtime..." }
                     this@BridgeServer.stop()
                     logger.info { "Server stopped" }
                 },
@@ -147,18 +190,22 @@ class BridgeServer(
 
     private fun stop() =
         runBlocking {
+            bridgeState.setStopped()
+            commandRunner.stop()
+            heartbeatReporter.stop()
             bridgeScope.cancel()
             extensionManager.cleanup()
-            server.shutdown()
+            httpServer.stop()
 
             // Shutdown KCEF
             logger.info { "Shutting down KCEF..." }
             KCEF.disposeBlocking()
             logger.info { "KCEF shutdown complete" }
+            shutdownLatch.countDown()
         }
 
     fun blockUntilShutdown() {
-        server.awaitTermination()
+        shutdownLatch.await()
     }
 
     @kotlinx.coroutines.DelicateCoroutinesApi

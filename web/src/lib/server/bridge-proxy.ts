@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 
 import { requireUser } from './auth';
-import { buildWorkerInternalHeaders, getWorkerBaseUrl } from './worker';
+import { buildBridgeInternalHeaders, getBridgeBaseUrl } from './bridge';
 
 const FORWARDED_HEADERS = [
 	'content-type',
@@ -12,7 +12,7 @@ const FORWARDED_HEADERS = [
 	'content-length'
 ] as const;
 
-export async function proxyWorkerRequest(
+export async function proxyBridgeRequest(
 	event: RequestEvent,
 	path: string,
 	init: {
@@ -27,17 +27,17 @@ export async function proxyWorkerRequest(
 		throw error(403, 'Admin privileges are required');
 	}
 
-	const upstreamUrl = new URL(path, `${getWorkerBaseUrl()}/`).toString();
+	const upstreamUrl = new URL(path, `${getBridgeBaseUrl()}/`).toString();
 	let upstream: Response;
 	try {
 		upstream = await fetch(upstreamUrl, {
 			method: init.method ?? 'GET',
-			headers: buildWorkerInternalHeaders(init.headers),
+			headers: buildBridgeInternalHeaders(init.headers),
 			body: init.body,
 			signal: AbortSignal.timeout(init.timeoutMs ?? 15_000)
 		});
 	} catch {
-		throw error(502, 'Worker internal API is unavailable');
+		throw error(502, 'Bridge internal API is unavailable');
 	}
 
 	const headers = new Headers();

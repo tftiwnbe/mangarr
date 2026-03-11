@@ -7,9 +7,9 @@ export const bootstrap = query({
 			.query('installation')
 			.withIndex('by_key', (q) => q.eq('key', 'main'))
 			.unique();
-		const worker = await ctx.db
-			.query('workerState')
-			.withIndex('by_worker_id', (q) => q.eq('workerId', 'main'))
+		const bridge = await ctx.db
+			.query('bridgeState')
+			.withIndex('by_bridge_id', (q) => q.eq('bridgeId', 'main'))
 			.unique();
 		const users = await ctx.db.query('users').take(1);
 		const installedExtensions = await ctx.db.query('installedExtensions').collect();
@@ -20,13 +20,13 @@ export const bootstrap = query({
 			schemaVersion: installation?.schemaVersion ?? '1',
 			extensionRepoUrl: installation?.extensionRepoUrl ?? null,
 			installedExtensionsCount: installedExtensions.length,
-			worker: worker
+			bridge: bridge
 				? {
-						bridgeStatus: worker.bridgeStatus,
-						bridgeReady: worker.bridgeReady,
-						lastHeartbeatAt: worker.lastHeartbeatAt,
-						restartCount: worker.restartCount,
-						lastHeartbeatError: worker.lastHeartbeatError ?? null
+						status: bridge.status,
+						ready: bridge.ready,
+						lastHeartbeatAt: bridge.lastHeartbeatAt,
+						restartCount: bridge.restartCount,
+						lastHeartbeatError: bridge.lastHeartbeatError ?? null
 					}
 				: null
 		};

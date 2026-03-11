@@ -1,6 +1,7 @@
 package mangarr.tachibridge
 
 import mangarr.tachibridge.config.ConfigManager
+import mangarr.tachibridge.runtime.loadBridgeRuntimeConfig
 import mangarr.tachibridge.server.BridgeServer
 import mangarr.tachibridge.server.ServerConfig
 import java.nio.file.Path
@@ -12,6 +13,7 @@ fun main(args: Array<String>) {
     // --- Parse arguments ---
     val dataDir = getArgValue(args, "--data-dir") ?: "./data"
     val port = getArgValue(args, "--port")?.toIntOrNull() ?: 50051
+    val runtimeConfig = loadBridgeRuntimeConfig(port)
 
     // --- Initialize global BridgeConfig ---
     val dataPath = resolveDataDir(dataDir)
@@ -20,7 +22,7 @@ fun main(args: Array<String>) {
     // --- Launch the server ---
     val server =
         BridgeServer(
-            config = ServerConfig(dataPath.toString(), port),
+            config = ServerConfig(dataPath.toString(), runtimeConfig),
         )
     server.start()
     server.blockUntilShutdown()
