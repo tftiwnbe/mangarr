@@ -7,6 +7,7 @@ import { buildBridgeInternalHeaders, getBridgeBaseUrl } from './bridge';
 const FORWARDED_HEADERS = [
 	'content-type',
 	'cache-control',
+	'content-disposition',
 	'etag',
 	'last-modified',
 	'content-length'

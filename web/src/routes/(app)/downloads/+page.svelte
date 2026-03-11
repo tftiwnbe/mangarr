@@ -67,6 +67,7 @@
 	let previewChapterId = $state<Id<'libraryChapters'> | null>(null);
 	let busyKey = $state<string | null>(null);
 	let error = $state<string | null>(null);
+	let info = $state<string | null>(null);
 
 	const titles = $derived((library.data ?? []) as TitleItem[]);
 	const allChapters = $derived((chapters.data ?? []) as ChapterItem[]);
@@ -124,9 +125,19 @@
 		return `/api/internal/bridge/library/page?${params.toString()}`;
 	}
 
+	function downloadedFileHref(chapter: ChapterItem) {
+		if (!chapter.localRelativePath || !chapter.storageKind) return '';
+		const params = new URLSearchParams({
+			path: chapter.localRelativePath,
+			storage: chapter.storageKind
+		});
+		return `/api/internal/bridge/library/file?${params.toString()}`;
+	}
+
 	async function syncTitle(titleId: Id<'libraryTitles'>) {
 		busyKey = `sync:${titleId}`;
 		error = null;
+		info = null;
 		try {
 			await client.mutation(convexApi.library.requestChapterSync, { titleId });
 		} catch (cause) {
@@ -139,6 +150,7 @@
 	async function queueMissing(titleId: Id<'libraryTitles'>) {
 		busyKey = `queue:${titleId}`;
 		error = null;
+		info = null;
 		try {
 			await client.mutation(convexApi.library.requestMissingDownloads, { titleId });
 		} catch (cause) {
@@ -151,10 +163,68 @@
 	async function downloadChapter(chapterId: Id<'libraryChapters'>) {
 		busyKey = `chapter:${chapterId}`;
 		error = null;
+		info = null;
 		try {
 			await client.mutation(convexApi.library.requestChapterDownload, { chapterId });
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Unable to start chapter download';
+		} finally {
+			busyKey = null;
+		}
+	}
+
+	async function reconcileDownloads(titleId?: Id<'libraryTitles'> | null) {
+		busyKey = titleId ? `reconcile:${titleId}` : 'reconcile:all';
+		error = null;
+		info = null;
+		try {
+			const response = await fetch('/api/internal/bridge/downloads/reconcile', {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json'
+				},
+				body: JSON.stringify(titleId ? { titleId } : {})
+			});
+			const payload = (await response.json().catch(() => null)) as
+				| { fixed?: number; message?: string }
+				| null;
+			if (!response.ok) {
+				throw new Error(payload?.message ?? 'Unable to scan downloads');
+			}
+			info = `Scan complete. Fixed ${payload?.fixed ?? 0} chapter records.`;
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Unable to scan downloads';
+		} finally {
+			busyKey = null;
+		}
+	}
+
+	async function deleteDownloadedFile(chapterId: Id<'libraryChapters'>) {
+		busyKey = `delete:${chapterId}`;
+		error = null;
+		info = null;
+		try {
+			const response = await fetch('/api/internal/bridge/downloads/delete', {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json'
+				},
+				body: JSON.stringify({ chapterId })
+			});
+			const payload = (await response.json().catch(() => null)) as
+				| { deleted?: boolean; message?: string }
+				| null;
+			if (!response.ok) {
+				throw new Error(payload?.message ?? 'Unable to delete downloaded chapter');
+			}
+			info = payload?.deleted
+				? 'Downloaded chapter file removed.'
+				: 'No stored file was found for this chapter.';
+			if (previewChapterId === chapterId) {
+				previewChapterId = null;
+			}
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Unable to delete downloaded chapter';
 		} finally {
 			busyKey = null;
 		}
@@ -168,10 +238,20 @@
 <div class="flex flex-col gap-6">
 	<div class="flex items-center gap-3">
 		<h1 class="text-display flex-1 text-xl text-[var(--text)]">{$_('nav.downloads').toLowerCase()}</h1>
+		<Button size="sm" variant="outline" disabled={busyKey !== null} onclick={() => void reconcileDownloads()}>
+			<StackIcon class="size-4" />
+			Scan All
+		</Button>
 	</div>
 
 	{#if error}
 		<div class="border border-red-400/50 bg-red-100/80 px-4 py-3 text-sm text-red-900">{error}</div>
+	{/if}
+
+	{#if info}
+		<div class="border border-emerald-400/50 bg-emerald-100/80 px-4 py-3 text-sm text-emerald-900">
+			{info}
+		</div>
 	{/if}
 
 	<div class="grid gap-6 xl:grid-cols-[0.95fr_1.25fr]">
@@ -248,6 +328,18 @@
 									>
 										<DownloadIcon class="size-4" />
 										Queue Missing
+									</Button>
+									<Button
+										size="sm"
+										variant="outline"
+										disabled={busyKey !== null}
+										onclick={(event) => {
+											event.stopPropagation();
+											void reconcileDownloads(title._id);
+										}}
+									>
+										<StackIcon class="size-4" />
+										Scan Downloads
 									</Button>
 								</div>
 							</div>
@@ -355,16 +447,33 @@
 													Download
 												</Button>
 											{:else}
-												<Button
-													size="sm"
-													variant="outline"
-													onclick={() => {
-														previewChapterId = chapter._id;
-													}}
-												>
-													<StackIcon class="size-4" />
-													Preview
-												</Button>
+												<div class="flex flex-wrap gap-2">
+													<Button
+														size="sm"
+														variant="outline"
+														onclick={() => {
+															previewChapterId = chapter._id;
+														}}
+													>
+														<StackIcon class="size-4" />
+														Preview
+													</Button>
+													<a
+														href={downloadedFileHref(chapter)}
+														class="relative inline-flex h-8 items-center justify-center gap-2 border border-[var(--line)] px-3 text-xs font-medium text-[var(--text-soft)] transition-all hover:border-[var(--void-6)] hover:bg-[var(--void-2)] hover:text-[var(--text)] active:bg-[var(--void-3)]"
+													>
+														<DownloadIcon class="size-4" />
+														Export CBZ
+													</a>
+													<Button
+														size="sm"
+														variant="outline"
+														disabled={busyKey !== null}
+														onclick={() => void deleteDownloadedFile(chapter._id)}
+													>
+														Delete File
+													</Button>
+												</div>
 											{/if}
 										</div>
 									</div>
