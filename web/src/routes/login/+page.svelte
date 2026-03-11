@@ -65,7 +65,8 @@
 			} else {
 				await login({ username: normalizedUsername, password, remember_me: rememberSession });
 			}
-			await goto(redirectTarget, { replaceState: true });
+			window.location.replace(redirectTarget);
+			return;
 		} catch (cause: unknown) {
 			if (cause instanceof ClientError) {
 				error = cause.message;
