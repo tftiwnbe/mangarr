@@ -9,11 +9,14 @@
 
 	type SearchItem = {
 		canonicalKey: string;
+		sourceId: string;
+		sourcePkg: string;
+		sourceLang: string;
+		sourceName: string;
+		titleUrl: string;
 		title: string;
 		description: string;
-		lang: string;
-		extensionPkg: string;
-		coverRef?: string | null;
+		coverUrl?: string | null;
 	};
 
 	const client = useConvexClient();
@@ -53,13 +56,19 @@
 		}
 	}
 
-	async function importTitle(canonicalKey: string) {
-		busyImportKey = canonicalKey;
+	async function importTitle(item: SearchItem) {
+		busyImportKey = item.canonicalKey;
 		error = null;
 		try {
 			await client.mutation(convexApi.commands.enqueue, {
 				commandType: 'library.import',
-				payload: { canonicalKey }
+				payload: {
+					canonicalKey: item.canonicalKey,
+					sourceId: item.sourceId,
+					sourcePkg: item.sourcePkg,
+					sourceLang: item.sourceLang,
+					titleUrl: item.titleUrl
+				}
 			});
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Unable to queue import';
@@ -113,11 +122,13 @@
 						<div class="min-w-0 flex-1">
 							<p class="line-clamp-1 text-sm text-[var(--text)]">{item.title}</p>
 							<p class="mt-1 line-clamp-2 text-xs text-[var(--text-ghost)]">{item.description}</p>
-							<p class="mt-1 text-[10px] text-[var(--text-muted)]">{item.extensionPkg} · {item.lang}</p>
+							<p class="mt-1 text-[10px] text-[var(--text-muted)]">
+								{item.sourcePkg} · {item.sourceLang} · {item.sourceName}
+							</p>
 						</div>
 						<Button
 							size="sm"
-							onclick={() => importTitle(item.canonicalKey)}
+							onclick={() => importTitle(item)}
 							disabled={busyImportKey === item.canonicalKey}
 						>
 							{busyImportKey === item.canonicalKey ? 'Queuing…' : 'Import'}

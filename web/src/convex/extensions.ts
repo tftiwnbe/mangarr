@@ -1,28 +1,7 @@
 import { v } from 'convex/values';
 
 import { mutation, query } from './_generated/server';
-
-function seededTitles(pkg: string, lang: string) {
-	const stem = pkg
-		.split('.')
-		.slice(-1)[0]
-		.replace(/[^a-z0-9]+/gi, ' ')
-		.trim();
-	const label = stem.length > 0 ? stem : 'source';
-	const titles = [
-		`${label} Chronicles`,
-		`${label} Odyssey`,
-		`${label} Academy`,
-		`${label} Archive`,
-		`${label} Runner`
-	];
-	return titles.map((title, index) => ({
-		canonicalKey: `${pkg}::${index + 1}`,
-		title,
-		description: `Imported from ${pkg}`,
-		lang
-	}));
-}
+import { requireBridgeIdentity } from './bridge_auth';
 
 export const getRepository = query({
 	args: {},
@@ -52,6 +31,7 @@ export const setRepository = mutation({
 		now: v.float64()
 	},
 	handler: async (ctx, args) => {
+		await requireBridgeIdentity(ctx);
 		const installation = await ctx.db
 			.query('installation')
 			.withIndex('by_key', (q) => q.eq('key', 'main'))
@@ -84,9 +64,11 @@ export const upsertInstalled = mutation({
 		name: v.string(),
 		lang: v.string(),
 		version: v.string(),
+		sourceIds: v.array(v.string()),
 		now: v.float64()
 	},
 	handler: async (ctx, args) => {
+		await requireBridgeIdentity(ctx);
 		const existing = await ctx.db
 			.query('installedExtensions')
 			.withIndex('by_pkg', (q) => q.eq('pkg', args.pkg))
@@ -97,6 +79,7 @@ export const upsertInstalled = mutation({
 				name: args.name,
 				lang: args.lang,
 				version: args.version,
+				sourceIds: args.sourceIds,
 				status: 'installed',
 				updatedAt: args.now
 			});
@@ -106,29 +89,11 @@ export const upsertInstalled = mutation({
 				name: args.name,
 				lang: args.lang,
 				version: args.version,
+				sourceIds: args.sourceIds,
 				status: 'installed',
 				installedAt: args.now,
 				updatedAt: args.now
 			});
-		}
-
-		const existingCatalog = await ctx.db
-			.query('exploreCatalog')
-			.withIndex('by_extension_pkg', (q) => q.eq('extensionPkg', args.pkg))
-			.collect();
-		if (existingCatalog.length === 0) {
-			const titles = seededTitles(args.pkg, args.lang);
-			for (const title of titles) {
-				await ctx.db.insert('exploreCatalog', {
-					extensionPkg: args.pkg,
-					canonicalKey: title.canonicalKey,
-					title: title.title,
-					description: title.description,
-					lang: title.lang,
-					createdAt: args.now,
-					updatedAt: args.now
-				});
-			}
 		}
 
 		return { ok: true };
