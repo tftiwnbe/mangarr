@@ -198,7 +198,7 @@ if [ "${MANGARR_APP_MODE:-prod}" = "dev" ]; then
   [ -d /app/worker/node_modules/.pnpm ] || (cd /app/worker && pnpm install --frozen-lockfile --force)
 fi
 
-(cd /app/web && pnpm exec convex dev --once --typecheck disable --codegen enable)
+(cd /app/web && pnpm exec convex dev --once --typecheck disable --codegen disable)
 
 if [ "${MANGARR_APP_MODE:-prod}" = "dev" ]; then
   (cd /app/worker && pnpm run dev) &
