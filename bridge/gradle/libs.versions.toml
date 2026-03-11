@@ -12,6 +12,7 @@ protoc_version = "4.32.0"
 dex2jar_version = "2.4.32"
 serialization_version = "1.9.0"
 xml_serialization_version = "0.91.3"
+nimbus_version = "10.6"
 
 
 [libraries]
@@ -60,6 +61,7 @@ serialization-json-okio = { module = "org.jetbrains.kotlinx:kotlinx-serializatio
 serialization-protobuf = { module = "org.jetbrains.kotlinx:kotlinx-serialization-protobuf", version.ref = "serialization_version" }
 serialization-xml-core = { module = "io.github.pdvrieze.xmlutil:core-android", version.ref = "xml_serialization_version" }
 serialization-xml = { module = "io.github.pdvrieze.xmlutil:serialization", version.ref = "xml_serialization_version" }
+nimbus-jose = { module = "com.nimbusds:nimbus-jose-jwt", version.ref = "nimbus_version" }
 
 [plugins]
 buildConfig = { id = "com.github.gmazzo.buildconfig", version= "5.7.1"}
@@ -78,4 +80,4 @@ network = ["okhttp", "okhttp-logging", "okhttp-brotli", "okhttp-dnsoverhttps", "
 grpc = ["grpc-protobuf", "grpc-protobuf-lite", "grpc-netty", "grpc-stub", "grpc-kotlin-stub", "protoc", "protobuf-kotlin", "protobuf-kotlin-lite", "protobuf-java-util", "protoc-gen-grpc-java", "protoc-gen-grpc-kotlin"]
 tachiyomi = ["injekt", "kcef", "bouncycastle", "rxjava", "jsoup"]
 apk = ["asm", "dex2jar-tools", "dex2jar-translator", "apk-parser", "apksig"]
-serialization = ["serialization-json", "serialization-json-okio", "serialization-protobuf", "serialization-xml-core", "serialization-xml"]
+serialization = ["serialization-json", "serialization-json-okio", "serialization-protobuf", "serialization-xml-core", "serialization-xml", "nimbus-jose"]
