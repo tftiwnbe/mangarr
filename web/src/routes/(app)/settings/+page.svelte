@@ -31,6 +31,15 @@
 		sessionTtlMinutes?: number | null;
 	};
 
+	type IntegrationApiKey = {
+		publicId: number;
+		name: string;
+		keyPrefix: string;
+		createdAt: number;
+		lastUsedAt?: number;
+		revokedAt?: number;
+	};
+
 	type BridgeHealth = {
 		bridge?: {
 			status?: string;
@@ -52,6 +61,7 @@
 	let downloadSettings = $state<DownloadSettings | null>(null);
 	let proxySettings = $state<ProxySettings | null>(null);
 	let flareSolverrSettings = $state<FlareSolverrSettings | null>(null);
+	let integrationApiKeys = $state<IntegrationApiKey[]>([]);
 	let health = $state<BridgeHealth | null>(null);
 
 	let savingSection = $state<'downloads' | 'proxy' | 'flaresolverr' | null>(null);
@@ -75,6 +85,11 @@
 	let flareSessionName = $state('');
 	let flareSessionTtlMinutes = $state('');
 
+	let integrationKeyName = $state('');
+	let creatingIntegrationKey = $state(false);
+	let revokingIntegrationKeyId = $state<number | null>(null);
+	let createdIntegrationKey = $state<string | null>(null);
+
 	onMount(() => {
 		void load();
 	});
@@ -85,10 +100,11 @@
 		success = null;
 
 		try {
-			const [downloadsResponse, proxyResponse, flareResponse, healthResponse] = await Promise.all([
+			const [downloadsResponse, proxyResponse, flareResponse, keysResponse, healthResponse] = await Promise.all([
 				fetch('/api/internal/bridge/settings/downloads'),
 				fetch('/api/internal/bridge/settings/proxy'),
 				fetch('/api/internal/bridge/settings/flaresolverr'),
+				fetch('/api/auth/integration-keys'),
 				fetch('/api/internal/bridge/health')
 			]);
 
@@ -101,6 +117,9 @@
 			if (!flareResponse.ok) {
 				throw new Error(await readError(flareResponse, 'Failed to load FlareSolverr settings'));
 			}
+			if (!keysResponse.ok) {
+				throw new Error(await readError(keysResponse, 'Failed to load integration keys'));
+			}
 			if (!healthResponse.ok) {
 				throw new Error(await readError(healthResponse, 'Failed to load bridge health'));
 			}
@@ -108,6 +127,7 @@
 			downloadSettings = (await downloadsResponse.json()) as DownloadSettings;
 			proxySettings = (await proxyResponse.json()) as ProxySettings;
 			flareSolverrSettings = (await flareResponse.json()) as FlareSolverrSettings;
+			integrationApiKeys = ((await keysResponse.json()) as { keys: IntegrationApiKey[] }).keys;
 			health = (await healthResponse.json()) as BridgeHealth;
 
 			downloadPath = downloadSettings.downloadPath;
@@ -168,6 +188,62 @@
 			error = cause instanceof Error ? cause.message : 'Failed to save download settings';
 		} finally {
 			savingSection = null;
+		}
+	}
+
+	async function createIntegrationKey() {
+		const name = integrationKeyName.trim();
+		if (!name) {
+			error = 'Integration key name is required';
+			return;
+		}
+
+		creatingIntegrationKey = true;
+		error = null;
+		success = null;
+		createdIntegrationKey = null;
+		try {
+			const response = await fetch('/api/auth/integration-keys', {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json'
+				},
+				body: JSON.stringify({ name })
+			});
+			if (!response.ok) {
+				throw new Error(await readError(response, 'Failed to create integration key'));
+			}
+
+			const payload = (await response.json()) as { key: string; item: IntegrationApiKey };
+			integrationApiKeys = [payload.item, ...integrationApiKeys];
+			createdIntegrationKey = payload.key;
+			integrationKeyName = '';
+			success = 'Integration key created';
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Failed to create integration key';
+		} finally {
+			creatingIntegrationKey = false;
+		}
+	}
+
+	async function revokeIntegrationKey(publicId: number) {
+		revokingIntegrationKeyId = publicId;
+		error = null;
+		success = null;
+		try {
+			const response = await fetch(`/api/auth/integration-keys/${publicId}`, {
+				method: 'DELETE'
+			});
+			if (!response.ok) {
+				throw new Error(await readError(response, 'Failed to revoke integration key'));
+			}
+
+			integrationApiKeys = integrationApiKeys.filter((key) => key.publicId !== publicId);
+			success = 'Integration key revoked';
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Failed to revoke integration key';
+		} finally {
+			revokingIntegrationKeyId = null;
 		}
 	}
 
@@ -498,6 +574,66 @@
 			</div>
 
 			<div class="flex flex-col gap-6">
+				<section class="border border-[var(--line)] bg-[var(--surface)] p-6">
+					<h2 class="text-sm tracking-wider text-[var(--text)] uppercase">Integration API Keys</h2>
+					<p class="mt-2 text-sm text-[var(--text-ghost)]">
+						Create tokens for scripts and external tools. New secrets are shown only once.
+					</p>
+
+					<div class="mt-4 flex flex-col gap-3">
+						<label class="flex flex-col gap-2">
+							<span class="text-xs tracking-wider text-[var(--text)] uppercase">Key Name</span>
+							<input
+								class="field"
+								bind:value={integrationKeyName}
+								placeholder="Komga sync"
+								maxlength="120"
+							/>
+						</label>
+						<div class="flex justify-end">
+							<Button disabled={creatingIntegrationKey} onclick={() => void createIntegrationKey()}>
+								{creatingIntegrationKey ? 'Creating…' : 'Create key'}
+							</Button>
+						</div>
+					</div>
+
+					{#if createdIntegrationKey}
+						<div class="mt-4 border border-amber-400/50 bg-amber-100/80 px-4 py-3 text-xs text-amber-950">
+							<div class="font-semibold">Copy this key now</div>
+							<div class="mt-1 font-mono break-all">{createdIntegrationKey}</div>
+						</div>
+					{/if}
+
+					<div class="mt-4 flex flex-col gap-3">
+						{#if integrationApiKeys.length === 0}
+							<div class="text-sm text-[var(--text-ghost)]">No integration keys yet.</div>
+						{:else}
+							{#each integrationApiKeys as key (key.publicId)}
+								<div class="flex items-center justify-between gap-4 border border-[var(--line)] p-3">
+									<div class="min-w-0">
+										<div class="text-sm text-[var(--text)]">{key.name}</div>
+										<div class="text-xs text-[var(--text-ghost)]">
+											{key.keyPrefix}...
+											Created {formatDate(key.createdAt)}
+											{#if key.lastUsedAt}
+												· Last used {formatDate(key.lastUsedAt)}
+											{/if}
+										</div>
+									</div>
+									<Button
+										size="sm"
+										variant="outline"
+										disabled={revokingIntegrationKeyId === key.publicId}
+										onclick={() => void revokeIntegrationKey(key.publicId)}
+									>
+										{revokingIntegrationKeyId === key.publicId ? 'Revoking…' : 'Revoke'}
+									</Button>
+								</div>
+							{/each}
+						{/if}
+					</div>
+				</section>
+
 				<section class="border border-[var(--line)] bg-[var(--surface)] p-6">
 					<h2 class="text-sm tracking-wider text-[var(--text)] uppercase">Bridge Runtime</h2>
 					<p class="mt-2 text-sm text-[var(--text-ghost)]">
