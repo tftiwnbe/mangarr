@@ -76,6 +76,16 @@ export default defineSchema({
 		lang: v.string(),
 		version: v.string(),
 		sourceIds: v.array(v.string()),
+		sources: v.optional(
+			v.array(
+				v.object({
+					id: v.string(),
+					name: v.string(),
+					lang: v.string(),
+					supportsLatest: v.boolean()
+				})
+			)
+		),
 		status: v.union(v.literal('installed'), v.literal('disabled')),
 		installedAt: v.float64(),
 		updatedAt: v.float64()
@@ -93,6 +103,7 @@ export default defineSchema({
 		titleUrl: v.string(),
 		description: v.optional(v.string()),
 		coverUrl: v.optional(v.string()),
+		localCoverPath: v.optional(v.string()),
 		createdAt: v.float64(),
 		updatedAt: v.float64(),
 		lastReadAt: v.optional(v.float64())
@@ -100,6 +111,40 @@ export default defineSchema({
 		.index('by_owner_user_id', ['ownerUserId'])
 		.index('by_owner_user_id_canonical_key', ['ownerUserId', 'canonicalKey'])
 		.index('by_owner_user_id_updated_at', ['ownerUserId', 'updatedAt']),
+
+	libraryChapters: defineTable({
+		ownerUserId: v.id('users'),
+		libraryTitleId: v.id('libraryTitles'),
+		sourceId: v.string(),
+		sourcePkg: v.string(),
+		sourceLang: v.string(),
+		titleUrl: v.string(),
+		chapterUrl: v.string(),
+		chapterName: v.string(),
+		chapterNumber: v.optional(v.float64()),
+		scanlator: v.optional(v.string()),
+		dateUpload: v.optional(v.float64()),
+		sequence: v.float64(),
+		downloadStatus: v.union(
+			v.literal('missing'),
+			v.literal('queued'),
+			v.literal('downloading'),
+			v.literal('downloaded'),
+			v.literal('failed')
+		),
+		totalPages: v.optional(v.float64()),
+		downloadedPages: v.float64(),
+		localRelativePath: v.optional(v.string()),
+		storageKind: v.optional(v.union(v.literal('directory'), v.literal('archive'))),
+		fileSizeBytes: v.optional(v.float64()),
+		lastErrorMessage: v.optional(v.string()),
+		downloadedAt: v.optional(v.float64()),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_library_title_id', ['libraryTitleId'])
+		.index('by_owner_user_id_download_status', ['ownerUserId', 'downloadStatus'])
+		.index('by_library_title_id_chapter_url', ['libraryTitleId', 'chapterUrl']),
 
 	commands: defineTable({
 		commandType: v.string(),
@@ -123,6 +168,7 @@ export default defineSchema({
 		attemptCount: v.float64(),
 		maxAttempts: v.float64(),
 		lastErrorMessage: v.optional(v.string()),
+		progress: v.optional(v.any()),
 		result: v.optional(v.any()),
 		createdAt: v.float64(),
 		updatedAt: v.float64(),

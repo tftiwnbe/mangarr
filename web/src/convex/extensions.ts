@@ -25,6 +25,33 @@ export const listInstalled = query({
 	}
 });
 
+export const listSources = query({
+	args: {},
+	handler: async (ctx) => {
+		const extensions = await ctx.db.query('installedExtensions').collect();
+		return extensions
+			.flatMap((extension) =>
+				(extension.sources ?? extension.sourceIds.map((id) => ({
+					id,
+					name: id,
+					lang: extension.lang,
+					supportsLatest: false
+				}))).map((source) => ({
+					...source,
+					extensionPkg: extension.pkg,
+					extensionName: extension.name,
+					extensionVersion: extension.version
+				}))
+			)
+			.sort((left, right) => {
+				if (left.extensionName !== right.extensionName) {
+					return left.extensionName.localeCompare(right.extensionName);
+				}
+				return left.name.localeCompare(right.name);
+			});
+	}
+});
+
 export const setRepository = mutation({
 	args: {
 		url: v.string(),
@@ -64,6 +91,14 @@ export const upsertInstalled = mutation({
 		lang: v.string(),
 		version: v.string(),
 		sourceIds: v.array(v.string()),
+		sources: v.array(
+			v.object({
+				id: v.string(),
+				name: v.string(),
+				lang: v.string(),
+				supportsLatest: v.boolean()
+			})
+		),
 		now: v.float64()
 	},
 	handler: async (ctx, args) => {
@@ -79,6 +114,7 @@ export const upsertInstalled = mutation({
 				lang: args.lang,
 				version: args.version,
 				sourceIds: args.sourceIds,
+				sources: args.sources,
 				status: 'installed',
 				updatedAt: args.now
 			});
@@ -89,10 +125,30 @@ export const upsertInstalled = mutation({
 				lang: args.lang,
 				version: args.version,
 				sourceIds: args.sourceIds,
+				sources: args.sources,
 				status: 'installed',
 				installedAt: args.now,
 				updatedAt: args.now
 			});
+		}
+
+		return { ok: true };
+	}
+});
+
+export const removeInstalled = mutation({
+	args: {
+		pkg: v.string()
+	},
+	handler: async (ctx, args) => {
+		await requireBridgeIdentity(ctx);
+		const existing = await ctx.db
+			.query('installedExtensions')
+			.withIndex('by_pkg', (q) => q.eq('pkg', args.pkg))
+			.unique();
+
+		if (existing) {
+			await ctx.db.delete(existing._id);
 		}
 
 		return { ok: true };

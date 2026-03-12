@@ -14,9 +14,11 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import mangarr.tachibridge.config.ConfigManager
 
 private val logger = KotlinLogging.logger {}
 
@@ -84,9 +86,14 @@ class BridgeCommandRunner(
                                 kotlinx.serialization.json.buildJsonArray {
                                     add(JsonPrimitive("extensions.repo"))
                                     add(JsonPrimitive("extensions.install"))
+                                    add(JsonPrimitive("sources.preferences"))
                                     add(JsonPrimitive("explore.search"))
+                                    add(JsonPrimitive("explore.feed"))
                                     add(JsonPrimitive("explore.title.fetch"))
+                                    add(JsonPrimitive("reader.pages.fetch"))
+                                    add(JsonPrimitive("library.chapters.sync"))
                                     add(JsonPrimitive("library.import"))
+                                    add(JsonPrimitive("downloads.chapter"))
                                 },
                             )
                             put("now", now)
@@ -145,6 +152,12 @@ class BridgeCommandRunner(
             )
         } catch (error: Exception) {
             logger.error(error) { "Bridge command execution failed for ${command.commandType}" }
+            val retryDelayMs =
+                if (command.commandType == "downloads.chapter") {
+                    ConfigManager.config.downloads.failedRetryDelaySeconds * 1000L
+                } else {
+                    5_000L
+                }
             client.failCommand(
                 client.payload(
                     buildJsonObject {
@@ -152,7 +165,7 @@ class BridgeCommandRunner(
                         put("bridgeId", bridgeId)
                         put("now", System.currentTimeMillis())
                         put("message", error.message ?: "Unhandled bridge command error")
-                        put("retryDelayMs", 5000)
+                        put("retryDelayMs", retryDelayMs)
                     },
                 ),
             )
@@ -183,6 +196,11 @@ class BridgeCommandRunner(
                     put("created", persisted.created)
                 }
             }
+            "extensions.repo.search" -> {
+                val query = payload.optionalString("query").orEmpty()
+                val limit = payload.optionalInt("limit") ?: 50
+                service.searchRepository(query, limit)
+            }
             "extensions.install" -> {
                 val pkg = payload.requiredString("pkg")
                 val installed = kotlinx.coroutines.runBlocking { service.installExtension(pkg) }
@@ -196,7 +214,22 @@ class BridgeCommandRunner(
                             put(
                                 "sourceIds",
                                 kotlinx.serialization.json.buildJsonArray {
-                                    installed.sourceIds.forEach { add(JsonPrimitive(it)) }
+                                    installed.sources.forEach { add(JsonPrimitive(it.id)) }
+                                },
+                            )
+                            put(
+                                "sources",
+                                kotlinx.serialization.json.buildJsonArray {
+                                    installed.sources.forEach { source ->
+                                        add(
+                                            buildJsonObject {
+                                                put("id", source.id)
+                                                put("name", source.name)
+                                                put("lang", source.lang)
+                                                put("supportsLatest", source.supportsLatest)
+                                            },
+                                        )
+                                    }
                                 },
                             )
                             put("now", System.currentTimeMillis())
@@ -212,20 +245,143 @@ class BridgeCommandRunner(
                     put(
                         "sourceIds",
                         kotlinx.serialization.json.buildJsonArray {
-                            installed.sourceIds.forEach { add(JsonPrimitive(it)) }
+                            installed.sources.forEach { add(JsonPrimitive(it.id)) }
+                        },
+                    )
+                    put(
+                        "sources",
+                        kotlinx.serialization.json.buildJsonArray {
+                            installed.sources.forEach { source ->
+                                add(
+                                    buildJsonObject {
+                                        put("id", source.id)
+                                        put("name", source.name)
+                                        put("lang", source.lang)
+                                        put("supportsLatest", source.supportsLatest)
+                                    },
+                                )
+                            }
                         },
                     )
                 }
             }
+            "extensions.update" -> {
+                val pkg = payload.requiredString("pkg")
+                val updated = kotlinx.coroutines.runBlocking { service.updateExtension(pkg) }
+                client.upsertInstalledExtension(
+                    client.payload(
+                        buildJsonObject {
+                            put("pkg", updated.pkg)
+                            put("name", updated.name)
+                            put("lang", updated.lang)
+                            put("version", updated.version)
+                            put(
+                                "sourceIds",
+                                kotlinx.serialization.json.buildJsonArray {
+                                    updated.sources.forEach { add(JsonPrimitive(it.id)) }
+                                },
+                            )
+                            put(
+                                "sources",
+                                kotlinx.serialization.json.buildJsonArray {
+                                    updated.sources.forEach { source ->
+                                        add(
+                                            buildJsonObject {
+                                                put("id", source.id)
+                                                put("name", source.name)
+                                                put("lang", source.lang)
+                                                put("supportsLatest", source.supportsLatest)
+                                            },
+                                        )
+                                    }
+                                },
+                            )
+                            put("now", System.currentTimeMillis())
+                        },
+                    ),
+                )
+                buildJsonObject {
+                    put("ok", true)
+                    put("pkg", updated.pkg)
+                    put("name", updated.name)
+                    put("lang", updated.lang)
+                    put("version", updated.version)
+                }
+            }
+            "extensions.uninstall" -> {
+                val pkg = payload.requiredString("pkg")
+                val result = kotlinx.coroutines.runBlocking { service.uninstallExtension(pkg) }
+                client.removeInstalledExtension(
+                    client.payload(
+                        buildJsonObject {
+                            put("pkg", pkg)
+                        },
+                    ),
+                )
+                result
+            }
+            "sources.preferences.fetch" -> {
+                val sourceId = payload.requiredString("sourceId")
+                kotlinx.coroutines.runBlocking { service.fetchSourcePreferences(sourceId) }
+            }
+            "sources.preferences.save" -> {
+                val sourceId = payload.requiredString("sourceId")
+                val values = payload["values"]?.jsonObject ?: error("Missing values")
+                kotlinx.coroutines.runBlocking { service.saveSourcePreferences(sourceId, values) }
+            }
             "explore.search" -> {
                 val query = payload.requiredString("query")
                 val limit = payload.optionalInt("limit") ?: 30
-                kotlinx.coroutines.runBlocking { service.searchTitles(query, limit) }
+                val sourceId = payload.optionalString("sourceId")
+                val searchFilters = payload["searchFilters"]?.jsonObject
+                kotlinx.coroutines.runBlocking { service.searchTitles(query, limit, sourceId, searchFilters) }
+            }
+            "explore.popular" -> {
+                val sourceId = payload.requiredString("sourceId")
+                val page = payload.optionalInt("page") ?: 1
+                val limit = payload.optionalInt("limit") ?: 30
+                kotlinx.coroutines.runBlocking { service.fetchPopular(sourceId, page, limit) }
+            }
+            "explore.latest" -> {
+                val sourceId = payload.requiredString("sourceId")
+                val page = payload.optionalInt("page") ?: 1
+                val limit = payload.optionalInt("limit") ?: 30
+                kotlinx.coroutines.runBlocking { service.fetchLatest(sourceId, page, limit) }
             }
             "explore.title.fetch" -> {
                 val sourceId = payload.requiredString("sourceId")
                 val titleUrl = payload.requiredString("titleUrl")
                 kotlinx.coroutines.runBlocking { service.fetchTitle(sourceId, titleUrl) }
+            }
+            "explore.chapters.fetch" -> {
+                val sourceId = payload.requiredString("sourceId")
+                val titleUrl = payload.requiredString("titleUrl")
+                kotlinx.coroutines.runBlocking { service.fetchChapters(sourceId, titleUrl) }
+            }
+            "reader.pages.fetch" -> {
+                val sourceId = payload.requiredString("sourceId")
+                val chapterUrl = payload.requiredString("chapterUrl")
+                kotlinx.coroutines.runBlocking { service.fetchPages(sourceId, chapterUrl) }
+            }
+            "library.chapters.sync" -> {
+                val titleId = payload.requiredString("titleId")
+                val sourceId = payload.requiredString("sourceId")
+                val titleUrl = payload.requiredString("titleUrl")
+                val chapters = kotlinx.coroutines.runBlocking { service.fetchChapters(sourceId, titleUrl) }
+                client.upsertLibraryChapters(
+                    client.payload(
+                        buildJsonObject {
+                            put("titleId", titleId)
+                            put("chapters", chapters["chapters"] ?: error("Missing chapters payload"))
+                            put("now", System.currentTimeMillis())
+                        },
+                    ),
+                )
+                buildJsonObject {
+                    put("ok", true)
+                    put("titleId", titleId)
+                    put("chapterCount", chapters["chapters"]?.jsonArray?.size ?: 0)
+                }
             }
             "library.import" -> {
                 val sourceId = payload.requiredString("sourceId")
@@ -257,11 +413,145 @@ class BridgeCommandRunner(
                         ),
                     )
 
+                val coverPath =
+                    runCatching {
+                        service.cacheCover(clientResult.titleId, resolved.optionalString("coverUrl"))
+                    }.onFailure { error ->
+                        logger.warn(error) { "Failed to cache cover for imported title ${clientResult.titleId}" }
+                    }.getOrNull()
+
+                if (!coverPath.isNullOrBlank()) {
+                    client.setLibraryTitleLocalCover(
+                        client.payload(
+                            buildJsonObject {
+                                put("titleId", clientResult.titleId)
+                                put("localCoverPath", coverPath)
+                                put("now", System.currentTimeMillis())
+                            },
+                        ),
+                    )
+                }
+
+                val chapters = kotlinx.coroutines.runBlocking { service.fetchChapters(sourceId, titleUrl) }
+                client.upsertLibraryChapters(
+                    client.payload(
+                        buildJsonObject {
+                            put("titleId", clientResult.titleId)
+                            put("chapters", chapters["chapters"] ?: error("Missing chapters payload"))
+                            put("now", System.currentTimeMillis())
+                        },
+                    ),
+                )
+
                 buildJsonObject {
                     put("ok", true)
                     put("created", clientResult.created)
                     put("titleId", clientResult.titleId)
                     put("title", resolved.requiredString("title"))
+                    put("localCoverPath", coverPath)
+                    put("chapterCount", chapters["chapters"]?.jsonArray?.size ?: 0)
+                }
+            }
+            "downloads.chapter" -> {
+                val chapterId = payload.requiredString("chapterId")
+                val titleId = payload.requiredString("titleId")
+                val sourceId = payload.requiredString("sourceId")
+                val chapterUrl = payload.requiredString("chapterUrl")
+
+                client.setLibraryChapterDownloadState(
+                    client.payload(
+                        buildJsonObject {
+                            put("chapterId", chapterId)
+                            put("status", "downloading")
+                            put("downloadedPages", 0)
+                            put("lastErrorMessage", "")
+                            put("now", System.currentTimeMillis())
+                        },
+                    ),
+                )
+
+                try {
+                    val result =
+                        kotlinx.coroutines.runBlocking {
+                            service.downloadChapter(titleId, sourceId, chapterUrl) { downloadedPages, totalPages ->
+                                val now = System.currentTimeMillis()
+                                client.renewCommandLease(
+                                    client.payload(
+                                        buildJsonObject {
+                                            put("commandId", command.id)
+                                            put("bridgeId", bridgeId)
+                                            put("now", now)
+                                            put("leaseDurationMs", leaseDurationMs)
+                                        },
+                                    ),
+                                )
+                                client.updateCommandProgress(
+                                    client.payload(
+                                        buildJsonObject {
+                                            put("commandId", command.id)
+                                            put("bridgeId", bridgeId)
+                                            put("now", now)
+                                            put(
+                                                "progress",
+                                                buildJsonObject {
+                                                    put("downloadedPages", downloadedPages)
+                                                    put("totalPages", totalPages)
+                                                    put(
+                                                        "percent",
+                                                        if (totalPages > 0) {
+                                                            (downloadedPages * 100) / totalPages
+                                                        } else {
+                                                            0
+                                                        },
+                                                    )
+                                                },
+                                            )
+                                        },
+                                    ),
+                                )
+                                client.setLibraryChapterDownloadState(
+                                    client.payload(
+                                        buildJsonObject {
+                                            put("chapterId", chapterId)
+                                            put("status", "downloading")
+                                            put("downloadedPages", downloadedPages)
+                                            put("totalPages", totalPages)
+                                            put("now", now)
+                                        },
+                                    ),
+                                )
+                            }
+                        }
+
+                    client.setLibraryChapterDownloadState(
+                        client.payload(
+                            buildJsonObject {
+                                put("chapterId", chapterId)
+                                put("status", "downloaded")
+                                put("downloadedPages", result.requiredInt("downloadedPages"))
+                                put("totalPages", result.requiredInt("totalPages"))
+                                put("localRelativePath", result.requiredString("localRelativePath"))
+                                put("storageKind", result.requiredString("storageKind"))
+                                put("fileSizeBytes", result.requiredLong("fileSizeBytes"))
+                                put("lastErrorMessage", "")
+                                put("now", System.currentTimeMillis())
+                            },
+                        ),
+                    )
+
+                    result
+                } catch (error: Exception) {
+                    client.setLibraryChapterDownloadState(
+                        client.payload(
+                            buildJsonObject {
+                                put("chapterId", chapterId)
+                                put("status", "failed")
+                                put("lastErrorMessage", error.message ?: "Download failed")
+                                put("now", System.currentTimeMillis())
+                            },
+                        ),
+                    )
+                    throw error
                 }
             }
             else -> throw IllegalStateException("Unsupported command type: ${command.commandType}")
@@ -277,4 +567,11 @@ class BridgeCommandRunner(
 
     private fun JsonObject.optionalInt(key: String): Int? =
         this[key]?.jsonPrimitive?.intOrNull
+
+    private fun JsonObject.requiredInt(key: String): Int =
+        this[key]?.jsonPrimitive?.intOrNull ?: throw IllegalArgumentException("Missing $key")
+
+    private fun JsonObject.requiredLong(key: String): Long =
+        this[key]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
+            ?: throw IllegalArgumentException("Missing $key")
 }

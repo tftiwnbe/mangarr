@@ -15,9 +15,20 @@ data class BridgeConfig(
     @SerialName("source_prefs")
     val sourcePreferences: Map<String, Map<String, PreferenceValue>> = emptyMap(),
     val proxy: Proxy = Proxy(),
+    val downloads: Downloads = Downloads(),
     @SerialName("flare_solverr")
     val flareSolverr: FlareSolverr = FlareSolverr(),
 ) {
+    @Serializable
+    data class Downloads(
+        @SerialName("download_path")
+        val downloadPath: String = "",
+        @SerialName("compression_enabled")
+        val compressionEnabled: Boolean = true,
+        @SerialName("failed_retry_delay_seconds")
+        val failedRetryDelaySeconds: Int = 300,
+    )
+
     @Serializable
     data class Proxy(
         val hostname: String = "",

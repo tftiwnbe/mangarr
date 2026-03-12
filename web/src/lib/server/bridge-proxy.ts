@@ -7,6 +7,7 @@ import { buildBridgeInternalHeaders, getBridgeBaseUrl } from './bridge';
 const FORWARDED_HEADERS = [
 	'content-type',
 	'cache-control',
+	'content-disposition',
 	'etag',
 	'last-modified',
 	'content-length'
@@ -20,10 +21,11 @@ export async function proxyBridgeRequest(
 		headers?: HeadersInit;
 		timeoutMs?: number;
 		body?: BodyInit | null;
+		requireAdmin?: boolean;
 	} = {}
 ) {
 	const user = requireUser(event);
-	if (!user.isAdmin) {
+	if (init.requireAdmin !== false && !user.isAdmin) {
 		throw error(403, 'Admin privileges are required');
 	}
 
