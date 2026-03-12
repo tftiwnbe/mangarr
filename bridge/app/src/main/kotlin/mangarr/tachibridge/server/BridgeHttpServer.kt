@@ -260,6 +260,54 @@ class BridgeHttpServer(
             }
         }
 
+        server.createContext("/settings/proxy") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+
+            when (exchange.requestMethod.uppercase()) {
+                "GET" -> sendJson(exchange, 200, bridgeService.proxySettings())
+                "PUT" -> {
+                    val payload = readJsonBody(exchange)
+                    val updated =
+                        bridgeService.updateProxySettings(
+                            hostname = payload.optionalString("hostname"),
+                            port = payload.optionalInt("port"),
+                            username = payload.optionalString("username"),
+                            password = payload.optionalString("password"),
+                            ignoredAddresses = payload.optionalString("ignoredAddresses"),
+                            bypassLocalAddresses = payload.optionalBoolean("bypassLocalAddresses"),
+                        )
+                    sendJson(exchange, 200, updated)
+                }
+                else -> sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+            }
+        }
+
+        server.createContext("/settings/flaresolverr") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+
+            when (exchange.requestMethod.uppercase()) {
+                "GET" -> sendJson(exchange, 200, bridgeService.flareSolverrSettings())
+                "PUT" -> {
+                    val payload = readJsonBody(exchange)
+                    val updated =
+                        bridgeService.updateFlareSolverrSettings(
+                            enabled = payload.optionalBoolean("enabled"),
+                            url = payload.optionalString("url"),
+                            timeoutSeconds = payload.optionalInt("timeoutSeconds"),
+                            responseFallback = payload.optionalBoolean("responseFallback"),
+                            sessionName = payload.optionalString("sessionName"),
+                            sessionTtlMinutes = payload.optionalInt("sessionTtlMinutes"),
+                        )
+                    sendJson(exchange, 200, updated)
+                }
+                else -> sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+            }
+        }
+
         server.createContext("/downloads/reconcile") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext

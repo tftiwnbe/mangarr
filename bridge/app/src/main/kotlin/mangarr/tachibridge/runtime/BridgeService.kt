@@ -350,6 +350,75 @@ class BridgeService(
         }
     }
 
+    fun proxySettings(): JsonObject {
+        val proxy = ConfigManager.config.proxy
+        return buildJsonObject {
+            put("hostname", proxy.hostname)
+            put("port", proxy.port)
+            put("username", proxy.username ?: "")
+            put("password", proxy.password ?: "")
+            put("ignoredAddresses", proxy.ignoredAddresses)
+            put("bypassLocalAddresses", proxy.bypassLocalAddresses)
+        }
+    }
+
+    fun updateProxySettings(
+        hostname: String?,
+        port: Int?,
+        username: String?,
+        password: String?,
+        ignoredAddresses: String?,
+        bypassLocalAddresses: Boolean?,
+    ): JsonObject {
+        val current = ConfigManager.config.proxy
+        ConfigManager.setProxyConfig(
+            current.copy(
+                hostname = hostname?.trim() ?: current.hostname,
+                port = port?.coerceIn(0, 65535) ?: current.port,
+                username = username?.trim()?.takeIf { it.isNotEmpty() },
+                password = password?.takeIf { !it.isNullOrBlank() },
+                ignoredAddresses = ignoredAddresses?.trim() ?: current.ignoredAddresses,
+                bypassLocalAddresses = bypassLocalAddresses ?: current.bypassLocalAddresses,
+            ),
+        )
+        return proxySettings()
+    }
+
+    fun flareSolverrSettings(): JsonObject {
+        val flare = ConfigManager.config.flareSolverr
+        return buildJsonObject {
+            put("enabled", flare.enabled)
+            put("url", flare.url)
+            put("timeoutSeconds", flare.timeoutSeconds)
+            put("responseFallback", flare.responseFallback)
+            put("sessionName", flare.sessionName ?: "")
+            if (flare.sessionTtlMinutes != null) {
+                put("sessionTtlMinutes", flare.sessionTtlMinutes)
+            }
+        }
+    }
+
+    fun updateFlareSolverrSettings(
+        enabled: Boolean?,
+        url: String?,
+        timeoutSeconds: Int?,
+        responseFallback: Boolean?,
+        sessionName: String?,
+        sessionTtlMinutes: Int?,
+    ): JsonObject {
+        ConfigManager.updateFlareSolverr { current ->
+            current.copy(
+                enabled = enabled ?: current.enabled,
+                url = url?.trim()?.ifEmpty { current.url } ?: current.url,
+                timeoutSeconds = timeoutSeconds?.coerceIn(5, 300) ?: current.timeoutSeconds,
+                responseFallback = responseFallback ?: current.responseFallback,
+                sessionName = sessionName?.trim()?.takeIf { it.isNotEmpty() },
+                sessionTtlMinutes = sessionTtlMinutes?.coerceIn(1, 1_440),
+            )
+        }
+        return flareSolverrSettings()
+    }
+
     fun updateDownloadSettings(
         downloadPath: String?,
         compressionEnabled: Boolean?,
