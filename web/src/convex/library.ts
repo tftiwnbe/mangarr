@@ -131,6 +131,8 @@ export const importForUser = mutation({
 		title: v.string(),
 		description: v.optional(v.string()),
 		coverUrl: v.optional(v.string()),
+		genre: v.optional(v.string()),
+		status: v.optional(v.float64()),
 		now: v.float64()
 	},
 	handler: async (ctx, args) => {
@@ -145,6 +147,8 @@ export const importForUser = mutation({
 			title: args.title,
 			description: args.description,
 			coverUrl: args.coverUrl,
+			genre: args.genre,
+			status: args.status,
 			now: args.now
 		});
 	}
@@ -463,6 +467,8 @@ async function importForUserCore(
 		title: string;
 		description?: string;
 		coverUrl?: string;
+		genre?: string;
+		status?: number;
 		now: number;
 	}
 ) {
@@ -482,6 +488,8 @@ async function importForUserCore(
 			titleUrl: args.titleUrl,
 			description: args.description,
 			coverUrl: args.coverUrl,
+			genre: args.genre,
+			status: args.status,
 			updatedAt: args.now
 		});
 		return { created: false, titleId: existing._id };
@@ -497,6 +505,8 @@ async function importForUserCore(
 		titleUrl: args.titleUrl,
 		description: args.description,
 		coverUrl: args.coverUrl,
+		genre: args.genre,
+		status: args.status,
 		createdAt: args.now,
 		updatedAt: args.now
 	});

@@ -497,6 +497,8 @@ class BridgeService(
             put("title", title.title)
             put("description", title.description)
             put("coverUrl", title.thumbnailUrl)
+            put("genre", title.genre)
+            put("status", title.status)
         }
 
     private fun canonicalKey(sourceId: String, titleUrl: String): String {

@@ -10,7 +10,7 @@ export function setupConvexClient() {
 		return null;
 	}
 
-	const url = env.PUBLIC_CONVEX_URL;
+	const url = getConvexUrl();
 	if (!url) {
 		return null;
 	}
@@ -25,7 +25,7 @@ export function setupConvexClient() {
 }
 
 export function getConvexUrl() {
-	return env.PUBLIC_CONVEX_URL ?? '';
+	return env.PUBLIC_CONVEX_URL || import.meta.env.PUBLIC_CONVEX_URL || '';
 }
 
 const fetchConvexToken: AuthTokenFetcher = async ({ forceRefreshToken }) => {

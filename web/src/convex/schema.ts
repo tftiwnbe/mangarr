@@ -7,6 +7,7 @@ export default defineSchema({
 		setupState: v.union(v.literal('open'), v.literal('configured')),
 		schemaVersion: v.string(),
 		extensionRepoUrl: v.optional(v.string()),
+		preferredContentLanguages: v.optional(v.array(v.string())),
 		defaultAdminCreatedAt: v.optional(v.float64()),
 		createdAt: v.float64(),
 		updatedAt: v.float64()
@@ -103,6 +104,8 @@ export default defineSchema({
 		titleUrl: v.string(),
 		description: v.optional(v.string()),
 		coverUrl: v.optional(v.string()),
+		genre: v.optional(v.string()),
+		status: v.optional(v.float64()),
 		localCoverPath: v.optional(v.string()),
 		createdAt: v.float64(),
 		updatedAt: v.float64(),

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 
@@ -37,7 +36,7 @@
 
 	async function redirectToApp(): Promise<void> {
 		const { redirect } = await getPostLoginRedirect(redirectTarget);
-		await goto(redirect, { replaceState: true });
+		window.location.replace(redirect);
 	}
 
 	onMount(async () => {
