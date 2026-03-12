@@ -12,6 +12,20 @@ const DOWNLOAD_STATUS = {
 	FAILED: 'failed'
 } as const;
 
+const DEFAULT_USER_STATUSES = [
+	{ key: 'reading', label: 'Reading' },
+	{ key: 'completed', label: 'Completed' },
+	{ key: 'on_hold', label: 'On Hold' },
+	{ key: 'dropped', label: 'Dropped' },
+	{ key: 'plan_to_read', label: 'Plan to Read' }
+] as const;
+
+const DEFAULT_COLLECTIONS = [
+	{ name: 'Favorites' },
+	{ name: 'Queue' },
+	{ name: 'Archive' }
+] as const;
+
 export const listMine = query({
 	args: {},
 	handler: async (ctx) => {
@@ -425,6 +439,266 @@ export const listAllMineChapters = query({
 	}
 });
 
+export const listUserStatuses = query({
+	args: {},
+	handler: async (ctx) => {
+		const userId = await requireViewerUserId(ctx);
+		const rows = await ctx.db
+			.query('libraryUserStatuses')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+			.collect();
+
+		return rows
+			.sort((left, right) => left.position - right.position)
+			.map((row) => ({
+				id: row._id,
+				key: row.key,
+				label: row.label,
+				position: row.position,
+				isDefault: row.isDefault
+			}));
+	}
+});
+
+export const ensureDefaultUserStatuses = mutation({
+	args: {},
+	handler: async (ctx) => {
+		const userId = await requireViewerUserId(ctx);
+		const existing = await ctx.db
+			.query('libraryUserStatuses')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+			.collect();
+
+		if (existing.length > 0) {
+			return { created: false, count: existing.length };
+		}
+
+		const now = Date.now();
+		for (const [index, status] of DEFAULT_USER_STATUSES.entries()) {
+			await ctx.db.insert('libraryUserStatuses', {
+				ownerUserId: userId,
+				key: status.key,
+				label: status.label,
+				position: index,
+				isDefault: true,
+				createdAt: now,
+				updatedAt: now
+			});
+		}
+
+		return { created: true, count: DEFAULT_USER_STATUSES.length };
+	}
+});
+
+export const createUserStatus = mutation({
+	args: {
+		label: v.string()
+	},
+	handler: async (ctx, args) => {
+		const userId = await requireViewerUserId(ctx);
+		const rows = await ctx.db
+			.query('libraryUserStatuses')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+			.collect();
+		const now = Date.now();
+		const nextPosition = rows.reduce((max, row) => Math.max(max, row.position), -1) + 1;
+		const statusId = await ctx.db.insert('libraryUserStatuses', {
+			ownerUserId: userId,
+			key: slugifyStatusKey(args.label, rows.map((row) => row.key)),
+			label: args.label.trim(),
+			position: nextPosition,
+			isDefault: false,
+			createdAt: now,
+			updatedAt: now
+		});
+
+		const created = await ctx.db.get(statusId);
+		if (!created) {
+			throw new Error('Failed to create status');
+		}
+
+		return {
+			id: created._id,
+			key: created.key,
+			label: created.label,
+			position: created.position,
+			isDefault: created.isDefault
+		};
+	}
+});
+
+export const updateUserStatus = mutation({
+	args: {
+		statusId: v.id('libraryUserStatuses'),
+		label: v.string(),
+		position: v.optional(v.float64())
+	},
+	handler: async (ctx, args) => {
+		const status = await requireOwnedUserStatus(ctx, args.statusId);
+		await ctx.db.patch(status._id, {
+			label: args.label.trim(),
+			position: args.position ?? status.position,
+			updatedAt: Date.now()
+		});
+
+		const updated = await ctx.db.get(status._id);
+		if (!updated) {
+			throw new Error('Status not found');
+		}
+
+		return {
+			id: updated._id,
+			key: updated.key,
+			label: updated.label,
+			position: updated.position,
+			isDefault: updated.isDefault
+		};
+	}
+});
+
+export const deleteUserStatus = mutation({
+	args: {
+		statusId: v.id('libraryUserStatuses')
+	},
+	handler: async (ctx, args) => {
+		const status = await requireOwnedUserStatus(ctx, args.statusId);
+		if (status.isDefault) {
+			throw new Error('Default statuses cannot be deleted');
+		}
+		await ctx.db.delete(status._id);
+		return { deleted: true };
+	}
+});
+
+export const listCollections = query({
+	args: {},
+	handler: async (ctx) => {
+		const userId = await requireViewerUserId(ctx);
+		const rows = await ctx.db
+			.query('libraryCollections')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+			.collect();
+
+		return rows
+			.sort((left, right) => left.position - right.position)
+			.map((row) => ({
+				id: row._id,
+				name: row.name,
+				position: row.position,
+				isDefault: row.isDefault,
+				titlesCount: 0
+			}));
+	}
+});
+
+export const ensureDefaultCollections = mutation({
+	args: {},
+	handler: async (ctx) => {
+		const userId = await requireViewerUserId(ctx);
+		const existing = await ctx.db
+			.query('libraryCollections')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+			.collect();
+
+		if (existing.length > 0) {
+			return { created: false, count: existing.length };
+		}
+
+		const now = Date.now();
+		for (const [index, collection] of DEFAULT_COLLECTIONS.entries()) {
+			await ctx.db.insert('libraryCollections', {
+				ownerUserId: userId,
+				name: collection.name,
+				position: index,
+				isDefault: true,
+				createdAt: now,
+				updatedAt: now
+			});
+		}
+
+		return { created: true, count: DEFAULT_COLLECTIONS.length };
+	}
+});
+
+export const createCollection = mutation({
+	args: {
+		name: v.string()
+	},
+	handler: async (ctx, args) => {
+		const userId = await requireViewerUserId(ctx);
+		const rows = await ctx.db
+			.query('libraryCollections')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+			.collect();
+		const now = Date.now();
+		const nextPosition = rows.reduce((max, row) => Math.max(max, row.position), -1) + 1;
+		const collectionId = await ctx.db.insert('libraryCollections', {
+			ownerUserId: userId,
+			name: args.name.trim(),
+			position: nextPosition,
+			isDefault: false,
+			createdAt: now,
+			updatedAt: now
+		});
+
+		const created = await ctx.db.get(collectionId);
+		if (!created) {
+			throw new Error('Failed to create collection');
+		}
+
+		return {
+			id: created._id,
+			name: created.name,
+			position: created.position,
+			isDefault: created.isDefault,
+			titlesCount: 0
+		};
+	}
+});
+
+export const updateCollection = mutation({
+	args: {
+		collectionId: v.id('libraryCollections'),
+		name: v.string(),
+		position: v.optional(v.float64())
+	},
+	handler: async (ctx, args) => {
+		const collection = await requireOwnedCollection(ctx, args.collectionId);
+		await ctx.db.patch(collection._id, {
+			name: args.name.trim(),
+			position: args.position ?? collection.position,
+			updatedAt: Date.now()
+		});
+
+		const updated = await ctx.db.get(collection._id);
+		if (!updated) {
+			throw new Error('Collection not found');
+		}
+
+		return {
+			id: updated._id,
+			name: updated.name,
+			position: updated.position,
+			isDefault: updated.isDefault,
+			titlesCount: 0
+		};
+	}
+});
+
+export const deleteCollection = mutation({
+	args: {
+		collectionId: v.id('libraryCollections')
+	},
+	handler: async (ctx, args) => {
+		const collection = await requireOwnedCollection(ctx, args.collectionId);
+		if (collection.isDefault) {
+			throw new Error('Default collections cannot be deleted');
+		}
+		await ctx.db.delete(collection._id);
+		return { deleted: true };
+	}
+});
+
 export const importForUser = mutation({
 	args: {
 		userId: v.id('users'),
@@ -830,11 +1104,7 @@ async function importForUserCore(
 }
 
 async function requireOwnedTitle(ctx: QueryCtx | MutationCtx, titleId: GenericId<'libraryTitles'>) {
-	const identity = await ctx.auth.getUserIdentity();
-	if (!identity) {
-		throw new Error('Not authenticated');
-	}
-
+	const identity = await requireViewerIdentity(ctx);
 	const title = await ctx.db.get(titleId);
 	if (!title || title.ownerUserId !== (identity.subject as GenericId<'users'>)) {
 		throw new Error('Library title not found');
@@ -847,11 +1117,7 @@ async function requireOwnedChapter(
 	ctx: QueryCtx | MutationCtx,
 	chapterId: GenericId<'libraryChapters'>
 ) {
-	const identity = await ctx.auth.getUserIdentity();
-	if (!identity) {
-		throw new Error('Not authenticated');
-	}
-
+	const identity = await requireViewerIdentity(ctx);
 	const chapter = await ctx.db.get(chapterId);
 	if (!chapter || chapter.ownerUserId !== (identity.subject as GenericId<'users'>)) {
 		throw new Error('Library chapter not found');
@@ -864,10 +1130,7 @@ async function getOwnedChapterProgressRow(
 	ctx: QueryCtx | MutationCtx,
 	chapterId: GenericId<'libraryChapters'>
 ) {
-	const identity = await ctx.auth.getUserIdentity();
-	if (!identity) {
-		throw new Error('Not authenticated');
-	}
+	const identity = await requireViewerIdentity(ctx);
 
 	return ctx.db
 		.query('chapterProgress')
@@ -881,15 +1144,64 @@ async function requireOwnedChapterComment(
 	ctx: QueryCtx | MutationCtx,
 	commentId: GenericId<'chapterComments'>
 ) {
-	const identity = await ctx.auth.getUserIdentity();
-	if (!identity) {
-		throw new Error('Not authenticated');
-	}
-
+	const identity = await requireViewerIdentity(ctx);
 	const comment = await ctx.db.get(commentId);
 	if (!comment || comment.ownerUserId !== (identity.subject as GenericId<'users'>)) {
 		throw new Error('Chapter comment not found');
 	}
 
 	return comment;
+}
+
+async function requireOwnedUserStatus(
+	ctx: QueryCtx | MutationCtx,
+	statusId: GenericId<'libraryUserStatuses'>
+) {
+	const identity = await requireViewerIdentity(ctx);
+	const status = await ctx.db.get(statusId);
+	if (!status || status.ownerUserId !== (identity.subject as GenericId<'users'>)) {
+		throw new Error('Library status not found');
+	}
+	return status;
+}
+
+async function requireOwnedCollection(
+	ctx: QueryCtx | MutationCtx,
+	collectionId: GenericId<'libraryCollections'>
+) {
+	const identity = await requireViewerIdentity(ctx);
+	const collection = await ctx.db.get(collectionId);
+	if (!collection || collection.ownerUserId !== (identity.subject as GenericId<'users'>)) {
+		throw new Error('Library collection not found');
+	}
+	return collection;
+}
+
+async function requireViewerIdentity(ctx: QueryCtx | MutationCtx) {
+	const identity = await ctx.auth.getUserIdentity();
+	if (!identity) {
+		throw new Error('Not authenticated');
+	}
+	return identity;
+}
+
+async function requireViewerUserId(ctx: QueryCtx | MutationCtx) {
+	const identity = await requireViewerIdentity(ctx);
+	return identity.subject as GenericId<'users'>;
+}
+
+function slugifyStatusKey(label: string, existingKeys: string[]) {
+	const base =
+		label
+			.trim()
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, '_')
+			.replace(/^_+|_+$/g, '') || 'status';
+	let candidate = base;
+	let index = 2;
+	while (existingKeys.includes(candidate)) {
+		candidate = `${base}_${index}`;
+		index += 1;
+	}
+	return candidate;
 }

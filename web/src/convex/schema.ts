@@ -117,6 +117,27 @@ export default defineSchema({
 		.index('by_owner_user_id_canonical_key', ['ownerUserId', 'canonicalKey'])
 		.index('by_owner_user_id_updated_at', ['ownerUserId', 'updatedAt']),
 
+	libraryUserStatuses: defineTable({
+		ownerUserId: v.id('users'),
+		key: v.string(),
+		label: v.string(),
+		position: v.float64(),
+		isDefault: v.boolean(),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_owner_user_id', ['ownerUserId'])
+		.index('by_owner_user_id_key', ['ownerUserId', 'key']),
+
+	libraryCollections: defineTable({
+		ownerUserId: v.id('users'),
+		name: v.string(),
+		position: v.float64(),
+		isDefault: v.boolean(),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	}).index('by_owner_user_id', ['ownerUserId']),
+
 	libraryChapters: defineTable({
 		ownerUserId: v.id('users'),
 		libraryTitleId: v.id('libraryTitles'),
