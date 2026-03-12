@@ -174,6 +174,64 @@ export const getMineById = query({
 	}
 });
 
+export const findMineBySource = query({
+	args: {
+		canonicalKey: v.optional(v.string()),
+		sourceId: v.optional(v.string()),
+		titleUrl: v.optional(v.string())
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return null;
+		}
+
+		const ownerUserId = identity.subject as GenericId<'users'>;
+		if (args.canonicalKey?.trim()) {
+			const byCanonical = await ctx.db
+				.query('libraryTitles')
+				.withIndex('by_owner_user_id_canonical_key', (q) =>
+					q.eq('ownerUserId', ownerUserId).eq('canonicalKey', args.canonicalKey!.trim())
+				)
+				.unique();
+			if (byCanonical) {
+				return {
+					_id: byCanonical._id,
+					title: byCanonical.title,
+					sourceId: byCanonical.sourceId,
+					titleUrl: byCanonical.titleUrl
+				};
+			}
+		}
+
+		const sourceId = args.sourceId?.trim() ?? '';
+		const titleUrl = args.titleUrl?.trim() ?? '';
+		if (!sourceId || !titleUrl) {
+			return null;
+		}
+
+		const rows = await ctx.db
+			.query('libraryTitles')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+			.collect();
+
+		const match =
+			rows.find((row) => row.sourceId === sourceId && row.titleUrl === titleUrl) ??
+			rows.find((row) => row.canonicalKey === args.canonicalKey);
+
+		if (!match) {
+			return null;
+		}
+
+		return {
+			_id: match._id,
+			title: match.title,
+			sourceId: match.sourceId,
+			titleUrl: match.titleUrl
+		};
+	}
+});
+
 export const getReaderByChapterId = query({
 	args: {
 		chapterId: v.id('libraryChapters')
