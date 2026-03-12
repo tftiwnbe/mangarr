@@ -3,6 +3,8 @@ import { ConvexHttpClient } from 'convex/browser';
 import { env as privateEnv } from '$env/dynamic/private';
 import { env as publicEnv } from '$env/dynamic/public';
 
+import { mintConvexAccessToken } from './convex-auth';
+
 const LOCAL_CONVEX_URL = 'http://127.0.0.1:3210';
 
 export function getConvexUrl() {
@@ -34,5 +36,19 @@ export function getConvexClient() {
 		).setAdminAuth(adminKey);
 	}
 
+	return client;
+}
+
+export async function getUserConvexClient(user: { id: string; username: string; isAdmin: boolean }) {
+	const client = new ConvexHttpClient(getConvexUrl(), {
+		skipConvexDeploymentUrlCheck: true,
+		logger: false
+	});
+	const issued = await mintConvexAccessToken(user);
+	(
+		client as ConvexHttpClient & {
+			setAuth(token: string): void;
+		}
+	).setAuth(issued.token);
 	return client;
 }

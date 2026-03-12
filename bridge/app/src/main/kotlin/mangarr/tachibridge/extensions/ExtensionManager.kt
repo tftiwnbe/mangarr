@@ -14,6 +14,7 @@ import eu.kanade.tachiyomi.network.BridgeProxyContext
 import eu.kanade.tachiyomi.network.BridgeProxySettings
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.NetworkHelper
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.source.CatalogueSource
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.Source
@@ -53,9 +54,11 @@ import mangarr.tachibridge.config.findExtension
 import mangarr.tachibridge.config.sourcePreferencesFor
 import mangarr.tachibridge.loader.ExtensionLoader
 import mangarr.tachibridge.repo.ExtensionRepoService
+import okhttp3.Response
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.IOException
+import java.net.URI
 import java.net.SocketTimeoutException
 import java.net.URLEncoder
 import java.nio.file.Files
@@ -466,27 +469,7 @@ class ExtensionManager(
     ): PagesListResponse =
         withSource<Source, PagesListResponse>(sourceId) { source ->
             val normalizedUrl = normalizeSourceUrl(source, chapterUrl)
-            val pages =
-                if (isLibGroupSource(source)) {
-                    val fallbackPages = fetchLibGroupPagesFallback(source, normalizedUrl)
-                    if (!fallbackPages.isNullOrEmpty()) {
-                        fallbackPages
-                    } else {
-                        val chapter = SChapter.create().apply { url = normalizedUrl }
-                        try {
-                            source.getPageList(chapter)
-                        } catch (error: Exception) {
-                            fallbackPages ?: throw decorateLibGroupError(source, error)
-                        }
-                    }
-                } else {
-                    val chapter = SChapter.create().apply { url = normalizedUrl }
-                    try {
-                        source.getPageList(chapter)
-                    } catch (error: Exception) {
-                        fetchLibGroupPagesFallback(source, normalizedUrl) ?: throw decorateLibGroupError(source, error)
-                    }
-                }
+            val pages = loadPagesForChapter(source, normalizedUrl)
             val resolvedPages = mutableListOf<Page>()
             for ((index, page) in pages.withIndex()) {
                 val pageUrl = safeString { page.url }
@@ -503,6 +486,36 @@ class ExtensionManager(
                 .newBuilder()
                 .addAllPages(resolvedPages)
                 .build()
+        }
+
+    suspend fun getPageImage(
+        sourceId: Long,
+        chapterUrl: String,
+        index: Int,
+    ): PageImagePayload =
+        withSource<Source, PageImagePayload>(sourceId) { source ->
+            val normalizedUrl = normalizeSourceUrl(source, chapterUrl)
+            val pages = loadPagesForChapter(source, normalizedUrl)
+            val page = pages.getOrNull(index) ?: error("Page index out of bounds: $index")
+
+            val response =
+                if (source is HttpSource) {
+                    source.getImage(page)
+                } else {
+                    val imageUrl = resolvePageImageUrl(source, page)
+                    if (imageUrl.isBlank()) {
+                        error("Page image URL is unavailable for source $sourceId")
+                    }
+                    networkHelper.client.newCall(GET(imageUrl)).awaitSuccess()
+                }
+
+            response.use { imageResponse ->
+                val body = imageResponse.body ?: error("Image response body is empty")
+                PageImagePayload(
+                    contentType = body.contentType()?.toString() ?: "application/octet-stream",
+                    bytes = body.bytes(),
+                )
+            }
         }
 
     suspend fun getFilters(sourceId: Long): FiltersResponse {
@@ -1671,16 +1684,83 @@ class ExtensionManager(
     private suspend fun resolvePageImageUrl(source: Source, page: SourcePage): String {
         val explicitImageUrl = safeString { page.imageUrl }
         if (explicitImageUrl.isNotBlank()) {
-            return explicitImageUrl
+            return normalizePageImageUrl(page.url, explicitImageUrl)
         }
 
         if (source is HttpSource) {
             val computed = runCatching { source.getImageUrl(page).orEmpty() }.getOrDefault("")
             if (computed.isNotBlank()) {
-                return computed
+                return normalizePageImageUrl(page.url, computed)
             }
         }
 
         return ""
     }
+
+    private fun normalizePageImageUrl(pageUrl: String, rawImageUrl: String): String {
+        val trimmedImageUrl = rawImageUrl.trim()
+        if (trimmedImageUrl.isBlank()) {
+            return ""
+        }
+        if (trimmedImageUrl.startsWith("http://") || trimmedImageUrl.startsWith("https://")) {
+            return trimmedImageUrl
+        }
+
+        val baseCandidates =
+            buildList {
+                val normalizedPageUrl = pageUrl.trim()
+                if (normalizedPageUrl.isNotBlank()) {
+                    add(normalizedPageUrl)
+                    normalizedPageUrl
+                        .split(',')
+                        .map(String::trim)
+                        .filter(String::isNotBlank)
+                        .forEach(::add)
+                }
+            }
+
+        for (base in baseCandidates) {
+            val resolved = resolveRelativeUrl(base, trimmedImageUrl)
+            if (resolved != null) {
+                return resolved
+            }
+        }
+
+        return trimmedImageUrl
+    }
+
+    private fun resolveRelativeUrl(base: String, path: String): String? {
+        val uri = runCatching { URI(base) }.getOrNull() ?: return null
+        if (uri.scheme.isNullOrBlank() || uri.host.isNullOrBlank()) {
+            return null
+        }
+        return runCatching { uri.resolve(path).toString() }.getOrNull()
+    }
+
+    private suspend fun loadPagesForChapter(source: Source, normalizedUrl: String): List<SourcePage> =
+        if (isLibGroupSource(source)) {
+            val fallbackPages = fetchLibGroupPagesFallback(source, normalizedUrl)
+            if (!fallbackPages.isNullOrEmpty()) {
+                fallbackPages
+            } else {
+                val chapter = SChapter.create().apply { url = normalizedUrl }
+                try {
+                    source.getPageList(chapter)
+                } catch (error: Exception) {
+                    fallbackPages ?: throw decorateLibGroupError(source, error)
+                }
+            }
+        } else {
+            val chapter = SChapter.create().apply { url = normalizedUrl }
+            try {
+                source.getPageList(chapter)
+            } catch (error: Exception) {
+                fetchLibGroupPagesFallback(source, normalizedUrl) ?: throw decorateLibGroupError(source, error)
+            }
+        }
 }
+
+data class PageImagePayload(
+    val contentType: String,
+    val bytes: ByteArray,
+)

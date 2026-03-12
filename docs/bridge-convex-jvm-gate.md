@@ -2,7 +2,20 @@
 
 Date: 2026-03-11
 
-Status: failed
+Status: historical (failed, superseded)
+
+## Current Architecture Note
+
+This document records a failed feasibility gate for the native Kotlin Convex client.
+It is kept for audit trail only.
+
+Current runtime architecture is:
+
+- browser/web -> Convex (reactive queries + mutations),
+- web server -> bridge HTTP control/data routes (internal),
+- bridge -> Convex via HTTP OpenAPI client with service authentication.
+
+The Node `worker/` service is no longer the active orchestration runtime.
 
 ## Goal
 
@@ -92,11 +105,6 @@ The official Convex Kotlin client documented for Android cannot be consumed dire
 the current plain JVM bridge module without changing the runtime model or introducing a
 non-approved fallback.
 
-Per the cutover plan assumptions:
-
-- do not proceed with worker removal,
-- do not proceed with direct bridge-to-Convex migration,
-- do not introduce an HTTP fallback or token broker in place of the failed gate.
-
-The existing `worker -> bridge -> Convex` architecture remains the active path until a
-new migration plan is approved.
+The original no-go conclusion for a native Kotlin Convex client remains valid for this
+probe. The project proceeded with the approved HTTP-based bridge-to-Convex integration
+instead.

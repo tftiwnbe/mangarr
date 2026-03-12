@@ -20,16 +20,53 @@ function targetCapabilityFor(commandType: string) {
 	switch (commandType) {
 		case 'extensions.repo.sync':
 			return 'extensions.repo';
+		case 'extensions.repo.search':
+			return 'extensions.repo';
 		case 'extensions.install':
 			return 'extensions.install';
+		case 'extensions.update':
+			return 'extensions.install';
+		case 'extensions.uninstall':
+			return 'extensions.install';
+		case 'sources.preferences.fetch':
+			return 'sources.preferences';
+		case 'sources.preferences.save':
+			return 'sources.preferences';
 		case 'explore.search':
 			return 'explore.search';
+		case 'explore.popular':
+			return 'explore.feed';
+		case 'explore.latest':
+			return 'explore.feed';
 		case 'explore.title.fetch':
 			return 'explore.title.fetch';
+		case 'explore.chapters.fetch':
+			return 'explore.title.fetch';
+		case 'reader.pages.fetch':
+			return 'reader.pages.fetch';
+		case 'library.chapters.sync':
+			return 'library.chapters.sync';
 		case 'library.import':
 			return 'library.import';
+		case 'downloads.chapter':
+			return 'downloads.chapter';
 		default:
 			throw new Error(`Unsupported command type: ${commandType}`);
+	}
+}
+
+function requiresAdmin(commandType: string) {
+	switch (commandType) {
+		case 'extensions.repo.sync':
+		case 'extensions.repo.search':
+		case 'extensions.install':
+		case 'extensions.update':
+		case 'extensions.uninstall':
+		case 'sources.preferences.fetch':
+		case 'sources.preferences.save':
+			return true;
+		default:
+			return false;
 	}
 }
 
@@ -45,6 +82,9 @@ export const enqueue = mutation({
 		const identity = await ctx.auth.getUserIdentity();
 		if (!identity) {
 			throw new Error('Not authenticated');
+		}
+		if (requiresAdmin(args.commandType) && identity.isAdmin !== true && identity.role !== 'admin') {
+			throw new Error('Admin privileges are required');
 		}
 		const now = Date.now();
 		const targetCapability = targetCapabilityFor(args.commandType);
@@ -94,6 +134,8 @@ export const listMine = query({
 				id: row._id,
 				commandType: row.commandType,
 				status: row.status,
+				payload: row.payload,
+				progress: row.progress ?? null,
 				result: row.result ?? null,
 				lastErrorMessage: row.lastErrorMessage ?? null,
 				createdAt: row.createdAt,
@@ -252,6 +294,7 @@ export const complete = mutation({
 
 		await ctx.db.patch(args.commandId, {
 			status: STATUS.SUCCEEDED,
+			progress: undefined,
 			result: args.result,
 			leaseOwnerBridgeId: undefined,
 			leaseExpiresAt: undefined,
@@ -285,6 +328,7 @@ export const fail = mutation({
 			status: nextStatus,
 			runAfter: shouldRetry ? args.now + retryDelayMs : command.runAfter,
 			lastErrorMessage: args.message,
+			progress: undefined,
 			leaseOwnerBridgeId: undefined,
 			leaseExpiresAt: undefined,
 			completedAt: shouldRetry ? undefined : args.now,
@@ -292,5 +336,30 @@ export const fail = mutation({
 		});
 
 		return { ok: true, retried: shouldRetry };
+	}
+});
+
+export const updateProgress = mutation({
+	args: {
+		commandId: v.id('commands'),
+		bridgeId: v.string(),
+		now: v.float64(),
+		progress: v.any()
+	},
+	handler: async (ctx, args) => {
+		await requireBridgeIdentity(ctx);
+		const command = await ctx.db.get(args.commandId);
+		if (!command || command.leaseOwnerBridgeId !== args.bridgeId) {
+			return { ok: false };
+		}
+		if (command.status !== STATUS.LEASED && command.status !== STATUS.RUNNING) {
+			return { ok: false };
+		}
+
+		await ctx.db.patch(args.commandId, {
+			progress: args.progress,
+			updatedAt: args.now
+		});
+		return { ok: true };
 	}
 });
