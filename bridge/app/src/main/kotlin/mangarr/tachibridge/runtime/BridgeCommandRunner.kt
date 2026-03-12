@@ -406,6 +406,8 @@ class BridgeCommandRunner(
                                 put("sourceLang", sourceLang)
                                 put("titleUrl", titleUrl)
                                 put("title", resolved.requiredString("title"))
+                                put("author", resolved.optionalString("author"))
+                                put("artist", resolved.optionalString("artist"))
                                 put("description", resolved.optionalString("description"))
                                 put("coverUrl", resolved.optionalString("coverUrl"))
                                 put("genre", resolved.optionalString("genre"))

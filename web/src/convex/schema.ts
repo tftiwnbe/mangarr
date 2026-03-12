@@ -102,6 +102,8 @@ export default defineSchema({
 		sourceLang: v.string(),
 		sourceId: v.string(),
 		titleUrl: v.string(),
+		author: v.optional(v.string()),
+		artist: v.optional(v.string()),
 		description: v.optional(v.string()),
 		coverUrl: v.optional(v.string()),
 		genre: v.optional(v.string()),

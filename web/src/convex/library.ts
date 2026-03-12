@@ -12,8 +12,6 @@ const DOWNLOAD_STATUS = {
 	FAILED: 'failed'
 } as const;
 
-type DownloadStatus = (typeof DOWNLOAD_STATUS)[keyof typeof DOWNLOAD_STATUS];
-
 export const listMine = query({
 	args: {},
 	handler: async (ctx) => {
@@ -87,6 +85,52 @@ export const listTitleChapters = query({
 	}
 });
 
+export const getMineById = query({
+	args: {
+		titleId: v.id('libraryTitles')
+	},
+	handler: async (ctx, args) => {
+		const title = await requireOwnedTitle(ctx, args.titleId);
+		const chapters = await ctx.db
+			.query('libraryChapters')
+			.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+			.collect();
+
+		let queued = 0;
+		let downloading = 0;
+		let downloaded = 0;
+		let failed = 0;
+		for (const chapter of chapters) {
+			switch (chapter.downloadStatus) {
+				case DOWNLOAD_STATUS.QUEUED:
+					queued += 1;
+					break;
+				case DOWNLOAD_STATUS.DOWNLOADING:
+					downloading += 1;
+					break;
+				case DOWNLOAD_STATUS.DOWNLOADED:
+					downloaded += 1;
+					break;
+				case DOWNLOAD_STATUS.FAILED:
+					failed += 1;
+					break;
+			}
+		}
+
+		return {
+			...title,
+			chapterStats: {
+				total: chapters.length,
+				queued,
+				downloading,
+				downloaded,
+				failed
+			},
+			chapters: chapters.sort((left, right) => right.sequence - left.sequence)
+		};
+	}
+});
+
 export const listAllMineChapters = query({
 	args: {},
 	handler: async (ctx) => {
@@ -128,6 +172,8 @@ export const importForUser = mutation({
 		sourcePkg: v.string(),
 		sourceLang: v.string(),
 		titleUrl: v.string(),
+		author: v.optional(v.string()),
+		artist: v.optional(v.string()),
 		title: v.string(),
 		description: v.optional(v.string()),
 		coverUrl: v.optional(v.string()),
@@ -144,6 +190,8 @@ export const importForUser = mutation({
 			sourcePkg: args.sourcePkg,
 			sourceLang: args.sourceLang,
 			titleUrl: args.titleUrl,
+			author: args.author,
+			artist: args.artist,
 			title: args.title,
 			description: args.description,
 			coverUrl: args.coverUrl,
@@ -464,6 +512,8 @@ async function importForUserCore(
 		sourcePkg: string;
 		sourceLang: string;
 		titleUrl: string;
+		author?: string;
+		artist?: string;
 		title: string;
 		description?: string;
 		coverUrl?: string;
@@ -486,6 +536,8 @@ async function importForUserCore(
 			sourceLang: args.sourceLang,
 			sourceId: args.sourceId,
 			titleUrl: args.titleUrl,
+			author: args.author,
+			artist: args.artist,
 			description: args.description,
 			coverUrl: args.coverUrl,
 			genre: args.genre,
@@ -503,6 +555,8 @@ async function importForUserCore(
 		sourceLang: args.sourceLang,
 		sourceId: args.sourceId,
 		titleUrl: args.titleUrl,
+		author: args.author,
+		artist: args.artist,
 		description: args.description,
 		coverUrl: args.coverUrl,
 		genre: args.genre,

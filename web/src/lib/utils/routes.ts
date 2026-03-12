@@ -12,18 +12,15 @@ export function slugifySegment(value: string, fallback = 'item'): string {
 	return slug || fallback;
 }
 
-export function buildTitlePath(titleId: string, titleName: string): string {
+export function buildTitlePath(titleId: string, _titleName: string): string {
 	const encoded = encodeURIComponent(titleId);
-	const slug = slugifySegment(titleName, 'title');
-	return `/title/${encoded}--${slug}`;
+	return `/title/${encoded}`;
 }
 
 export function parseTitleRouteParam(value: string | null | undefined): string | null {
 	if (!value) return null;
-	const segment = value.split('--')[0];
-	if (!segment) return null;
 	try {
-		return decodeURIComponent(segment);
+		return decodeURIComponent(value);
 	} catch {
 		return null;
 	}

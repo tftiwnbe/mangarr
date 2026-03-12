@@ -495,6 +495,8 @@ class BridgeService(
             put("sourceLang", sourceLang)
             put("titleUrl", title.url)
             put("title", title.title)
+            put("author", title.author)
+            put("artist", title.artist)
             put("description", title.description)
             put("coverUrl", title.thumbnailUrl)
             put("genre", title.genre)
