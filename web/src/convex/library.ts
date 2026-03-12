@@ -117,6 +117,23 @@ export const getMineById = query({
 			}
 		}
 
+		const progressRows = await ctx.db
+			.query('chapterProgress')
+			.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+			)
+			.collect();
+
+		const titleComments = await ctx.db
+			.query('chapterComments')
+			.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+			)
+			.collect();
+
+		const chapterById = new Map(chapters.map((chapter) => [chapter._id, chapter]));
+		const latestProgress = [...progressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
+
 		return {
 			...title,
 			chapterStats: {
@@ -126,8 +143,194 @@ export const getMineById = query({
 				downloaded,
 				failed
 			},
+			readingProgress: {
+				startedChapters: progressRows.length,
+				latest:
+					latestProgress && chapterById.has(latestProgress.chapterId)
+						? {
+								chapterId: latestProgress.chapterId,
+								pageIndex: latestProgress.pageIndex,
+								updatedAt: latestProgress.updatedAt
+							}
+						: null
+			},
+			titleComments: titleComments
+				.sort((left, right) => right.updatedAt - left.updatedAt)
+				.map((comment) => {
+					const chapter = chapterById.get(comment.chapterId);
+					return {
+						_id: comment._id,
+						chapterId: comment.chapterId,
+						chapterName: chapter?.chapterName ?? '',
+						chapterNumber: chapter?.chapterNumber ?? null,
+						pageIndex: comment.pageIndex,
+						message: comment.message,
+						createdAt: comment.createdAt,
+						updatedAt: comment.updatedAt
+					};
+				}),
 			chapters: chapters.sort((left, right) => right.sequence - left.sequence)
 		};
+	}
+});
+
+export const getReaderByChapterId = query({
+	args: {
+		chapterId: v.id('libraryChapters')
+	},
+	handler: async (ctx, args) => {
+		const chapter = await requireOwnedChapter(ctx, args.chapterId);
+		const title = await ctx.db.get(chapter.libraryTitleId);
+		if (!title || title.ownerUserId !== chapter.ownerUserId) {
+			throw new Error('Library title not found');
+		}
+
+		const chapters = await ctx.db
+			.query('libraryChapters')
+			.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+			.collect();
+
+		const progress = await getOwnedChapterProgressRow(ctx, chapter._id);
+
+		return {
+			title,
+			chapter,
+			chapters: chapters.sort((left, right) => left.sequence - right.sequence),
+			progress: progress
+				? {
+						id: progress._id,
+						pageIndex: progress.pageIndex,
+						updatedAt: progress.updatedAt
+					}
+				: null
+		};
+	}
+});
+
+export const listChapterComments = query({
+	args: {
+		chapterId: v.id('libraryChapters')
+	},
+	handler: async (ctx, args) => {
+		const chapter = await requireOwnedChapter(ctx, args.chapterId);
+		const comments = await ctx.db
+			.query('chapterComments')
+			.withIndex('by_owner_user_id_chapter_id_updated_at', (q) =>
+				q.eq('ownerUserId', chapter.ownerUserId).eq('chapterId', chapter._id)
+			)
+			.collect();
+
+		return comments
+			.sort((left, right) => right.updatedAt - left.updatedAt)
+			.map((item) => ({
+				_id: item._id,
+				chapterId: item.chapterId,
+				pageIndex: item.pageIndex,
+				message: item.message,
+				createdAt: item.createdAt,
+				updatedAt: item.updatedAt
+			}));
+	}
+});
+
+export const upsertChapterProgress = mutation({
+	args: {
+		chapterId: v.id('libraryChapters'),
+		pageIndex: v.float64()
+	},
+	handler: async (ctx, args) => {
+		const chapter = await requireOwnedChapter(ctx, args.chapterId);
+		const now = Date.now();
+	const existing = await getOwnedChapterProgressRow(ctx, chapter._id);
+	if (existing) {
+		await ctx.db.patch(existing._id, {
+			pageIndex: args.pageIndex,
+			updatedAt: now
+		});
+		await ctx.db.patch(chapter.libraryTitleId, {
+			lastReadAt: now,
+			updatedAt: now
+		});
+		return { ok: true, progressId: existing._id };
+	}
+
+		const progressId = await ctx.db.insert('chapterProgress', {
+			ownerUserId: chapter.ownerUserId,
+			libraryTitleId: chapter.libraryTitleId,
+			chapterId: chapter._id,
+			pageIndex: args.pageIndex,
+			createdAt: now,
+		updatedAt: now
+	});
+
+		await ctx.db.patch(chapter.libraryTitleId, {
+			lastReadAt: now,
+			updatedAt: now
+		});
+
+		return { ok: true, progressId };
+	}
+});
+
+export const resetChapterProgress = mutation({
+	args: {
+		chapterId: v.id('libraryChapters')
+	},
+	handler: async (ctx, args) => {
+		const chapter = await requireOwnedChapter(ctx, args.chapterId);
+		const existing = await getOwnedChapterProgressRow(ctx, chapter._id);
+		if (existing) {
+			await ctx.db.delete(existing._id);
+		}
+		return { ok: true };
+	}
+});
+
+export const createChapterComment = mutation({
+	args: {
+		chapterId: v.id('libraryChapters'),
+		pageIndex: v.float64(),
+		message: v.string()
+	},
+	handler: async (ctx, args) => {
+		const chapter = await requireOwnedChapter(ctx, args.chapterId);
+		const now = Date.now();
+		const commentId = await ctx.db.insert('chapterComments', {
+			ownerUserId: chapter.ownerUserId,
+			libraryTitleId: chapter.libraryTitleId,
+			chapterId: chapter._id,
+			pageIndex: args.pageIndex,
+			message: args.message.trim(),
+			createdAt: now,
+			updatedAt: now
+		});
+		return { ok: true, commentId };
+	}
+});
+
+export const updateChapterComment = mutation({
+	args: {
+		commentId: v.id('chapterComments'),
+		message: v.string()
+	},
+	handler: async (ctx, args) => {
+		const comment = await requireOwnedChapterComment(ctx, args.commentId);
+		await ctx.db.patch(comment._id, {
+			message: args.message.trim(),
+			updatedAt: Date.now()
+		});
+		return { ok: true };
+	}
+});
+
+export const deleteChapterComment = mutation({
+	args: {
+		commentId: v.id('chapterComments')
+	},
+	handler: async (ctx, args) => {
+		const comment = await requireOwnedChapterComment(ctx, args.commentId);
+		await ctx.db.delete(comment._id);
+		return { ok: true };
 	}
 });
 
@@ -597,4 +800,38 @@ async function requireOwnedChapter(
 	}
 
 	return chapter;
+}
+
+async function getOwnedChapterProgressRow(
+	ctx: QueryCtx | MutationCtx,
+	chapterId: GenericId<'libraryChapters'>
+) {
+	const identity = await ctx.auth.getUserIdentity();
+	if (!identity) {
+		throw new Error('Not authenticated');
+	}
+
+	return ctx.db
+		.query('chapterProgress')
+		.withIndex('by_owner_user_id_chapter_id', (q) =>
+			q.eq('ownerUserId', identity.subject as GenericId<'users'>).eq('chapterId', chapterId)
+		)
+		.unique();
+}
+
+async function requireOwnedChapterComment(
+	ctx: QueryCtx | MutationCtx,
+	commentId: GenericId<'chapterComments'>
+) {
+	const identity = await ctx.auth.getUserIdentity();
+	if (!identity) {
+		throw new Error('Not authenticated');
+	}
+
+	const comment = await ctx.db.get(commentId);
+	if (!comment || comment.ownerUserId !== (identity.subject as GenericId<'users'>)) {
+		throw new Error('Chapter comment not found');
+	}
+
+	return comment;
 }

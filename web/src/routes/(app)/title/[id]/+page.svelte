@@ -21,7 +21,7 @@
 	import { _ } from '$lib/i18n';
 	import { navigateBack, navHistoryRevision, resolveNavBackTarget } from '$lib/stores/nav-history';
 	import { panelOverlayOpen } from '$lib/stores/ui';
-	import { buildTitlePath } from '$lib/utils/routes';
+	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
 	import { TITLE_STATUS } from '$lib/utils/title-status';
 
 	const { data } = $props<{ data: { titleId: string } }>();
@@ -59,6 +59,24 @@
 			downloaded: number;
 			failed: number;
 		};
+		readingProgress: {
+			startedChapters: number;
+			latest: {
+				chapterId: Id<'libraryChapters'>;
+				pageIndex: number;
+				updatedAt: number;
+			} | null;
+		};
+		titleComments: Array<{
+			_id: Id<'chapterComments'>;
+			chapterId: Id<'libraryChapters'>;
+			chapterName: string;
+			chapterNumber?: number | null;
+			pageIndex: number;
+			message: string;
+			createdAt: number;
+			updatedAt: number;
+		}>;
 		chapters: ChapterRow[];
 	};
 
@@ -146,7 +164,7 @@
 			.filter(Boolean)
 	);
 	const sourcesCount = $derived(title ? 1 : 0);
-	const readingProgressCount = $derived(0);
+	const readingProgressCount = $derived(title?.readingProgress.startedChapters ?? 0);
 	const sourceName = $derived.by(() => {
 		if (!title) return '';
 		return sources.find((item) => item.id === title.sourceId)?.name ?? title.sourcePkg;
@@ -162,6 +180,15 @@
 		`${title?.chapterStats.total ?? 0} ${$_('title.chapters').toLowerCase()}`
 	);
 	const sourcesLabel = $derived.by(() => `${sourcesCount} ${$_('title.sources').toLowerCase()}`);
+	const startReadingChapter = $derived.by(() => {
+		if (!title) return null;
+		if (title.readingProgress.latest) {
+			return (
+				title.chapters.find((chapter) => chapter._id === title.readingProgress.latest?.chapterId) ?? null
+			);
+		}
+		return title.chapters.length ? title.chapters.at(-1) ?? null : null;
+	});
 	const displayStatus = $derived.by(() => {
 		const status = Number(fetchedMetadata?.status ?? title?.status ?? 0);
 		if (status === TITLE_STATUS.ONGOING) return $_('status.ongoing');
@@ -225,6 +252,10 @@
 		return date.toLocaleDateString();
 	}
 
+	function formatTimestamp(value: number): string {
+		return new Date(value).toLocaleString();
+	}
+
 	function chapterLabel(chapter: ChapterRow): string {
 		if (chapter.chapterNumber && Number.isFinite(chapter.chapterNumber)) {
 			const normalized = Number.isInteger(chapter.chapterNumber)
@@ -256,7 +287,16 @@
 	}
 
 	function openReadingStart() {
-		activeTab = 'chapters';
+		if (!title || !startReadingChapter) {
+			activeTab = 'chapters';
+			return;
+		}
+		void goto(buildReaderPath({ titleId: title._id, chapterId: startReadingChapter._id }));
+	}
+
+	function openChapter(chapterId: Id<'libraryChapters'>) {
+		if (!title) return;
+		void goto(buildReaderPath({ titleId: title._id, chapterId }));
 	}
 
 	async function downloadChapter(chapterId: Id<'libraryChapters'>) {
@@ -581,14 +621,18 @@
 									{@const downloadState = chapterDownloadState(chapter)}
 									<div class="flex items-center gap-4 py-3">
 										<div class="min-w-0 flex-1">
-											<div class="flex items-baseline gap-2">
+											<button
+												type="button"
+												class="flex w-full items-baseline gap-2 text-left"
+												onclick={() => openChapter(chapter._id)}
+											>
 												<span class="shrink-0 text-sm text-[var(--text)]">
 													{chapterLabel(chapter)}
 												</span>
 												{#if detail}
 													<span class="truncate text-sm text-[var(--text-muted)]">{detail}</span>
 												{/if}
-											</div>
+											</button>
 											<div class="mt-1 flex items-center gap-2 text-[11px] text-[var(--text-ghost)]">
 												{#if chapter.dateUpload}
 													<span>{formatDate(chapter.dateUpload)}</span>
@@ -632,8 +676,25 @@
 								{/each}
 							</div>
 						{/if}
-					{:else}
+					{:else if title.titleComments.length === 0}
 						<p class="py-6 text-center text-sm text-[var(--text-ghost)]">{$_('title.noComments')}</p>
+					{:else}
+						<div class="flex flex-col gap-4">
+							{#each title.titleComments as comment (comment._id)}
+								<div class="flex flex-col gap-1.5 py-2">
+									<div class="flex items-center justify-between gap-4 text-[10px] text-[var(--text-ghost)]">
+										<span class="truncate">
+											{comment.chapterName}
+											{#if comment.chapterNumber != null}
+												· {$_('reader.page')} {comment.pageIndex + 1}
+											{/if}
+										</span>
+										<span class="shrink-0">{formatTimestamp(comment.createdAt)}</span>
+									</div>
+									<p class="text-sm whitespace-pre-wrap text-[var(--text-soft)]">{comment.message}</p>
+								</div>
+							{/each}
+						</div>
 					{/if}
 				</div>
 			</div>

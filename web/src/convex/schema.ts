@@ -151,6 +151,29 @@ export default defineSchema({
 		.index('by_owner_user_id_download_status', ['ownerUserId', 'downloadStatus'])
 		.index('by_library_title_id_chapter_url', ['libraryTitleId', 'chapterUrl']),
 
+	chapterProgress: defineTable({
+		ownerUserId: v.id('users'),
+		libraryTitleId: v.id('libraryTitles'),
+		chapterId: v.id('libraryChapters'),
+		pageIndex: v.float64(),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_owner_user_id_chapter_id', ['ownerUserId', 'chapterId'])
+		.index('by_owner_user_id_library_title_id_updated_at', ['ownerUserId', 'libraryTitleId', 'updatedAt']),
+
+	chapterComments: defineTable({
+		ownerUserId: v.id('users'),
+		libraryTitleId: v.id('libraryTitles'),
+		chapterId: v.id('libraryChapters'),
+		pageIndex: v.float64(),
+		message: v.string(),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_owner_user_id_chapter_id_updated_at', ['ownerUserId', 'chapterId', 'updatedAt'])
+		.index('by_owner_user_id_library_title_id_updated_at', ['ownerUserId', 'libraryTitleId', 'updatedAt']),
+
 	commands: defineTable({
 		commandType: v.string(),
 		targetCapability: v.string(),

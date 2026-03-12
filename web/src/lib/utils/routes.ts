@@ -25,3 +25,16 @@ export function parseTitleRouteParam(value: string | null | undefined): string |
 		return null;
 	}
 }
+
+export function buildReaderPath(params: { titleId: string; chapterId: string }): string {
+	return `/reader/${encodeURIComponent(params.titleId)}/${encodeURIComponent(params.chapterId)}`;
+}
+
+export function parseReaderChapterParam(value: string | null | undefined): string | null {
+	if (!value) return null;
+	try {
+		return decodeURIComponent(value);
+	} catch {
+		return null;
+	}
+}
