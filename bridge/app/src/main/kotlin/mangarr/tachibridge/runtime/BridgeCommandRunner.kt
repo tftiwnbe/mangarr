@@ -101,7 +101,7 @@ class BridgeCommandRunner(
                                 },
                             )
                             put("now", now)
-                            put("limit", 10)
+                            put("limit", 4)
                             put("leaseDurationMs", leaseDurationMs)
                         },
                     ),
@@ -236,7 +236,7 @@ class BridgeCommandRunner(
             }
             "extensions.repo.search" -> {
                 val query = payload.optionalString("query").orEmpty()
-                val limit = payload.optionalInt("limit") ?: 50
+                val limit = payload.optionalInt("limit") ?: 5000
                 service.searchRepository(query, limit)
             }
             "extensions.install" -> {

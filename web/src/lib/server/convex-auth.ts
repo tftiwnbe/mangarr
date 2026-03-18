@@ -1,7 +1,14 @@
 import { importJWK, SignJWT } from 'jose';
 import type { AuthConfig } from 'convex/server';
 
-import { getConvexAuthRuntimeConfig } from './convex-auth-config';
+import {
+	DEFAULT_CONVEX_AUTH_APPLICATION_ID,
+	DEFAULT_CONVEX_AUTH_ISSUER,
+	DEFAULT_KEY_ID,
+	DEFAULT_PRIVATE_JWK,
+	DEFAULT_TOKEN_TTL_SECONDS,
+	type ConvexAuthRuntimeConfig
+} from './convex-auth-config';
 
 type ConvexTokenUser = {
 	id: string;
@@ -14,21 +21,22 @@ type BridgeServiceToken = {
 };
 
 let cachedPrivateKey: Promise<Awaited<ReturnType<typeof importJWK>>> | null = null;
+let cachedRuntimeConfig: ConvexAuthRuntimeConfig | null = null;
 
 export function getConvexAuthIssuer() {
-	return getConvexAuthRuntimeConfig().issuer;
+	return getServerConvexAuthRuntimeConfig().issuer;
 }
 
 export function getConvexAuthApplicationId() {
-	return getConvexAuthRuntimeConfig().applicationId;
+	return getServerConvexAuthRuntimeConfig().applicationId;
 }
 
 export function getConvexAuthTokenTtlSeconds() {
-	return getConvexAuthRuntimeConfig().tokenTtlSeconds;
+	return getServerConvexAuthRuntimeConfig().tokenTtlSeconds;
 }
 
 export function getConvexAuthConfig(): AuthConfig {
-	const { publicJwk, applicationId, issuer } = getConvexAuthRuntimeConfig();
+	const { publicJwk, applicationId, issuer } = getServerConvexAuthRuntimeConfig();
 	const jwksPayload = JSON.stringify({ keys: [publicJwk] });
 	const jwks = `data:application/json,${encodeURIComponent(jwksPayload)}`;
 
@@ -48,7 +56,7 @@ export function getConvexAuthConfig(): AuthConfig {
 export async function mintConvexAccessToken(user: ConvexTokenUser) {
 	const nowSeconds = Math.floor(Date.now() / 1000);
 	const expiresAtSeconds = nowSeconds + getConvexAuthTokenTtlSeconds();
-	const { keyId, applicationId, issuer } = getConvexAuthRuntimeConfig();
+	const { keyId, applicationId, issuer } = getServerConvexAuthRuntimeConfig();
 
 	const token = await new SignJWT({
 		isAdmin: user.isAdmin,
@@ -79,7 +87,7 @@ export async function mintConvexAccessToken(user: ConvexTokenUser) {
 export async function mintBridgeAccessToken(service: BridgeServiceToken) {
 	const nowSeconds = Math.floor(Date.now() / 1000);
 	const expiresAtSeconds = nowSeconds + getConvexAuthTokenTtlSeconds();
-	const { keyId, applicationId, issuer } = getConvexAuthRuntimeConfig();
+	const { keyId, applicationId, issuer } = getServerConvexAuthRuntimeConfig();
 
 	const token = await new SignJWT({
 		role: 'bridge',
@@ -108,8 +116,68 @@ export async function mintBridgeAccessToken(service: BridgeServiceToken) {
 
 async function getPrivateSigningKey() {
 	if (!cachedPrivateKey) {
-		cachedPrivateKey = importJWK(getConvexAuthRuntimeConfig().privateJwk, 'ES256');
+		cachedPrivateKey = importJWK(getServerConvexAuthRuntimeConfig().privateJwk, 'ES256');
 	}
 
 	return cachedPrivateKey;
+}
+
+function getServerConvexAuthRuntimeConfig(): ConvexAuthRuntimeConfig {
+	if (cachedRuntimeConfig) {
+		return cachedRuntimeConfig;
+	}
+
+	const privateJwk = parsePrivateJwk(process.env.MANGARR_CONVEX_AUTH_PRIVATE_JWK);
+	const keyId = process.env.MANGARR_CONVEX_AUTH_KEY_ID || DEFAULT_KEY_ID;
+	const publicJwk = {
+		kty: 'EC',
+		crv: 'P-256',
+		x: privateJwk.x,
+		y: privateJwk.y,
+		alg: 'ES256',
+		use: 'sig',
+		kid: keyId
+	} as const;
+
+	cachedRuntimeConfig = {
+		issuer: process.env.MANGARR_CONVEX_AUTH_ISSUER || DEFAULT_CONVEX_AUTH_ISSUER,
+		applicationId: process.env.MANGARR_CONVEX_AUTH_APPLICATION_ID || DEFAULT_CONVEX_AUTH_APPLICATION_ID,
+		tokenTtlSeconds: parseTokenTtlSeconds(process.env.MANGARR_CONVEX_AUTH_TOKEN_TTL_SECONDS),
+		keyId,
+		privateJwk: {
+			...publicJwk,
+			d: privateJwk.d
+		},
+		publicJwk
+	};
+
+	return cachedRuntimeConfig;
+}
+
+function parsePrivateJwk(value: string | undefined) {
+	if (!value) {
+		return DEFAULT_PRIVATE_JWK;
+	}
+
+	try {
+		const parsed = JSON.parse(value) as Partial<typeof DEFAULT_PRIVATE_JWK>;
+		if (typeof parsed.x === 'string' && typeof parsed.y === 'string' && typeof parsed.d === 'string') {
+			return {
+				kty: 'EC',
+				crv: 'P-256',
+				x: parsed.x,
+				y: parsed.y,
+				d: parsed.d
+			};
+		}
+	} catch {
+		// Fall back to the baked-in development key below.
+	}
+
+	return DEFAULT_PRIVATE_JWK;
+}
+
+function parseTokenTtlSeconds(value: string | undefined) {
+	const parsed = Number.parseInt(value || '', 10);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TOKEN_TTL_SECONDS;
 }

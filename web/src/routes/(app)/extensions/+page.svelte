@@ -127,8 +127,8 @@
 	let uninstallingPkg = $state<string | null>(null);
 	let togglingProxyPkg = $state<string | null>(null);
 	let togglingSourceId = $state<string | null>(null);
-	let renderLimit = $state(30);
-	let sentinelEl = $state<HTMLDivElement | null>(null);
+	let renderLimit = $state(60);
+	let renderMoreRaf = 0;
 
 	let installedExtensions = $state<InstalledExtension[]>([]);
 	let availableExtensions = $state<RepoItem[]>([]);
@@ -208,26 +208,26 @@
 	$effect(() => {
 		void trimmedSearch;
 		void selectedLang;
-		renderLimit = 30;
+		renderLimit = 60;
 	});
 
-	$effect(() => {
-		if (!sentinelEl || activeTab !== 'available') return;
-		const observer = new IntersectionObserver(
-			(entries) => {
-				if (entries[0]?.isIntersecting && renderLimit < filteredAvailable.length) {
-					renderLimit += 30;
-				}
-			},
-			{ rootMargin: '200px' }
-		);
-		observer.observe(sentinelEl);
-		return () => observer.disconnect();
-	});
-
-	onMount(async () => {
-		await refreshPage();
-		loading = false;
+	onMount(() => {
+		const handleRenderMore = () => scheduleRenderMore();
+		window.addEventListener('scroll', handleRenderMore, { passive: true });
+		window.addEventListener('resize', handleRenderMore);
+		void (async () => {
+			await refreshPage();
+			scheduleRenderMore();
+			loading = false;
+		})();
+		return () => {
+			if (renderMoreRaf) {
+				window.cancelAnimationFrame(renderMoreRaf);
+				renderMoreRaf = 0;
+			}
+			window.removeEventListener('scroll', handleRenderMore);
+			window.removeEventListener('resize', handleRenderMore);
+		};
 	});
 
 	async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -246,6 +246,21 @@
 
 	function displayExtensionName(name: string) {
 		return name.replace(/^tachiyomi:\s*/i, '').trim();
+	}
+
+	function scheduleRenderMore() {
+		if (typeof window === 'undefined' || renderMoreRaf) return;
+		renderMoreRaf = window.requestAnimationFrame(() => {
+			renderMoreRaf = 0;
+			if (activeTab !== 'available' || availableLoading || renderLimit >= filteredAvailable.length) {
+				return;
+			}
+			const documentHeight = document.documentElement.scrollHeight;
+			const viewportBottom = window.scrollY + window.innerHeight;
+			if (documentHeight - viewportBottom <= 960) {
+				renderLimit = Math.min(renderLimit + 60, filteredAvailable.length);
+			}
+		});
 	}
 
 	function getExtensionIcon(pkg: string, icon?: string | null) {
@@ -306,7 +321,11 @@
 	async function enqueueCommand(commandType: string, payload: Record<string, unknown>) {
 		const { commandId } = await client.mutation(convexApi.commands.enqueue, {
 			commandType,
-			payload
+			payload,
+			idempotencyKey:
+				commandType === 'extensions.repo.search'
+					? `extensions.repo.search:${String(payload.query ?? '').trim().toLowerCase()}:${Number(payload.limit ?? 0)}`
+					: undefined
 		});
 		return String(commandId);
 	}
@@ -336,7 +355,7 @@
 		try {
 			const commandId = await enqueueCommand('extensions.repo.search', {
 				query: '',
-				limit: 200
+				limit: 5000
 			});
 			const command = await pollCommand(commandId);
 			const items = ((command.result?.items ?? []) as RepoItem[]).filter(Boolean);
@@ -346,6 +365,7 @@
 					...item,
 					name: displayExtensionName(item.name)
 				}));
+			scheduleRenderMore();
 		} finally {
 			availableLoading = false;
 		}
@@ -354,6 +374,14 @@
 	function isInstalled(pkg: string) {
 		return installedExtensions.some((item) => item.pkg === pkg);
 	}
+
+	$effect(() => {
+		void activeTab;
+		void availableLoading;
+		void filteredAvailable.length;
+		void renderLimit;
+		scheduleRenderMore();
+	});
 
 	async function handleInstall(pkg: string) {
 		installingPkg = pkg;
@@ -1021,8 +1049,18 @@
 		</div>
 
 		{#if visibleAvailable.length < filteredAvailable.length}
-			<div bind:this={sentinelEl} class="flex justify-center py-4">
+			<div class="flex flex-col items-center gap-3 py-4">
 				<SpinnerIcon size={16} class="animate-spin text-[var(--text-ghost)]" />
+				<Button
+					variant="outline"
+					size="sm"
+					onclick={() => {
+						renderLimit = Math.min(renderLimit + 60, filteredAvailable.length);
+						scheduleRenderMore();
+					}}
+				>
+					Load more
+				</Button>
 			</div>
 		{/if}
 	{/if}

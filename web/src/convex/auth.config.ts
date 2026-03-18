@@ -1,5 +1,33 @@
 import type { AuthConfig } from 'convex/server';
 
-import { getConvexAuthConfig } from '../lib/server/convex-auth';
+import {
+	DEFAULT_CONVEX_AUTH_APPLICATION_ID,
+	DEFAULT_CONVEX_AUTH_ISSUER,
+	DEFAULT_KEY_ID,
+	DEFAULT_PRIVATE_JWK
+} from '../lib/server/convex-auth-config';
 
-export default getConvexAuthConfig() satisfies AuthConfig;
+const publicJwk = {
+	kty: 'EC',
+	crv: 'P-256',
+	x: DEFAULT_PRIVATE_JWK.x,
+	y: DEFAULT_PRIVATE_JWK.y,
+	alg: 'ES256',
+	use: 'sig',
+	kid: DEFAULT_KEY_ID
+} as const;
+
+const jwksPayload = JSON.stringify({ keys: [publicJwk] });
+const jwks = `data:application/json,${encodeURIComponent(jwksPayload)}`;
+
+export default {
+	providers: [
+		{
+			type: 'customJwt',
+			applicationID: DEFAULT_CONVEX_AUTH_APPLICATION_ID,
+			issuer: DEFAULT_CONVEX_AUTH_ISSUER,
+			algorithm: 'ES256',
+			jwks
+		}
+	]
+} satisfies AuthConfig;

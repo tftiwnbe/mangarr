@@ -15,6 +15,12 @@ const STATUS = {
 } as const;
 
 type CommandStatus = (typeof STATUS)[keyof typeof STATUS];
+const REUSABLE_STATUSES = new Set<CommandStatus>([
+	STATUS.QUEUED,
+	STATUS.LEASED,
+	STATUS.RUNNING,
+	STATUS.SUCCEEDED
+]);
 
 function targetCapabilityFor(commandType: string) {
 	switch (commandType) {
@@ -91,6 +97,22 @@ export const enqueue = mutation({
 		const idempotencyKey =
 			args.idempotencyKey ??
 			`${args.commandType}:${identity.subject}:${now}:${Math.random().toString(36).slice(2, 10)}`;
+
+		if (args.idempotencyKey) {
+			const existing = await ctx.db
+				.query('commands')
+				.withIndex('by_idempotency_key', (q) => q.eq('idempotencyKey', args.idempotencyKey!))
+				.collect();
+
+			const reusable = existing
+				.filter((row) => row.requestedByUserId === (identity.subject as GenericId<'users'>))
+				.sort((left, right) => right.createdAt - left.createdAt)
+				.find((row) => REUSABLE_STATUSES.has(row.status as CommandStatus));
+
+			if (reusable) {
+				return { commandId: reusable._id };
+			}
+		}
 
 		const commandId = await ctx.db.insert('commands', {
 			commandType: args.commandType,
@@ -186,12 +208,16 @@ export const lease = mutation({
 		await requireBridgeIdentity(ctx);
 		const expired = await ctx.db
 			.query('commands')
-			.withIndex('by_status_priority_run_after', (q) => q.eq('status', STATUS.LEASED))
-			.collect();
+			.withIndex('by_status_lease_expires_at', (q) =>
+				q.eq('status', STATUS.LEASED).lt('leaseExpiresAt', args.now + 1)
+			)
+			.take(50);
 		const expiredRunning = await ctx.db
 			.query('commands')
-			.withIndex('by_status_priority_run_after', (q) => q.eq('status', STATUS.RUNNING))
-			.collect();
+			.withIndex('by_status_lease_expires_at', (q) =>
+				q.eq('status', STATUS.RUNNING).lt('leaseExpiresAt', args.now + 1)
+			)
+			.take(50);
 
 		for (const row of [...expired, ...expiredRunning]) {
 			if (!row.leaseExpiresAt || row.leaseExpiresAt > args.now) {
@@ -211,16 +237,23 @@ export const lease = mutation({
 		}
 
 		const limit = Math.max(1, Math.min(Math.floor(args.limit), 25));
-		const queued = await ctx.db
-			.query('commands')
-			.withIndex('by_status_priority_run_after', (q) => q.eq('status', STATUS.QUEUED))
-			.collect();
+		const candidates = await Promise.all(
+			Array.from(new Set(args.capabilities)).map(async (capability) =>
+				ctx.db
+					.query('commands')
+					.withIndex('by_status_target_capability_priority_run_after', (q) =>
+						q.eq('status', STATUS.QUEUED).eq('targetCapability', capability).lte('runAfter', args.now)
+					)
+					.take(limit),
+			),
+		);
 
-		const eligible = queued
-			.filter((row) => row.runAfter <= args.now && args.capabilities.includes(row.targetCapability))
+		const eligible = candidates
+			.flat()
 			.sort((left, right) => {
 				if (left.priority !== right.priority) return left.priority - right.priority;
-				return left.runAfter - right.runAfter;
+				if (left.runAfter !== right.runAfter) return left.runAfter - right.runAfter;
+				return left.createdAt - right.createdAt;
 			})
 			.slice(0, limit);
 

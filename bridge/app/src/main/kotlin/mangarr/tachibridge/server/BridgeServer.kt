@@ -46,7 +46,9 @@ import xyz.nulldev.androidcompat.webkit.KcefWebViewProvider
 import java.io.File
 import java.nio.file.Files
 import java.security.Security
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
 import kotlin.math.roundToInt
@@ -337,6 +339,10 @@ class BridgeServer(
             }
         }
 
+        val initSignal = CountDownLatch(1)
+        val initialized = AtomicBoolean(false)
+        var initFailure: Throwable? = null
+
         try {
             KCEF.initBlocking(
                 builder = {
@@ -354,8 +360,10 @@ class BridgeServer(
                             }
                         }
                         onInitialized {
+                            initialized.set(true)
                             kcefEvents.info("bridge.kcef.initialized", "KCEF initialized successfully")
                             logMissingNativeDeps(kcefBinDir)
+                            initSignal.countDown()
                         }
                     }
                     download { github() }
@@ -382,7 +390,9 @@ class BridgeServer(
                     installDir(kcefBinDir.toFile())
                 },
                 onError = { error ->
+                    initFailure = error
                     kcefEvents.error("bridge.kcef.init_error", "KCEF initialization error", error)
+                    initSignal.countDown()
                 },
                 onRestartRequired = {
                     kcefEvents.warn("bridge.kcef.restart_required", "KCEF restart required")
@@ -391,6 +401,18 @@ class BridgeServer(
         } catch (e: Exception) {
             kcefEvents.error("bridge.kcef.init_failed", "Failed to initialize KCEF", e)
             throw e
+        }
+
+        if (!initSignal.await(15, TimeUnit.SECONDS)) {
+            val failure = initFailure ?: IllegalStateException("KCEF did not finish initialization within 15 seconds")
+            kcefEvents.error("bridge.kcef.init_incomplete", "KCEF initialization did not complete", failure)
+            throw IllegalStateException("KCEF initialization did not complete", failure)
+        }
+
+        if (!initialized.get()) {
+            val failure = initFailure ?: IllegalStateException("KCEF did not finish initialization")
+            kcefEvents.error("bridge.kcef.init_incomplete", "KCEF initialization did not complete", failure)
+            throw IllegalStateException("KCEF initialization did not complete", failure)
         }
 
         Runtime.getRuntime().addShutdownHook(
@@ -461,5 +483,5 @@ class BridgeServer(
             ?.trim()
             ?.lowercase()
             ?.let { it == "1" || it == "true" || it == "yes" }
-            ?: false
+            ?: true
 }

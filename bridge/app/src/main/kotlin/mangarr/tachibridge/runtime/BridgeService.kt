@@ -50,7 +50,7 @@ class BridgeService(
 
     fun searchRepository(query: String, limit: Int): JsonObject {
         val normalizedQuery = query.trim().lowercase()
-        val cappedLimit = limit.coerceIn(1, 100)
+        val cappedLimit = limit.coerceIn(1, 5000)
         val entries =
             repoService
                 .fetchIndex(forceRefresh = false)

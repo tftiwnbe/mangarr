@@ -279,6 +279,13 @@ export default defineSchema({
 		completedAt: v.optional(v.float64())
 	})
 		.index('by_status_priority_run_after', ['status', 'priority', 'runAfter'])
+		.index('by_status_target_capability_priority_run_after', [
+			'status',
+			'targetCapability',
+			'runAfter',
+			'priority'
+		])
+		.index('by_status_lease_expires_at', ['status', 'leaseExpiresAt'])
 		.index('by_lease_owner_bridge_id', ['leaseOwnerBridgeId'])
 		.index('by_idempotency_key', ['idempotencyKey'])
 		.index('by_requested_by_user_id_created_at', ['requestedByUserId', 'createdAt'])
