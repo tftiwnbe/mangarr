@@ -140,6 +140,7 @@
 	const readerData = $derived((readerQuery.data as ReaderQuery) ?? null);
 	const title = $derived(readerData?.title ?? null);
 	const chapter = $derived(readerData?.chapter ?? null);
+	const currentChapterId = $derived(chapter?._id ?? null);
 	const chapters = $derived(readerData?.chapters ?? []);
 	const commands = $derived((commandsQuery.data ?? []) as CommandItem[]);
 	const comments = $derived((commentsQuery.data ?? []) as CommentItem[]);
@@ -221,14 +222,14 @@
 
 	const currentPage = $derived(pages[currentPageIndex] ?? null);
 	const prevChapterId = $derived.by(() => {
-		if (!chapter || chapters.length === 0) return null;
-		const index = chapters.findIndex((item) => item._id === chapter._id);
+		if (!currentChapterId || chapters.length === 0) return null;
+		const index = chapters.findIndex((item) => item._id === currentChapterId);
 		if (index <= 0) return null;
 		return chapters[index - 1]?._id ?? null;
 	});
 	const nextChapterId = $derived.by(() => {
-		if (!chapter || chapters.length === 0) return null;
-		const index = chapters.findIndex((item) => item._id === chapter._id);
+		if (!currentChapterId || chapters.length === 0) return null;
+		const index = chapters.findIndex((item) => item._id === currentChapterId);
 		if (index < 0 || index >= chapters.length - 1) return null;
 		return chapters[index + 1]?._id ?? null;
 	});
@@ -422,7 +423,6 @@
 	});
 
 	$effect(() => {
-		const currentChapterId = chapter?._id ?? null;
 		if (currentChapterId === null) {
 			lastChapterId = null;
 			fetchRequested = false;
@@ -739,7 +739,7 @@
 			<p class="py-8 text-center text-xs text-[var(--text-ghost)]">{$_('common.noResults')}</p>
 		{:else}
 			{#each chapters as item (item._id)}
-				{@const isCurrent = chapter?._id === item._id}
+				{@const isCurrent = currentChapterId === item._id}
 				<button
 					type="button"
 					class="flex items-center justify-between gap-3 px-2 py-2.5 text-left text-xs transition-colors {isCurrent

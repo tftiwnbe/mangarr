@@ -22,9 +22,11 @@ import mangarr.tachibridge.repo.ExtensionRepoService
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.Base64
+import java.util.concurrent.ConcurrentHashMap
 
 private val logger = KotlinLogging.logger {}
 private val json = Json { ignoreUnknownKeys = true }
+private const val FEED_CACHE_TTL_MS = 5 * 60 * 1000L
 
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 class BridgeService(
@@ -33,6 +35,7 @@ class BridgeService(
     private val downloadStorage: DownloadStorage,
 ) {
     private val httpClient = OkHttpClient()
+    private val feedCache = ConcurrentHashMap<String, CachedFeedResult>()
 
     fun syncRepository(url: String): JsonObject {
         repoService.updateRepoIndexUrl(url)
@@ -94,6 +97,7 @@ class BridgeService(
                                     put("name", source.name)
                                     put("lang", normalizeLangCode(source.lang))
                                     put("supportsLatest", source.supportsLatest)
+                                    put("enabled", source.enabled)
                                 }
                             },
                         ),
@@ -117,6 +121,23 @@ class BridgeService(
             put("ok", true)
             put("pkg", installed.packageName)
             put("use_proxy", useProxy)
+        }
+    }
+
+    suspend fun setSourceEnabled(sourceId: String, enabled: Boolean): JsonObject {
+        extensionManager.awaitReady()
+        val parsedSourceId = sourceId.toLong()
+        val source =
+            extensionManager
+                .listSources()
+                .firstOrNull { it.id == parsedSourceId }
+                ?: error("Source not found: $sourceId")
+        ConfigManager.setSourceEnabled(parsedSourceId, enabled)
+        feedCache.keys.removeIf { key -> key.contains(":$sourceId:") }
+        return buildJsonObject {
+            put("ok", true)
+            put("sourceId", source.id.toString())
+            put("enabled", enabled)
         }
     }
 
@@ -188,6 +209,7 @@ class BridgeService(
                     put("name", source.name)
                     put("lang", source.lang)
                     put("supportsLatest", source.supportsLatest)
+                    put("enabled", ConfigManager.isSourceEnabled(source.id))
                 },
             )
             put("preferences", JsonArray(preferences.filtersList.map { normalizeFilter(it) }))
@@ -228,7 +250,8 @@ class BridgeService(
             extensionManager
                 .listSources()
                 .filter { source ->
-                    selectedSourceId == null || source.id.toString() == selectedSourceId
+                    ConfigManager.isSourceEnabled(source.id) &&
+                        (selectedSourceId == null || source.id.toString() == selectedSourceId)
                 }
 
         for (source in sources) {
@@ -282,9 +305,15 @@ class BridgeService(
 
     suspend fun fetchTitle(sourceId: String, titleUrl: String): JsonObject {
         extensionManager.awaitReady()
+        if (!ConfigManager.isSourceEnabled(sourceId.toLong())) {
+            error("Source is disabled: $sourceId")
+        }
         val response = extensionManager.getTitleDetails(sourceId.toLong(), titleUrl)
         val title = response.title
-        val source = extensionManager.listSources().firstOrNull { it.id.toString() == sourceId }
+        val source =
+            extensionManager
+                .listSources()
+                .firstOrNull { it.id.toString() == sourceId && ConfigManager.isSourceEnabled(it.id) }
         val sourcePkg = source?.let { ConfigManager.config.findBySourceId(it.id)?.packageName }.orEmpty()
 
         return buildJsonObject {
@@ -301,6 +330,9 @@ class BridgeService(
 
     suspend fun fetchChapters(sourceId: String, titleUrl: String): JsonObject {
         extensionManager.awaitReady()
+        if (!ConfigManager.isSourceEnabled(sourceId.toLong())) {
+            error("Source is disabled: $sourceId")
+        }
         val chapters = extensionManager.getChaptersList(sourceId.toLong(), titleUrl)
         return buildJsonObject {
             put("ok", true)
@@ -323,6 +355,9 @@ class BridgeService(
 
     suspend fun fetchPages(sourceId: String, chapterUrl: String): JsonObject {
         extensionManager.awaitReady()
+        if (!ConfigManager.isSourceEnabled(sourceId.toLong())) {
+            error("Source is disabled: $sourceId")
+        }
         val pages = extensionManager.getPagesList(sourceId.toLong(), chapterUrl)
         return buildJsonObject {
             put("ok", true)
@@ -567,10 +602,7 @@ class BridgeService(
             ConfigManager.config.findExtension(packageName)
                 ?: error("Installed extension not found in config: $packageName")
         val sources =
-            extensionManager
-                .listSources()
-                .filter { source -> ConfigManager.config.findBySourceId(source.id)?.packageName == packageName }
-                .map { it.toPayload() }
+            installed.sources.map { it.toPayload() }
 
         return InstalledExtensionPayload(
             pkg = installed.packageName,
@@ -586,7 +618,14 @@ class BridgeService(
 
     private suspend fun fetchFeed(sourceId: String, page: Int, limit: Int, feed: String): JsonObject {
         extensionManager.awaitReady()
+        val normalizedLimit = limit.coerceIn(1, 100)
+        val cacheKey = "$feed:$sourceId:$page:$normalizedLimit"
+        val now = System.currentTimeMillis()
+        feedCache[cacheKey]?.takeIf { it.expiresAt > now }?.let { return it.payload }
         val parsedSourceId = sourceId.toLong()
+        if (!ConfigManager.isSourceEnabled(parsedSourceId)) {
+            error("Source is disabled: $sourceId")
+        }
         val source =
             extensionManager
                 .listSources()
@@ -601,7 +640,7 @@ class BridgeService(
             }
         val items =
             response.titlesList
-                .take(limit.coerceIn(1, 100))
+                .take(normalizedLimit)
                 .map { title ->
                     buildJsonObject {
                         put("canonicalKey", canonicalKey(sourceId, title.url))
@@ -616,7 +655,7 @@ class BridgeService(
                     }
                 }
 
-        return buildJsonObject {
+        val payload = buildJsonObject {
             put("ok", true)
             put("sourceId", sourceId)
             put("feed", feed)
@@ -624,6 +663,8 @@ class BridgeService(
             put("hasNextPage", response.hasNextPage)
             put("items", JsonArray(items))
         }
+        feedCache[cacheKey] = CachedFeedResult(payload = payload, expiresAt = now + FEED_CACHE_TTL_MS)
+        return payload
     }
 
     private fun normalizeRepoEntry(entry: mangarr.tachibridge.repo.ExtensionRepoEntry): JsonObject =
@@ -702,6 +743,7 @@ data class SourcePayload(
     val name: String,
     val lang: String,
     val supportsLatest: Boolean,
+    val enabled: Boolean,
 )
 
 private fun mangarr.tachibridge.config.BridgeConfig.SourceInfo.toPayload() =
@@ -710,4 +752,10 @@ private fun mangarr.tachibridge.config.BridgeConfig.SourceInfo.toPayload() =
         name = name,
         lang = lang,
         supportsLatest = supportsLatest,
+        enabled = enabled,
     )
+
+private data class CachedFeedResult(
+    val payload: JsonObject,
+    val expiresAt: Long,
+)

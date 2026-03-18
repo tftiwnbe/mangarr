@@ -32,6 +32,7 @@
 		name: string;
 		lang: string;
 		supportsLatest: boolean;
+		enabled?: boolean;
 		extensionName: string;
 		extensionPkg: string;
 	};
@@ -115,6 +116,8 @@
 	};
 
 	const FEED_LIMIT = 24;
+	const FEED_SOURCE_BATCH_SIZE = 8;
+	const COMMAND_CONCURRENCY = 6;
 	const UUID_SEGMENT_RE =
 		/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 	const LONG_HEX_SEGMENT_RE = /^[0-9a-f]{12,}$/i;
@@ -151,9 +154,11 @@
 	let openingTitleKey = $state<string | null>(null);
 	let selectedExtensionPkgs = $state<string[]>([]);
 	let selectedSourceId = $state('');
+	let activeFeedSourceIds = $state<string[]>([]);
 	let loadedPagesBySource = $state<Record<string, number>>({});
 	let exhaustedFeedSources = $state<Record<string, boolean>>({});
 	let infiniteSentinelVisible = $state(false);
+	let lastFeedLoadSignature = $state('');
 
 	let searchFiltersOpen = $state(false);
 	let searchFiltersLoading = $state(false);
@@ -197,8 +202,13 @@
 	});
 
 	const visibleSources = $derived.by(() => {
-		if (selectedExtensionPkgs.length === 0) return sourceOptions;
-		return sourceOptions.filter((source) => selectedExtensionPkgs.includes(source.extensionPkg));
+		const filteredByExtension =
+			selectedExtensionPkgs.length === 0
+				? sourceOptions
+				: sourceOptions.filter((source) => selectedExtensionPkgs.includes(source.extensionPkg));
+		return activeTab === 'latest'
+			? filteredByExtension.filter((source) => source.supportsLatest)
+			: filteredByExtension;
 	});
 
 	const searchSources = $derived(sourceOptions);
@@ -221,7 +231,8 @@
 	const showSearchPrompt = $derived(activeTab === 'search' && searchQuery.trim().length === 0);
 	const hasMoreFeedPages = $derived.by(() => {
 		if (activeTab === 'search') return false;
-		return visibleSources.some((source) => sourceHasMore(feedCommandType, source.id));
+		if (visibleSources.length > activeFeedSourceIds.length) return true;
+		return activeFeedSourceIds.some((sourceId) => sourceHasMore(feedCommandType, sourceId));
 	});
 	const currentLoading = $derived(loading || loadingMore || sourcesQuery.isLoading || libraryQuery.isLoading);
 
@@ -231,7 +242,7 @@
 				? selectedSourceId
 					? [selectedSourceId]
 					: searchSources.map((source) => source.id)
-				: visibleSources.map((source) => source.id);
+				: activeFeedSourceIds;
 
 		const items: ExploreCard[] = [];
 		const signatureToIndex: Record<string, number> = {};
@@ -308,10 +319,11 @@
 	}
 
 	function sourcesForContentLanguage(): SourceItem[] {
+		const enabledSources = sources.filter((source) => source.enabled !== false);
 		if (preferredContentLanguages.length === 0) {
-			return sources;
+			return enabledSources;
 		}
-		return sources.filter((source) => {
+		return enabledSources.filter((source) => {
 			const normalized = normalizeContentLanguageCode(source.lang);
 			return normalized !== null && preferredContentLanguages.includes(normalized);
 		});
@@ -546,22 +558,58 @@
 		throw new Error('Command timed out');
 	}
 
+	async function runWithConcurrency<T>(
+		items: T[],
+		limit: number,
+		task: (item: T) => Promise<void>
+	) {
+		if (items.length === 0) return;
+
+		let index = 0;
+		const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+			while (index < items.length) {
+				const current = items[index];
+				index += 1;
+				await task(current);
+			}
+		});
+
+		await Promise.all(workers);
+	}
+
 	async function loadFeedInitial() {
-		const sourceIds = visibleSources.map((source) => source.id);
-		loadedPagesBySource = {};
-		exhaustedFeedSources = {};
+		const sourceIds = activeFeedSourceIds;
 		if (sourceIds.length === 0) {
+			loadedPagesBySource = {};
+			exhaustedFeedSources = {};
 			loading = false;
 			return;
 		}
+		await loadFeedPageBatch(sourceIds, false);
+	}
 
-		loading = true;
+	async function loadFeedPageBatch(sourceIds: string[], append: boolean) {
+		if (sourceIds.length === 0) {
+			if (!append) {
+				loadedPagesBySource = {};
+				exhaustedFeedSources = {};
+				loading = false;
+			}
+			return;
+		}
+
+		if (append) {
+			loadingMore = true;
+		} else {
+			loading = true;
+		}
 		error = null;
-		const nextPages: Record<string, number> = {};
+		const nextPages: Record<string, number> = append ? { ...loadedPagesBySource } : {};
+		const nextExhausted: Record<string, boolean> = append ? { ...exhaustedFeedSources } : {};
+		const nextLiveFeedResults = { ...liveFeedResults };
 		const failures: string[] = [];
 
-		await Promise.all(
-			sourceIds.map(async (sourceId) => {
+		await runWithConcurrency(sourceIds, COMMAND_CONCURRENCY, async (sourceId) => {
 				try {
 					const { commandId } = await enqueueCommand(feedCommandType, {
 						sourceId,
@@ -569,21 +617,27 @@
 						limit: FEED_LIMIT
 					});
 					const command = await pollCommand(String(commandId));
-					liveFeedResults[feedResultKey(feedCommandType, sourceId, 1)] = {
+					nextLiveFeedResults[feedResultKey(feedCommandType, sourceId, 1)] = {
 						items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[],
 						page: Number(command.result?.page ?? 1),
 						hasNextPage: Boolean(command.result?.hasNextPage ?? false)
 					};
 					nextPages[sourceId] = 1;
+					delete nextExhausted[sourceId];
 				} catch (cause) {
 					failures.push(cause instanceof Error ? cause.message : `Unable to load ${sourceNameFor(sourceId)}`);
 				}
-			})
-		);
+			});
 
+		liveFeedResults = nextLiveFeedResults;
 		loadedPagesBySource = nextPages;
+		exhaustedFeedSources = nextExhausted;
 		error = failures[0] ?? null;
-		loading = false;
+		if (append) {
+			loadingMore = false;
+		} else {
+			loading = false;
+		}
 	}
 
 	async function loadMoreFeed() {
@@ -596,15 +650,24 @@
 				page: (loadedPagesBySource[source.id] ?? 0) + 1
 			}));
 
-		if (nextSourcePages.length === 0) return;
+		if (nextSourcePages.length === 0) {
+			const nextSourceIds = visibleSources
+				.map((source) => source.id)
+				.filter((sourceId) => !activeFeedSourceIds.includes(sourceId))
+				.slice(0, FEED_SOURCE_BATCH_SIZE);
+			if (nextSourceIds.length === 0) return;
+			activeFeedSourceIds = [...activeFeedSourceIds, ...nextSourceIds];
+			await loadFeedPageBatch(nextSourceIds, true);
+			return;
+		}
 
 		loadingMore = true;
 		const nextLoaded = { ...loadedPagesBySource };
 		const nextExhausted = { ...exhaustedFeedSources };
+		const nextLiveFeedResults = { ...liveFeedResults };
 		const failures: string[] = [];
 
-		await Promise.all(
-			nextSourcePages.map(async ({ sourceId, page }) => {
+		await runWithConcurrency(nextSourcePages, COMMAND_CONCURRENCY, async ({ sourceId, page }) => {
 				try {
 					const { commandId } = await enqueueCommand(feedCommandType, {
 						sourceId,
@@ -615,7 +678,7 @@
 					const incomingItems =
 						((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[];
 					const existingItems = feedItemsForSource(feedCommandType, sourceId, loadedPagesBySource[sourceId] ?? 0);
-					liveFeedResults[feedResultKey(feedCommandType, sourceId, page)] = {
+					nextLiveFeedResults[feedResultKey(feedCommandType, sourceId, page)] = {
 						items: incomingItems,
 						page: Number(command.result?.page ?? page),
 						hasNextPage: Boolean(command.result?.hasNextPage ?? false)
@@ -627,9 +690,9 @@
 				} catch (cause) {
 					failures.push(cause instanceof Error ? cause.message : `Unable to load more from ${sourceNameFor(sourceId)}`);
 				}
-			})
-		);
+			});
 
+		liveFeedResults = nextLiveFeedResults;
 		loadedPagesBySource = nextLoaded;
 		exhaustedFeedSources = nextExhausted;
 		if (failures.length > 0) {
@@ -658,9 +721,9 @@
 		loading = true;
 		error = null;
 		const failures: string[] = [];
+		const nextLiveSearchResults = { ...liveSearchResults };
 
-		await Promise.all(
-			sourceIds.map(async (sourceId) => {
+		await runWithConcurrency(sourceIds, COMMAND_CONCURRENCY, async (sourceId) => {
 				try {
 					const searchFilters = selectedSourceId === sourceId ? selectedSourceAppliedFilters : {};
 					const payload: Record<string, unknown> = {
@@ -673,15 +736,15 @@
 					}
 					const { commandId } = await enqueueCommand('explore.search', payload);
 					const command = await pollCommand(String(commandId));
-					liveSearchResults[searchResultKey(sourceId, value, searchFilters)] = {
+					nextLiveSearchResults[searchResultKey(sourceId, value, searchFilters)] = {
 						items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[]
 					};
 				} catch (cause) {
 					failures.push(cause instanceof Error ? cause.message : `Search failed for ${sourceNameFor(sourceId)}`);
 				}
-			})
-		);
+			});
 
+		liveSearchResults = nextLiveSearchResults;
 		error = failures[0] ?? null;
 		loading = false;
 	}
@@ -838,7 +901,6 @@
 	}
 
 	onMount(() => {
-		panelOverlayOpen.set(searchFiltersOpen);
 		return () => {
 			if (searchTimer) clearTimeout(searchTimer);
 			panelOverlayOpen.set(false);
@@ -851,7 +913,7 @@
 	});
 
 	$effect(() => {
-		if (!searchSources.some((source) => source.id === selectedSourceId)) {
+		if (selectedSourceId && !searchSources.some((source) => source.id === selectedSourceId)) {
 			selectedSourceId = '';
 		}
 	});
@@ -859,13 +921,17 @@
 	$effect(() => {
 		if (!sources.length) return;
 		if (activeTab === 'search') {
-			if (searchQuery.trim()) {
-				void runSearch();
-			} else {
-				loading = false;
-			}
+			lastFeedLoadSignature = '';
+			activeFeedSourceIds = [];
+			loading = false;
 			return;
 		}
+		const signature = `${feedCommandType}:${visibleSources.map((source) => source.id).join(',')}`;
+		if (signature === lastFeedLoadSignature) {
+			return;
+		}
+		lastFeedLoadSignature = signature;
+		activeFeedSourceIds = visibleSources.slice(0, FEED_SOURCE_BATCH_SIZE).map((source) => source.id);
 		void loadFeedInitial();
 	});
 
@@ -1122,6 +1188,14 @@
 						<SpinnerIcon size={14} class="animate-spin" />
 						{$_('common.loading')}
 					</p>
+				{:else}
+					<button
+						type="button"
+						class="border border-[var(--line)] px-3 py-1.5 text-xs text-[var(--text-ghost)] transition-colors hover:border-[var(--text-ghost)] hover:text-[var(--text-muted)]"
+						onclick={() => void loadMoreFeed()}
+					>
+						Load more
+					</button>
 				{/if}
 			</div>
 		{/if}

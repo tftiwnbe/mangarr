@@ -95,6 +95,9 @@ class ConvexBridgeClient(
     fun upsertInstalledExtension(args: JsonObject): OkResponse =
         mutation("extensions:upsertInstalled", args)
 
+    fun setInstalledExtensionSourceEnabled(args: JsonObject): OkResponse =
+        mutation("extensions:setSourceEnabled", args)
+
     fun removeInstalledExtension(args: JsonObject): OkResponse =
         mutation("extensions:removeInstalled", args)
 

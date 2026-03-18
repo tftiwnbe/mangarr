@@ -1,6 +1,5 @@
 package mangarr.tachibridge.runtime
 
-import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -11,8 +10,12 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import mangarr.tachibridge.logging.EventLogger
 
-private val logger = KotlinLogging.logger {}
+private val events = EventLogger.named(
+    "mangarr.tachibridge.runtime.BridgeHeartbeatReporter",
+    "component" to "bridge_heartbeat",
+)
 
 @Serializable
 data class HeartbeatSnapshot(
@@ -82,7 +85,15 @@ class BridgeHeartbeatReporter(
             )
             snapshot = snapshot.copy(lastSuccessAt = now, lastError = null)
         } catch (error: Exception) {
-            logger.error(error) { "Failed to report bridge heartbeat to Convex" }
+            events.error(
+                "bridge.heartbeat.failed",
+                "Failed to report bridge heartbeat to Convex",
+                error,
+                "bridgeId" to bridgeId,
+                "status" to runtime.status,
+                "ready" to runtime.ready,
+                "restartCount" to runtime.restartCount,
+            )
             snapshot = snapshot.copy(lastError = error.message ?: "Unknown heartbeat error")
         }
     }

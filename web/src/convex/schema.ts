@@ -83,7 +83,8 @@ export default defineSchema({
 					id: v.string(),
 					name: v.string(),
 					lang: v.string(),
-					supportsLatest: v.boolean()
+					supportsLatest: v.boolean(),
+					enabled: v.optional(v.boolean())
 				})
 			)
 		),

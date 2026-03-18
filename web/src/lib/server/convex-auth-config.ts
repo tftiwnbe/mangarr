@@ -1,3 +1,5 @@
+import { env as privateEnv } from '$env/dynamic/private';
+
 import type { JWK } from 'jose';
 
 export const DEFAULT_CONVEX_AUTH_ISSUER = 'https://auth.mangarr.local/convex';
@@ -29,7 +31,7 @@ export function getConvexAuthRuntimeConfig(): ConvexAuthRuntimeConfig {
 	}
 
 	const privateJwk = parsePrivateJwk();
-	const keyId = DEFAULT_KEY_ID;
+	const keyId = privateEnv.MANGARR_CONVEX_AUTH_KEY_ID || DEFAULT_KEY_ID;
 	const publicJwk: JWK = {
 		kty: 'EC',
 		crv: 'P-256',
@@ -41,9 +43,9 @@ export function getConvexAuthRuntimeConfig(): ConvexAuthRuntimeConfig {
 	};
 
 	cachedConfig = {
-		issuer: DEFAULT_CONVEX_AUTH_ISSUER,
-		applicationId: DEFAULT_CONVEX_AUTH_APPLICATION_ID,
-		tokenTtlSeconds: DEFAULT_TOKEN_TTL_SECONDS,
+		issuer: privateEnv.MANGARR_CONVEX_AUTH_ISSUER || DEFAULT_CONVEX_AUTH_ISSUER,
+		applicationId: privateEnv.MANGARR_CONVEX_AUTH_APPLICATION_ID || DEFAULT_CONVEX_AUTH_APPLICATION_ID,
+		tokenTtlSeconds: parseTokenTtlSeconds(),
 		keyId,
 		privateJwk: {
 			...publicJwk,
@@ -56,5 +58,31 @@ export function getConvexAuthRuntimeConfig(): ConvexAuthRuntimeConfig {
 }
 
 function parsePrivateJwk(): JWK & { x: string; y: string; d: string } {
+	const value = privateEnv.MANGARR_CONVEX_AUTH_PRIVATE_JWK;
+	if (!value) {
+		return DEFAULT_PRIVATE_JWK;
+	}
+
+	try {
+		const parsed = JSON.parse(value) as Partial<JWK> & { x?: string; y?: string; d?: string };
+		if (typeof parsed.x === 'string' && typeof parsed.y === 'string' && typeof parsed.d === 'string') {
+			return {
+				...parsed,
+				kty: 'EC',
+				crv: 'P-256',
+				x: parsed.x,
+				y: parsed.y,
+				d: parsed.d
+			};
+		}
+	} catch {
+		// Fall back to the baked-in development key below.
+	}
+
 	return DEFAULT_PRIVATE_JWK;
+}
+
+function parseTokenTtlSeconds() {
+	const value = Number.parseInt(privateEnv.MANGARR_CONVEX_AUTH_TOKEN_TTL_SECONDS || '', 10);
+	return Number.isFinite(value) && value > 0 ? value : DEFAULT_TOKEN_TTL_SECONDS;
 }

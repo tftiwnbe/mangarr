@@ -35,13 +35,16 @@ export const listSources = query({
 					id,
 					name: id,
 					lang: extension.lang,
-					supportsLatest: false
-				}))).map((source) => ({
+					supportsLatest: false,
+					enabled: true
+				})))
+					.filter((source) => source.enabled !== false)
+					.map((source) => ({
 					...source,
 					extensionPkg: extension.pkg,
 					extensionName: extension.name,
 					extensionVersion: extension.version
-				}))
+					}))
 			)
 			.sort((left, right) => {
 				if (left.extensionName !== right.extensionName) {
@@ -96,7 +99,8 @@ export const upsertInstalled = mutation({
 				id: v.string(),
 				name: v.string(),
 				lang: v.string(),
-				supportsLatest: v.boolean()
+				supportsLatest: v.boolean(),
+				enabled: v.optional(v.boolean())
 			})
 		),
 		now: v.float64()
@@ -131,6 +135,35 @@ export const upsertInstalled = mutation({
 				updatedAt: args.now
 			});
 		}
+
+	return { ok: true };
+	}
+});
+
+export const setSourceEnabled = mutation({
+	args: {
+		pkg: v.string(),
+		sourceId: v.string(),
+		enabled: v.boolean(),
+		now: v.float64()
+	},
+	handler: async (ctx, args) => {
+		await requireBridgeIdentity(ctx);
+		const existing = await ctx.db
+			.query('installedExtensions')
+			.withIndex('by_pkg', (q) => q.eq('pkg', args.pkg))
+			.unique();
+		if (!existing) {
+			throw new Error('Installed extension not found');
+		}
+
+		const nextSources = (existing.sources ?? []).map((source) =>
+			source.id === args.sourceId ? { ...source, enabled: args.enabled } : source
+		);
+		await ctx.db.patch(existing._id, {
+			sources: nextSources,
+			updatedAt: args.now
+		});
 
 		return { ok: true };
 	}

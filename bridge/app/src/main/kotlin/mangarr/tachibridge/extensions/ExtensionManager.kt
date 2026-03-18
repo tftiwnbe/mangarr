@@ -111,7 +111,7 @@ class ExtensionManager(
             }
 
             try {
-                logger.info { "Initializing extension manager..." }
+                logger.debug { "Initializing extension manager..." }
 
                 // Sync filesystem
                 val jarFiles =
@@ -277,6 +277,7 @@ class ExtensionManager(
                             name = source.name,
                             lang = source.lang,
                             supportsLatest = supportsLatest,
+                            enabled = true,
                         )
                     },
             )
@@ -323,6 +324,8 @@ class ExtensionManager(
         val installed =
             ConfigManager.config.findExtension(packageName)
                 ?: throw IllegalArgumentException("Not installed: $packageName")
+        val previousSourceEnabled =
+            installed.sources.associate { source -> source.id to source.enabled }
 
         val repoEntry =
             repoService.findByPackage(packageName, forceRefresh = true)
@@ -331,7 +334,20 @@ class ExtensionManager(
         check(repoEntry.version != installed.version) { "Already up to date: $packageName" }
 
         uninstall(packageName)
-        return installFromRepo(packageName)
+        val updated = installFromRepo(packageName)
+        if (previousSourceEnabled.isEmpty()) {
+            return updated
+        }
+
+        val patched =
+            updated.copy(
+                sources =
+                    updated.sources.map { source ->
+                        source.copy(enabled = previousSourceEnabled[source.id] ?: source.enabled)
+                    },
+            )
+        ConfigManager.upsertExtension(patched)
+        return patched
     }
 
     fun listSources(): List<BridgeConfig.SourceInfo> {

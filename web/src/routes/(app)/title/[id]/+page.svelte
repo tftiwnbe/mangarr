@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import {
@@ -166,7 +167,6 @@
 	let showManagementPanel = $state(false);
 	let downloadingChapterIds = $state<string[]>([]);
 	let updatingDownloadProfile = $state(false);
-	let preferencesInitialized = $state(false);
 	let preferencesSaving = $state(false);
 	let actionError = $state<string | null>(null);
 	let preferencesError = $state<string | null>(null);
@@ -298,9 +298,7 @@
 		return () => panelOverlayOpen.set(false);
 	});
 
-	$effect(() => {
-		if (preferencesInitialized) return;
-		preferencesInitialized = true;
+	onMount(() => {
 		void Promise.all([
 			client.mutation(convexApi.library.ensureDefaultUserStatuses, {}),
 			client.mutation(convexApi.library.ensureDefaultCollections, {})

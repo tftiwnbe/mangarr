@@ -37,6 +37,7 @@
 		name: string;
 		lang: string;
 		supportsLatest: boolean;
+		enabled?: boolean;
 	};
 
 	type InstalledExtension = {
@@ -125,6 +126,7 @@
 	let installingPkg = $state<string | null>(null);
 	let uninstallingPkg = $state<string | null>(null);
 	let togglingProxyPkg = $state<string | null>(null);
+	let togglingSourceId = $state<string | null>(null);
 	let renderLimit = $state(30);
 	let sentinelEl = $state<HTMLDivElement | null>(null);
 
@@ -403,6 +405,32 @@
 			error = cause instanceof Error ? cause.message : 'Failed to update extension proxy';
 		} finally {
 			togglingProxyPkg = null;
+		}
+	}
+
+	async function handleToggleSource(pkg: string, sourceId: string, enabled: boolean) {
+		togglingSourceId = sourceId;
+		error = null;
+		try {
+			await fetchJson<{ ok: boolean }>('/api/internal/bridge/extensions/source-enabled', {
+				method: 'PUT',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ pkg, sourceId, enabled })
+			});
+			installedExtensions = installedExtensions.map((item) =>
+				item.pkg === pkg
+					? {
+							...item,
+							sources: item.sources.map((source) =>
+								source.id === sourceId ? { ...source, enabled } : source
+							)
+						}
+					: item
+			);
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Failed to update source';
+		} finally {
+			togglingSourceId = null;
 		}
 	}
 
@@ -809,7 +837,7 @@
 				{#each filteredInstalled as ext, i (ext.pkg)}
 					{@const isExpanded = expandedPkg === ext.pkg}
 					{@const visibleSources = getFilteredSources(ext.sources)}
-					{@const enabledCount = visibleSources.length}
+					{@const enabledCount = ext.sources.filter((source) => source.enabled !== false).length}
 					{@const isUninstalling = uninstallingPkg === ext.pkg}
 					{@const isTogglingProxy = togglingProxyPkg === ext.pkg}
 
@@ -863,15 +891,26 @@
 											</p>
 										{:else}
 											{#each visibleSources as source (source.id)}
-												<div class="flex items-center gap-3 py-2.5 transition-colors">
+												<div class="flex items-center gap-3 py-2.5 transition-colors {source.enabled === false ? 'opacity-45' : ''}">
 													<div class="min-w-0 flex-1">
 														<div class="flex items-center gap-2">
 															<span class="truncate text-xs text-[var(--text-soft)]">{source.name}</span>
 															<span class="shrink-0 text-[10px] tracking-wide text-[var(--text-ghost)] uppercase">
 																{source.lang}
 															</span>
+															{#if source.enabled === false}
+																<span class="shrink-0 text-[10px] tracking-wide text-[var(--text-ghost)] uppercase">
+																	off
+																</span>
+															{/if}
 														</div>
 													</div>
+													<Switch
+														checked={source.enabled !== false}
+														disabled={togglingSourceId === source.id}
+														loading={togglingSourceId === source.id}
+														onCheckedChange={(enabled) => void handleToggleSource(ext.pkg, source.id, enabled)}
+													/>
 													<button
 														type="button"
 														class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-3)] hover:text-[var(--text)]"

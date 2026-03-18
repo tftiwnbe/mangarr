@@ -28,6 +28,7 @@ okhttp-dnsoverhttps = { module = "com.squareup.okhttp3:okhttp-dnsoverhttps", ver
 
 kotlin-logging = { module = "io.github.oshai:kotlin-logging-jvm", version = "7.0.13" }
 logstash-encoder = { module = "net.logstash.logback:logstash-logback-encoder", version = "8.0"}
+slf4j-api = { module = "org.slf4j:slf4j-api", version = "2.0.17" }
 
 protoc = { module = "com.google.protobuf:protoc", version.ref = "protoc_version" }
 protobuf-kotlin = { module = "com.google.protobuf:protobuf-kotlin", version.ref = "protoc_version" }
@@ -64,7 +65,7 @@ serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref 
 
 [bundles]
 kotlin = ["kotlin-stdlib", "kotlin-coroutines"]
-logging = ["kotlin-logging", "logstash-encoder"]
+logging = ["kotlin-logging", "logstash-encoder", "slf4j-api"]
 network = ["okhttp", "okhttp-logging", "okhttp-brotli", "okhttp-dnsoverhttps", "rxjava"]
 tachiyomi = ["injekt", "kcef", "bouncycastle", "rxjava", "jsoup"]
 apk = ["asm", "dex2jar-tools", "dex2jar-translator", "apk-parser", "apksig"]

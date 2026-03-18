@@ -81,6 +81,7 @@ data class BridgeConfig(
         val lang: String,
         @SerialName("supports_latest")
         val supportsLatest: Boolean = true,
+        val enabled: Boolean = true,
     )
 }
 
@@ -121,3 +122,6 @@ fun BridgeConfig.findExtension(packageName: String): BridgeConfig.InstalledExten
 
 fun BridgeConfig.findBySourceId(sourceId: Long): BridgeConfig.InstalledExtension? =
     extensions.find { ext -> ext.sources.any { it.id == sourceId } }
+
+fun BridgeConfig.findSourceInfo(sourceId: Long): BridgeConfig.SourceInfo? =
+    extensions.firstNotNullOfOrNull { ext -> ext.sources.find { it.id == sourceId } }

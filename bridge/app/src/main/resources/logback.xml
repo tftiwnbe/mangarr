@@ -31,12 +31,20 @@
         </encoder>
     </appender>
 
-    <logger name="io.netty" level="INFO"/>
-    <logger name="io.ktor" level="INFO"/>
+    <logger name="io.netty" level="WARN"/>
+    <logger name="io.ktor" level="WARN"/>
     <logger name="io.ktor.server" level="WARN"/>
     <logger name="org.eclipse.jetty" level="WARN"/>
+    <logger name="org.koin" level="WARN"/>
+    <logger name="org.cef" level="WARN"/>
+    <logger name="dev.datlag.kcef" level="WARN"/>
+    <logger name="eu.kanade.tachiyomi.network.interceptor.CloudflareInterceptor" level="WARN"/>
+    <logger name="mangarr.tachibridge.loader.BytecodeEditor" level="WARN"/>
+    <logger name="mangarr.tachibridge.loader.ExtensionLoader" level="WARN"/>
+    <logger name="mangarr.tachibridge.config.ConfigManager" level="WARN"/>
+    <logger name="mangarr.tachibridge.runtime.BridgeCommandRunner" level="INFO"/>
 
-    <root level="DEBUG">
+    <root level="INFO">
         <appender-ref ref="STDOUT" />
     </root>
 </configuration>

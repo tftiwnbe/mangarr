@@ -1,6 +1,5 @@
 package mangarr.tachibridge.runtime
 
-import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -19,8 +18,13 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import mangarr.tachibridge.config.ConfigManager
+import mangarr.tachibridge.logging.EventLogger
+import mangarr.tachibridge.logging.LogContext
 
-private val logger = KotlinLogging.logger {}
+private val events = EventLogger.named(
+    "mangarr.tachibridge.runtime.BridgeCommandRunner",
+    "component" to "bridge_command_runner",
+)
 
 @Serializable
 data class CommandRunnerSnapshot(
@@ -103,72 +107,106 @@ class BridgeCommandRunner(
                     ),
                 )
 
+            if (leased.isNotEmpty()) {
+                events.debug(
+                    "bridge.commands.leased",
+                    "Leased bridge commands",
+                    "bridgeId" to bridgeId,
+                    "count" to leased.size,
+                )
+            }
+
             for (command in leased) {
                 handleCommand(client, command)
             }
 
             snapshot = snapshot.copy(lastSuccessAt = now, lastError = null)
         } catch (error: Exception) {
-            logger.error(error) { "Bridge command poll failed" }
+            events.error(
+                "bridge.commands.poll_failed",
+                "Bridge command poll failed",
+                error,
+                "bridgeId" to bridgeId,
+            )
             snapshot = snapshot.copy(lastError = error.message ?: "Unknown command error")
         }
     }
 
     private fun handleCommand(client: ConvexBridgeClient, command: LeaseCommand) {
-        val now = System.currentTimeMillis()
-        client.markCommandRunning(
-            client.payload(
-                buildJsonObject {
-                    put("commandId", command.id)
-                    put("bridgeId", bridgeId)
-                    put("now", now)
-                    put("leaseDurationMs", leaseDurationMs)
-                },
-            ),
-        )
+        val startedAt = System.currentTimeMillis()
+        commandContext(command).use {
+            events.debug(
+                "bridge.command.started",
+                "Starting bridge command",
+                "attempt" to command.attemptCount.toInt() + 1,
+                "maxAttempts" to command.maxAttempts.toInt(),
+            )
 
-        try {
-            client.renewCommandLease(
+            client.markCommandRunning(
                 client.payload(
                     buildJsonObject {
                         put("commandId", command.id)
                         put("bridgeId", bridgeId)
-                        put("now", System.currentTimeMillis())
+                        put("now", startedAt)
                         put("leaseDurationMs", leaseDurationMs)
                     },
                 ),
             )
 
-            val result = executeCommand(client, command)
-            client.completeCommand(
-                client.payload(
-                    buildJsonObject {
-                        put("commandId", command.id)
-                        put("bridgeId", bridgeId)
-                        put("now", System.currentTimeMillis())
-                        put("result", result)
-                    },
-                ),
-            )
-        } catch (error: Exception) {
-            logger.error(error) { "Bridge command execution failed for ${command.commandType}" }
-            val retryDelayMs =
-                if (command.commandType == "downloads.chapter") {
-                    ConfigManager.config.downloads.failedRetryDelaySeconds * 1000L
-                } else {
-                    5_000L
-                }
-            client.failCommand(
-                client.payload(
-                    buildJsonObject {
-                        put("commandId", command.id)
-                        put("bridgeId", bridgeId)
-                        put("now", System.currentTimeMillis())
-                        put("message", error.message ?: "Unhandled bridge command error")
-                        put("retryDelayMs", retryDelayMs)
-                    },
-                ),
-            )
+            try {
+                client.renewCommandLease(
+                    client.payload(
+                        buildJsonObject {
+                            put("commandId", command.id)
+                            put("bridgeId", bridgeId)
+                            put("now", System.currentTimeMillis())
+                            put("leaseDurationMs", leaseDurationMs)
+                        },
+                    ),
+                )
+
+                val result = executeCommand(client, command)
+                client.completeCommand(
+                    client.payload(
+                        buildJsonObject {
+                            put("commandId", command.id)
+                            put("bridgeId", bridgeId)
+                            put("now", System.currentTimeMillis())
+                            put("result", result)
+                        },
+                    ),
+                )
+                events.debug(
+                    "bridge.command.completed",
+                    "Completed bridge command",
+                    "durationMs" to (System.currentTimeMillis() - startedAt),
+                )
+            } catch (error: Exception) {
+                val retryDelayMs =
+                    if (command.commandType == "downloads.chapter") {
+                        ConfigManager.config.downloads.failedRetryDelaySeconds * 1000L
+                    } else {
+                        5_000L
+                    }
+                events.error(
+                    "bridge.command.failed",
+                    "Bridge command execution failed",
+                    error,
+                    "durationMs" to (System.currentTimeMillis() - startedAt),
+                    "retryDelayMs" to retryDelayMs,
+                )
+                client.failCommand(
+                    client.payload(
+                        buildJsonObject {
+                            put("commandId", command.id)
+                            put("bridgeId", bridgeId)
+                            put("now", System.currentTimeMillis())
+                            put("message", error.message ?: "Unhandled bridge command error")
+                            put("retryDelayMs", retryDelayMs)
+                        },
+                    ),
+                )
+            }
         }
     }
 
@@ -227,6 +265,7 @@ class BridgeCommandRunner(
                                                 put("name", source.name)
                                                 put("lang", source.lang)
                                                 put("supportsLatest", source.supportsLatest)
+                                                put("enabled", source.enabled)
                                             },
                                         )
                                     }
@@ -258,6 +297,7 @@ class BridgeCommandRunner(
                                         put("name", source.name)
                                         put("lang", source.lang)
                                         put("supportsLatest", source.supportsLatest)
+                                        put("enabled", source.enabled)
                                     },
                                 )
                             }
@@ -291,6 +331,7 @@ class BridgeCommandRunner(
                                                 put("name", source.name)
                                                 put("lang", source.lang)
                                                 put("supportsLatest", source.supportsLatest)
+                                                put("enabled", source.enabled)
                                             },
                                         )
                                     }
@@ -423,7 +464,12 @@ class BridgeCommandRunner(
                     runCatching {
                         service.cacheCover(clientResult.titleId, resolved.optionalString("coverUrl"))
                     }.onFailure { error ->
-                        logger.warn(error) { "Failed to cache cover for imported title ${clientResult.titleId}" }
+                        events.error(
+                            "bridge.library.cover_cache_failed",
+                            "Failed to cache cover for imported title",
+                            error,
+                            "titleId" to clientResult.titleId,
+                        )
                     }.getOrNull()
 
                 if (!coverPath.isNullOrBlank()) {
@@ -584,4 +630,20 @@ class BridgeCommandRunner(
     private fun JsonObject.requiredLong(key: String): Long =
         this[key]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
             ?: throw IllegalArgumentException("Missing $key")
+
+    private fun commandContext(command: LeaseCommand): LogContext {
+        val payload = command.payload.jsonObject
+        return LogContext.of(
+            "bridgeId" to bridgeId,
+            "commandId" to command.id,
+            "commandType" to command.commandType,
+            "requestedByUserId" to command.requestedByUserId,
+            "sourceId" to payload.optionalString("sourceId"),
+            "titleId" to payload.optionalString("titleId"),
+            "titleUrl" to payload.optionalString("titleUrl"),
+            "chapterId" to payload.optionalString("chapterId"),
+            "chapterUrl" to payload.optionalString("chapterUrl"),
+            "pkg" to payload.optionalString("pkg"),
+        )
+    }
 }

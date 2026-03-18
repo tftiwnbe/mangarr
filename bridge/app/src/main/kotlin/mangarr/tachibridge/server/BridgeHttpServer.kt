@@ -352,6 +352,43 @@ class BridgeHttpServer(
             }
         }
 
+        server.createContext("/extensions/source-enabled") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+            if (exchange.requestMethod.uppercase() != "PUT") {
+                sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+                return@createContext
+            }
+
+            val payload = readJsonBody(exchange)
+            val pkg = payload.optionalString("pkg")
+            val sourceId = payload.optionalString("sourceId")
+            val enabled = payload.optionalBoolean("enabled")
+            if (pkg.isNullOrBlank() || sourceId.isNullOrBlank() || enabled == null) {
+                sendJson(exchange, 400, buildJsonObject { put("message", "Missing pkg, sourceId, or enabled") })
+                return@createContext
+            }
+
+            try {
+                val result = kotlinx.coroutines.runBlocking { bridgeService.setSourceEnabled(sourceId, enabled) }
+                bridgeClient?.setInstalledExtensionSourceEnabled(
+                    bridgeClient.payload(
+                        buildJsonObject {
+                            put("pkg", pkg)
+                            put("sourceId", sourceId)
+                            put("enabled", enabled)
+                            put("now", System.currentTimeMillis())
+                        },
+                    ),
+                )
+                sendJson(exchange, 200, result)
+            } catch (error: Exception) {
+                logger.warn(error) { "Failed to toggle source $sourceId for $pkg" }
+                sendJson(exchange, 502, buildJsonObject { put("message", "Unable to update source state") })
+            }
+        }
+
         server.createContext("/downloads/reconcile") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
@@ -465,7 +502,6 @@ class BridgeHttpServer(
         }
 
         server.start()
-        logger.info { "Bridge HTTP server started on $host:$port" }
     }
 
     fun stop() {
