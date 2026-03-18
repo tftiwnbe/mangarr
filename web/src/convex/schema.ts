@@ -108,6 +108,9 @@ export default defineSchema({
 		coverUrl: v.optional(v.string()),
 		genre: v.optional(v.string()),
 		status: v.optional(v.float64()),
+		preferredVariantId: v.optional(v.id('titleVariants')),
+		userStatusId: v.optional(v.id('libraryUserStatuses')),
+		userRating: v.optional(v.float64()),
 		localCoverPath: v.optional(v.string()),
 		createdAt: v.float64(),
 		updatedAt: v.float64(),
@@ -138,9 +141,43 @@ export default defineSchema({
 		updatedAt: v.float64()
 	}).index('by_owner_user_id', ['ownerUserId']),
 
+	titleVariants: defineTable({
+		ownerUserId: v.id('users'),
+		libraryTitleId: v.id('libraryTitles'),
+		sourceId: v.string(),
+		sourcePkg: v.string(),
+		sourceLang: v.string(),
+		titleUrl: v.string(),
+		title: v.string(),
+		author: v.optional(v.string()),
+		artist: v.optional(v.string()),
+		description: v.optional(v.string()),
+		coverUrl: v.optional(v.string()),
+		genre: v.optional(v.string()),
+		status: v.optional(v.float64()),
+		isPreferred: v.boolean(),
+		createdAt: v.float64(),
+		updatedAt: v.float64(),
+		lastSyncedAt: v.optional(v.float64())
+	})
+		.index('by_owner_user_id_library_title_id', ['ownerUserId', 'libraryTitleId'])
+		.index('by_owner_user_id_source_id_title_url', ['ownerUserId', 'sourceId', 'titleUrl'])
+		.index('by_library_title_id_source_id_title_url', ['libraryTitleId', 'sourceId', 'titleUrl']),
+
+	libraryCollectionTitles: defineTable({
+		ownerUserId: v.id('users'),
+		libraryTitleId: v.id('libraryTitles'),
+		collectionId: v.id('libraryCollections'),
+		createdAt: v.float64()
+	})
+		.index('by_owner_user_id', ['ownerUserId'])
+		.index('by_owner_user_id_library_title_id', ['ownerUserId', 'libraryTitleId'])
+		.index('by_owner_user_id_collection_id', ['ownerUserId', 'collectionId']),
+
 	libraryChapters: defineTable({
 		ownerUserId: v.id('users'),
 		libraryTitleId: v.id('libraryTitles'),
+		titleVariantId: v.optional(v.id('titleVariants')),
 		sourceId: v.string(),
 		sourcePkg: v.string(),
 		sourceLang: v.string(),

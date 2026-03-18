@@ -31,7 +31,7 @@
 	};
 
 	type RawUserStatus = {
-		id: number;
+		id: string;
 		label: string;
 	};
 
@@ -93,17 +93,6 @@
 
 	type SortMode = 'updated' | 'added' | 'reading' | 'alpha' | 'status';
 
-	const DEFAULT_USER_STATUS: RawUserStatus = {
-		id: 1,
-		label: 'Reading'
-	};
-
-	const DEFAULT_COLLECTIONS: LibraryCollectionResource[] = [
-		{ id: 'favorites', name: 'Favorites' },
-		{ id: 'queue', name: 'Queue' },
-		{ id: 'archive', name: 'Archive' }
-	];
-
 	const client = useConvexClient();
 	const library = useQuery(convexApi.library.listMine, () => ({}));
 	const commands = useQuery(convexApi.commands.listMine, () => ({ limit: 150 }));
@@ -113,7 +102,7 @@
 	let filterPanelOpen = $state(false);
 	let sortMode = $state<SortMode>('updated');
 	let sortDesc = $state(true);
-	let activeReadingStatusIds = $state<number[]>([]);
+	let activeReadingStatusIds = $state<string[]>([]);
 	let activeSourceStatusKeys = $state<string[]>([]);
 	let activeGenres = $state<string[]>([]);
 	let requestedMetadataKeys = $state<string[]>([]);
@@ -181,12 +170,11 @@
 				}
 			}
 		}
-		const computed = [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
-		return computed.length > 0 || titles.length === 0 ? computed : DEFAULT_COLLECTIONS;
+		return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
 	});
 
 	const allUserStatuses = $derived.by(() => {
-		const seen = new SvelteMap<number, RawUserStatus>();
+		const seen = new SvelteMap<string, RawUserStatus>();
 		for (const title of titles) {
 			if (title.user_status && !seen.has(title.user_status.id)) {
 				seen.set(title.user_status.id, title.user_status);
@@ -308,7 +296,7 @@
 			updated_at: title.updatedAt,
 			added_at: title.createdAt,
 			last_read_at: title.lastReadAt ?? null,
-			user_status: title.user_status ?? title.userStatus ?? DEFAULT_USER_STATUS,
+			user_status: title.user_status ?? title.userStatus ?? null,
 			status: metadata?.status ?? title.status ?? 0,
 			genre: metadata?.genre ?? title.genre ?? null,
 			collections:
@@ -354,7 +342,7 @@
 		).length;
 	}
 
-	function toggleReadingStatus(id: number) {
+	function toggleReadingStatus(id: string) {
 		activeReadingStatusIds = activeReadingStatusIds.includes(id)
 			? activeReadingStatusIds.filter((value) => value !== id)
 			: [...activeReadingStatusIds, id];

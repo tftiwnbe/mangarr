@@ -372,6 +372,8 @@ class BridgeCommandRunner(
                     client.payload(
                         buildJsonObject {
                             put("titleId", titleId)
+                            put("sourceId", sourceId)
+                            put("titleUrl", titleUrl)
                             put("chapters", chapters["chapters"] ?: error("Missing chapters payload"))
                             put("now", System.currentTimeMillis())
                         },
@@ -441,6 +443,8 @@ class BridgeCommandRunner(
                     client.payload(
                         buildJsonObject {
                             put("titleId", clientResult.titleId)
+                            put("sourceId", sourceId)
+                            put("titleUrl", titleUrl)
                             put("chapters", chapters["chapters"] ?: error("Missing chapters payload"))
                             put("now", System.currentTimeMillis())
                         },

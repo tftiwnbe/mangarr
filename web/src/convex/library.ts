@@ -34,10 +34,17 @@ export const listMine = query({
 			return [];
 		}
 		const userId = identity.subject as GenericId<'users'>;
-		const titles = await ctx.db
-			.query('libraryTitles')
-			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
-			.collect();
+		const [titles, statusById, collectionById, collectionIdsByTitleId, variantCountsByTitleId] =
+			await Promise.all([
+			ctx.db
+				.query('libraryTitles')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+				.collect(),
+			loadOwnerUserStatusMap(ctx, userId),
+			loadOwnerCollectionMap(ctx, userId),
+			loadOwnerCollectionIdsByTitleId(ctx, userId),
+			loadOwnerVariantCountsByTitleId(ctx, userId)
+		]);
 
 		const enriched = await Promise.all(
 			titles.map(async (title) => {
@@ -67,8 +74,17 @@ export const listMine = query({
 					}
 				}
 
+				const collectionIds = collectionIdsByTitleId.get(String(title._id)) ?? [];
+
 				return {
 					...title,
+					userStatus: title.userStatusId ? statusById.get(String(title.userStatusId)) ?? null : null,
+					userRating: title.userRating ?? null,
+					collections: collectionIds
+						.map((collectionId) => collectionById.get(String(collectionId)) ?? null)
+						.filter((collection): collection is NonNullable<typeof collection> => collection !== null)
+						.sort((left, right) => left.position - right.position),
+					variantsCount: variantCountsByTitleId.get(String(title._id)) ?? 0,
 					chapterStats: {
 						total: chapters.length,
 						queued,
@@ -105,10 +121,15 @@ export const getMineById = query({
 	},
 	handler: async (ctx, args) => {
 		const title = await requireOwnedTitle(ctx, args.titleId);
-		const chapters = await ctx.db
-			.query('libraryChapters')
-			.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
-			.collect();
+		const [chapters, userStatus, collections, variants] = await Promise.all([
+			ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+				.collect(),
+			resolveOwnedTitleUserStatus(ctx, title),
+			listCollectionsForTitle(ctx, title),
+			listVariantsForTitle(ctx, title)
+		]);
 
 		let queued = 0;
 		let downloading = 0;
@@ -156,6 +177,11 @@ export const getMineById = query({
 
 		return {
 			...title,
+			userStatus,
+			userRating: title.userRating ?? null,
+			collections,
+			preferredVariantId: title.preferredVariantId ?? null,
+			variants,
 			chapterStats: {
 				total: chapters.length,
 				queued,
@@ -240,24 +266,25 @@ export const findMineBySource = query({
 			return null;
 		}
 
-		const rows = await ctx.db
-			.query('libraryTitles')
-			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
-			.collect();
-
-		const match =
-			rows.find((row) => row.sourceId === sourceId && row.titleUrl === titleUrl) ??
-			rows.find((row) => row.canonicalKey === args.canonicalKey);
-
-		if (!match) {
+		const variant = await ctx.db
+			.query('titleVariants')
+			.withIndex('by_owner_user_id_source_id_title_url', (q) =>
+				q.eq('ownerUserId', ownerUserId).eq('sourceId', sourceId).eq('titleUrl', titleUrl)
+			)
+			.unique();
+		if (!variant) {
+			return null;
+		}
+		const match = await ctx.db.get(variant.libraryTitleId);
+		if (!match || match.ownerUserId !== ownerUserId) {
 			return null;
 		}
 
 		return {
 			_id: match._id,
 			title: match.title,
-			sourceId: match.sourceId,
-			titleUrl: match.titleUrl
+			sourceId: variant.sourceId,
+			titleUrl: variant.titleUrl
 		};
 	}
 });
@@ -329,18 +356,18 @@ export const upsertChapterProgress = mutation({
 	handler: async (ctx, args) => {
 		const chapter = await requireOwnedChapter(ctx, args.chapterId);
 		const now = Date.now();
-	const existing = await getOwnedChapterProgressRow(ctx, chapter._id);
-	if (existing) {
-		await ctx.db.patch(existing._id, {
-			pageIndex: args.pageIndex,
-			updatedAt: now
-		});
-		await ctx.db.patch(chapter.libraryTitleId, {
-			lastReadAt: now,
-			updatedAt: now
-		});
-		return { ok: true, progressId: existing._id };
-	}
+		const existing = await getOwnedChapterProgressRow(ctx, chapter._id);
+		if (existing) {
+			await ctx.db.patch(existing._id, {
+				pageIndex: args.pageIndex,
+				updatedAt: now
+			});
+			await ctx.db.patch(chapter.libraryTitleId, {
+				lastReadAt: now,
+				updatedAt: now
+			});
+			return { ok: true, progressId: existing._id };
+		}
 
 		const progressId = await ctx.db.insert('chapterProgress', {
 			ownerUserId: chapter.ownerUserId,
@@ -348,8 +375,8 @@ export const upsertChapterProgress = mutation({
 			chapterId: chapter._id,
 			pageIndex: args.pageIndex,
 			createdAt: now,
-		updatedAt: now
-	});
+			updatedAt: now
+		});
 
 		await ctx.db.patch(chapter.libraryTitleId, {
 			lastReadAt: now,
@@ -860,6 +887,22 @@ export const deleteUserStatus = mutation({
 		if (status.isDefault) {
 			throw new Error('Default statuses cannot be deleted');
 		}
+
+		const titles = await ctx.db
+			.query('libraryTitles')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', status.ownerUserId))
+			.collect();
+		const now = Date.now();
+		for (const title of titles) {
+			if (title.userStatusId !== status._id) {
+				continue;
+			}
+			await ctx.db.patch(title._id, {
+				userStatusId: undefined,
+				updatedAt: now
+			});
+		}
+
 		await ctx.db.delete(status._id);
 		return { deleted: true };
 	}
@@ -869,10 +912,21 @@ export const listCollections = query({
 	args: {},
 	handler: async (ctx) => {
 		const userId = await requireViewerUserId(ctx);
-		const rows = await ctx.db
-			.query('libraryCollections')
-			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
-			.collect();
+		const [rows, collectionTitleRows] = await Promise.all([
+			ctx.db
+				.query('libraryCollections')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+				.collect(),
+			ctx.db
+				.query('libraryCollectionTitles')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+				.collect()
+		]);
+		const titlesCountByCollectionId = new Map<string, number>();
+		for (const row of collectionTitleRows) {
+			const key = String(row.collectionId);
+			titlesCountByCollectionId.set(key, (titlesCountByCollectionId.get(key) ?? 0) + 1);
+		}
 
 		return rows
 			.sort((left, right) => left.position - right.position)
@@ -881,7 +935,7 @@ export const listCollections = query({
 				name: row.name,
 				position: row.position,
 				isDefault: row.isDefault,
-				titlesCount: 0
+				titlesCount: titlesCountByCollectionId.get(String(row._id)) ?? 0
 			}));
 	}
 });
@@ -975,7 +1029,7 @@ export const updateCollection = mutation({
 			name: updated.name,
 			position: updated.position,
 			isDefault: updated.isDefault,
-			titlesCount: 0
+			titlesCount: await countTitlesInCollection(ctx, updated.ownerUserId, updated._id)
 		};
 	}
 });
@@ -989,8 +1043,106 @@ export const deleteCollection = mutation({
 		if (collection.isDefault) {
 			throw new Error('Default collections cannot be deleted');
 		}
+
+		const collectionTitles = await ctx.db
+			.query('libraryCollectionTitles')
+			.withIndex('by_owner_user_id_collection_id', (q) =>
+				q.eq('ownerUserId', collection.ownerUserId).eq('collectionId', collection._id)
+			)
+			.collect();
+		for (const row of collectionTitles) {
+			await ctx.db.delete(row._id);
+		}
+
 		await ctx.db.delete(collection._id);
 		return { deleted: true };
+	}
+});
+
+export const updateTitlePreferences = mutation({
+	args: {
+		titleId: v.id('libraryTitles'),
+		userStatusId: v.optional(v.union(v.id('libraryUserStatuses'), v.null())),
+		userRating: v.optional(v.union(v.float64(), v.null())),
+		collectionIds: v.optional(v.array(v.id('libraryCollections')))
+	},
+	handler: async (ctx, args) => {
+		const title = await requireOwnedTitle(ctx, args.titleId);
+		const now = Date.now();
+		const patch: {
+			userStatusId?: GenericId<'libraryUserStatuses'> | undefined;
+			userRating?: number | undefined;
+			updatedAt?: number;
+		} = {};
+
+		if (args.userStatusId !== undefined) {
+			if (args.userStatusId === null) {
+				patch.userStatusId = undefined;
+			} else {
+				const status = await requireOwnedUserStatus(ctx, args.userStatusId);
+				patch.userStatusId = status._id;
+			}
+		}
+
+		if (args.userRating !== undefined) {
+			if (args.userRating === null) {
+				patch.userRating = undefined;
+			} else {
+				const normalized = Math.max(0, Math.min(5, args.userRating));
+				patch.userRating = normalized;
+			}
+		}
+
+		if (Object.keys(patch).length > 0) {
+			patch.updatedAt = now;
+			await ctx.db.patch(title._id, patch);
+		}
+
+		if (args.collectionIds !== undefined) {
+			const nextCollectionIds = [...new Set(args.collectionIds.map((collectionId) => String(collectionId)))];
+			const ownedCollections = new Map<string, GenericId<'libraryCollections'>>();
+			for (const rawCollectionId of nextCollectionIds) {
+				const collection = await requireOwnedCollection(
+					ctx,
+					rawCollectionId as GenericId<'libraryCollections'>
+				);
+				ownedCollections.set(rawCollectionId, collection._id);
+			}
+
+			const existingRows = await ctx.db
+				.query('libraryCollectionTitles')
+				.withIndex('by_owner_user_id_library_title_id', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.collect();
+			const existingByCollectionId = new Map(
+				existingRows.map((row) => [String(row.collectionId), row] as const)
+			);
+
+			for (const row of existingRows) {
+				if (!ownedCollections.has(String(row.collectionId))) {
+					await ctx.db.delete(row._id);
+				}
+			}
+
+			for (const [collectionId, ownedCollectionId] of ownedCollections) {
+				if (existingByCollectionId.has(collectionId)) {
+					continue;
+				}
+				await ctx.db.insert('libraryCollectionTitles', {
+					ownerUserId: title.ownerUserId,
+					libraryTitleId: title._id,
+					collectionId: ownedCollectionId,
+					createdAt: now
+				});
+			}
+
+			await ctx.db.patch(title._id, {
+				updatedAt: now
+			});
+		}
+
+		return { ok: true };
 	}
 });
 
@@ -1038,9 +1190,13 @@ export const requestChapterSync = mutation({
 	},
 	handler: async (ctx, args) => {
 		const title = await requireOwnedTitle(ctx, args.titleId);
+		const preferredVariant = await getPreferredVariantForTitle(ctx, title);
 		const identity = await ctx.auth.getUserIdentity();
 		if (!identity) {
 			throw new Error('Not authenticated');
+		}
+		if (!preferredVariant) {
+			throw new Error('Library title has no linked source variant');
 		}
 		const now = Date.now();
 		const commandId = await ctx.db.insert('commands', {
@@ -1049,8 +1205,8 @@ export const requestChapterSync = mutation({
 			requestedByUserId: identity.subject as GenericId<'users'>,
 			payload: {
 				titleId: title._id,
-				sourceId: title.sourceId,
-				titleUrl: title.titleUrl
+				sourceId: preferredVariant.sourceId,
+				titleUrl: preferredVariant.titleUrl
 			},
 			idempotencyKey: `library.chapters.sync:${String(title._id)}:${now}`,
 			status: 'queued',
@@ -1348,6 +1504,8 @@ export const requestMissingDownloads = mutation({
 export const upsertChaptersForTitle = mutation({
 	args: {
 		titleId: v.id('libraryTitles'),
+		sourceId: v.string(),
+		titleUrl: v.string(),
 		chapters: v.array(
 			v.object({
 				url: v.string(),
@@ -1365,21 +1523,30 @@ export const upsertChaptersForTitle = mutation({
 		if (!title) {
 			throw new Error('Library title not found');
 		}
+		const variant = await findVariantForTitle(ctx, title._id, args.sourceId, args.titleUrl);
+		if (!variant) {
+			throw new Error('Title variant not found for chapter sync');
+		}
 
 		const existing = await ctx.db
 			.query('libraryChapters')
 			.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', args.titleId))
 			.collect();
-		const byUrl = new Map(existing.map((chapter) => [chapter.chapterUrl, chapter]));
+		const byUrl = new Map(
+			existing
+				.filter((chapter) => chapter.titleVariantId === variant._id)
+				.map((chapter) => [chapter.chapterUrl, chapter])
+		);
 
 		for (const [index, chapter] of args.chapters.entries()) {
 			const current = byUrl.get(chapter.url);
 			if (current) {
 				await ctx.db.patch(current._id, {
-					sourceId: title.sourceId,
-					sourcePkg: title.sourcePkg,
-					sourceLang: title.sourceLang,
-					titleUrl: title.titleUrl,
+					titleVariantId: variant._id,
+					sourceId: variant.sourceId,
+					sourcePkg: variant.sourcePkg,
+					sourceLang: variant.sourceLang,
+					titleUrl: variant.titleUrl,
 					chapterName: chapter.name,
 					chapterNumber: chapter.chapterNumber,
 					scanlator: chapter.scanlator,
@@ -1393,10 +1560,11 @@ export const upsertChaptersForTitle = mutation({
 			await ctx.db.insert('libraryChapters', {
 				ownerUserId: title.ownerUserId,
 				libraryTitleId: title._id,
-				sourceId: title.sourceId,
-				sourcePkg: title.sourcePkg,
-				sourceLang: title.sourceLang,
-				titleUrl: title.titleUrl,
+				titleVariantId: variant._id,
+				sourceId: variant.sourceId,
+				sourcePkg: variant.sourcePkg,
+				sourceLang: variant.sourceLang,
+				titleUrl: variant.titleUrl,
 				chapterUrl: chapter.url,
 				chapterName: chapter.name,
 				chapterNumber: chapter.chapterNumber,
@@ -1507,6 +1675,57 @@ async function importForUserCore(
 		now: number;
 	}
 ) {
+	const existingVariant = await ctx.db
+		.query('titleVariants')
+		.withIndex('by_owner_user_id_source_id_title_url', (q) =>
+			q.eq('ownerUserId', args.userId).eq('sourceId', args.sourceId).eq('titleUrl', args.titleUrl)
+		)
+		.unique();
+	if (existingVariant) {
+		const existingTitle = await ctx.db.get(existingVariant.libraryTitleId);
+		if (!existingTitle || existingTitle.ownerUserId !== args.userId) {
+			throw new Error('Linked library title not found for existing variant');
+		}
+
+		await ctx.db.patch(existingVariant._id, {
+			sourcePkg: args.sourcePkg,
+			sourceLang: args.sourceLang,
+			title: args.title,
+			author: args.author,
+			artist: args.artist,
+			description: args.description,
+			coverUrl: args.coverUrl,
+			genre: args.genre,
+			status: args.status,
+			updatedAt: args.now,
+			lastSyncedAt: args.now
+		});
+
+		const shouldRefreshTitleSnapshot =
+			existingTitle.preferredVariantId === existingVariant._id ||
+			(existingTitle.sourceId === existingVariant.sourceId &&
+				existingTitle.titleUrl === existingVariant.titleUrl);
+		if (shouldRefreshTitleSnapshot) {
+			await applyVariantSnapshotToTitle(ctx, existingTitle._id, {
+				sourceId: args.sourceId,
+				sourcePkg: args.sourcePkg,
+				sourceLang: args.sourceLang,
+				titleUrl: args.titleUrl,
+				title: args.title,
+				author: args.author,
+				artist: args.artist,
+				description: args.description,
+				coverUrl: args.coverUrl,
+				genre: args.genre,
+				status: args.status,
+				preferredVariantId: existingVariant._id,
+				now: args.now
+			});
+		}
+
+		return { created: false, titleId: existingTitle._id };
+	}
+
 	const existing = await ctx.db
 		.query('libraryTitles')
 		.withIndex('by_owner_user_id_canonical_key', (q) =>
@@ -1515,20 +1734,46 @@ async function importForUserCore(
 		.unique();
 
 	if (existing) {
-		await ctx.db.patch(existing._id, {
-			title: args.title,
+		const variantId = await ctx.db.insert('titleVariants', {
+			ownerUserId: args.userId,
+			libraryTitleId: existing._id,
+			sourceId: args.sourceId,
 			sourcePkg: args.sourcePkg,
 			sourceLang: args.sourceLang,
-			sourceId: args.sourceId,
 			titleUrl: args.titleUrl,
+			title: args.title,
 			author: args.author,
 			artist: args.artist,
 			description: args.description,
 			coverUrl: args.coverUrl,
 			genre: args.genre,
 			status: args.status,
-			updatedAt: args.now
+			isPreferred: existing.preferredVariantId === undefined,
+			createdAt: args.now,
+			updatedAt: args.now,
+			lastSyncedAt: args.now
 		});
+		if (!existing.preferredVariantId) {
+			await applyVariantSnapshotToTitle(ctx, existing._id, {
+				sourceId: args.sourceId,
+				sourcePkg: args.sourcePkg,
+				sourceLang: args.sourceLang,
+				titleUrl: args.titleUrl,
+				title: args.title,
+				author: args.author,
+				artist: args.artist,
+				description: args.description,
+				coverUrl: args.coverUrl,
+				genre: args.genre,
+				status: args.status,
+				preferredVariantId: variantId,
+				now: args.now
+			});
+		} else {
+			await ctx.db.patch(existing._id, {
+				updatedAt: args.now
+			});
+		}
 		return { created: false, titleId: existing._id };
 	}
 
@@ -1546,8 +1791,31 @@ async function importForUserCore(
 		coverUrl: args.coverUrl,
 		genre: args.genre,
 		status: args.status,
+		preferredVariantId: undefined,
 		createdAt: args.now,
 		updatedAt: args.now
+	});
+	const variantId = await ctx.db.insert('titleVariants', {
+		ownerUserId: args.userId,
+		libraryTitleId: titleId,
+		sourceId: args.sourceId,
+		sourcePkg: args.sourcePkg,
+		sourceLang: args.sourceLang,
+		titleUrl: args.titleUrl,
+		title: args.title,
+		author: args.author,
+		artist: args.artist,
+		description: args.description,
+		coverUrl: args.coverUrl,
+		genre: args.genre,
+		status: args.status,
+		isPreferred: true,
+		createdAt: args.now,
+		updatedAt: args.now,
+		lastSyncedAt: args.now
+	});
+	await ctx.db.patch(titleId, {
+		preferredVariantId: variantId
 	});
 
 	return { created: true, titleId };
@@ -1625,6 +1893,290 @@ async function requireOwnedCollection(
 		throw new Error('Library collection not found');
 	}
 	return collection;
+}
+
+async function getPreferredVariantForTitle(
+	ctx: QueryCtx | MutationCtx,
+	title: {
+		_id: GenericId<'libraryTitles'>;
+		ownerUserId: GenericId<'users'>;
+		preferredVariantId?: GenericId<'titleVariants'>;
+	}
+) {
+	if (title.preferredVariantId) {
+		const preferred = await ctx.db.get(title.preferredVariantId);
+		if (preferred && preferred.ownerUserId === title.ownerUserId && preferred.libraryTitleId === title._id) {
+			return preferred;
+		}
+	}
+
+	const variants = await ctx.db
+		.query('titleVariants')
+		.withIndex('by_owner_user_id_library_title_id', (q) =>
+			q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+		)
+		.collect();
+
+	return (
+		variants.find((variant) => variant.isPreferred) ??
+		variants.sort((left, right) => left.createdAt - right.createdAt)[0] ??
+		null
+	);
+}
+
+async function findVariantForTitle(
+	ctx: QueryCtx | MutationCtx,
+	titleId: GenericId<'libraryTitles'>,
+	sourceId: string,
+	titleUrl: string
+) {
+	return ctx.db
+		.query('titleVariants')
+		.withIndex('by_library_title_id_source_id_title_url', (q) =>
+			q.eq('libraryTitleId', titleId).eq('sourceId', sourceId).eq('titleUrl', titleUrl)
+		)
+		.unique();
+}
+
+async function listVariantsForTitle(
+	ctx: QueryCtx | MutationCtx,
+	title: {
+		_id: GenericId<'libraryTitles'>;
+		ownerUserId: GenericId<'users'>;
+		preferredVariantId?: GenericId<'titleVariants'>;
+		sourceId: string;
+		sourcePkg: string;
+		sourceLang: string;
+		titleUrl: string;
+		title: string;
+		author?: string;
+		artist?: string;
+		description?: string;
+		coverUrl?: string;
+		genre?: string;
+		status?: number;
+	}
+) {
+	const variants = await ctx.db
+		.query('titleVariants')
+		.withIndex('by_owner_user_id_library_title_id', (q) =>
+			q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+		)
+		.collect();
+
+	return variants
+		.map((variant) => ({
+			id: variant._id,
+			sourceId: variant.sourceId,
+			sourcePkg: variant.sourcePkg,
+			sourceLang: variant.sourceLang,
+			titleUrl: variant.titleUrl,
+			title: variant.title,
+			author: variant.author ?? null,
+			artist: variant.artist ?? null,
+			description: variant.description ?? null,
+			coverUrl: variant.coverUrl ?? null,
+			genre: variant.genre ?? null,
+			status: variant.status ?? null,
+			isPreferred: title.preferredVariantId
+				? variant._id === title.preferredVariantId
+				: variant.isPreferred,
+			lastSyncedAt: variant.lastSyncedAt ?? null
+		}))
+		.sort((left, right) => {
+			if (left.isPreferred !== right.isPreferred) {
+				return left.isPreferred ? -1 : 1;
+			}
+			return left.title.localeCompare(right.title);
+		});
+}
+
+async function resolveOwnedTitleUserStatus(
+	ctx: QueryCtx | MutationCtx,
+	title: {
+		ownerUserId: GenericId<'users'>;
+		userStatusId?: GenericId<'libraryUserStatuses'>;
+	}
+) {
+	if (!title.userStatusId) {
+		return null;
+	}
+
+	const status = await ctx.db.get(title.userStatusId);
+	if (!status || status.ownerUserId !== title.ownerUserId) {
+		return null;
+	}
+
+	return {
+		id: status._id,
+		key: status.key,
+		label: status.label,
+		position: status.position,
+		isDefault: status.isDefault
+	};
+}
+
+async function listCollectionsForTitle(
+	ctx: QueryCtx | MutationCtx,
+	title: {
+		_id: GenericId<'libraryTitles'>;
+		ownerUserId: GenericId<'users'>;
+	}
+) {
+	const rows = await ctx.db
+		.query('libraryCollectionTitles')
+		.withIndex('by_owner_user_id_library_title_id', (q) =>
+			q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+		)
+		.collect();
+
+	const collections = await Promise.all(
+		rows.map(async (row) => {
+			const collection = await ctx.db.get(row.collectionId);
+			if (!collection || collection.ownerUserId !== title.ownerUserId) {
+				return null;
+			}
+
+			return {
+				id: collection._id,
+				name: collection.name,
+				position: collection.position,
+				isDefault: collection.isDefault
+			};
+		})
+	);
+
+	return collections
+		.filter((collection): collection is NonNullable<typeof collection> => collection !== null)
+		.sort((left, right) => left.position - right.position);
+}
+
+async function loadOwnerUserStatusMap(ctx: QueryCtx | MutationCtx, ownerUserId: GenericId<'users'>) {
+	const statuses = await ctx.db
+		.query('libraryUserStatuses')
+		.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+		.collect();
+
+	return new Map(
+		statuses.map((status) => [
+			String(status._id),
+			{
+				id: status._id,
+				key: status.key,
+				label: status.label,
+				position: status.position,
+				isDefault: status.isDefault
+			}
+		])
+	);
+}
+
+async function loadOwnerCollectionMap(ctx: QueryCtx | MutationCtx, ownerUserId: GenericId<'users'>) {
+	const collections = await ctx.db
+		.query('libraryCollections')
+		.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+		.collect();
+
+	return new Map(
+		collections.map((collection) => [
+			String(collection._id),
+			{
+				id: collection._id,
+				name: collection.name,
+				position: collection.position,
+				isDefault: collection.isDefault
+			}
+		])
+	);
+}
+
+async function loadOwnerCollectionIdsByTitleId(
+	ctx: QueryCtx | MutationCtx,
+	ownerUserId: GenericId<'users'>
+) {
+	const rows = await ctx.db
+		.query('libraryCollectionTitles')
+		.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+		.collect();
+
+	const collectionIdsByTitleId = new Map<string, GenericId<'libraryCollections'>[]>();
+	for (const row of rows) {
+		const key = String(row.libraryTitleId);
+		const next = collectionIdsByTitleId.get(key) ?? [];
+		next.push(row.collectionId);
+		collectionIdsByTitleId.set(key, next);
+	}
+
+	return collectionIdsByTitleId;
+}
+
+async function loadOwnerVariantCountsByTitleId(
+	ctx: QueryCtx | MutationCtx,
+	ownerUserId: GenericId<'users'>
+) {
+	const rows = await ctx.db
+		.query('titleVariants')
+		.withIndex('by_owner_user_id_library_title_id', (q) => q.eq('ownerUserId', ownerUserId))
+		.collect();
+
+	const counts = new Map<string, number>();
+	for (const row of rows) {
+		const key = String(row.libraryTitleId);
+		counts.set(key, (counts.get(key) ?? 0) + 1);
+	}
+
+	return counts;
+}
+
+async function countTitlesInCollection(
+	ctx: QueryCtx | MutationCtx,
+	ownerUserId: GenericId<'users'>,
+	collectionId: GenericId<'libraryCollections'>
+) {
+	const rows = await ctx.db
+		.query('libraryCollectionTitles')
+		.withIndex('by_owner_user_id_collection_id', (q) =>
+			q.eq('ownerUserId', ownerUserId).eq('collectionId', collectionId)
+		)
+		.collect();
+
+	return rows.length;
+}
+
+async function applyVariantSnapshotToTitle(
+	ctx: MutationCtx,
+	titleId: GenericId<'libraryTitles'>,
+	args: {
+		sourceId: string;
+		sourcePkg: string;
+		sourceLang: string;
+		titleUrl: string;
+		title: string;
+		author?: string;
+		artist?: string;
+		description?: string;
+		coverUrl?: string;
+		genre?: string;
+		status?: number;
+		preferredVariantId?: GenericId<'titleVariants'>;
+		now: number;
+	}
+) {
+	await ctx.db.patch(titleId, {
+		title: args.title,
+		sourceId: args.sourceId,
+		sourcePkg: args.sourcePkg,
+		sourceLang: args.sourceLang,
+		titleUrl: args.titleUrl,
+		author: args.author,
+		artist: args.artist,
+		description: args.description,
+		coverUrl: args.coverUrl,
+		genre: args.genre,
+		status: args.status,
+		preferredVariantId: args.preferredVariantId,
+		updatedAt: args.now
+	});
 }
 
 async function requireViewerIdentity(ctx: QueryCtx | MutationCtx) {
