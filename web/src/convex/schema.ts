@@ -7,6 +7,7 @@ export default defineSchema({
 		setupState: v.union(v.literal('open'), v.literal('configured')),
 		schemaVersion: v.string(),
 		extensionRepoUrl: v.optional(v.string()),
+		preferredContentLanguages: v.optional(v.array(v.string())),
 		defaultAdminCreatedAt: v.optional(v.float64()),
 		createdAt: v.float64(),
 		updatedAt: v.float64()
@@ -101,8 +102,12 @@ export default defineSchema({
 		sourceLang: v.string(),
 		sourceId: v.string(),
 		titleUrl: v.string(),
+		author: v.optional(v.string()),
+		artist: v.optional(v.string()),
 		description: v.optional(v.string()),
 		coverUrl: v.optional(v.string()),
+		genre: v.optional(v.string()),
+		status: v.optional(v.float64()),
 		localCoverPath: v.optional(v.string()),
 		createdAt: v.float64(),
 		updatedAt: v.float64(),
@@ -111,6 +116,27 @@ export default defineSchema({
 		.index('by_owner_user_id', ['ownerUserId'])
 		.index('by_owner_user_id_canonical_key', ['ownerUserId', 'canonicalKey'])
 		.index('by_owner_user_id_updated_at', ['ownerUserId', 'updatedAt']),
+
+	libraryUserStatuses: defineTable({
+		ownerUserId: v.id('users'),
+		key: v.string(),
+		label: v.string(),
+		position: v.float64(),
+		isDefault: v.boolean(),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_owner_user_id', ['ownerUserId'])
+		.index('by_owner_user_id_key', ['ownerUserId', 'key']),
+
+	libraryCollections: defineTable({
+		ownerUserId: v.id('users'),
+		name: v.string(),
+		position: v.float64(),
+		isDefault: v.boolean(),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	}).index('by_owner_user_id', ['ownerUserId']),
 
 	libraryChapters: defineTable({
 		ownerUserId: v.id('users'),
@@ -145,6 +171,45 @@ export default defineSchema({
 		.index('by_library_title_id', ['libraryTitleId'])
 		.index('by_owner_user_id_download_status', ['ownerUserId', 'downloadStatus'])
 		.index('by_library_title_id_chapter_url', ['libraryTitleId', 'chapterUrl']),
+
+	downloadProfiles: defineTable({
+		ownerUserId: v.id('users'),
+		libraryTitleId: v.id('libraryTitles'),
+		enabled: v.boolean(),
+		paused: v.boolean(),
+		autoDownload: v.boolean(),
+		lastCheckedAt: v.optional(v.float64()),
+		lastSuccessAt: v.optional(v.float64()),
+		lastError: v.optional(v.string()),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_owner_user_id', ['ownerUserId'])
+		.index('by_owner_user_id_library_title_id', ['ownerUserId', 'libraryTitleId'])
+		.index('by_owner_user_id_enabled_updated_at', ['ownerUserId', 'enabled', 'updatedAt']),
+
+	chapterProgress: defineTable({
+		ownerUserId: v.id('users'),
+		libraryTitleId: v.id('libraryTitles'),
+		chapterId: v.id('libraryChapters'),
+		pageIndex: v.float64(),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_owner_user_id_chapter_id', ['ownerUserId', 'chapterId'])
+		.index('by_owner_user_id_library_title_id_updated_at', ['ownerUserId', 'libraryTitleId', 'updatedAt']),
+
+	chapterComments: defineTable({
+		ownerUserId: v.id('users'),
+		libraryTitleId: v.id('libraryTitles'),
+		chapterId: v.id('libraryChapters'),
+		pageIndex: v.float64(),
+		message: v.string(),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_owner_user_id_chapter_id_updated_at', ['ownerUserId', 'chapterId', 'updatedAt'])
+		.index('by_owner_user_id_library_title_id_updated_at', ['ownerUserId', 'libraryTitleId', 'updatedAt']),
 
 	commands: defineTable({
 		commandType: v.string(),
