@@ -72,6 +72,54 @@ class BridgeService(
         }
     }
 
+    suspend fun listInstalledExtensions(): JsonObject {
+        extensionManager.awaitReady()
+        val repoIndexUrl = repoService.currentRepoIndexUrl()
+        val items =
+            ConfigManager.config.extensions.map { extension ->
+                buildJsonObject {
+                    put("pkg", extension.packageName)
+                    put("name", normalizeExtensionName(extension.name.ifBlank { extension.packageName }))
+                    put("lang", normalizeLangCode(extension.lang))
+                    put("version", extension.version.ifBlank { "unknown" })
+                    put("nsfw", extension.nsfw)
+                    put("use_proxy", extension.useProxy)
+                    iconUrl(repoIndexUrl, extension.packageName)?.let { put("icon", it) }
+                    put(
+                        "sources",
+                        JsonArray(
+                            extension.sources.map { source ->
+                                buildJsonObject {
+                                    put("id", source.id.toString())
+                                    put("name", source.name)
+                                    put("lang", normalizeLangCode(source.lang))
+                                    put("supportsLatest", source.supportsLatest)
+                                }
+                            },
+                        ),
+                    )
+                }
+            }
+
+        return buildJsonObject {
+            put("ok", true)
+            put("items", JsonArray(items))
+        }
+    }
+
+    suspend fun setExtensionProxy(packageName: String, useProxy: Boolean): JsonObject {
+        extensionManager.awaitReady()
+        val installed =
+            ConfigManager.config.findExtension(packageName)
+                ?: error("Installed extension not found in config: $packageName")
+        ConfigManager.setExtensionProxy(packageName, useProxy)
+        return buildJsonObject {
+            put("ok", true)
+            put("pkg", installed.packageName)
+            put("use_proxy", useProxy)
+        }
+    }
+
     suspend fun installExtension(packageName: String): InstalledExtensionPayload {
         extensionManager.awaitReady()
         val extension =
@@ -86,9 +134,12 @@ class BridgeService(
 
         return InstalledExtensionPayload(
             pkg = extension.packageName,
-            name = extension.name.ifBlank { extension.packageName },
-            lang = extension.lang.ifBlank { "all" },
+            name = normalizeExtensionName(extension.name.ifBlank { extension.packageName }),
+            lang = normalizeLangCode(extension.lang),
             version = extension.version.ifBlank { "unknown" },
+            nsfw = extension.nsfw,
+            useProxy = false,
+            icon = iconUrl(repoService.currentRepoIndexUrl(), extension.packageName),
             sources = extension.sources.map { it.toPayload() },
         )
     }
@@ -98,9 +149,12 @@ class BridgeService(
         val extension = extensionManager.update(packageName)
         return InstalledExtensionPayload(
             pkg = extension.packageName,
-            name = extension.name.ifBlank { extension.packageName },
-            lang = extension.lang.ifBlank { "all" },
+            name = normalizeExtensionName(extension.name.ifBlank { extension.packageName }),
+            lang = normalizeLangCode(extension.lang),
             version = extension.version.ifBlank { "unknown" },
+            nsfw = extension.nsfw,
+            useProxy = ConfigManager.config.findExtension(packageName)?.useProxy ?: false,
+            icon = iconUrl(repoService.currentRepoIndexUrl(), extension.packageName),
             sources = extension.sources.map { it.toPayload() },
         )
     }
@@ -495,8 +549,12 @@ class BridgeService(
             put("sourceLang", sourceLang)
             put("titleUrl", title.url)
             put("title", title.title)
+            put("author", title.author)
+            put("artist", title.artist)
             put("description", title.description)
             put("coverUrl", title.thumbnailUrl)
+            put("genre", title.genre)
+            put("status", title.status)
         }
 
     private fun canonicalKey(sourceId: String, titleUrl: String): String {
@@ -516,9 +574,12 @@ class BridgeService(
 
         return InstalledExtensionPayload(
             pkg = installed.packageName,
-            name = installed.name.ifBlank { installed.packageName },
-            lang = installed.lang.ifBlank { "all" },
+            name = normalizeExtensionName(installed.name.ifBlank { installed.packageName }),
+            lang = normalizeLangCode(installed.lang),
             version = installed.version.ifBlank { "unknown" },
+            nsfw = installed.nsfw,
+            useProxy = installed.useProxy,
+            icon = iconUrl(repoService.currentRepoIndexUrl(), installed.packageName),
             sources = sources,
         )
     }
@@ -568,10 +629,11 @@ class BridgeService(
     private fun normalizeRepoEntry(entry: mangarr.tachibridge.repo.ExtensionRepoEntry): JsonObject =
         buildJsonObject {
             put("pkg", entry.pkg)
-            put("name", entry.name)
+            put("name", normalizeExtensionName(entry.name))
             put("version", entry.version)
-            put("lang", entry.lang)
+            put("lang", normalizeLangCode(entry.lang))
             put("nsfw", (entry.nsfw ?: 0) == 1)
+            iconUrl(repoService.currentRepoIndexUrl(), entry.pkg)?.let { put("icon", it) }
             put(
                 "sources",
                 JsonArray(
@@ -579,13 +641,26 @@ class BridgeService(
                         buildJsonObject {
                             put("id", source.id.toString())
                             put("name", source.name)
-                            put("lang", source.lang)
+                            put("lang", normalizeLangCode(source.lang))
                             put("supportsLatest", source.supportsLatest ?: true)
                         }
                     },
                 ),
             )
         }
+
+    private fun normalizeExtensionName(name: String): String = name.removePrefix("Tachiyomi: ").trim()
+
+    private fun normalizeLangCode(lang: String): String {
+        val normalized = lang.trim().ifBlank { "all" }
+        return if (normalized == "all") "multi" else normalized
+    }
+
+    private fun iconUrl(repoIndexUrl: String, pkg: String): String? {
+        val normalizedRepoUrl = repoIndexUrl.trim()
+        if (normalizedRepoUrl.isBlank()) return null
+        return "${normalizedRepoUrl.substringBeforeLast("/")}/icon/$pkg.png"
+    }
 
     private fun normalizeFilter(filter: mangarr.tachibridge.extensions.Filter): JsonObject {
         val parsedData =
@@ -616,6 +691,9 @@ data class InstalledExtensionPayload(
     val name: String,
     val lang: String,
     val version: String,
+    val nsfw: Boolean,
+    val useProxy: Boolean,
+    val icon: String? = null,
     val sources: List<SourcePayload>,
 )
 

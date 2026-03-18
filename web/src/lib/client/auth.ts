@@ -22,7 +22,10 @@ async function parseJson<T>(response: Response): Promise<T> {
 	}
 	const data = (await response.json().catch(() => null)) as { message?: string } | null;
 	if (!response.ok) {
-		throw new ClientError(data?.message || response.statusText || 'Request failed', response.status);
+		throw new ClientError(
+			data?.message || response.statusText || 'Request failed',
+			response.status
+		);
 	}
 	return data as T;
 }
@@ -53,6 +56,16 @@ export async function login(payload: { username: string; password: string; remem
 export async function getMe() {
 	const response = await fetch('/api/auth/me');
 	return parseJson<UserProfile>(response);
+}
+
+export async function getPostLoginRedirect(redirect?: string) {
+	const params = new URLSearchParams();
+	if (redirect) {
+		params.set('redirect', redirect);
+	}
+	const query = params.toString();
+	const response = await fetch(`/api/auth/post-login-redirect${query ? `?${query}` : ''}`);
+	return parseJson<{ redirect: string }>(response);
 }
 
 export async function signOut() {

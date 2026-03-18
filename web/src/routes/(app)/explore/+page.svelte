@@ -1,20 +1,31 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
 	import { useConvexClient, useQuery } from 'convex-svelte';
+	import type { Id } from '$convex/_generated/dataModel';
 	import {
-		BookOpenIcon,
+		CheckIcon,
 		CompassIcon,
+		FunnelIcon,
+		ImageIcon,
 		MagnifyingGlassIcon,
 		SpinnerIcon,
-		StackIcon,
-		ImagesIcon
+		XIcon
 	} from 'phosphor-svelte';
 
 	import { convexApi } from '$lib/convex/api';
+	import { getCachedCoverUrl } from '$lib/api/covers';
 	import { Button } from '$lib/elements/button';
-	import { Input } from '$lib/elements/input';
-	import { Select } from '$lib/elements/select';
+	import { LazyImage } from '$lib/elements/lazy-image';
+	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { Tabs } from '$lib/elements/tabs';
 	import { _ } from '$lib/i18n';
+	import { contentLanguages } from '$lib/stores/content-languages';
+	import { panelOverlayOpen } from '$lib/stores/ui';
+	import { normalizeContentLanguageCode, toMainContentLanguages } from '$lib/utils/content-languages';
+	import { buildTitlePath } from '$lib/utils/routes';
+
+	type TabValue = 'popular' | 'latest' | 'search';
 
 	type SourceItem = {
 		id: string;
@@ -25,7 +36,7 @@
 		extensionPkg: string;
 	};
 
-	type SearchItem = {
+	type ExploreItem = {
 		canonicalKey: string;
 		sourceId: string;
 		sourcePkg: string;
@@ -37,20 +48,6 @@
 		coverUrl?: string | null;
 	};
 
-	type ChapterItem = {
-		url: string;
-		name: string;
-		dateUpload: number;
-		chapterNumber: number;
-		scanlator?: string;
-	};
-
-	type PageItem = {
-		index: number;
-		url: string;
-		imageUrl: string;
-	};
-
 	type CommandItem = {
 		id: string;
 		commandType: string;
@@ -58,232 +55,826 @@
 		payload?: Record<string, unknown> | null;
 		result?: Record<string, unknown> | null;
 		lastErrorMessage?: string | null;
+		updatedAt?: number;
+		createdAt?: number;
 	};
 
-	const client = useConvexClient();
-	const commands = useQuery(convexApi.commands.listMine, () => ({ limit: 150 }));
-	const sources = useQuery(convexApi.extensions.listSources, () => ({}));
+	type LibraryTitleItem = {
+		_id: string;
+		sourceId: string;
+		titleUrl: string;
+		title: string;
+	};
 
-	const browseTabs = [
-		{ value: 'search', label: 'Search' },
+	type ExploreCard = {
+		key: string;
+		title: string;
+		thumbnailUrl: string | null;
+		sourceName: string;
+		sourceId: string;
+		sourcePkg: string;
+		sourceLang: string;
+		titleUrl: string;
+		canonicalKey: string;
+		importedLibraryId: string | null;
+	};
+
+	type FilterMeta = {
+		key: string;
+		title: string;
+		summary?: string;
+		type: string;
+		enabled?: boolean;
+		visible?: boolean;
+		default_value?: unknown;
+		current_value?: unknown;
+		entries?: string[];
+		entry_values?: string[];
+	};
+
+	type FilterItem = {
+		name: string;
+		type: string;
+		data: FilterMeta;
+	};
+
+	type PreferenceBundle = {
+		source: { id: string; name: string; lang: string; supportsLatest: boolean };
+		preferences: FilterItem[];
+		searchFilters: FilterItem[];
+	};
+
+	type FeedResult = {
+		items: ExploreItem[];
+		page: number;
+		hasNextPage: boolean;
+	};
+
+	type SearchResult = {
+		items: ExploreItem[];
+	};
+
+	const FEED_LIMIT = 24;
+	const UUID_SEGMENT_RE =
+		/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+	const LONG_HEX_SEGMENT_RE = /^[0-9a-f]{12,}$/i;
+	const NUMERIC_SEGMENT_RE = /^\d{4,}$/;
+	const STABLE_PATH_PREFIXES = new Set([
+		'title',
+		'titles',
+		'manga',
+		'comic',
+		'series',
+		'book',
+		'work',
+		'detail',
+		'details'
+	]);
+
+	const client = useConvexClient();
+	const commandsQuery = useQuery(convexApi.commands.listMine, () => ({ limit: 300 }));
+	const sourcesQuery = useQuery(convexApi.extensions.listSources, () => ({}));
+	const libraryQuery = useQuery(convexApi.library.listMine, () => ({}));
+
+	const tabs = [
 		{ value: 'popular', label: 'Popular' },
-		{ value: 'latest', label: 'Latest' }
+		{ value: 'latest', label: 'Latest Updates' },
+		{ value: 'search', label: 'Search' }
 	];
 
-	let browseMode = $state('search');
-	let query = $state('');
-	let selectedSourceId = $state('');
-	let busyKey = $state<string | null>(null);
+	let activeTab = $state<TabValue>('popular');
+	let searchQuery = $state('');
+	let loading = $state(true);
+	let loadingMore = $state(false);
 	let error = $state<string | null>(null);
-	let selectedTitle = $state<SearchItem | null>(null);
-	let selectedChapterUrl = $state<string | null>(null);
+	let searchTimer = $state<ReturnType<typeof setTimeout> | null>(null);
+	let openingTitleKey = $state<string | null>(null);
+	let selectedExtensionPkgs = $state<string[]>([]);
+	let selectedSourceId = $state('');
+	let loadedPagesBySource = $state<Record<string, number>>({});
+	let exhaustedFeedSources = $state<Record<string, boolean>>({});
+	let infiniteSentinelVisible = $state(false);
 
-	const installedSources = $derived((sources.data ?? []) as SourceItem[]);
-	const allCommands = $derived((commands.data ?? []) as CommandItem[]);
-	const sourceOptions = $derived(
-		[
-			{ value: 'all', label: 'All installed sources' },
-			...installedSources.map((source) => ({
-				value: source.id,
-				label: `${source.extensionName} · ${source.name} (${source.lang})`
-			}))
-		]
-	);
+	let searchFiltersOpen = $state(false);
+	let searchFiltersLoading = $state(false);
+	let searchFiltersError = $state<string | null>(null);
+	let searchFiltersData = $state<PreferenceBundle | null>(null);
+	let pendingSearchFilterChanges = $state<Record<string, unknown>>({});
+	let appliedSearchFiltersBySource = $state<Record<string, Record<string, unknown>>>({});
 
-	$effect(() => {
-		if (!selectedSourceId) {
-			selectedSourceId = installedSources[0]?.id ?? 'all';
+	let liveFeedResults = $state<Record<string, FeedResult>>({});
+	let liveSearchResults = $state<Record<string, SearchResult>>({});
+
+	const sources = $derived((sourcesQuery.data ?? []) as SourceItem[]);
+	const commands = $derived((commandsQuery.data ?? []) as CommandItem[]);
+	const libraryTitles = $derived((libraryQuery.data ?? []) as LibraryTitleItem[]);
+	const preferredContentLanguages = $derived(toMainContentLanguages($contentLanguages));
+
+	const sourceOptions = $derived.by(() => sourcesForContentLanguage());
+	const extensionFilters = $derived.by(() => {
+		const grouped: Array<{ pkg: string; name: string; sourceCount: number; sourceNames: string[] }> = [];
+		const indexesByPkg: Record<string, number> = {};
+		for (const source of sourceOptions) {
+			const existingIndex = indexesByPkg[source.extensionPkg];
+			if (existingIndex !== undefined) {
+				if (!grouped[existingIndex].sourceNames.includes(source.name)) {
+					grouped[existingIndex].sourceNames.push(source.name);
+					grouped[existingIndex].sourceCount = grouped[existingIndex].sourceNames.length;
+				}
+			} else {
+				indexesByPkg[source.extensionPkg] = grouped.length;
+				grouped.push({
+					pkg: source.extensionPkg,
+					name: displayExtensionName(source.extensionName),
+					sourceCount: 1,
+					sourceNames: [source.name]
+				});
+			}
 		}
+		return grouped
+			.map(({ sourceNames: _sourceNames, ...item }) => item)
+			.sort((left, right) => left.name.localeCompare(right.name));
 	});
 
-	const latestSearchResult = $derived.by(() =>
-		findLatestResult<SearchItem[]>('explore.search', (item) => {
-			if (browseMode !== 'search') return false;
-			const payload = item.payload ?? {};
-			const payloadSourceId = String(payload.sourceId ?? 'all');
-			const currentSourceId = selectedSourceId || 'all';
-			return payloadSourceId === currentSourceId || (currentSourceId === 'all' && !payload.sourceId);
-		})
+	const visibleSources = $derived.by(() => {
+		if (selectedExtensionPkgs.length === 0) return sourceOptions;
+		return sourceOptions.filter((source) => selectedExtensionPkgs.includes(source.extensionPkg));
+	});
+
+	const searchSources = $derived(sourceOptions);
+	const selectedSource = $derived(searchSources.find((source) => source.id === selectedSourceId) ?? null);
+	const selectedSourceAppliedFilters = $derived(
+		selectedSourceId ? (appliedSearchFiltersBySource[selectedSourceId] ?? {}) : {}
 	);
+	const appliedSearchFilterCount = $derived(Object.keys(selectedSourceAppliedFilters).length);
+	const hasAppliedSearchFilters = $derived(appliedSearchFilterCount > 0);
 
-	const latestFeedResult = $derived.by(() =>
-		findLatestResult<SearchItem[]>(browseMode === 'popular' ? 'explore.popular' : 'explore.latest', (item) => {
-			if (browseMode !== 'popular' && browseMode !== 'latest') return false;
-			return String(item.payload?.sourceId ?? '') === selectedSourceId;
-		})
-	);
-
-const selectedTitleDetails = $derived.by(() => {
-		const currentTitle = selectedTitle;
-		if (!currentTitle) return null;
-		return findLatestSingleResult('explore.title.fetch', (item) => {
-			const payload = item.payload ?? {};
-			return (
-				String(payload.sourceId ?? '') === currentTitle.sourceId &&
-				String(payload.titleUrl ?? '') === currentTitle.titleUrl
-			);
-		}) as { title?: SearchItem } | null;
-	});
-
-const selectedTitleChapters = $derived.by(() => {
-		const currentTitle = selectedTitle;
-		if (!currentTitle) return [] as ChapterItem[];
-		return (
-			findLatestSingleResult('explore.chapters.fetch', (item) => {
-				const payload = item.payload ?? {};
-				return (
-					String(payload.sourceId ?? '') === currentTitle.sourceId &&
-					String(payload.titleUrl ?? '') === currentTitle.titleUrl
-				);
-			})?.chapters ?? []
-		) as ChapterItem[];
-	});
-
-const selectedChapterPages = $derived.by(() => {
-		const currentTitle = selectedTitle;
-		if (!currentTitle || !selectedChapterUrl) return [] as PageItem[];
-		return (
-			findLatestSingleResult('reader.pages.fetch', (item) => {
-				const payload = item.payload ?? {};
-				return (
-					String(payload.sourceId ?? '') === currentTitle.sourceId &&
-					String(payload.chapterUrl ?? '') === selectedChapterUrl
-				);
-			})?.pages ?? []
-		) as PageItem[];
-	});
-
-	function findLatestResult<T>(
-		commandType: string,
-		match: (item: CommandItem) => boolean
-	): T {
-		for (const item of allCommands) {
-			if (item.commandType !== commandType || item.status !== 'succeeded') continue;
-			if (!match(item)) continue;
-			const result = item.result as { items?: T } | null;
-			return (result?.items ?? ([] as unknown as T)) as T;
+	const importedLibraryIds = $derived.by(() => {
+		const bySourceKey: Record<string, string> = {};
+		for (const title of libraryTitles) {
+			bySourceKey[`${title.sourceId}::${title.titleUrl}`] = title._id;
 		}
-		return [] as unknown as T;
+		return bySourceKey;
+	});
+
+	const feedCommandType = $derived(activeTab === 'latest' ? 'explore.latest' : 'explore.popular');
+	const showSearchPrompt = $derived(activeTab === 'search' && searchQuery.trim().length === 0);
+	const hasMoreFeedPages = $derived.by(() => {
+		if (activeTab === 'search') return false;
+		return visibleSources.some((source) => sourceHasMore(feedCommandType, source.id));
+	});
+	const currentLoading = $derived(loading || loadingMore || sourcesQuery.isLoading || libraryQuery.isLoading);
+
+	const cards = $derived.by(() => {
+		const sourceIds =
+			activeTab === 'search'
+				? selectedSourceId
+					? [selectedSourceId]
+					: searchSources.map((source) => source.id)
+				: visibleSources.map((source) => source.id);
+
+		const items: ExploreCard[] = [];
+		const signatureToIndex: Record<string, number> = {};
+
+		for (const sourceId of sourceIds) {
+			const resultItems =
+				activeTab === 'search'
+					? searchItemsForSource(sourceId)
+					: feedItemsForSource(feedCommandType, sourceId, loadedPagesBySource[sourceId] ?? 0);
+
+			for (const item of resultItems) {
+				const importedLibraryId = importedLibraryIds[`${item.sourceId}::${item.titleUrl}`] ?? null;
+				const nextCard: ExploreCard = {
+					key: cardKeyFor(item),
+					title: item.title,
+					thumbnailUrl: item.coverUrl ?? null,
+					sourceName: item.sourceName || sourceNameFor(item.sourceId),
+					sourceId: item.sourceId,
+					sourcePkg: item.sourcePkg,
+					sourceLang: item.sourceLang,
+					titleUrl: item.titleUrl,
+					canonicalKey: item.canonicalKey,
+					importedLibraryId
+				};
+
+				const signatures = itemMergeSignatures(item);
+				let existingIndex: number | undefined;
+				for (const signature of signatures) {
+					const foundIndex = signatureToIndex[signature];
+					if (foundIndex !== undefined) {
+						existingIndex = foundIndex;
+						break;
+					}
+				}
+
+				if (existingIndex === undefined) {
+					const nextIndex = items.length;
+					items.push(nextCard);
+					for (const signature of signatures) {
+						signatureToIndex[signature] = nextIndex;
+					}
+					continue;
+				}
+
+				const current = items[existingIndex];
+				const merged = {
+					...current,
+					title: current.title || nextCard.title,
+					thumbnailUrl: current.thumbnailUrl || nextCard.thumbnailUrl,
+					sourceName: current.sourceName || nextCard.sourceName,
+					importedLibraryId: current.importedLibraryId ?? nextCard.importedLibraryId
+				};
+				items[existingIndex] = merged;
+				for (const signature of itemMergeSignatures({
+					...item,
+					title: merged.title,
+					coverUrl: merged.thumbnailUrl,
+					sourceName: merged.sourceName
+				})) {
+					signatureToIndex[signature] = existingIndex;
+				}
+			}
+		}
+
+		return items;
+	});
+
+	function sourceNameFor(sourceId: string): string {
+		return sources.find((source) => source.id === sourceId)?.name ?? 'Source';
 	}
 
-	function findLatestSingleResult(
-		commandType: string,
-		match: (item: CommandItem) => boolean
-	): Record<string, unknown> | null {
-		for (const item of allCommands) {
-			if (item.commandType !== commandType || item.status !== 'succeeded') continue;
-			if (!match(item)) continue;
-			return item.result ?? null;
+	function displayExtensionName(name: string): string {
+		return name.replace(/^tachiyomi:\s*/i, '').trim() || name;
+	}
+
+	function sourcesForContentLanguage(): SourceItem[] {
+		if (preferredContentLanguages.length === 0) {
+			return sources;
 		}
+		return sources.filter((source) => {
+			const normalized = normalizeContentLanguageCode(source.lang);
+			return normalized !== null && preferredContentLanguages.includes(normalized);
+		});
+	}
+
+	function normalizeSignatureToken(value: string | null | undefined): string {
+		return (value ?? '').trim().toLowerCase();
+	}
+
+	function safeDecodeUriPart(value: string): string {
+		try {
+			return decodeURIComponent(value);
+		} catch {
+			return value;
+		}
+	}
+
+	function isStableIdSegment(value: string): boolean {
+		const segment = normalizeSignatureToken(value);
+		return (
+			UUID_SEGMENT_RE.test(segment) ||
+			LONG_HEX_SEGMENT_RE.test(segment) ||
+			NUMERIC_SEGMENT_RE.test(segment)
+		);
+	}
+
+	function titleUrlSignature(titleUrl: string | null | undefined): string {
+		let raw = (titleUrl ?? '').trim();
+		if (!raw) return '';
+
+		try {
+			const parsed = new URL(raw);
+			raw = `${parsed.pathname}${parsed.search}`;
+		} catch {
+			raw = raw.replace(/^https?:\/\//i, '/');
+		}
+
+		const withoutHash = raw.split('#', 1)[0] ?? raw;
+		const pathOnly = withoutHash.split('?', 1)[0] ?? withoutHash;
+		const normalizedPath = pathOnly.replace(/\\/g, '/').replace(/^\/+/, '');
+		const segments = normalizedPath
+			.split('/')
+			.map((part) => normalizeSignatureToken(safeDecodeUriPart(part)))
+			.filter((part) => part.length > 0);
+
+		if (!segments.length) return normalizeSignatureToken(raw);
+
+		for (let i = 0; i < segments.length - 1; i += 1) {
+			const prefix = segments[i];
+			if (!STABLE_PATH_PREFIXES.has(prefix)) continue;
+			const candidate = segments[i + 1];
+			if (!candidate) continue;
+			if (isStableIdSegment(candidate) || candidate.length >= 8) {
+				return `${prefix}/${candidate}`;
+			}
+		}
+
+		const idSegment = segments.find((segment) => isStableIdSegment(segment));
+		if (idSegment) return `id:${idSegment}`;
+		return segments.join('/');
+	}
+
+	function itemMergeSignatures(item: ExploreItem): string[] {
+		const signatures: string[] = [];
+		const addSignature = (value: string) => {
+			if (!signatures.includes(value)) signatures.push(value);
+		};
+		const canonicalSignature = normalizeSignatureToken(item.canonicalKey);
+		if (canonicalSignature) addSignature(`canonical:${canonicalSignature}`);
+
+		const urlSignature = titleUrlSignature(item.titleUrl);
+		const extensionSignature = normalizeSignatureToken(item.sourcePkg);
+		const sourceSignature = normalizeSignatureToken(item.sourceId);
+		if (urlSignature) {
+			if (extensionSignature) addSignature(`ext:${extensionSignature}|${urlSignature}`);
+			if (sourceSignature) addSignature(`src:${sourceSignature}|${urlSignature}`);
+		}
+
+		const titleSignature = normalizeSignatureToken(item.title);
+		const coverSignature = titleUrlSignature(item.coverUrl);
+		if (titleSignature && coverSignature) {
+			addSignature(`title-cover:${titleSignature}|${coverSignature}`);
+		}
+
+		return signatures;
+	}
+
+	function cardKeyFor(item: ExploreItem): string {
+		const canonicalSignature = normalizeSignatureToken(item.canonicalKey);
+		if (canonicalSignature) return `canonical:${canonicalSignature}`;
+		const urlSignature = titleUrlSignature(item.titleUrl);
+		if (urlSignature) return `source:${normalizeSignatureToken(item.sourcePkg)}|${urlSignature}`;
+		return `${item.sourceId}::${item.titleUrl}`;
+	}
+
+	function feedResultKey(commandType: string, sourceId: string, page: number): string {
+		return `${commandType}:${sourceId}:page:${page}`;
+	}
+
+	function searchResultKey(sourceId: string, query: string, searchFilters: Record<string, unknown>): string {
+		return `explore.search:${sourceId}:${query.trim().toLowerCase()}:${JSON.stringify(searchFilters)}`;
+	}
+
+	function latestFeedResult(commandType: string, sourceId: string, page: number): FeedResult | null {
+		const live = liveFeedResults[feedResultKey(commandType, sourceId, page)];
+		if (live) return live;
+
+		for (const item of commands) {
+			if (item.commandType !== commandType || item.status !== 'succeeded') continue;
+			const payload = item.payload ?? {};
+			if (String(payload.sourceId ?? '') !== sourceId) continue;
+			if (Number(payload.page ?? 1) !== page) continue;
+			return {
+				items: ((item.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[],
+				page: Number(item.result?.page ?? page),
+				hasNextPage: Boolean(item.result?.hasNextPage ?? false)
+			};
+		}
+
 		return null;
 	}
 
-	function currentResults() {
-		return browseMode === 'search' ? latestSearchResult : latestFeedResult;
-	}
+	function latestSearchResult(
+		sourceId: string,
+		query: string,
+		searchFilters: Record<string, unknown>
+	): SearchResult | null {
+		const key = searchResultKey(sourceId, query, searchFilters);
+		const live = liveSearchResults[key];
+		if (live) return live;
 
-	function readerPageSrc(page: PageItem) {
-		if (!selectedTitle || !selectedChapterUrl) {
-			return page.imageUrl;
+		for (const item of commands) {
+			if (item.commandType !== 'explore.search' || item.status !== 'succeeded') continue;
+			const payload = item.payload ?? {};
+			if (String(payload.sourceId ?? '') !== sourceId) continue;
+			if (String(payload.query ?? '').trim().toLowerCase() !== query.trim().toLowerCase()) continue;
+			if (JSON.stringify((payload.searchFilters as Record<string, unknown> | undefined) ?? {}) !== JSON.stringify(searchFilters)) {
+				continue;
+			}
+			return {
+				items: ((item.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[]
+			};
 		}
-		const params = new URLSearchParams({
-			sourceId: selectedTitle.sourceId,
-			chapterUrl: selectedChapterUrl,
-			index: String(page.index)
-		});
-		return `/api/internal/bridge/reader/page?${params.toString()}`;
+
+		return null;
 	}
 
-	async function enqueue(
-		commandType: string,
-		payload: Record<string, unknown>,
-		busy: string
-	) {
-		busyKey = busy;
+	function feedItemsForSource(commandType: string, sourceId: string, maxPage: number): ExploreItem[] {
+		const items: ExploreItem[] = [];
+		for (let page = 1; page <= maxPage; page += 1) {
+			const result = latestFeedResult(commandType, sourceId, page);
+			if (!result) continue;
+			items.push(...result.items);
+		}
+		return items;
+	}
+
+	function searchItemsForSource(sourceId: string): ExploreItem[] {
+		const query = searchQuery.trim();
+		if (!query) return [];
+		const filters = selectedSourceId === sourceId ? selectedSourceAppliedFilters : {};
+		return latestSearchResult(sourceId, query, filters)?.items ?? [];
+	}
+
+	function sourceHasMore(commandType: string, sourceId: string): boolean {
+		if (exhaustedFeedSources[sourceId]) return false;
+		const currentPage = loadedPagesBySource[sourceId] ?? 0;
+		if (currentPage < 1) return false;
+		return latestFeedResult(commandType, sourceId, currentPage)?.hasNextPage ?? false;
+	}
+
+	function hasUniqueFeedItems(existing: ExploreItem[], incoming: ExploreItem[]): boolean {
+		const existingSignatures: Record<string, true> = {};
+		for (const item of existing) {
+			for (const signature of itemMergeSignatures(item)) {
+				existingSignatures[signature] = true;
+			}
+		}
+		return incoming.some((item) =>
+			itemMergeSignatures(item).some((signature) => existingSignatures[signature] !== true)
+		);
+	}
+
+	function setTab(value: string) {
+		activeTab = value as TabValue;
 		error = null;
+		if (activeTab !== 'search') {
+			searchQuery = '';
+			selectedSourceId = '';
+		}
+	}
+
+	function toggleExtensionFilter(pkg: string) {
+		if (selectedExtensionPkgs.includes(pkg)) {
+			selectedExtensionPkgs = selectedExtensionPkgs.filter((item) => item !== pkg);
+			return;
+		}
+		selectedExtensionPkgs = [...selectedExtensionPkgs, pkg];
+	}
+
+	function clearExtensionFilters() {
+		selectedExtensionPkgs = [];
+	}
+
+	function structuredCloneValue(value: unknown) {
+		if (Array.isArray(value)) return [...value];
+		if (value && typeof value === 'object') return { ...(value as Record<string, unknown>) };
+		return value;
+	}
+
+	async function enqueueCommand(commandType: string, payload: Record<string, unknown>) {
+		return client.mutation(convexApi.commands.enqueue, { commandType, payload });
+	}
+
+	async function pollCommand(commandId: string, timeoutMs = 15000) {
+		const startedAt = Date.now();
+		while (Date.now() - startedAt < timeoutMs) {
+			const command = await client.query(convexApi.commands.getMineById, {
+				commandId: commandId as Id<'commands'>
+			});
+			if (!command) {
+				throw new Error('Command not found');
+			}
+			if (command.status === 'succeeded') {
+				return command;
+			}
+			if (command.status === 'failed' || command.status === 'cancelled' || command.status === 'dead_letter') {
+				throw new Error(command.lastErrorMessage ?? 'Command failed');
+			}
+			await new Promise((resolve) => setTimeout(resolve, 250));
+		}
+		throw new Error('Command timed out');
+	}
+
+	async function loadFeedInitial() {
+		const sourceIds = visibleSources.map((source) => source.id);
+		loadedPagesBySource = {};
+		exhaustedFeedSources = {};
+		if (sourceIds.length === 0) {
+			loading = false;
+			return;
+		}
+
+		loading = true;
+		error = null;
+		const nextPages: Record<string, number> = {};
+		const failures: string[] = [];
+
+		await Promise.all(
+			sourceIds.map(async (sourceId) => {
+				try {
+					const { commandId } = await enqueueCommand(feedCommandType, {
+						sourceId,
+						page: 1,
+						limit: FEED_LIMIT
+					});
+					const command = await pollCommand(String(commandId));
+					liveFeedResults[feedResultKey(feedCommandType, sourceId, 1)] = {
+						items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[],
+						page: Number(command.result?.page ?? 1),
+						hasNextPage: Boolean(command.result?.hasNextPage ?? false)
+					};
+					nextPages[sourceId] = 1;
+				} catch (cause) {
+					failures.push(cause instanceof Error ? cause.message : `Unable to load ${sourceNameFor(sourceId)}`);
+				}
+			})
+		);
+
+		loadedPagesBySource = nextPages;
+		error = failures[0] ?? null;
+		loading = false;
+	}
+
+	async function loadMoreFeed() {
+		if (loading || loadingMore || activeTab === 'search') return;
+
+		const nextSourcePages = visibleSources
+			.filter((source) => sourceHasMore(feedCommandType, source.id))
+			.map((source) => ({
+				sourceId: source.id,
+				page: (loadedPagesBySource[source.id] ?? 0) + 1
+			}));
+
+		if (nextSourcePages.length === 0) return;
+
+		loadingMore = true;
+		const nextLoaded = { ...loadedPagesBySource };
+		const nextExhausted = { ...exhaustedFeedSources };
+		const failures: string[] = [];
+
+		await Promise.all(
+			nextSourcePages.map(async ({ sourceId, page }) => {
+				try {
+					const { commandId } = await enqueueCommand(feedCommandType, {
+						sourceId,
+						page,
+						limit: FEED_LIMIT
+					});
+					const command = await pollCommand(String(commandId));
+					const incomingItems =
+						((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[];
+					const existingItems = feedItemsForSource(feedCommandType, sourceId, loadedPagesBySource[sourceId] ?? 0);
+					liveFeedResults[feedResultKey(feedCommandType, sourceId, page)] = {
+						items: incomingItems,
+						page: Number(command.result?.page ?? page),
+						hasNextPage: Boolean(command.result?.hasNextPage ?? false)
+					};
+					nextLoaded[sourceId] = page;
+					if (!hasUniqueFeedItems(existingItems, incomingItems)) {
+						nextExhausted[sourceId] = true;
+					}
+				} catch (cause) {
+					failures.push(cause instanceof Error ? cause.message : `Unable to load more from ${sourceNameFor(sourceId)}`);
+				}
+			})
+		);
+
+		loadedPagesBySource = nextLoaded;
+		exhaustedFeedSources = nextExhausted;
+		if (failures.length > 0) {
+			error = failures[0];
+		}
+		loadingMore = false;
+	}
+
+	async function runSearch() {
+		const value = searchQuery.trim();
+		if (!value) {
+			loading = false;
+			return;
+		}
+
+		const sourceIds =
+			selectedSourceId && searchSources.some((source) => source.id === selectedSourceId)
+				? [selectedSourceId]
+				: searchSources.map((source) => source.id);
+
+		if (sourceIds.length === 0) {
+			loading = false;
+			return;
+		}
+
+		loading = true;
+		error = null;
+		const failures: string[] = [];
+
+		await Promise.all(
+			sourceIds.map(async (sourceId) => {
+				try {
+					const searchFilters = selectedSourceId === sourceId ? selectedSourceAppliedFilters : {};
+					const payload: Record<string, unknown> = {
+						query: value,
+						sourceId,
+						limit: 42
+					};
+					if (Object.keys(searchFilters).length > 0) {
+						payload.searchFilters = searchFilters;
+					}
+					const { commandId } = await enqueueCommand('explore.search', payload);
+					const command = await pollCommand(String(commandId));
+					liveSearchResults[searchResultKey(sourceId, value, searchFilters)] = {
+						items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[]
+					};
+				} catch (cause) {
+					failures.push(cause instanceof Error ? cause.message : `Search failed for ${sourceNameFor(sourceId)}`);
+				}
+			})
+		);
+
+		error = failures[0] ?? null;
+		loading = false;
+	}
+
+	async function openSearchFilters(sourceId: string) {
+		searchFiltersOpen = true;
+		searchFiltersLoading = true;
+		searchFiltersError = null;
+		searchFiltersData = null;
+		pendingSearchFilterChanges = {};
+
 		try {
-			await client.mutation(convexApi.commands.enqueue, { commandType, payload });
+			const { commandId } = await enqueueCommand('sources.preferences.fetch', { sourceId });
+			const command = await pollCommand(String(commandId));
+			searchFiltersData = command.result as PreferenceBundle;
+			const applied = appliedSearchFiltersBySource[sourceId];
+			if (applied) {
+				pendingSearchFilterChanges = structuredCloneValue(applied) as Record<string, unknown>;
+			}
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Unable to queue command';
+			searchFiltersError =
+				cause instanceof Error ? cause.message : 'Failed to load search filters';
 		} finally {
-			busyKey = null;
+			searchFiltersLoading = false;
 		}
 	}
 
-	async function runBrowse(event?: SubmitEvent) {
-		event?.preventDefault();
-		const currentSourceId = selectedSourceId || 'all';
-		if (browseMode === 'search') {
-			const value = query.trim();
-			if (!value) return;
-			await enqueue(
-				'explore.search',
-				{
-					query: value,
-					limit: 40,
-					...(currentSourceId !== 'all' ? { sourceId: currentSourceId } : {})
-				},
-				'explore-search'
-			);
+	function closeSearchFilters() {
+		searchFiltersOpen = false;
+		searchFiltersLoading = false;
+		searchFiltersError = null;
+		searchFiltersData = null;
+		pendingSearchFilterChanges = {};
+	}
+
+	function handleSearchFilterChange(key: string, value: unknown) {
+		pendingSearchFilterChanges = { ...pendingSearchFilterChanges, [key]: value };
+	}
+
+	function clearAppliedSearchFilters() {
+		if (!selectedSourceId) return;
+		const next = { ...appliedSearchFiltersBySource };
+		delete next[selectedSourceId];
+		appliedSearchFiltersBySource = next;
+		if (searchQuery.trim()) {
+			void runSearch();
+		}
+	}
+
+	function getCurrentSearchFilterValue(filter: FilterMeta) {
+		if (filter.key in pendingSearchFilterChanges) {
+			return pendingSearchFilterChanges[filter.key];
+		}
+		if (selectedSourceId && filter.key in selectedSourceAppliedFilters) {
+			return selectedSourceAppliedFilters[filter.key];
+		}
+		return filter.current_value ?? filter.default_value;
+	}
+
+	function toggleMultiSelectValue(key: string, option: string, checked: boolean) {
+		const current = Array.isArray(pendingSearchFilterChanges[key])
+			? [...(pendingSearchFilterChanges[key] as string[])]
+			: Array.isArray(selectedSourceAppliedFilters[key])
+				? [...(selectedSourceAppliedFilters[key] as string[])]
+				: [];
+		const next = checked ? [...new Set([...current, option])] : current.filter((item) => item !== option);
+		handleSearchFilterChange(key, next);
+	}
+
+	async function applySearchFilters() {
+		if (!selectedSourceId) {
+			closeSearchFilters();
+			return;
+		}
+		appliedSearchFiltersBySource = {
+			...appliedSearchFiltersBySource,
+			[selectedSourceId]: { ...pendingSearchFilterChanges }
+		};
+		if (Object.keys(pendingSearchFilterChanges).length === 0) {
+			const next = { ...appliedSearchFiltersBySource };
+			delete next[selectedSourceId];
+			appliedSearchFiltersBySource = next;
+		}
+		closeSearchFilters();
+		if (searchQuery.trim()) {
+			await runSearch();
+		}
+	}
+
+	function onSearchInput() {
+		if (searchTimer) clearTimeout(searchTimer);
+		searchTimer = setTimeout(() => {
+			if (activeTab !== 'search') return;
+			void runSearch();
+		}, 250);
+	}
+
+	function buildPreviewHref(item: ExploreCard): string {
+		if (item.importedLibraryId) {
+			return buildTitlePath(item.importedLibraryId, item.title);
+		}
+		const query = new URLSearchParams({
+			source_id: item.sourceId,
+			source_pkg: item.sourcePkg,
+			source_lang: item.sourceLang,
+			title_url: item.titleUrl,
+			title: item.title,
+			thumbnail_url: item.thumbnailUrl ?? '',
+			canonical_key: item.canonicalKey
+		});
+		return `/title/open?${query.toString()}`;
+	}
+
+	function shouldUseBrowserNavigation(event: MouseEvent): boolean {
+		return (
+			event.defaultPrevented ||
+			event.button !== 0 ||
+			event.metaKey ||
+			event.ctrlKey ||
+			event.shiftKey ||
+			event.altKey
+		);
+	}
+
+	function handleCardClick(event: MouseEvent, item: ExploreCard) {
+		if (shouldUseBrowserNavigation(event)) return;
+		if (openingTitleKey) return;
+		event.preventDefault();
+		openingTitleKey = item.key;
+		void goto(buildPreviewHref(item)).finally(() => {
+			openingTitleKey = null;
+		});
+	}
+
+	function observeInfiniteScroll(node: HTMLElement) {
+		if (typeof IntersectionObserver === 'undefined') {
 			return;
 		}
 
-		if (currentSourceId === 'all') {
-			error = 'Select a source for popular or latest feeds';
+		const observer = new IntersectionObserver(
+			(entries) => {
+				infiniteSentinelVisible = entries.some((entry) => entry.isIntersecting);
+			},
+			{ rootMargin: '640px 0px' }
+		);
+		observer.observe(node);
+
+		return {
+			destroy() {
+				observer.disconnect();
+				infiniteSentinelVisible = false;
+			}
+		};
+	}
+
+	onMount(() => {
+		panelOverlayOpen.set(searchFiltersOpen);
+		return () => {
+			if (searchTimer) clearTimeout(searchTimer);
+			panelOverlayOpen.set(false);
+		};
+	});
+
+	$effect(() => {
+		panelOverlayOpen.set(searchFiltersOpen);
+		return () => panelOverlayOpen.set(false);
+	});
+
+	$effect(() => {
+		if (!searchSources.some((source) => source.id === selectedSourceId)) {
+			selectedSourceId = '';
+		}
+	});
+
+	$effect(() => {
+		if (!sources.length) return;
+		if (activeTab === 'search') {
+			if (searchQuery.trim()) {
+				void runSearch();
+			} else {
+				loading = false;
+			}
 			return;
 		}
+		void loadFeedInitial();
+	});
 
-		await enqueue(
-			browseMode === 'popular' ? 'explore.popular' : 'explore.latest',
-			{
-				sourceId: currentSourceId,
-				page: 1,
-				limit: 40
-			},
-			`feed:${browseMode}:${currentSourceId}`
-		);
-	}
-
-	async function openTitle(item: SearchItem) {
-		selectedTitle = item;
-		selectedChapterUrl = null;
-		await Promise.all([
-			enqueue(
-				'explore.title.fetch',
-				{ sourceId: item.sourceId, titleUrl: item.titleUrl },
-				`title:${item.canonicalKey}`
-			),
-			enqueue(
-				'explore.chapters.fetch',
-				{ sourceId: item.sourceId, titleUrl: item.titleUrl },
-				`chapters:${item.canonicalKey}`
-			)
-		]);
-	}
-
-	async function openChapter(chapterUrl: string) {
-		if (!selectedTitle) return;
-		selectedChapterUrl = chapterUrl;
-		await enqueue(
-			'reader.pages.fetch',
-			{ sourceId: selectedTitle.sourceId, chapterUrl },
-			`pages:${selectedTitle.canonicalKey}:${chapterUrl}`
-		);
-	}
-
-	async function importTitle(item: SearchItem) {
-		await enqueue(
-			'library.import',
-			{
-				canonicalKey: item.canonicalKey,
-				sourceId: item.sourceId,
-				sourcePkg: item.sourcePkg,
-				sourceLang: item.sourceLang,
-				titleUrl: item.titleUrl
-			},
-			`import:${item.canonicalKey}`
-		);
-	}
+	$effect(() => {
+		if (!infiniteSentinelVisible || !hasMoreFeedPages || loadingMore || loading || activeTab === 'search') {
+			return;
+		}
+		void loadMoreFeed();
+	});
 </script>
 
 <svelte:head>
@@ -291,200 +882,363 @@ const selectedChapterPages = $derived.by(() => {
 </svelte:head>
 
 <div class="flex flex-col gap-6">
-	<div class="flex items-center gap-3">
-		<h1 class="text-display flex-1 text-xl text-[var(--text)]">{$_('nav.explore').toLowerCase()}</h1>
+	<div class="flex items-center justify-between">
+		<h1 class="text-display text-xl text-[var(--text)]">{$_('nav.explore').toLowerCase()}</h1>
 	</div>
 
-	<div class="border border-[var(--line)] bg-[var(--surface)] p-4">
-		<div class="mb-4 flex flex-wrap items-center gap-4">
-			<Tabs tabs={browseTabs} value={browseMode} onValueChange={(value) => (browseMode = value)} />
-			<div class="min-w-[18rem] flex-1">
-				<Select
-					value={selectedSourceId}
-					options={sourceOptions}
-					placeholder="Choose a source"
-					onValueChange={(value) => {
-						selectedSourceId = value;
-						if (browseMode !== 'search') {
-							void runBrowse();
-						}
-					}}
-				/>
-			</div>
-		</div>
+	<Tabs tabs={tabs} value={activeTab} onValueChange={setTab} />
 
-		<form class="flex items-end gap-3" onsubmit={runBrowse}>
-			<div class="relative flex-1">
+	{#if activeTab === 'search'}
+		<div class="flex flex-col gap-4">
+			<div class="relative">
 				<div class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-ghost)]">
-					{#if browseMode === 'search'}
-						<MagnifyingGlassIcon size={14} />
-					{:else if browseMode === 'popular'}
-						<CompassIcon size={14} />
-					{:else}
-						<StackIcon size={14} />
-					{/if}
+					<MagnifyingGlassIcon size={14} />
 				</div>
-				<Input
+				<input
 					type="search"
-					label={browseMode === 'search' ? 'Search titles' : browseMode === 'popular' ? 'Popular titles' : 'Latest titles'}
-					bind:value={query}
-					placeholder={browseMode === 'search'
-						? 'Find manga by title...'
-						: 'Run feed for the selected source'}
-					class="pl-9"
-					disabled={browseMode !== 'search'}
+					placeholder={$_('explore.searchPlaceholder')}
+					bind:value={searchQuery}
+					oninput={onSearchInput}
+					class="h-11 w-full border border-[var(--void-4)] bg-[var(--void-2)] pr-9 pl-9 text-sm text-[var(--text)] transition-colors placeholder:text-[var(--text-ghost)] hover:border-[var(--void-5)] focus:border-[var(--void-6)] focus:outline-none"
 				/>
-			</div>
-			<Button
-				type="submit"
-				size="sm"
-				disabled={busyKey?.startsWith('explore-search') || (browseMode === 'search' && !query.trim())}
-			>
-				{#if busyKey}
-					<SpinnerIcon size={12} class="animate-spin" />
-				{:else if browseMode === 'search'}
-					Search
-				{:else if browseMode === 'popular'}
-					Load popular
-				{:else}
-					Load latest
+				{#if searchQuery.trim()}
+					<button
+						type="button"
+						class="absolute top-1/2 right-3 -translate-y-1/2 text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
+						onclick={() => {
+							searchQuery = '';
+							loading = false;
+						}}
+					>
+						<XIcon size={14} />
+					</button>
 				{/if}
-			</Button>
-		</form>
-	</div>
+			</div>
 
-	{#if error}
-		<p class="text-sm text-[var(--error)]">{error}</p>
-	{/if}
+			{#if searchSources.length > 0}
+				<div class="flex flex-col gap-2.5">
+					<div class="flex items-center justify-between">
+						<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
+							{$_('explore.selectSource')}
+						</span>
+						{#if selectedSourceId}
+							<button
+								type="button"
+								class="flex items-center gap-1.5 text-[10px] text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
+								onclick={() => void openSearchFilters(selectedSourceId)}
+							>
+								<FunnelIcon size={10} />
+								{$_('explore.advancedFilters')}
+								{#if hasAppliedSearchFilters}
+									<span class="text-[var(--text-muted)]">· {appliedSearchFilterCount}</span>
+								{/if}
+							</button>
+						{/if}
+					</div>
 
-	<div class="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-		<div class="border border-[var(--line)] bg-[var(--surface)] p-4">
-			<h2 class="mb-3 text-sm tracking-wider text-[var(--text)] uppercase">
-				{browseMode === 'search' ? 'Results' : browseMode === 'popular' ? 'Popular' : 'Latest'}
-			</h2>
-			{#if commands.isLoading}
-				<p class="text-sm text-[var(--text-ghost)]">Loading commands…</p>
-			{:else if currentResults().length === 0}
-				<p class="text-sm text-[var(--text-ghost)]">
-					{browseMode === 'search'
-						? 'Run a source-backed search to populate results.'
-						: 'Run the selected source feed to populate results.'}
-				</p>
-			{:else}
-				<div class="flex flex-col gap-3">
-					{#each currentResults() as item (item.canonicalKey)}
-						<div class="border border-[var(--line)] p-3">
-							<div class="flex items-start justify-between gap-3">
-								<div class="min-w-0 flex-1">
-									<p class="line-clamp-1 text-sm text-[var(--text)]">{item.title}</p>
-									<p class="mt-1 line-clamp-2 text-xs text-[var(--text-ghost)]">{item.description}</p>
-									<p class="mt-2 text-[10px] uppercase text-[var(--text-muted)]">
-										{item.sourceName} · {item.sourceLang}
-									</p>
-								</div>
-								<div class="flex flex-col gap-2">
-									<Button size="sm" onclick={() => openTitle(item)}>Open</Button>
-									<Button
-										size="sm"
-										disabled={busyKey === `import:${item.canonicalKey}`}
-										onclick={() => importTitle(item)}
-									>
-										{busyKey === `import:${item.canonicalKey}` ? 'Queuing…' : 'Import'}
-									</Button>
-								</div>
-							</div>
+					<div class="no-scrollbar flex gap-1.5 overflow-x-auto">
+						<button
+							type="button"
+							class="h-7 shrink-0 px-3 text-[10px] tracking-wider uppercase transition-colors {!selectedSourceId
+								? 'bg-[var(--void-4)] text-[var(--text)]'
+								: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
+							onclick={() => {
+								selectedSourceId = '';
+								if (searchQuery.trim()) void runSearch();
+							}}
+						>
+							{$_('explore.allSources')}
+						</button>
+						{#each searchSources as source (source.id)}
+							<button
+								type="button"
+								class="h-7 shrink-0 px-3 text-[10px] tracking-wider uppercase transition-colors {selectedSourceId ===
+								source.id
+									? 'bg-[var(--void-4)] text-[var(--text)]'
+									: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
+								onclick={() => {
+									selectedSourceId = source.id;
+									if (searchQuery.trim()) void runSearch();
+								}}
+							>
+								{source.name}{source.lang ? ` [${source.lang}]` : ''}
+							</button>
+						{/each}
+					</div>
+
+					{#if hasAppliedSearchFilters}
+						<div class="flex items-center gap-2">
+							<div class="h-px flex-1 bg-[var(--void-3)]"></div>
+							<button
+								type="button"
+								class="flex items-center gap-1 text-[10px] text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
+								onclick={clearAppliedSearchFilters}
+							>
+								<XIcon size={10} />
+								{$_('common.clear')}
+								{appliedSearchFilterCount}
+								{appliedSearchFilterCount === 1 ? 'filter' : 'filters'}
+							</button>
 						</div>
-					{/each}
+					{/if}
 				</div>
 			{/if}
 		</div>
+	{/if}
 
-		<div class="flex flex-col gap-4">
-			<div class="border border-[var(--line)] bg-[var(--surface)] p-4">
-				<div class="mb-3 flex items-center gap-2 text-[var(--text)]">
-					<BookOpenIcon size={16} />
-					<h2 class="text-sm tracking-wider uppercase">Title Details</h2>
-				</div>
-				{#if !selectedTitle}
-					<p class="text-sm text-[var(--text-ghost)]">Open a title from results to inspect details and chapters.</p>
-				{:else}
-					{@const details = selectedTitleDetails?.title ?? selectedTitle}
-					<div class="flex flex-col gap-3">
-						{#if details.coverUrl}
-							<img
-								src={details.coverUrl}
-								alt={details.title}
-								class="h-48 w-32 object-cover"
-								loading="lazy"
-							/>
-						{/if}
-						<div>
-							<p class="text-base text-[var(--text)]">{details.title}</p>
-							<p class="mt-1 text-xs uppercase text-[var(--text-muted)]">
-								{details.sourceName ?? selectedTitle.sourceName} · {details.sourceLang ?? selectedTitle.sourceLang}
-							</p>
-						</div>
-						<p class="text-sm text-[var(--text-ghost)]">{details.description || 'No description available.'}</p>
-					</div>
+	{#if extensionFilters.length > 0 && activeTab !== 'search'}
+		<div class="flex flex-col gap-2">
+			<div class="flex items-center justify-between">
+				<p class="text-xs text-[var(--text-ghost)]">{$_('explore.filterByExtension')}</p>
+				{#if selectedExtensionPkgs.length > 0}
+					<button
+						type="button"
+						class="text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
+						onclick={clearExtensionFilters}
+					>
+						{$_('common.clear')}
+					</button>
 				{/if}
 			</div>
-
-			<div class="border border-[var(--line)] bg-[var(--surface)] p-4">
-				<div class="mb-3 flex items-center gap-2 text-[var(--text)]">
-					<StackIcon size={16} />
-					<h2 class="text-sm tracking-wider uppercase">Chapters</h2>
-				</div>
-				{#if !selectedTitle}
-					<p class="text-sm text-[var(--text-ghost)]">Choose a title to load chapters.</p>
-				{:else if selectedTitleChapters.length === 0}
-					<p class="text-sm text-[var(--text-ghost)]">No chapters loaded yet.</p>
-				{:else}
-					<div class="max-h-72 overflow-y-auto">
-						<div class="flex flex-col gap-2">
-							{#each selectedTitleChapters as chapter (chapter.url)}
-								<button
-									type="button"
-									class="border border-[var(--line)] p-3 text-left transition-colors {selectedChapterUrl === chapter.url
-										? 'bg-[var(--void-2)] text-[var(--text)]'
-										: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text)]'}"
-									onclick={() => openChapter(chapter.url)}
-								>
-									<p class="text-sm">{chapter.name || `Chapter ${chapter.chapterNumber}`}</p>
-									<p class="mt-1 text-xs uppercase text-[var(--text-muted)]">
-										{chapter.scanlator || 'Unknown scanlator'}
-									</p>
-								</button>
-							{/each}
-						</div>
-					</div>
-				{/if}
-			</div>
-
-			<div class="border border-[var(--line)] bg-[var(--surface)] p-4">
-				<div class="mb-3 flex items-center gap-2 text-[var(--text)]">
-					<ImagesIcon size={16} />
-					<h2 class="text-sm tracking-wider uppercase">Pages</h2>
-				</div>
-				{#if !selectedChapterUrl}
-					<p class="text-sm text-[var(--text-ghost)]">Open a chapter to render pages.</p>
-				{:else if selectedChapterPages.length === 0}
-					<p class="text-sm text-[var(--text-ghost)]">No pages loaded yet.</p>
-				{:else}
-					<div class="flex max-h-[36rem] flex-col gap-4 overflow-y-auto">
-						{#each selectedChapterPages as page (page.index)}
-							<div class="flex flex-col gap-2">
-								<p class="text-[10px] uppercase text-[var(--text-muted)]">Page {page.index + 1}</p>
-								<img
-									src={readerPageSrc(page)}
-									alt={`Page ${page.index + 1}`}
-									class="w-full object-contain"
-									loading="lazy"
-								/>
-							</div>
-						{/each}
-					</div>
-				{/if}
+			<div class="flex flex-wrap gap-2">
+				<button
+					type="button"
+					class="inline-flex items-center gap-1 border px-2.5 py-1 text-xs transition-colors {selectedExtensionPkgs.length > 0
+						? 'border-[var(--line)] text-[var(--text-ghost)] hover:border-[var(--text-ghost)] hover:text-[var(--text-muted)]'
+						: 'border-[var(--text)] bg-[var(--void-2)] text-[var(--text)]'}"
+					onclick={clearExtensionFilters}
+				>
+					{$_('explore.allExtensions')}
+				</button>
+				{#each extensionFilters as extension (extension.pkg)}
+					<button
+						type="button"
+						class="inline-flex items-center gap-1 border px-2.5 py-1 text-xs transition-colors {selectedExtensionPkgs.includes(
+							extension.pkg
+						)
+							? 'border-[var(--text)] bg-[var(--void-2)] text-[var(--text)]'
+							: 'border-[var(--line)] text-[var(--text-ghost)] hover:border-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+						onclick={() => toggleExtensionFilter(extension.pkg)}
+					>
+						<span>{extension.name}</span>
+						<span class="text-[10px] text-[var(--text-ghost)]">{extension.sourceCount}</span>
+					</button>
+				{/each}
 			</div>
 		</div>
+	{/if}
+
+	{#if error}
+		<div class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]">
+			{error}
+		</div>
+	{/if}
+
+	<div class="flex items-center justify-between text-sm text-[var(--text-ghost)]">
+		<p>
+			{#if activeTab === 'search'}
+				{#if showSearchPrompt}
+					{$_('common.search')}
+				{:else}
+					{cards.length} result{cards.length === 1 ? '' : 's'}
+				{/if}
+			{:else if activeTab === 'latest'}
+				{$_('explore.latestUpdates')}
+			{:else}
+				Popular
+			{/if}
+		</p>
+		{#if currentLoading}
+			<p class="flex items-center gap-1">
+				<SpinnerIcon size={14} class="animate-spin" />
+				{$_('common.loading')}
+			</p>
+		{/if}
 	</div>
+
+	{#if currentLoading && cards.length === 0}
+		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+			{#each Array(18) as _, i (i)}
+				<div class="flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)]">
+					<div class="aspect-[2/3] animate-pulse bg-[var(--void-4)]" style={`animation-delay: ${i * 40}ms`}></div>
+					<div class="flex flex-col gap-1.5 p-2">
+						<div class="h-2 w-full animate-pulse bg-[var(--void-4)]"></div>
+						<div class="h-2 w-3/5 animate-pulse bg-[var(--void-5)]"></div>
+					</div>
+				</div>
+			{/each}
+		</div>
+	{:else if cards.length > 0}
+		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+			{#each cards as item (item.key)}
+				<a
+					href={buildPreviewHref(item)}
+					class="group card-glow relative flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)] text-left"
+					onclick={(event) => handleCardClick(event, item)}
+					aria-disabled={openingTitleKey !== null}
+				>
+					<div class="relative aspect-[2/3] overflow-hidden bg-[var(--void-3)]">
+						{#if item.thumbnailUrl}
+							<LazyImage
+								src={getCachedCoverUrl(item.thumbnailUrl)}
+								alt={item.title}
+								class="h-full w-full"
+								imgClass="transition-transform group-hover:scale-105"
+							/>
+						{:else}
+							<div class="flex h-full w-full items-center justify-center">
+								<ImageIcon size={24} class="text-[var(--text-ghost)]" />
+							</div>
+						{/if}
+
+						{#if item.importedLibraryId}
+							<div class="absolute top-1 right-1 flex items-center gap-1 bg-[var(--success)]/85 px-1.5 py-0.5 text-[10px] text-[var(--void-0)]">
+								<CheckIcon size={10} />
+								<span>{$_('title.inLibrary')}</span>
+							</div>
+						{/if}
+
+						<div class="absolute bottom-1 left-1 bg-[var(--void-0)]/80 px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">
+							{item.sourceName}
+						</div>
+
+						{#if openingTitleKey === item.key}
+							<div class="absolute inset-0 flex items-center justify-center bg-[var(--void-0)]/60 backdrop-blur-[1px]">
+								<SpinnerIcon size={18} class="animate-spin text-[var(--text)]" />
+							</div>
+						{/if}
+					</div>
+
+					<div class="flex flex-1 flex-col gap-1 p-2">
+						<p class="line-clamp-2 text-xs text-[var(--text)]">{item.title}</p>
+					</div>
+				</a>
+			{/each}
+		</div>
+		{#if activeTab !== 'search' && hasMoreFeedPages}
+			<div class="flex items-center justify-center py-4" use:observeInfiniteScroll>
+				{#if loadingMore}
+					<p class="flex items-center gap-2 text-sm text-[var(--text-ghost)]">
+						<SpinnerIcon size={14} class="animate-spin" />
+						{$_('common.loading')}
+					</p>
+				{/if}
+			</div>
+		{/if}
+	{:else}
+		<div class="flex flex-col items-center gap-4 py-16 text-center">
+			<div class="flex h-16 w-16 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]">
+				{#if activeTab === 'search'}
+					<MagnifyingGlassIcon size={24} class="text-[var(--text-ghost)]" />
+				{:else}
+					<CompassIcon size={24} class="text-[var(--text-ghost)]" />
+				{/if}
+			</div>
+			<div>
+				<p class="text-[var(--text)]">
+					{showSearchPrompt ? $_('common.search') : $_('common.noResults')}
+				</p>
+				<p class="mt-1 text-sm text-[var(--text-ghost)]">
+					{showSearchPrompt ? $_('explore.typeToSearch') : $_('explore.tryDifferentSearch')}
+				</p>
+			</div>
+			{#if sources.length === 0}
+				<Button variant="outline" onclick={() => goto('/extensions')}>
+					{$_('explore.goToExtensions')}
+				</Button>
+			{/if}
+		</div>
+	{/if}
 </div>
+
+<SlidePanel
+	open={searchFiltersOpen}
+	title={selectedSource
+		? `${selectedSource.name} ${$_('explore.advancedFilters')}`
+		: $_('explore.advancedFilters')}
+	onclose={closeSearchFilters}
+>
+	{#if searchFiltersLoading}
+		<div class="flex flex-col items-center gap-4 py-12">
+			<SpinnerIcon size={24} class="animate-spin text-[var(--text-muted)]" />
+			<p class="text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
+		</div>
+	{:else if searchFiltersError}
+		<div class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]">
+			{searchFiltersError}
+		</div>
+	{:else if searchFiltersData}
+		<div class="flex flex-col gap-4">
+			{#if searchFiltersData.searchFilters.length === 0}
+				<div class="flex flex-col items-center gap-4 py-12 text-center">
+					<FunnelIcon size={32} class="text-[var(--text-ghost)]" />
+					<p class="text-sm text-[var(--text-ghost)]">{$_('common.empty')}</p>
+				</div>
+			{:else}
+				<div class="flex flex-col gap-4">
+					{#each searchFiltersData.searchFilters.filter((filter) => filter.data.visible !== false) as filter (filter.data.key)}
+						{@const meta = filter.data}
+						<div class="flex flex-col gap-2 border-b border-[var(--line)] pb-4 last:border-b-0">
+							<div>
+								<p class="text-sm text-[var(--text)]">{meta.title || meta.key}</p>
+								{#if meta.summary}
+									<p class="mt-1 text-xs text-[var(--text-ghost)]">{meta.summary}</p>
+								{/if}
+							</div>
+
+							{#if meta.type === 'toggle'}
+								<label class="flex items-center gap-3 text-sm text-[var(--text)]">
+									<input
+										type="checkbox"
+										checked={Boolean(getCurrentSearchFilterValue(meta))}
+										onchange={(event) => handleSearchFilterChange(meta.key, event.currentTarget.checked)}
+									/>
+									<span>Enabled</span>
+								</label>
+							{:else if meta.type === 'list'}
+								<select
+									class="h-11 border border-[var(--void-4)] bg-[var(--void-2)] px-3 text-sm text-[var(--text)]"
+									value={String(getCurrentSearchFilterValue(meta) ?? '')}
+									onchange={(event) => handleSearchFilterChange(meta.key, event.currentTarget.value)}
+								>
+									{#each meta.entry_values ?? [] as value, index (`${meta.key}:${value}:${index}`)}
+										<option value={value}>{meta.entries?.[index] ?? value}</option>
+									{/each}
+								</select>
+							{:else if meta.type === 'multi_select'}
+								<div class="grid gap-2">
+										{#each meta.entry_values ?? [] as value, index (`${meta.key}:${value}:${index}`)}
+											<label class="flex items-center gap-3 text-sm text-[var(--text)]">
+											<input
+												type="checkbox"
+												checked={Array.isArray(getCurrentSearchFilterValue(meta)) &&
+													(getCurrentSearchFilterValue(meta) as string[]).includes(value)}
+												onchange={(event) => toggleMultiSelectValue(meta.key, value, event.currentTarget.checked)}
+											/>
+											<span>{meta.entries?.[index] ?? value}</span>
+										</label>
+									{/each}
+								</div>
+							{:else}
+								<input
+									class="h-11 border border-[var(--void-4)] bg-[var(--void-2)] px-3 text-sm text-[var(--text)]"
+									type="text"
+									value={String(getCurrentSearchFilterValue(meta) ?? '')}
+									oninput={(event) => handleSearchFilterChange(meta.key, event.currentTarget.value)}
+								/>
+							{/if}
+						</div>
+					{/each}
+				</div>
+				<div class="flex gap-2 pt-2">
+					<Button variant="outline" size="sm" onclick={closeSearchFilters}>
+						Cancel
+					</Button>
+					<Button size="sm" onclick={() => void applySearchFilters()}>
+						Apply
+					</Button>
+				</div>
+			{/if}
+		</div>
+	{/if}
+</SlidePanel>

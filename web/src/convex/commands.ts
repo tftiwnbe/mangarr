@@ -88,7 +88,8 @@ export const enqueue = mutation({
 		}
 		const now = Date.now();
 		const targetCapability = targetCapabilityFor(args.commandType);
-		const idempotencyKey = args.idempotencyKey ??
+		const idempotencyKey =
+			args.idempotencyKey ??
 			`${args.commandType}:${identity.subject}:${now}:${Math.random().toString(36).slice(2, 10)}`;
 
 		const commandId = await ctx.db.insert('commands', {
@@ -141,6 +142,35 @@ export const listMine = query({
 				createdAt: row.createdAt,
 				updatedAt: row.updatedAt
 			}));
+	}
+});
+
+export const getMineById = query({
+	args: {
+		commandId: v.id('commands')
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return null;
+		}
+
+		const row = await ctx.db.get(args.commandId);
+		if (!row || row.requestedByUserId !== (identity.subject as GenericId<'users'>)) {
+			return null;
+		}
+
+		return {
+			id: row._id,
+			commandType: row.commandType,
+			status: row.status,
+			payload: row.payload,
+			progress: row.progress ?? null,
+			result: row.result ?? null,
+			lastErrorMessage: row.lastErrorMessage ?? null,
+			createdAt: row.createdAt,
+			updatedAt: row.updatedAt
+		};
 	}
 });
 

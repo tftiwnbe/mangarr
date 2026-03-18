@@ -406,8 +406,12 @@ class BridgeCommandRunner(
                                 put("sourceLang", sourceLang)
                                 put("titleUrl", titleUrl)
                                 put("title", resolved.requiredString("title"))
+                                put("author", resolved.optionalString("author"))
+                                put("artist", resolved.optionalString("artist"))
                                 put("description", resolved.optionalString("description"))
                                 put("coverUrl", resolved.optionalString("coverUrl"))
+                                put("genre", resolved.optionalString("genre"))
+                                put("status", resolved.optionalInt("status") ?: 0)
                                 put("now", System.currentTimeMillis())
                             },
                         ),
@@ -448,6 +452,8 @@ class BridgeCommandRunner(
                     put("created", clientResult.created)
                     put("titleId", clientResult.titleId)
                     put("title", resolved.requiredString("title"))
+                    put("genre", resolved.optionalString("genre"))
+                    put("status", resolved.optionalInt("status") ?: 0)
                     put("localCoverPath", coverPath)
                     put("chapterCount", chapters["chapters"]?.jsonArray?.size ?: 0)
                 }

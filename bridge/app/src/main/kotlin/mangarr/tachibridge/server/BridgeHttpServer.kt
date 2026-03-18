@@ -308,6 +308,50 @@ class BridgeHttpServer(
             }
         }
 
+        server.createContext("/extensions/installed") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+            if (exchange.requestMethod.uppercase() != "GET") {
+                sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+                return@createContext
+            }
+
+            try {
+                val payload = kotlinx.coroutines.runBlocking { bridgeService.listInstalledExtensions() }
+                sendJson(exchange, 200, payload)
+            } catch (error: Exception) {
+                logger.warn(error) { "Failed to list installed extensions" }
+                sendJson(exchange, 502, buildJsonObject { put("message", "Unable to list installed extensions") })
+            }
+        }
+
+        server.createContext("/extensions/proxy") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+            if (exchange.requestMethod.uppercase() != "PUT") {
+                sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+                return@createContext
+            }
+
+            val payload = readJsonBody(exchange)
+            val pkg = payload.optionalString("pkg")
+            val useProxy = payload.optionalBoolean("useProxy")
+            if (pkg.isNullOrBlank() || useProxy == null) {
+                sendJson(exchange, 400, buildJsonObject { put("message", "Missing pkg or useProxy") })
+                return@createContext
+            }
+
+            try {
+                val result = kotlinx.coroutines.runBlocking { bridgeService.setExtensionProxy(pkg, useProxy) }
+                sendJson(exchange, 200, result)
+            } catch (error: Exception) {
+                logger.warn(error) { "Failed to toggle extension proxy for $pkg" }
+                sendJson(exchange, 502, buildJsonObject { put("message", "Unable to update extension proxy") })
+            }
+        }
+
         server.createContext("/downloads/reconcile") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext

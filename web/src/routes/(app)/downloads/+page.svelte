@@ -1,233 +1,299 @@
-<script lang="ts">
+	<script lang="ts">
+	import { onMount } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import { useConvexClient, useQuery } from 'convex-svelte';
-	import { ArrowClockwiseIcon, DownloadIcon, SpinnerIcon, StackIcon } from 'phosphor-svelte';
+	import { HardDriveIcon, PauseIcon, PlayIcon, SpinnerIcon } from 'phosphor-svelte';
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import { convexApi } from '$lib/convex/api';
-	import { Button } from '$lib/elements/button';
+	import { LazyImage } from '$lib/elements/lazy-image';
+	import { Switch } from '$lib/elements/switch';
+	import { Tabs } from '$lib/elements/tabs';
 	import { _ } from '$lib/i18n';
+	import { buildTitlePath } from '$lib/utils/routes';
 
-	type TitleItem = {
-		_id: Id<'libraryTitles'>;
-		title: string;
-		sourcePkg: string;
-		sourceLang: string;
-		coverUrl?: string | null;
-		localCoverPath?: string | null;
-		chapterStats: {
-			total: number;
-			queued: number;
-			downloading: number;
-			downloaded: number;
-			failed: number;
+	type TaskStatus = 'queued' | 'downloading' | 'completed' | 'failed' | 'cancelled';
+	type TabValue = 'active' | 'history' | 'watched';
+
+	type DashboardData = {
+		generatedAt: number | null;
+		overview: {
+			downloadedChapters: number;
+			avgChapterSizeBytes: number;
 		};
-		updatedAt: number;
+		activeTasks: DashboardTask[];
+		recentTasks: DashboardTask[];
+		watchedTitles: WatchedTitle[];
 	};
 
-	type ChapterItem = {
-		_id: Id<'libraryChapters'>;
-		libraryTitleId: Id<'libraryTitles'>;
-		chapterName: string;
-		chapterUrl: string;
-		chapterNumber?: number;
-		downloadStatus: 'missing' | 'queued' | 'downloading' | 'downloaded' | 'failed';
-		downloadedPages: number;
-		totalPages?: number;
-		localRelativePath?: string | null;
-		storageKind?: 'directory' | 'archive' | null;
-		lastErrorMessage?: string | null;
+	type DashboardTask = {
+		titleId: Id<'libraryTitles'>;
 		title: string;
-		titleCoverUrl?: string | null;
-		localCoverPath?: string | null;
+		chapter: string;
+		status: TaskStatus;
+		progressPercent: number;
+		chaptersTotal: number;
+		chaptersQueued: number;
+		chaptersFailed: number;
+		isPaused: boolean;
+		error: string | null;
+		coverUrl: string | null;
+		localCoverPath: string | null;
 		updatedAt: number;
 	};
 
-	type CommandItem = {
-		id: string;
-		commandType: string;
-		status: string;
-		payload?: Record<string, unknown> | null;
-		progress?: {
-			downloadedPages?: number;
-			totalPages?: number;
-			percent?: number;
-		} | null;
-		result?: Record<string, unknown> | null;
-		lastErrorMessage?: string | null;
-		createdAt: number;
+	type WatchedTitle = {
+		titleId: Id<'libraryTitles'>;
+		title: string;
+		coverUrl: string | null;
+		localCoverPath: string | null;
+		enabled: boolean;
+		paused: boolean;
+		autoDownload: boolean;
+		downloadedChapters: number;
+		totalChapters: number;
+		queuedTasks: number;
+		downloadedBytes: number;
+		variantSources: string[];
 		updatedAt: number;
+	};
+
+	type DownloadSettings = {
+		totalSpaceBytes?: number;
+		usedSpaceBytes?: number;
+		freeSpaceBytes?: number;
+	};
+
+	type ReconcileResult = {
+		ok?: boolean;
+		fixed?: number;
+		downloaded?: number;
+		missing?: number;
+		message?: string;
 	};
 
 	const client = useConvexClient();
-	const library = useQuery(convexApi.library.listMine, () => ({}));
-	const chapters = useQuery(convexApi.library.listAllMineChapters, () => ({}));
-	const commands = useQuery(convexApi.commands.listMine, () => ({ limit: 150 }));
+	const dashboardQuery = useQuery(convexApi.library.getDownloadDashboard, () => ({
+		watchedLimit: 30,
+		activeLimit: 100,
+		recentLimit: 40
+	}));
 
-	let selectedTitleId = $state<Id<'libraryTitles'> | null>(null);
-	let previewChapterId = $state<Id<'libraryChapters'> | null>(null);
-	let busyKey = $state<string | null>(null);
-	let error = $state<string | null>(null);
-	let info = $state<string | null>(null);
+	let activeTab = $state<TabValue>('active');
+	let runningAction = $state<string | null>(null);
+	let profileActionTitleId = $state<string | null>(null);
+	let storage = $state<DownloadSettings | null>(null);
+	let reconcileLoading = $state(false);
+	let reconcileError = $state<string | null>(null);
+	let reconcileResult = $state<ReconcileResult | null>(null);
 
-	const titles = $derived((library.data ?? []) as TitleItem[]);
-	const allChapters = $derived((chapters.data ?? []) as ChapterItem[]);
-	const allCommands = $derived((commands.data ?? []) as CommandItem[]);
-
-	$effect(() => {
-		if (!selectedTitleId && titles.length > 0) {
-			selectedTitleId = titles[0]._id;
+	const dashboard = $derived(
+		(dashboardQuery.data as DashboardData | null) ?? {
+			generatedAt: null,
+			overview: {
+				downloadedChapters: 0,
+				avgChapterSizeBytes: 0
+			},
+			activeTasks: [],
+			recentTasks: [],
+			watchedTitles: []
 		}
-		if (selectedTitleId && !titles.some((title) => title._id === selectedTitleId)) {
-			selectedTitleId = titles[0]?._id ?? null;
+	);
+	const isLoading = $derived(dashboardQuery.isLoading);
+	const numberFormatter = new Intl.NumberFormat();
+
+	const watchedByTitleId = $derived.by(() => {
+		const map = new SvelteMap<string, WatchedTitle>();
+		for (const item of dashboard.watchedTitles) {
+			map.set(item.titleId, item);
 		}
+		return map;
 	});
 
-	const selectedTitle = $derived(titles.find((title) => title._id === selectedTitleId) ?? null);
-	const selectedTitleChapters = $derived(
-		allChapters
-			.filter((chapter) => chapter.libraryTitleId === selectedTitleId)
-			.sort((left, right) => right.updatedAt - left.updatedAt)
-	);
+	const tabs: { key: TabValue; labelKey: string }[] = [
+		{ key: 'active', labelKey: 'downloads.active' },
+		{ key: 'history', labelKey: 'downloads.history' },
+		{ key: 'watched', labelKey: 'downloads.watched' }
+	];
 
-	const activeDownloads = $derived(
-		allCommands.filter(
-			(command) =>
-				command.commandType === 'downloads.chapter' &&
-				['queued', 'leased', 'running'].includes(command.status)
-		)
-	);
+	const statusBarClass: Record<TaskStatus, string> = {
+		downloading: 'bg-[var(--text-muted)] shadow-[0_0_6px_rgba(228,228,231,0.4)] animate-pulse',
+		queued: 'bg-[var(--void-6)]',
+		completed: 'bg-[var(--success)]/50 shadow-[0_0_6px_rgba(134,239,172,0.4)]',
+		failed: 'bg-[var(--error)]/50 shadow-[0_0_6px_rgba(248,113,113,0.3)]',
+		cancelled: 'bg-[var(--void-6)]'
+	};
 
-	const recentDownloads = $derived(
-		allCommands
-			.filter((command) => command.commandType === 'downloads.chapter')
-			.slice(0, 12)
-	);
+	onMount(() => {
+		void loadStorage();
+	});
 
-	const previewChapter = $derived(
-		selectedTitleChapters.find((chapter) => chapter._id === previewChapterId) ?? null
-	);
-
-	function coverSrc(title: { localCoverPath?: string | null; coverUrl?: string | null }) {
-		if (title.localCoverPath) {
-			const params = new URLSearchParams({ path: title.localCoverPath });
+	function coverSrc(item: { localCoverPath?: string | null; coverUrl?: string | null }) {
+		if (item.localCoverPath) {
+			const params = new URLSearchParams({ path: item.localCoverPath });
 			return `/api/internal/bridge/library/cover?${params.toString()}`;
 		}
-		return title.coverUrl ?? '';
+		return item.coverUrl ?? '';
 	}
 
-	function downloadedPageSrc(chapter: ChapterItem, index: number) {
-		if (!chapter.localRelativePath || !chapter.storageKind) return '';
-		const params = new URLSearchParams({
-			path: chapter.localRelativePath,
-			storage: chapter.storageKind,
-			index: String(index)
-		});
-		return `/api/internal/bridge/library/page?${params.toString()}`;
+	async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+		const response = await fetch(url, init);
+		const payload = (await response.json().catch(() => null)) as { message?: string } & T;
+		if (!response.ok) {
+			throw new Error(payload?.message ?? 'Request failed');
+		}
+		return payload;
 	}
 
-	function downloadedFileHref(chapter: ChapterItem) {
-		if (!chapter.localRelativePath || !chapter.storageKind) return '';
-		const params = new URLSearchParams({
-			path: chapter.localRelativePath,
-			storage: chapter.storageKind
-		});
-		return `/api/internal/bridge/library/file?${params.toString()}`;
-	}
-
-	async function syncTitle(titleId: Id<'libraryTitles'>) {
-		busyKey = `sync:${titleId}`;
-		error = null;
-		info = null;
+	async function loadStorage() {
 		try {
-			await client.mutation(convexApi.library.requestChapterSync, { titleId });
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Unable to sync chapters';
-		} finally {
-			busyKey = null;
+			storage = await fetchJson<DownloadSettings>('/api/internal/bridge/settings/downloads');
+		} catch {
+			storage = null;
 		}
 	}
 
-	async function queueMissing(titleId: Id<'libraryTitles'>) {
-		busyKey = `queue:${titleId}`;
-		error = null;
-		info = null;
+	async function handleRunWatch() {
+		runningAction = 'cycle';
 		try {
-			await client.mutation(convexApi.library.requestMissingDownloads, { titleId });
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Unable to queue missing chapters';
+			await client.mutation(convexApi.library.runDownloadCycle, { limit: 25 });
 		} finally {
-			busyKey = null;
+			runningAction = null;
 		}
 	}
 
-	async function downloadChapter(chapterId: Id<'libraryChapters'>) {
-		busyKey = `chapter:${chapterId}`;
-		error = null;
-		info = null;
+	async function handleReconcileDownloads() {
+		reconcileLoading = true;
+		reconcileError = null;
 		try {
-			await client.mutation(convexApi.library.requestChapterDownload, { chapterId });
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Unable to start chapter download';
-		} finally {
-			busyKey = null;
-		}
-	}
-
-	async function reconcileDownloads(titleId?: Id<'libraryTitles'> | null) {
-		busyKey = titleId ? `reconcile:${titleId}` : 'reconcile:all';
-		error = null;
-		info = null;
-		try {
-			const response = await fetch('/api/internal/bridge/downloads/reconcile', {
+			reconcileResult = await fetchJson<ReconcileResult>('/api/internal/bridge/downloads/reconcile', {
 				method: 'POST',
 				headers: {
 					'content-type': 'application/json'
 				},
-				body: JSON.stringify(titleId ? { titleId } : {})
+				body: JSON.stringify({})
 			});
-			const payload = (await response.json().catch(() => null)) as
-				| { fixed?: number; message?: string }
-				| null;
-			if (!response.ok) {
-				throw new Error(payload?.message ?? 'Unable to scan downloads');
-			}
-			info = `Scan complete. Fixed ${payload?.fixed ?? 0} chapter records.`;
+			await loadStorage();
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Unable to scan downloads';
+			reconcileError =
+				cause instanceof Error ? cause.message : 'Failed to reconcile downloads';
 		} finally {
-			busyKey = null;
+			reconcileLoading = false;
 		}
 	}
 
-	async function deleteDownloadedFile(chapterId: Id<'libraryChapters'>) {
-		busyKey = `delete:${chapterId}`;
-		error = null;
-		info = null;
+	async function togglePause(titleId: Id<'libraryTitles'>, paused: boolean) {
+		if (profileActionTitleId === titleId) return;
+		profileActionTitleId = titleId;
 		try {
-			const response = await fetch('/api/internal/bridge/downloads/delete', {
-				method: 'POST',
-				headers: {
-					'content-type': 'application/json'
-				},
-				body: JSON.stringify({ chapterId })
+			await client.mutation(convexApi.library.updateDownloadProfile, {
+				titleId,
+				enabled: true,
+				paused
 			});
-			const payload = (await response.json().catch(() => null)) as
-				| { deleted?: boolean; message?: string }
-				| null;
-			if (!response.ok) {
-				throw new Error(payload?.message ?? 'Unable to delete downloaded chapter');
-			}
-			info = payload?.deleted
-				? 'Downloaded chapter file removed.'
-				: 'No stored file was found for this chapter.';
-			if (previewChapterId === chapterId) {
-				previewChapterId = null;
-			}
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Unable to delete downloaded chapter';
 		} finally {
-			busyKey = null;
+			profileActionTitleId = null;
 		}
+	}
+
+	async function toggleWatch(titleId: Id<'libraryTitles'>, enabled: boolean) {
+		if (profileActionTitleId === titleId) return;
+		profileActionTitleId = titleId;
+		try {
+			await client.mutation(convexApi.library.updateDownloadProfile, {
+				titleId,
+				enabled
+			});
+		} finally {
+			profileActionTitleId = null;
+		}
+	}
+
+	function parseTime(value: number): { key: string; values?: Record<string, number> } {
+		const diff = Math.max(0, Date.now() - value);
+		const minutes = Math.floor(diff / 60_000);
+		const hours = Math.floor(minutes / 60);
+		const days = Math.floor(hours / 24);
+		if (days > 0) return { key: 'time.shortDaysAgo', values: { count: days } };
+		if (hours > 0) return { key: 'time.shortHoursAgo', values: { count: hours } };
+		if (minutes > 0) return { key: 'time.shortMinutesAgo', values: { count: minutes } };
+		return { key: 'time.justNow' };
+	}
+
+	function formatBytes(bytes: number): string {
+		if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+		const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+		let value = bytes;
+		let unit = 0;
+		while (value >= 1024 && unit < units.length - 1) {
+			value /= 1024;
+			unit += 1;
+		}
+		const decimals = value >= 100 || unit === 0 ? 0 : value >= 10 ? 1 : 2;
+		return `${value.toFixed(decimals)} ${units[unit]}`;
+	}
+
+	function overviewValue(key: 'downloadedChapters' | 'avgChapterSize' | 'estimatedCapacity') {
+		if (key === 'downloadedChapters') {
+			return numberFormatter.format(Math.max(0, dashboard.overview.downloadedChapters));
+		}
+		if (key === 'avgChapterSize') {
+			return formatBytes(dashboard.overview.avgChapterSizeBytes);
+		}
+		const freeSpace = storage?.freeSpaceBytes ?? 0;
+		if (dashboard.overview.avgChapterSizeBytes <= 0 || freeSpace <= 0) {
+			return '0';
+		}
+		return numberFormatter.format(
+			Math.max(0, Math.floor(freeSpace / dashboard.overview.avgChapterSizeBytes))
+		);
+	}
+
+	function overviewShortLabel(key: 'downloadedChapters' | 'avgChapterSize' | 'estimatedCapacity') {
+		if (key === 'avgChapterSize') return $_('downloads.avgSizeShort');
+		if (key === 'estimatedCapacity') return $_('downloads.capacityShort');
+		return $_('downloads.chaptersShort');
+	}
+
+	function getTasksList(tab: TabValue): DashboardTask[] {
+		if (tab === 'active') return dashboard.activeTasks;
+		if (tab === 'history') return dashboard.recentTasks;
+		return [];
+	}
+
+	function activePlannedProgress(task: DashboardTask) {
+		if (activeTab !== 'active') {
+			return { percent: task.progressPercent };
+		}
+		const watched = watchedByTitleId.get(task.titleId);
+		if (!watched || watched.totalChapters <= 0) {
+			return { percent: task.progressPercent };
+		}
+		return {
+			percent: Math.round((watched.downloadedChapters / watched.totalChapters) * 100)
+		};
+	}
+
+	function taskStats(task: DashboardTask) {
+		if (activeTab === 'active') {
+			const watched = watchedByTitleId.get(task.titleId);
+			if (watched) {
+				return {
+					chaptersTotal: watched.totalChapters,
+					chaptersQueued: watched.queuedTasks
+				};
+			}
+		}
+		return {
+			chaptersTotal: task.chaptersTotal,
+			chaptersQueued: task.chaptersQueued
+		};
+	}
+
+	function tabCount(key: TabValue) {
+		if (key === 'active') return dashboard.activeTasks.length;
+		if (key === 'history') return dashboard.recentTasks.length;
+		return dashboard.watchedTitles.length;
 	}
 </script>
 
@@ -236,302 +302,233 @@
 </svelte:head>
 
 <div class="flex flex-col gap-6">
-	<div class="flex items-center gap-3">
-		<h1 class="text-display flex-1 text-xl text-[var(--text)]">{$_('nav.downloads').toLowerCase()}</h1>
-		<Button size="sm" variant="outline" disabled={busyKey !== null} onclick={() => void reconcileDownloads()}>
-			<StackIcon class="size-4" />
-			Scan All
-		</Button>
+	<div class="flex items-center justify-between">
+		<h1 class="text-display text-xl text-[var(--text)]">{$_('nav.downloads').toLowerCase()}</h1>
+		<div class="flex items-center gap-1">
+			<button
+				type="button"
+				class="flex h-8 w-8 items-center justify-center transition-all {runningAction === 'cycle'
+					? 'text-[var(--text)]'
+					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+				onclick={handleRunWatch}
+				disabled={runningAction !== null}
+				title={$_('downloads.runNow')}
+			>
+				{#if runningAction === 'cycle'}
+					<SpinnerIcon size={14} class="animate-spin" />
+				{:else}
+					<PlayIcon size={14} />
+				{/if}
+			</button>
+			<button
+				type="button"
+				class="flex h-8 w-8 items-center justify-center transition-all {reconcileLoading
+					? 'text-[var(--text)]'
+					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+				onclick={handleReconcileDownloads}
+				disabled={reconcileLoading}
+				title={$_('downloads.scanDownloads')}
+			>
+				{#if reconcileLoading}
+					<SpinnerIcon size={14} class="animate-spin" />
+				{:else}
+					<HardDriveIcon size={14} />
+				{/if}
+			</button>
+		</div>
 	</div>
 
-	{#if error}
-		<div class="border border-red-400/50 bg-red-100/80 px-4 py-3 text-sm text-red-900">{error}</div>
-	{/if}
+	<div class="flex items-start justify-between px-1">
+		{#each ['downloadedChapters', 'avgChapterSize', 'estimatedCapacity'] as statKey (statKey)}
+			<div class="flex flex-col gap-0.5">
+				<span class="text-lg font-medium text-[var(--text)] tabular-nums">
+					{overviewValue(
+						statKey as 'downloadedChapters' | 'avgChapterSize' | 'estimatedCapacity'
+					)}
+				</span>
+				<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
+					{overviewShortLabel(
+						statKey as 'downloadedChapters' | 'avgChapterSize' | 'estimatedCapacity'
+					)}
+				</span>
+				{#if statKey === 'estimatedCapacity'}
+					<span class="text-[10px] text-[var(--text-ghost)]">
+						{formatBytes(storage?.freeSpaceBytes ?? 0)} free
+					</span>
+				{/if}
+			</div>
+		{/each}
+	</div>
 
-	{#if info}
-		<div class="border border-emerald-400/50 bg-emerald-100/80 px-4 py-3 text-sm text-emerald-900">
-			{info}
+	{#if reconcileResult || reconcileLoading || reconcileError}
+		<div class="flex flex-col gap-2">
+			{#if reconcileResult}
+				<p class="text-[10px] tracking-wide text-[var(--text-ghost)]">
+					Fixed {reconcileResult.fixed ?? 0} missing downloaded chapters. Found
+					{reconcileResult.downloaded ?? 0} stored chapters and {reconcileResult.missing ?? 0}
+					missing entries.
+				</p>
+			{/if}
+			{#if reconcileError}
+				<p class="text-xs text-[var(--error)]">{reconcileError}</p>
+			{/if}
 		</div>
 	{/if}
 
-	<div class="grid gap-6 xl:grid-cols-[0.95fr_1.25fr]">
-		<section class="border border-[var(--line)] bg-[var(--surface)] p-4">
-			<div class="mb-4 flex items-center justify-between">
-				<h2 class="text-sm tracking-wider text-[var(--text)] uppercase">Tracked Titles</h2>
-				<span class="text-xs text-[var(--text-ghost)]">{titles.length} titles</span>
+	<Tabs
+		tabs={tabs.map((tab) => ({ value: tab.key, label: $_(tab.labelKey), count: tabCount(tab.key) }))}
+		value={activeTab}
+		onValueChange={(value) => (activeTab = value as TabValue)}
+	/>
+
+	{#if isLoading && !dashboard.generatedAt}
+		<div class="flex items-center justify-center py-20">
+			<SpinnerIcon size={16} class="animate-spin text-[var(--text-ghost)]" />
+		</div>
+	{:else if activeTab === 'watched'}
+		{#if dashboard.watchedTitles.length === 0}
+			<div class="flex flex-col items-center py-20">
+				<p class="text-sm text-[var(--text-ghost)]">{$_('downloads.noWatched')}</p>
 			</div>
-
-			{#if library.isLoading}
-				<p class="text-sm text-[var(--text-ghost)]">Loading library…</p>
-			{:else if titles.length === 0}
-				<p class="text-sm text-[var(--text-ghost)]">
-					Import a title from Explore first. Chapter sync and downloads start from imported titles.
-				</p>
-			{:else}
-				<div class="flex flex-col gap-3">
-					{#each titles as title (title._id)}
-						<button
-							type="button"
-							class="grid gap-3 border p-3 text-left transition xl:grid-cols-[4.5rem_1fr] {selectedTitleId ===
-							title._id
-								? 'border-[var(--accent)] bg-[var(--surface-2)]'
-								: 'border-[var(--line)] hover:border-[var(--accent)]/40'}"
-							onclick={() => {
-								selectedTitleId = title._id;
-								previewChapterId = null;
-							}}
-						>
-							{#if coverSrc(title)}
-								<img
-									src={coverSrc(title)}
-									alt={title.title}
-									class="h-24 w-18 rounded-sm object-cover"
-									loading="lazy"
-								/>
-							{:else}
-								<div class="flex h-24 w-18 items-center justify-center border border-dashed border-[var(--line)] text-xs text-[var(--text-ghost)]">
-									No cover
-								</div>
-							{/if}
-
-							<div class="min-w-0">
-								<p class="truncate text-sm text-[var(--text)]">{title.title}</p>
-								<p class="mt-1 text-xs text-[var(--text-ghost)]">
-									{title.sourcePkg} · {title.sourceLang}
-								</p>
-								<div class="mt-3 grid grid-cols-2 gap-2 text-xs text-[var(--text-muted)]">
-									<span>{title.chapterStats.downloaded}/{title.chapterStats.total} downloaded</span>
-									<span>{title.chapterStats.queued + title.chapterStats.downloading} active</span>
-									<span>{title.chapterStats.failed} failed</span>
-									<span>{new Date(title.updatedAt).toLocaleDateString()}</span>
-								</div>
-								<div class="mt-3 flex flex-wrap gap-2">
-									<Button
-										size="sm"
-										variant="outline"
-										disabled={busyKey !== null}
-										onclick={(event) => {
-											event.stopPropagation();
-											void syncTitle(title._id);
-										}}
-									>
-										<ArrowClockwiseIcon class="size-4" />
-										Sync
-									</Button>
-									<Button
-										size="sm"
-										disabled={busyKey !== null}
-										onclick={(event) => {
-											event.stopPropagation();
-											void queueMissing(title._id);
-										}}
-									>
-										<DownloadIcon class="size-4" />
-										Queue Missing
-									</Button>
-									<Button
-										size="sm"
-										variant="outline"
-										disabled={busyKey !== null}
-										onclick={(event) => {
-											event.stopPropagation();
-											void reconcileDownloads(title._id);
-										}}
-									>
-										<StackIcon class="size-4" />
-										Scan Downloads
-									</Button>
-								</div>
-							</div>
-						</button>
-					{/each}
-				</div>
-			{/if}
-		</section>
-
-		<section class="flex flex-col gap-6">
-			<div class="border border-[var(--line)] bg-[var(--surface)] p-4">
-				<div class="mb-4 flex items-center justify-between">
-					<h2 class="text-sm tracking-wider text-[var(--text)] uppercase">Queue</h2>
-					<span class="text-xs text-[var(--text-ghost)]">{activeDownloads.length} active</span>
-				</div>
-
-				{#if activeDownloads.length === 0}
-					<p class="text-sm text-[var(--text-ghost)]">No active chapter downloads.</p>
-				{:else}
-					<div class="flex flex-col gap-3">
-						{#each activeDownloads as command (command.id)}
-							<div class="border border-[var(--line)] p-3">
-								<div class="flex items-center justify-between gap-3">
-									<div class="min-w-0">
-										<p class="truncate text-sm text-[var(--text)]">
-											{String(command.payload?.title ?? 'Library title')}
-										</p>
-										<p class="truncate text-xs text-[var(--text-ghost)]">
-											{String(command.payload?.chapterName ?? command.payload?.chapterUrl ?? '')}
-										</p>
-									</div>
-									<span class="text-xs uppercase text-[var(--text-muted)]">{command.status}</span>
-								</div>
-								{#if command.progress}
-									<div class="mt-3">
-										<div class="mb-1 flex items-center justify-between text-xs text-[var(--text-ghost)]">
-											<span>
-												{command.progress.downloadedPages ?? 0}/{command.progress.totalPages ?? 0}
-												pages
-											</span>
-											<span>{command.progress.percent ?? 0}%</span>
-										</div>
-										<div class="h-2 overflow-hidden rounded-full bg-[var(--line)]">
-											<div
-												class="h-full bg-[var(--accent)] transition-[width] duration-200"
-												style={`width: ${command.progress.percent ?? 0}%`}
-											></div>
-										</div>
-									</div>
-								{/if}
-							</div>
-						{/each}
-					</div>
-				{/if}
-			</div>
-
-			<div class="border border-[var(--line)] bg-[var(--surface)] p-4">
-				<div class="mb-4 flex items-center justify-between">
-					<div>
-						<h2 class="text-sm tracking-wider text-[var(--text)] uppercase">Chapters</h2>
-						<p class="mt-1 text-xs text-[var(--text-ghost)]">
-							{selectedTitle?.title ?? 'Select a title to manage downloaded chapters'}
-						</p>
-					</div>
-					<span class="text-xs text-[var(--text-ghost)]">{selectedTitleChapters.length} chapters</span>
-				</div>
-
-				{#if !selectedTitle}
-					<p class="text-sm text-[var(--text-ghost)]">No imported title selected.</p>
-				{:else if selectedTitleChapters.length === 0}
-					<p class="text-sm text-[var(--text-ghost)]">
-						No chapters synced yet. Use “Sync” to fetch chapters from the source.
-					</p>
-				{:else}
-					<div class="grid gap-4 xl:grid-cols-[1fr_18rem]">
-						<div class="flex max-h-[38rem] flex-col gap-2 overflow-y-auto pr-1">
-							{#each selectedTitleChapters as chapter (chapter._id)}
-								<div class="border border-[var(--line)] p-3">
-									<div class="flex flex-wrap items-start justify-between gap-3">
-										<div class="min-w-0 flex-1">
-											<p class="truncate text-sm text-[var(--text)]">{chapter.chapterName}</p>
-											<p class="mt-1 text-xs text-[var(--text-ghost)]">
-												{chapter.downloadStatus}
-												{#if chapter.totalPages}
-													· {chapter.downloadedPages}/{chapter.totalPages} pages
-												{/if}
-											</p>
-											{#if chapter.lastErrorMessage}
-												<p class="mt-1 text-xs text-red-700">{chapter.lastErrorMessage}</p>
-											{/if}
-										</div>
-
-										<div class="flex flex-wrap gap-2">
-											{#if chapter.downloadStatus !== 'downloaded'}
-												<Button
-													size="sm"
-													disabled={busyKey !== null}
-													onclick={() => void downloadChapter(chapter._id)}
-												>
-													{#if busyKey === `chapter:${chapter._id}`}
-														<SpinnerIcon class="size-4 animate-spin" />
-													{:else}
-														<DownloadIcon class="size-4" />
-													{/if}
-													Download
-												</Button>
-											{:else}
-												<div class="flex flex-wrap gap-2">
-													<Button
-														size="sm"
-														variant="outline"
-														onclick={() => {
-															previewChapterId = chapter._id;
-														}}
-													>
-														<StackIcon class="size-4" />
-														Preview
-													</Button>
-													<a
-														href={downloadedFileHref(chapter)}
-														class="relative inline-flex h-8 items-center justify-center gap-2 border border-[var(--line)] px-3 text-xs font-medium text-[var(--text-soft)] transition-all hover:border-[var(--void-6)] hover:bg-[var(--void-2)] hover:text-[var(--text)] active:bg-[var(--void-3)]"
-													>
-														<DownloadIcon class="size-4" />
-														Export CBZ
-													</a>
-													<Button
-														size="sm"
-														variant="outline"
-														disabled={busyKey !== null}
-														onclick={() => void deleteDownloadedFile(chapter._id)}
-													>
-														Delete File
-													</Button>
-												</div>
-											{/if}
-										</div>
-									</div>
-								</div>
-							{/each}
-						</div>
-
-						<div class="border border-[var(--line)] bg-[var(--surface-2)] p-3">
-							<h3 class="text-xs tracking-wider text-[var(--text)] uppercase">Downloaded Preview</h3>
-							{#if previewChapter && previewChapter.localRelativePath && previewChapter.storageKind}
-								<p class="mt-2 text-xs text-[var(--text-ghost)]">{previewChapter.chapterName}</p>
-								<img
-									src={downloadedPageSrc(previewChapter, 0)}
-									alt={`${previewChapter.chapterName} preview`}
-									class="mt-3 max-h-[34rem] w-full rounded-sm border border-[var(--line)] object-contain"
-									loading="lazy"
-								/>
-							{:else}
-								<p class="mt-2 text-sm text-[var(--text-ghost)]">
-									Choose a downloaded chapter to preview its first stored page.
-								</p>
-							{/if}
-						</div>
-					</div>
-				{/if}
-			</div>
-
-			<div class="border border-[var(--line)] bg-[var(--surface)] p-4">
-				<div class="mb-4 flex items-center justify-between">
-					<h2 class="text-sm tracking-wider text-[var(--text)] uppercase">Recent Download Commands</h2>
-					<span class="text-xs text-[var(--text-ghost)]">{recentDownloads.length} recent</span>
-				</div>
-
-				{#if recentDownloads.length === 0}
-					<p class="text-sm text-[var(--text-ghost)]">No download activity yet.</p>
-				{:else}
-					<div class="flex flex-col gap-2">
-						{#each recentDownloads as command (command.id)}
-							<div class="flex items-center justify-between gap-3 border-b border-[var(--line)] pb-2 text-xs">
-								<div class="min-w-0">
-									<p class="truncate text-[var(--text)]">
-										{String(command.payload?.title ?? 'Library title')}
-									</p>
-									<p class="truncate text-[var(--text-ghost)]">
-										{String(command.payload?.chapterName ?? command.payload?.chapterUrl ?? '')}
-									</p>
-								</div>
-								<span
-									class:text-red-700={command.status === 'failed' || command.status === 'dead_letter'}
-									class:text-[var(--text-muted)]={command.status !== 'failed' && command.status !== 'dead_letter'}
-								>
-									{command.status}
+		{:else}
+			<div class="flex flex-col gap-1">
+				{#each dashboard.watchedTitles as item (item.titleId)}
+					{@const progress =
+						item.totalChapters > 0
+							? Math.round((item.downloadedChapters / item.totalChapters) * 100)
+							: 0}
+					<div class="group flex gap-3 py-2 transition-opacity {item.enabled ? '' : 'opacity-35'}">
+						<a href={buildTitlePath(item.titleId, item.title)} class="shrink-0">
+							<LazyImage
+								src={coverSrc(item)}
+								alt={item.title}
+								class="h-16 w-11 border border-[var(--line)]"
+							/>
+						</a>
+						<a href={buildTitlePath(item.titleId, item.title)} class="min-w-0 flex-1">
+							<div class="flex items-baseline justify-between gap-2">
+								<p class="line-clamp-1 text-sm text-[var(--text)]">{item.title}</p>
+								<span class="shrink-0 text-xs text-[var(--text-soft)] tabular-nums">
+									{item.downloadedChapters}/{item.totalChapters}
 								</span>
 							</div>
-						{/each}
+							<div class="mt-0.5 flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
+								{#if item.variantSources.length > 0}
+									<span>{item.variantSources.join(', ')}</span>
+								{/if}
+								{#if item.paused}
+									<span class="text-[var(--text-muted)]">{$_('downloads.paused').toLowerCase()}</span>
+								{/if}
+								{#if item.autoDownload}
+									<span>auto</span>
+								{/if}
+								<span>{formatBytes(item.downloadedBytes)}</span>
+							</div>
+							{#if item.queuedTasks > 0}
+								<div class="mt-0.5 flex items-center gap-2 text-[10px]">
+									<span class="text-[var(--text-ghost)]">
+										{item.queuedTasks} {$_('downloads.queued').toLowerCase()}
+									</span>
+								</div>
+							{/if}
+							<div class="mt-2 h-0.5 w-full overflow-hidden bg-[var(--void-4)]">
+								<div
+									class="h-full bg-[var(--text-muted)] transition-[width]"
+									style="width: {progress}%"
+								></div>
+							</div>
+						</a>
+						<Switch
+							checked={item.enabled}
+							disabled={profileActionTitleId === item.titleId}
+							loading={profileActionTitleId === item.titleId}
+							variant="success"
+							class="self-center"
+							onCheckedChange={(enabled) => void toggleWatch(item.titleId, enabled)}
+						/>
 					</div>
-				{/if}
+				{/each}
 			</div>
-		</section>
-	</div>
+		{/if}
+	{:else}
+		{@const tasks = getTasksList(activeTab)}
+		{#if tasks.length === 0}
+			<div class="flex flex-col items-center py-20">
+				<p class="text-sm text-[var(--text-ghost)]">
+					{activeTab === 'active' ? $_('downloads.noActive') : $_('downloads.noHistory')}
+				</p>
+			</div>
+		{:else}
+			<div class="flex flex-col gap-1">
+				{#each tasks as task (`${activeTab}:${task.titleId}`)}
+					{@const time = parseTime(task.updatedAt)}
+					{@const progress = activePlannedProgress(task)}
+					{@const stats = taskStats(task)}
+					<div class="group flex gap-3 py-2">
+						<a href={buildTitlePath(task.titleId, task.title)} class="shrink-0">
+							<LazyImage
+								src={coverSrc(task)}
+								alt={task.title}
+								class="h-16 w-11 border border-[var(--line)]"
+							/>
+						</a>
+						<div class="min-w-0 flex-1">
+							<div class="flex items-baseline justify-between gap-2">
+								<a href={buildTitlePath(task.titleId, task.title)} class="min-w-0">
+									<p class="line-clamp-1 text-sm text-[var(--text)]">{task.title}</p>
+								</a>
+								<span class="shrink-0 text-sm text-[var(--text)] tabular-nums">
+									{progress.percent}%
+								</span>
+							</div>
+							<p class="mt-0.5 line-clamp-1 text-xs text-[var(--text-muted)]">{task.chapter}</p>
+							<div class="mt-1 flex flex-wrap items-center gap-x-2 text-[10px] text-[var(--text-ghost)]">
+								{#if stats.chaptersTotal > 1}
+									<span>{stats.chaptersTotal} ch</span>
+								{/if}
+								{#if stats.chaptersQueued > 0}
+									<span>{stats.chaptersQueued} {$_('downloads.queued').toLowerCase()}</span>
+								{/if}
+								{#if task.chaptersFailed > 0}
+									<span class="text-[var(--error)]">
+										{task.chaptersFailed} {$_('downloads.failed').toLowerCase()}
+									</span>
+								{/if}
+								<span>{$_(time.key, { values: time.values })}</span>
+								{#if activeTab === 'active' && task.isPaused}
+									<span class="text-[var(--text-muted)]">{$_('downloads.paused').toLowerCase()}</span>
+								{/if}
+							</div>
+							<div class="mt-2 h-0.5 w-full bg-[var(--void-4)]">
+								<div
+									class="h-full transition-[width] duration-300 {statusBarClass[task.status]}"
+									style="width: {progress.percent}%"
+								></div>
+							</div>
+							{#if task.error && task.error !== 'Paused'}
+								<p class="mt-1 line-clamp-1 text-[10px] text-[var(--error)]">{task.error}</p>
+							{/if}
+						</div>
+						{#if activeTab === 'active'}
+							<button
+								type="button"
+								class="flex h-8 w-8 shrink-0 items-center justify-center self-center text-[var(--text-ghost)] transition-all hover:text-[var(--text-muted)]"
+								onclick={() => togglePause(task.titleId, !task.isPaused)}
+								disabled={profileActionTitleId === task.titleId}
+								title={task.isPaused ? $_('downloads.resume') : $_('downloads.pause')}
+							>
+								{#if profileActionTitleId === task.titleId}
+									<SpinnerIcon size={15} class="animate-spin" />
+								{:else if task.isPaused}
+									<PlayIcon size={15} />
+								{:else}
+									<PauseIcon size={15} />
+								{/if}
+							</button>
+						{/if}
+					</div>
+				{/each}
+			</div>
+		{/if}
+	{/if}
 </div>

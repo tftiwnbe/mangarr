@@ -2,27 +2,28 @@ import { writable } from 'svelte/store';
 
 import { getReaderProgress, setReaderProgress } from '$lib/utils/reader-progress';
 
-type ProgressState = Record<number, number>;
+type ProgressState = Record<string, number>;
 
 const state = writable<ProgressState>({});
 
-function setPage(chapterId: number, pageIndex: number): void {
-	state.update((current) => ({ ...current, [chapterId]: pageIndex }));
+function setPage(chapterId: string | number, pageIndex: number): void {
+	state.update((current) => ({ ...current, [String(chapterId)]: pageIndex }));
 	setReaderProgress(chapterId, pageIndex);
 }
 
-function getPage(chapterId: number): number | null {
+function getPage(chapterId: string | number): number | null {
 	let cached: number | null = null;
 	state.update((current) => {
-		if (chapterId in current) {
-			cached = current[chapterId];
+		const key = String(chapterId);
+		if (key in current) {
+			cached = current[key];
 			return current;
 		}
 
 		const stored = getReaderProgress(chapterId);
 		if (stored !== null) {
 			cached = stored;
-			return { ...current, [chapterId]: stored };
+			return { ...current, [key]: stored };
 		}
 
 		return current;

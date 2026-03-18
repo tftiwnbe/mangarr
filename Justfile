@@ -47,7 +47,17 @@ convex-push:
 [group('dev')]
 convex-codegen:
     @echo "Regenerating Convex generated files through the running mangarr container..."
-    docker compose -f compose.dev.yaml exec -T mangarr sh -lc 'cd /app/web && pnpm run convex:codegen'
+    docker compose -f compose.dev.yaml exec -T mangarr sh -lc '\
+      set -eu; \
+      CONVEX_ROOT="${CONVEX_ROOT:-/app/config/convex}"; \
+      INSTANCE_NAME="${INSTANCE_NAME:-mangarr}"; \
+      SECRET_FILE="${CONVEX_ROOT}/instance_secret"; \
+      INSTANCE_SECRET="$(cat "${SECRET_FILE}")"; \
+      ADMIN_KEY="$(/app/convex/generate_key "${INSTANCE_NAME}" "${INSTANCE_SECRET}" | tail -n1)"; \
+      CONVEX_INTERNAL_URL="${CONVEX_URL:-${CONVEX_SELF_HOSTED_URL:-http://127.0.0.1:${CONVEX_PORT:-3210}}}"; \
+      cd /app/web; \
+      export CONVEX_URL="${CONVEX_INTERNAL_URL}" CONVEX_SELF_HOSTED_URL="${CONVEX_INTERNAL_URL}" CONVEX_ADMIN_KEY="${ADMIN_KEY}" CONVEX_SELF_HOSTED_ADMIN_KEY="${ADMIN_KEY}"; \
+      pnpm exec convex codegen --typecheck disable'
 
 # Start container stack for development
 [group('dev')]
