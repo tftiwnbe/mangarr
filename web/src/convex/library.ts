@@ -147,6 +147,12 @@ export const getMineById = query({
 
 		const chapterById = new Map(chapters.map((chapter) => [chapter._id, chapter]));
 		const latestProgress = [...progressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
+		const downloadProfile = await ctx.db
+			.query('downloadProfiles')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+			)
+			.unique();
 
 		return {
 			...title,
@@ -183,6 +189,16 @@ export const getMineById = query({
 						updatedAt: comment.updatedAt
 					};
 				}),
+			downloadProfile: downloadProfile
+				? {
+						enabled: downloadProfile.enabled,
+						paused: downloadProfile.paused,
+						autoDownload: downloadProfile.autoDownload,
+						lastCheckedAt: downloadProfile.lastCheckedAt ?? null,
+						lastSuccessAt: downloadProfile.lastSuccessAt ?? null,
+						lastError: downloadProfile.lastError ?? null
+					}
+				: null,
 			chapters: chapters.sort((left, right) => right.sequence - left.sequence)
 		};
 	}
@@ -436,6 +452,285 @@ export const listAllMineChapters = query({
 		}
 
 		return rows.sort((left, right) => right.updatedAt - left.updatedAt);
+	}
+});
+
+export const getDownloadDashboard = query({
+	args: {
+		watchedLimit: v.optional(v.float64()),
+		activeLimit: v.optional(v.float64()),
+		recentLimit: v.optional(v.float64())
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return {
+				generatedAt: null,
+				overview: {
+					downloadedChapters: 0,
+					avgChapterSizeBytes: 0
+				},
+				activeTasks: [],
+				recentTasks: [],
+				watchedTitles: []
+			};
+		}
+
+		const ownerUserId = identity.subject as GenericId<'users'>;
+		const watchedLimit = Math.max(1, Math.min(Math.floor(args.watchedLimit ?? 30), 100));
+		const activeLimit = Math.max(1, Math.min(Math.floor(args.activeLimit ?? 20), 100));
+		const recentLimit = Math.max(1, Math.min(Math.floor(args.recentLimit ?? 20), 100));
+
+		const [titles, profileRows, installedExtensions, commandRows] = await Promise.all([
+			ctx.db
+				.query('libraryTitles')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+				.collect(),
+			ctx.db
+				.query('downloadProfiles')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+				.collect(),
+			ctx.db.query('installedExtensions').collect(),
+			ctx.db
+				.query('commands')
+				.withIndex('by_requested_by_user_id_created_at', (q) => q.eq('requestedByUserId', ownerUserId))
+				.collect()
+		]);
+
+		const sourceNamesById = new Map<string, string>();
+		const sourceNamesByPkg = new Map<string, string>();
+		for (const extension of installedExtensions) {
+			const extensionName = cleanExtensionLabel(extension.name);
+			sourceNamesByPkg.set(extension.pkg, extensionName);
+			for (const source of extension.sources ?? []) {
+				sourceNamesById.set(source.id, source.name);
+			}
+		}
+
+		const profileByTitleId = new Map(
+			profileRows.map((profile) => [profile.libraryTitleId as string, profile] as const)
+		);
+
+		const chapterStatsByTitleId = new Map<
+			string,
+			{
+				total: number;
+				downloaded: number;
+				downloadedBytes: number;
+				lastDownloadedAt: number | null;
+			}
+		>();
+		let downloadedChapters = 0;
+		let totalDownloadedBytes = 0;
+
+		for (const title of titles) {
+			const chapters = await ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+				.collect();
+
+			let downloaded = 0;
+			let downloadedBytes = 0;
+			let lastDownloadedAt: number | null = null;
+			for (const chapter of chapters) {
+				if (chapter.downloadStatus !== DOWNLOAD_STATUS.DOWNLOADED) continue;
+				downloaded += 1;
+				downloadedBytes += chapter.fileSizeBytes ?? 0;
+				const downloadedAt = chapter.downloadedAt ?? chapter.updatedAt;
+				lastDownloadedAt =
+					lastDownloadedAt === null ? downloadedAt : Math.max(lastDownloadedAt, downloadedAt);
+			}
+
+			downloadedChapters += downloaded;
+			totalDownloadedBytes += downloadedBytes;
+			chapterStatsByTitleId.set(title._id as string, {
+				total: chapters.length,
+				downloaded,
+				downloadedBytes,
+				lastDownloadedAt
+			});
+		}
+
+		const downloadCommands = commandRows.filter((row) => row.commandType === 'downloads.chapter');
+		const activeTaskMap = new Map<
+			string,
+			{
+				titleId: string;
+				title: string;
+				chapter: string;
+				status: 'queued' | 'downloading';
+				progressPercent: number;
+				chaptersTotal: number;
+				chaptersQueued: number;
+				chaptersFailed: number;
+				isPaused: boolean;
+				error: string | null;
+				coverUrl: string | null;
+				localCoverPath: string | null;
+				updatedAt: number;
+			}
+		>();
+		const recentTaskMap = new Map<
+			string,
+			{
+				titleId: string;
+				title: string;
+				chapter: string;
+				status: 'completed' | 'failed' | 'cancelled';
+				progressPercent: number;
+				chaptersTotal: number;
+				chaptersQueued: number;
+				chaptersFailed: number;
+				isPaused: boolean;
+				error: string | null;
+				coverUrl: string | null;
+				localCoverPath: string | null;
+				updatedAt: number;
+			}
+		>();
+
+		for (const row of downloadCommands) {
+			const payload = (row.payload ?? {}) as Record<string, unknown>;
+			const titleId = String(payload.titleId ?? '').trim();
+			if (!titleId) continue;
+			const title = titles.find((item) => String(item._id) === titleId);
+			if (!title) continue;
+
+			const titleStats = chapterStatsByTitleId.get(titleId) ?? {
+				total: 0,
+				downloaded: 0,
+				downloadedBytes: 0,
+				lastDownloadedAt: null
+			};
+			const profile = profileByTitleId.get(titleId);
+			const chapterName = String(payload.chapterName ?? '').trim() || 'Chapter';
+			const progressPercent = downloadCommandPercent(row.progress ?? null, row.status);
+
+			if (['queued', 'leased', 'running'].includes(row.status)) {
+				const current = activeTaskMap.get(titleId);
+				const nextStatus = row.status === 'running' ? 'downloading' : (current?.status ?? 'queued');
+				const nextFailed = current?.chaptersFailed ?? 0;
+				activeTaskMap.set(titleId, {
+					titleId,
+					title: title.title,
+					chapter:
+						!current || row.updatedAt >= current.updatedAt ? chapterName : current.chapter,
+					status: nextStatus,
+					progressPercent:
+						!current || row.updatedAt >= current.updatedAt
+							? progressPercent
+							: current.progressPercent,
+					chaptersTotal: titleStats.total,
+					chaptersQueued: (current?.chaptersQueued ?? 0) + 1,
+					chaptersFailed: nextFailed,
+					isPaused: profile?.paused ?? false,
+					error: current?.error ?? null,
+					coverUrl: title.coverUrl ?? null,
+					localCoverPath: title.localCoverPath ?? null,
+					updatedAt: Math.max(current?.updatedAt ?? 0, row.updatedAt)
+				});
+				continue;
+			}
+
+			if (!['succeeded', 'failed', 'cancelled'].includes(row.status)) continue;
+			const mappedStatus =
+				row.status === 'succeeded'
+					? 'completed'
+					: row.status === 'failed'
+						? 'failed'
+						: 'cancelled';
+			const current = recentTaskMap.get(titleId);
+			const failedCount =
+				(current?.chaptersFailed ?? 0) + (mappedStatus === 'failed' ? 1 : 0);
+			if (current && current.updatedAt > row.updatedAt) {
+				recentTaskMap.set(titleId, {
+					...current,
+					chaptersFailed: failedCount
+				});
+				continue;
+			}
+
+			recentTaskMap.set(titleId, {
+				titleId,
+				title: title.title,
+				chapter: chapterName,
+				status: mappedStatus,
+				progressPercent: mappedStatus === 'completed' ? 100 : progressPercent,
+				chaptersTotal: titleStats.total,
+				chaptersQueued: 0,
+				chaptersFailed: failedCount,
+				isPaused: profile?.paused ?? false,
+				error: row.lastErrorMessage ?? null,
+				coverUrl: title.coverUrl ?? null,
+				localCoverPath: title.localCoverPath ?? null,
+				updatedAt: row.updatedAt
+			});
+		}
+
+		const watchedTitles = titles
+			.map((title) => {
+				const titleId = String(title._id);
+				const profile = profileByTitleId.get(titleId) ?? null;
+				const stats = chapterStatsByTitleId.get(titleId) ?? {
+					total: 0,
+					downloaded: 0,
+					downloadedBytes: 0,
+					lastDownloadedAt: null
+				};
+				if (!profile && stats.downloaded === 0) {
+					return null;
+				}
+
+				const sourceName =
+					sourceNamesById.get(title.sourceId) ??
+					sourceNamesByPkg.get(title.sourcePkg) ??
+					humanizeSourcePkg(title.sourcePkg);
+				const queuedTasks = activeTaskMap.get(titleId)?.chaptersQueued ?? 0;
+				const updatedAt =
+					profile?.updatedAt ??
+					stats.lastDownloadedAt ??
+					title.updatedAt;
+
+				return {
+					titleId,
+					title: title.title,
+					coverUrl: title.coverUrl ?? null,
+					localCoverPath: title.localCoverPath ?? null,
+					enabled: profile?.enabled ?? false,
+					paused: profile?.paused ?? false,
+					autoDownload: profile?.autoDownload ?? true,
+					downloadedChapters: stats.downloaded,
+					totalChapters: stats.total,
+					queuedTasks,
+					downloadedBytes: stats.downloadedBytes,
+					variantSources: [`${sourceName}${title.sourceLang ? ` [${title.sourceLang}]` : ''}`],
+					updatedAt
+				};
+			})
+			.filter((item): item is NonNullable<typeof item> => item !== null)
+			.sort((left, right) => {
+				if (left.enabled !== right.enabled) {
+					return left.enabled ? -1 : 1;
+				}
+				return right.updatedAt - left.updatedAt;
+			})
+			.slice(0, watchedLimit);
+
+		return {
+			generatedAt: Date.now(),
+			overview: {
+				downloadedChapters,
+				avgChapterSizeBytes:
+					downloadedChapters > 0 ? Math.round(totalDownloadedBytes / downloadedChapters) : 0
+			},
+			activeTasks: [...activeTaskMap.values()]
+				.sort((left, right) => right.updatedAt - left.updatedAt)
+				.slice(0, activeLimit),
+			recentTasks: [...recentTaskMap.values()]
+				.sort((left, right) => right.updatedAt - left.updatedAt)
+				.slice(0, recentLimit),
+			watchedTitles
+		};
 	}
 });
 
@@ -829,6 +1124,161 @@ export const requestChapterDownload = mutation({
 	}
 });
 
+export const updateDownloadProfile = mutation({
+	args: {
+		titleId: v.id('libraryTitles'),
+		enabled: v.optional(v.boolean()),
+		paused: v.optional(v.boolean()),
+		autoDownload: v.optional(v.boolean())
+	},
+	handler: async (ctx, args) => {
+		const title = await requireOwnedTitle(ctx, args.titleId);
+		const userId = title.ownerUserId;
+		const now = Date.now();
+		const current = await ctx.db
+			.query('downloadProfiles')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', userId).eq('libraryTitleId', title._id)
+			)
+			.unique();
+
+		if (!current) {
+			const profileId = await ctx.db.insert('downloadProfiles', {
+				ownerUserId: userId,
+				libraryTitleId: title._id,
+				enabled: args.enabled ?? false,
+				paused: args.paused ?? false,
+				autoDownload: args.autoDownload ?? true,
+				createdAt: now,
+				updatedAt: now
+			});
+			const created = await ctx.db.get(profileId);
+			if (!created) {
+				throw new Error('Failed to create download profile');
+			}
+			return {
+				id: created._id,
+				enabled: created.enabled,
+				paused: created.paused,
+				autoDownload: created.autoDownload,
+				lastCheckedAt: created.lastCheckedAt ?? null,
+				lastSuccessAt: created.lastSuccessAt ?? null,
+				lastError: created.lastError ?? null
+			};
+		}
+
+		await ctx.db.patch(current._id, {
+			enabled: args.enabled ?? current.enabled,
+			paused: args.paused ?? current.paused,
+			autoDownload: args.autoDownload ?? current.autoDownload,
+			updatedAt: now
+		});
+
+		const updated = await ctx.db.get(current._id);
+		if (!updated) {
+			throw new Error('Failed to update download profile');
+		}
+
+		return {
+			id: updated._id,
+			enabled: updated.enabled,
+			paused: updated.paused,
+			autoDownload: updated.autoDownload,
+			lastCheckedAt: updated.lastCheckedAt ?? null,
+			lastSuccessAt: updated.lastSuccessAt ?? null,
+			lastError: updated.lastError ?? null
+		};
+	}
+});
+
+export const runDownloadCycle = mutation({
+	args: {
+		limit: v.optional(v.float64())
+	},
+	handler: async (ctx, args) => {
+		const userId = await requireViewerUserId(ctx);
+		const limit = Math.max(1, Math.min(Math.floor(args.limit ?? 25), 100));
+		const now = Date.now();
+		const profiles = await ctx.db
+			.query('downloadProfiles')
+			.withIndex('by_owner_user_id_enabled_updated_at', (q) =>
+				q.eq('ownerUserId', userId).eq('enabled', true)
+			)
+			.collect();
+
+		let checked = 0;
+		let enqueued = 0;
+		for (const profile of profiles.sort((left, right) => right.updatedAt - left.updatedAt).slice(0, limit)) {
+			if (profile.paused) {
+				continue;
+			}
+
+			const title = await ctx.db.get(profile.libraryTitleId);
+			if (!title || title.ownerUserId !== userId) {
+				continue;
+			}
+
+			const chapters = await ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+				.collect();
+
+			checked += 1;
+			let localEnqueued = 0;
+			for (const chapter of chapters) {
+				if (
+					chapter.downloadStatus !== DOWNLOAD_STATUS.MISSING &&
+					chapter.downloadStatus !== DOWNLOAD_STATUS.FAILED
+				) {
+					continue;
+				}
+
+				await ctx.db.patch(chapter._id, {
+					downloadStatus: DOWNLOAD_STATUS.QUEUED,
+					downloadedPages: 0,
+					totalPages: undefined,
+					lastErrorMessage: undefined,
+					updatedAt: now
+				});
+				localEnqueued += 1;
+				enqueued += 1;
+
+				await ctx.db.insert('commands', {
+					commandType: 'downloads.chapter',
+					targetCapability: 'downloads.chapter',
+					requestedByUserId: userId,
+					payload: {
+						chapterId: chapter._id,
+						titleId: title._id,
+						sourceId: chapter.sourceId,
+						titleUrl: chapter.titleUrl,
+						chapterUrl: chapter.chapterUrl,
+						title: title.title,
+						chapterName: chapter.chapterName
+					},
+					idempotencyKey: `downloads.cycle:${String(chapter._id)}:${now}:${localEnqueued}`,
+					status: 'queued',
+					priority: 100 + localEnqueued,
+					runAfter: now,
+					attemptCount: 0,
+					maxAttempts: 3,
+					createdAt: now,
+					updatedAt: now
+				});
+			}
+
+			await ctx.db.patch(profile._id, {
+				lastCheckedAt: now,
+				lastSuccessAt: localEnqueued > 0 ? now : profile.lastSuccessAt,
+				lastError: undefined,
+				updatedAt: now
+			});
+		}
+
+		return { checked, enqueued };
+	}
+});
+
 export const requestMissingDownloads = mutation({
 	args: {
 		titleId: v.id('libraryTitles')
@@ -1188,6 +1638,38 @@ async function requireViewerIdentity(ctx: QueryCtx | MutationCtx) {
 async function requireViewerUserId(ctx: QueryCtx | MutationCtx) {
 	const identity = await requireViewerIdentity(ctx);
 	return identity.subject as GenericId<'users'>;
+}
+
+function downloadCommandPercent(progress: unknown, status: string) {
+	if (status === 'succeeded') return 100;
+	if (!progress || typeof progress !== 'object') return 0;
+
+	const row = progress as Record<string, unknown>;
+	const percent = Number(row.percent ?? NaN);
+	if (Number.isFinite(percent) && percent >= 0) {
+		return Math.max(0, Math.min(100, Math.round(percent)));
+	}
+
+	const downloadedPages = Number(row.downloadedPages ?? NaN);
+	const totalPages = Number(row.totalPages ?? NaN);
+	if (Number.isFinite(downloadedPages) && Number.isFinite(totalPages) && totalPages > 0) {
+		return Math.max(0, Math.min(100, Math.round((downloadedPages / totalPages) * 100)));
+	}
+
+	return 0;
+}
+
+function cleanExtensionLabel(name: string) {
+	return name.replace(/^tachiyomi:\s*/i, '').trim();
+}
+
+function humanizeSourcePkg(sourcePkg: string) {
+	const segment = sourcePkg.split('.').filter(Boolean).at(-1) ?? sourcePkg;
+	if (segment.toLowerCase() === 'mangadex') return 'MangaDex';
+	return segment
+		.replace(/[-_]+/g, ' ')
+		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+		.replace(/\b\w/g, (value) => value.toUpperCase());
 }
 
 function slugifyStatusKey(label: string, existingKeys: string[]) {

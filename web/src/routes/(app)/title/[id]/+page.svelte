@@ -77,6 +77,14 @@
 			createdAt: number;
 			updatedAt: number;
 		}>;
+		downloadProfile: {
+			enabled: boolean;
+			paused: boolean;
+			autoDownload: boolean;
+			lastCheckedAt?: number | null;
+			lastSuccessAt?: number | null;
+			lastError?: string | null;
+		} | null;
 		chapters: ChapterRow[];
 	};
 
@@ -108,6 +116,7 @@
 	let showFullDescription = $state(false);
 	let showManagementPanel = $state(false);
 	let downloadingChapterIds = $state<string[]>([]);
+	let updatingDownloadProfile = $state(false);
 	let actionError = $state<string | null>(null);
 	let metadataRequested = $state(false);
 	let fallbackMetadata = $state<{ author: string | null; artist: string | null } | null>(null);
@@ -175,7 +184,7 @@
 	const artist = $derived.by(() =>
 		String(fallbackMetadata?.artist ?? fetchedMetadata?.artist ?? title?.artist ?? '').trim()
 	);
-	const updatesEnabled = $derived(false);
+	const updatesEnabled = $derived(Boolean(title?.downloadProfile?.enabled));
 	const chaptersLabel = $derived.by(() =>
 		`${title?.chapterStats.total ?? 0} ${$_('title.chapters').toLowerCase()}`
 	);
@@ -309,6 +318,22 @@
 			actionError = error instanceof Error ? error.message : 'Unable to queue chapter download';
 		} finally {
 			downloadingChapterIds = downloadingChapterIds.filter((id) => id !== chapterId);
+		}
+	}
+
+	async function toggleDownloadUpdates() {
+		if (!title || updatingDownloadProfile) return;
+		updatingDownloadProfile = true;
+		actionError = null;
+		try {
+			await client.mutation(convexApi.library.updateDownloadProfile, {
+				titleId: title._id,
+				enabled: !updatesEnabled
+			});
+		} catch (cause) {
+			actionError = cause instanceof Error ? cause.message : 'Unable to update downloads';
+		} finally {
+			updatingDownloadProfile = false;
 		}
 	}
 </script>
@@ -770,10 +795,19 @@
 
 			<div class="flex flex-col gap-2">
 				<span class="text-label">Updates</span>
-				<div class="flex items-center gap-2 bg-[var(--void-3)] px-4 py-3 text-sm text-[var(--text-ghost)]">
-					<DownloadIcon size={14} />
+				<button
+					type="button"
+					class="flex items-center gap-2 bg-[var(--void-3)] px-4 py-3 text-left text-sm text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-4)] disabled:opacity-50"
+					onclick={toggleDownloadUpdates}
+					disabled={updatingDownloadProfile}
+				>
+					{#if updatingDownloadProfile}
+						<SpinnerIcon size={14} class="animate-spin" />
+					{:else}
+						<DownloadIcon size={14} />
+					{/if}
 					<span>{updatesEnabled ? $_('downloads.enabled') : $_('downloads.disabled')}</span>
-				</div>
+				</button>
 			</div>
 
 			<div class="flex flex-col gap-3">

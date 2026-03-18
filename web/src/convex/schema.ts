@@ -172,6 +172,22 @@ export default defineSchema({
 		.index('by_owner_user_id_download_status', ['ownerUserId', 'downloadStatus'])
 		.index('by_library_title_id_chapter_url', ['libraryTitleId', 'chapterUrl']),
 
+	downloadProfiles: defineTable({
+		ownerUserId: v.id('users'),
+		libraryTitleId: v.id('libraryTitles'),
+		enabled: v.boolean(),
+		paused: v.boolean(),
+		autoDownload: v.boolean(),
+		lastCheckedAt: v.optional(v.float64()),
+		lastSuccessAt: v.optional(v.float64()),
+		lastError: v.optional(v.string()),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_owner_user_id', ['ownerUserId'])
+		.index('by_owner_user_id_library_title_id', ['ownerUserId', 'libraryTitleId'])
+		.index('by_owner_user_id_enabled_updated_at', ['ownerUserId', 'enabled', 'updatedAt']),
+
 	chapterProgress: defineTable({
 		ownerUserId: v.id('users'),
 		libraryTitleId: v.id('libraryTitles'),
