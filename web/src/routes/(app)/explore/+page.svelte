@@ -118,6 +118,8 @@
 	const FEED_LIMIT = 24;
 	const FEED_SOURCE_BATCH_SIZE = 4;
 	const COMMAND_CONCURRENCY = 3;
+	const FEED_DUPLICATE_PAGE_TOLERANCE = 3;
+	const FEED_COMMAND_IDEMPOTENCY_WINDOW_MS = 5 * 60 * 1000;
 	const UUID_SEGMENT_RE =
 		/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 	const LONG_HEX_SEGMENT_RE = /^[0-9a-f]{12,}$/i;
@@ -158,8 +160,10 @@
 	let loadedPagesBySource = $state<Record<string, number>>({});
 	let exhaustedFeedSources = $state<Record<string, boolean>>({});
 	let lastFeedLoadSignature = $state('');
-	let autoLoadFeedRaf = 0;
 	let canLoadMoreFeed = $state(false);
+	let autoLoadFeedPending = false;
+	let feedSentinel = $state<HTMLDivElement | null>(null);
+	let feedIntersectionObserver: IntersectionObserver | null = null;
 
 	let searchFiltersOpen = $state(false);
 	let searchFiltersLoading = $state(false);
@@ -170,6 +174,9 @@
 
 	let liveFeedResults = $state<Record<string, FeedResult>>({});
 	let liveSearchResults = $state<Record<string, SearchResult>>({});
+	let cards = $state<ExploreCard[]>([]);
+	let stableCardOrder: string[] = [];
+	let stableCardsByKey: Record<string, ExploreCard> = {};
 
 	const sources = $derived((sourcesQuery.data ?? []) as SourceItem[]);
 	const commands = $derived((commandsQuery.data ?? []) as CommandItem[]);
@@ -232,7 +239,7 @@
 	const showSearchPrompt = $derived(activeTab === 'search' && searchQuery.trim().length === 0);
 	const currentLoading = $derived(loading || loadingMore || sourcesQuery.isLoading || libraryQuery.isLoading);
 
-	const cards = $derived.by(() => {
+	const incomingCards = $derived.by(() => {
 		const sourceIds =
 			activeTab === 'search'
 				? selectedSourceId
@@ -304,6 +311,25 @@
 		}
 
 		return items;
+	});
+
+	$effect(() => {
+		const nextCardsByKey: Record<string, ExploreCard> = {};
+		for (const card of incomingCards) {
+			nextCardsByKey[card.key] = card;
+		}
+
+		stableCardOrder = stableCardOrder.filter((key) => nextCardsByKey[key] !== undefined);
+		for (const card of incomingCards) {
+			if (!(card.key in stableCardsByKey)) {
+				stableCardOrder.push(card.key);
+			}
+		}
+
+		stableCardsByKey = nextCardsByKey;
+		cards = stableCardOrder
+			.map((key) => stableCardsByKey[key])
+			.filter((card): card is ExploreCard => card !== undefined);
 	});
 
 	function sourceNameFor(sourceId: string): string {
@@ -420,7 +446,8 @@
 	}
 
 	function feedCommandIdempotencyKey(commandType: string, sourceId: string, page: number, limit: number): string {
-		return `feed:${commandType}:${sourceId}:${page}:${limit}`;
+		const bucket = Math.floor(Date.now() / FEED_COMMAND_IDEMPOTENCY_WINDOW_MS);
+		return `feed:v2:${commandType}:${sourceId}:${page}:${limit}:${bucket}`;
 	}
 
 	function searchResultKey(sourceId: string, query: string, searchFilters: Record<string, unknown>): string {
@@ -589,6 +616,65 @@
 		await Promise.all(workers);
 	}
 
+	async function fetchFeedPage(sourceId: string, page: number): Promise<FeedResult> {
+		const { commandId } = await enqueueCommand(
+			feedCommandType,
+			{
+				sourceId,
+				page,
+				limit: FEED_LIMIT
+			},
+			feedCommandIdempotencyKey(feedCommandType, sourceId, page, FEED_LIMIT)
+		);
+		const command = await pollCommand(String(commandId));
+		return {
+			items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[],
+			page: Number(command.result?.page ?? page),
+			hasNextPage: Boolean(command.result?.hasNextPage ?? false)
+		};
+	}
+
+	async function fetchNextUniqueFeedPage(
+		sourceId: string,
+		startPage: number,
+		existingItems: ExploreItem[]
+	): Promise<{ result: FeedResult; finalPage: number; exhausted: boolean }> {
+		let page = startPage;
+		let duplicatePages = 0;
+
+		while (true) {
+			const result = await fetchFeedPage(sourceId, page);
+			const hasUniqueItems = hasUniqueFeedItems(existingItems, result.items);
+			if (hasUniqueItems || !result.hasNextPage) {
+				return {
+					result,
+					finalPage: result.page,
+					exhausted: !result.hasNextPage || !hasUniqueItems
+				};
+			}
+
+			duplicatePages += 1;
+			if (duplicatePages >= FEED_DUPLICATE_PAGE_TOLERANCE) {
+				return {
+					result,
+					finalPage: result.page,
+					exhausted: true
+				};
+			}
+
+			page = result.page + 1;
+		}
+	}
+
+	function refreshCanLoadMoreFeed(nextLoaded: Record<string, number>, nextExhausted: Record<string, boolean>) {
+		canLoadMoreFeed =
+			visibleSources.some((source) => {
+				const page = nextLoaded[source.id] ?? 0;
+				return page > 0 && nextExhausted[source.id] !== true;
+			}) ||
+			visibleSources.some((source) => !activeFeedSourceIds.includes(source.id));
+	}
+
 	async function loadFeedInitial() {
 		const sourceIds = activeFeedSourceIds;
 		if (sourceIds.length === 0) {
@@ -626,23 +712,10 @@
 
 		await runWithConcurrency(sourceIds, COMMAND_CONCURRENCY, async (sourceId) => {
 				try {
-					const { commandId } = await enqueueCommand(
-						feedCommandType,
-						{
-							sourceId,
-							page: 1,
-							limit: FEED_LIMIT
-						},
-						feedCommandIdempotencyKey(feedCommandType, sourceId, 1, FEED_LIMIT)
-					);
-					const command = await pollCommand(String(commandId));
-					nextLiveFeedResults[feedResultKey(feedCommandType, sourceId, 1)] = {
-						items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[],
-						page: Number(command.result?.page ?? 1),
-						hasNextPage: Boolean(command.result?.hasNextPage ?? false)
-					};
+					const result = await fetchFeedPage(sourceId, 1);
+					nextLiveFeedResults[feedResultKey(feedCommandType, sourceId, 1)] = result;
 					nextPages[sourceId] = 1;
-					if (command.result?.hasNextPage === true) {
+					if (result.hasNextPage === true) {
 						delete nextExhausted[sourceId];
 					} else {
 						nextExhausted[sourceId] = true;
@@ -655,7 +728,7 @@
 		liveFeedResults = nextLiveFeedResults;
 		loadedPagesBySource = nextPages;
 		exhaustedFeedSources = nextExhausted;
-		canLoadMoreFeed = true;
+		refreshCanLoadMoreFeed(nextPages, nextExhausted);
 		error = failures[0] ?? null;
 		if (append) {
 			loadingMore = false;
@@ -693,27 +766,15 @@
 
 		await runWithConcurrency(nextSourcePages, COMMAND_CONCURRENCY, async ({ sourceId, page }) => {
 				try {
-					const { commandId } = await enqueueCommand(
-						feedCommandType,
-						{
-							sourceId,
-							page,
-							limit: FEED_LIMIT
-						},
-						feedCommandIdempotencyKey(feedCommandType, sourceId, page, FEED_LIMIT)
-					);
-					const command = await pollCommand(String(commandId));
-					const incomingItems =
-						((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[];
 					const existingItems = feedItemsForSource(feedCommandType, sourceId, loadedPagesBySource[sourceId] ?? 0);
-					const hasNextPage = Boolean(command.result?.hasNextPage ?? false);
-					nextLiveFeedResults[feedResultKey(feedCommandType, sourceId, page)] = {
-						items: incomingItems,
-						page: Number(command.result?.page ?? page),
-						hasNextPage
-					};
-					nextLoaded[sourceId] = page;
-					if (!hasNextPage || !hasUniqueFeedItems(existingItems, incomingItems)) {
+					const { result, finalPage, exhausted } = await fetchNextUniqueFeedPage(
+						sourceId,
+						page,
+						existingItems
+					);
+					nextLiveFeedResults[feedResultKey(feedCommandType, sourceId, finalPage)] = result;
+					nextLoaded[sourceId] = finalPage;
+					if (exhausted) {
 						nextExhausted[sourceId] = true;
 					} else {
 						delete nextExhausted[sourceId];
@@ -726,6 +787,7 @@
 		liveFeedResults = nextLiveFeedResults;
 		loadedPagesBySource = nextLoaded;
 		exhaustedFeedSources = nextExhausted;
+		refreshCanLoadMoreFeed(nextLoaded, nextExhausted);
 		if (failures.length > 0) {
 			error = failures[0];
 		}
@@ -914,54 +976,44 @@
 		});
 	}
 
-	function observeInfiniteScroll(node: HTMLElement) {
-		if (typeof IntersectionObserver === 'undefined') {
-			return;
+	async function maybeAutoLoadFeed() {
+		if (autoLoadFeedPending || activeTab === 'search' || currentLoading || !canLoadMoreFeed) return;
+
+		autoLoadFeedPending = true;
+		try {
+			await loadMoreFeed();
+		} finally {
+			autoLoadFeedPending = false;
 		}
-
-		const observer = new IntersectionObserver(
-			(entries) => {
-				if (entries.some((entry) => entry.isIntersecting)) {
-					void loadMoreFeed();
-				}
-			},
-			{ rootMargin: '640px 0px' }
-		);
-		observer.observe(node);
-
-		return {
-			destroy() {
-				observer.disconnect();
-			}
-		};
 	}
 
-	function scheduleAutoLoadFeed() {
-		if (typeof window === 'undefined' || autoLoadFeedRaf) return;
-		autoLoadFeedRaf = window.requestAnimationFrame(() => {
-			autoLoadFeedRaf = 0;
-			if (activeTab === 'search' || currentLoading || !canLoadMoreFeed) return;
-			const documentHeight = document.documentElement.scrollHeight;
-			const viewportBottom = window.scrollY + window.innerHeight;
-			if (documentHeight - viewportBottom <= 960) {
-				void loadMoreFeed();
+	function resetFeedObserver() {
+		feedIntersectionObserver?.disconnect();
+		feedIntersectionObserver = null;
+	}
+
+	function observeFeedSentinel() {
+		if (typeof window === 'undefined' || !feedSentinel || activeTab === 'search') return;
+		resetFeedObserver();
+		feedIntersectionObserver = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((entry) => entry.isIntersecting)) {
+					void maybeAutoLoadFeed();
+				}
+			},
+			{
+				root: null,
+				rootMargin: '960px 0px 960px 0px',
+				threshold: 0
 			}
-		});
+		);
+		feedIntersectionObserver.observe(feedSentinel);
 	}
 
 	onMount(() => {
-		const handleAutoLoadFeed = () => scheduleAutoLoadFeed();
-		window.addEventListener('scroll', handleAutoLoadFeed, { passive: true });
-		window.addEventListener('resize', handleAutoLoadFeed);
-		scheduleAutoLoadFeed();
 		return () => {
 			if (searchTimer) clearTimeout(searchTimer);
-			if (autoLoadFeedRaf) {
-				window.cancelAnimationFrame(autoLoadFeedRaf);
-				autoLoadFeedRaf = 0;
-			}
-			window.removeEventListener('scroll', handleAutoLoadFeed);
-			window.removeEventListener('resize', handleAutoLoadFeed);
+			resetFeedObserver();
 			panelOverlayOpen.set(false);
 		};
 	});
@@ -1000,7 +1052,12 @@
 		void cards.length;
 		void currentLoading;
 		void canLoadMoreFeed;
-		scheduleAutoLoadFeed();
+		void feedSentinel;
+		observeFeedSentinel();
+		void maybeAutoLoadFeed();
+		return () => {
+			resetFeedObserver();
+		};
 	});
 
 </script>
@@ -1243,21 +1300,16 @@
 				</a>
 			{/each}
 		</div>
+		{#if activeTab !== 'search'}
+			<div bind:this={feedSentinel} class="h-px w-full" aria-hidden="true"></div>
+		{/if}
 		{#if activeTab !== 'search' && canLoadMoreFeed}
-			<div class="flex items-center justify-center py-4" use:observeInfiniteScroll>
+			<div class="flex items-center justify-center py-4">
 				{#if loadingMore}
 					<p class="flex items-center gap-2 text-sm text-[var(--text-ghost)]">
 						<SpinnerIcon size={14} class="animate-spin" />
 						{$_('common.loading')}
 					</p>
-				{:else}
-					<button
-						type="button"
-						class="border border-[var(--line)] px-3 py-1.5 text-xs text-[var(--text-ghost)] transition-colors hover:border-[var(--text-ghost)] hover:text-[var(--text-muted)]"
-						onclick={() => void loadMoreFeed()}
-					>
-						Load more
-					</button>
 				{/if}
 			</div>
 		{/if}

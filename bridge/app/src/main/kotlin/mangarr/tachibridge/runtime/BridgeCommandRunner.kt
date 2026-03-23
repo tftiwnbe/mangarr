@@ -622,10 +622,10 @@ class BridgeCommandRunner(
         this[key]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
 
     private fun JsonObject.optionalInt(key: String): Int? =
-        this[key]?.jsonPrimitive?.intOrNull
+        this[key]?.jsonPrimitive?.intLikeOrNull()
 
     private fun JsonObject.requiredInt(key: String): Int =
-        this[key]?.jsonPrimitive?.intOrNull ?: throw IllegalArgumentException("Missing $key")
+        this[key]?.jsonPrimitive?.intLikeOrNull() ?: throw IllegalArgumentException("Missing $key")
 
     private fun JsonObject.requiredLong(key: String): Long =
         this[key]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
@@ -645,5 +645,11 @@ class BridgeCommandRunner(
             "chapterUrl" to payload.optionalString("chapterUrl"),
             "pkg" to payload.optionalString("pkg"),
         )
+    }
+
+    private fun kotlinx.serialization.json.JsonPrimitive.intLikeOrNull(): Int? {
+        val numeric = contentOrNull?.toDoubleOrNull() ?: return null
+        if (!numeric.isFinite() || numeric % 1.0 != 0.0) return null
+        return numeric.toInt()
     }
 }

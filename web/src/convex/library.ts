@@ -46,8 +46,10 @@ export const listMine = query({
 			loadOwnerVariantCountsByTitleId(ctx, userId)
 		]);
 
+		const visibleTitles = titles.filter((title) => title.userStatusId != null);
+
 		const enriched = await Promise.all(
-			titles.map(async (title) => {
+			visibleTitles.map(async (title) => {
 				const chapters = await ctx.db
 					.query('libraryChapters')
 					.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))

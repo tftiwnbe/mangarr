@@ -628,8 +628,14 @@ class BridgeHttpServer(
         this[name]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
 
     private fun JsonObject.optionalInt(name: String): Int? =
-        this[name]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+        this[name]?.jsonPrimitive?.intLikeOrNull()
 
     private fun JsonObject.optionalBoolean(name: String): Boolean? =
         this[name]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
+
+    private fun JsonPrimitive.intLikeOrNull(): Int? {
+        val numeric = contentOrNull?.toDoubleOrNull() ?: return null
+        if (!numeric.isFinite() || numeric % 1.0 != 0.0) return null
+        return numeric.toInt()
+    }
 }
