@@ -129,6 +129,18 @@
 		extensionPkg: string;
 	};
 
+	type ExploreItem = {
+		canonicalKey: string;
+		sourceId: string;
+		sourcePkg: string;
+		sourceLang: string;
+		sourceName: string;
+		titleUrl: string;
+		title: string;
+		description?: string;
+		coverUrl?: string | null;
+	};
+
 	type UserStatusOption = {
 		id: string;
 		key: string;
@@ -143,6 +155,26 @@
 		position: number;
 		isDefault: boolean;
 		titlesCount?: number;
+	};
+
+	type MergeCandidate = {
+		id: string;
+		title: string;
+		author?: string | null;
+		artist?: string | null;
+		sourceId: string;
+		sourcePkg: string;
+		sourceLang: string;
+		titleUrl: string;
+		variantsCount: number;
+		userStatus?: {
+			id: string;
+			key: string;
+			label: string;
+			position: number;
+			isDefault: boolean;
+		} | null;
+		updatedAt: number;
 	};
 
 	const client = useConvexClient();
@@ -168,8 +200,23 @@
 	let selectedStatusId = $state<string | null>(null);
 	let selectedRating = $state<number>(0);
 	let selectedCollectionIds = $state<string[]>([]);
+	let selectedPreferredVariantId = $state<string | null>(null);
+	let sourceManagementError = $state<string | null>(null);
+	let sourceSearchSourceId = $state('');
+	let sourceSearchQuery = $state('');
+	let sourceSearchLoading = $state(false);
+	let sourceSearchAttempted = $state(false);
+	let sourceSearchResults = $state<ExploreItem[]>([]);
+	let linkingVariantKey = $state<string | null>(null);
+	let mergeLoadingTitleId = $state<string | null>(null);
+	let mergeQuery = $state('');
 	let lastSyncedPreferenceSignature = $state('');
 	let lastMetadataKey = $state('');
+	const mergeCandidatesQuery = useQuery(convexApi.library.listMergeCandidates, () => ({
+		titleId: data.titleId as Id<'libraryTitles'>,
+		query: mergeQuery.trim() || undefined,
+		limit: 8
+	}));
 
 	const title = $derived((titleQuery.data as TitleDetail | null) ?? null);
 	const sources = $derived((sourcesQuery.data ?? []) as SourceItem[]);
@@ -181,6 +228,7 @@
 			(left, right) => left.position - right.position
 		)
 	);
+	const mergeCandidates = $derived((mergeCandidatesQuery.data ?? []) as MergeCandidate[]);
 	const loading = $derived(titleQuery.isLoading);
 	const errorMessage = $derived(
 		titleQuery.error instanceof Error ? titleQuery.error.message : null
@@ -231,6 +279,9 @@
 		() => availableStatuses.find((status) => status.id === selectedStatusId)?.label ?? null
 	);
 	const selectedCollectionCount = $derived(selectedCollectionIds.length);
+	const selectedPreferredVariant = $derived.by(
+		() => title?.variants.find((variant) => variant.id === selectedPreferredVariantId) ?? null
+	);
 	const chaptersLabel = $derived.by(() =>
 		`${title?.chapterStats.total ?? 0} ${$_('title.chapters').toLowerCase()}`
 	);
@@ -262,11 +313,14 @@
 		const currentRating = title.userRating ? Math.round(title.userRating) : 0;
 		const currentCollectionIds = [...title.collections.map((collection) => collection.id)].sort();
 		const nextCollectionIds = [...selectedCollectionIds].sort();
+		const currentPreferredVariantId =
+			title.preferredVariantId ?? title.variants.find((variant) => variant.isPreferred)?.id ?? null;
 
 		return (
 			currentStatusId !== selectedStatusId ||
 			currentRating !== selectedRating ||
-			currentCollectionIds.join(',') !== nextCollectionIds.join(',')
+			currentCollectionIds.join(',') !== nextCollectionIds.join(',') ||
+			currentPreferredVariantId !== selectedPreferredVariantId
 		);
 	});
 
@@ -296,7 +350,8 @@
 			title._id,
 			title.userStatus?.id ?? '',
 			String(title.userRating ?? ''),
-			[...title.collections.map((collection) => collection.id)].sort().join(',')
+			[...title.collections.map((collection) => collection.id)].sort().join(','),
+			title.preferredVariantId ?? title.variants.find((variant) => variant.isPreferred)?.id ?? ''
 		].join('::');
 		if (signature === lastSyncedPreferenceSignature) {
 			return;
@@ -305,7 +360,23 @@
 		selectedStatusId = title.userStatus?.id ?? null;
 		selectedRating = title.userRating ? Math.round(title.userRating) : 0;
 		selectedCollectionIds = title.collections.map((collection) => collection.id);
+		selectedPreferredVariantId =
+			title.preferredVariantId ?? title.variants.find((variant) => variant.isPreferred)?.id ?? null;
 		lastSyncedPreferenceSignature = signature;
+	});
+
+	$effect(() => {
+		if (!title || sources.length === 0) return;
+		const sourceStillAvailable = sources.some((source) => source.id === sourceSearchSourceId);
+		if (sourceSearchSourceId && sourceStillAvailable) {
+			return;
+		}
+
+		const nextSource =
+			sources.find((source) => source.id !== title.sourceId)?.id ?? sources[0]?.id ?? '';
+		if (nextSource !== sourceSearchSourceId) {
+			sourceSearchSourceId = nextSource;
+		}
 	});
 
 	async function pollCommand(commandId: string, timeoutMs = 15000) {
@@ -393,6 +464,14 @@
 
 	function formatTimestamp(value: number): string {
 		return new Date(value).toLocaleString();
+	}
+
+	function sourceDisplayName(sourceId: string, fallback: string): string {
+		return sources.find((source) => source.id === sourceId)?.name ?? fallback;
+	}
+
+	function sourceVariantKey(sourceId: string, titleUrl: string): string {
+		return `${sourceId}::${titleUrl}`;
 	}
 
 	function chapterLabel(chapter: ChapterRow): string {
@@ -490,7 +569,10 @@
 					? (selectedStatusId as Id<'libraryUserStatuses'>)
 					: null,
 				userRating: selectedRating > 0 ? selectedRating : null,
-				collectionIds: selectedCollectionIds as Id<'libraryCollections'>[]
+				collectionIds: selectedCollectionIds as Id<'libraryCollections'>[],
+				preferredVariantId: selectedPreferredVariantId
+					? (selectedPreferredVariantId as Id<'titleVariants'>)
+					: null
 			});
 			preferencesSuccess = true;
 			setTimeout(() => {
@@ -501,6 +583,91 @@
 				cause instanceof Error ? cause.message : 'Unable to save title preferences';
 		} finally {
 			preferencesSaving = false;
+		}
+	}
+
+	async function searchOtherSources() {
+		if (!title || sourceSearchLoading || !sourceSearchSourceId) return;
+
+		sourceSearchLoading = true;
+		sourceSearchAttempted = true;
+		sourceManagementError = null;
+		try {
+			const query = sourceSearchQuery.trim() || title.title;
+			const { commandId } = await client.mutation(convexApi.commands.enqueue, {
+				commandType: 'explore.search',
+				payload: {
+					query,
+					sourceId: sourceSearchSourceId,
+					limit: 12
+				},
+				idempotencyKey: `title.variant.search:${title._id}:${sourceSearchSourceId}:${query.trim().toLowerCase()}`
+			});
+			const command = await pollCommand(String(commandId));
+			const linkedVariantKeys = new Set(
+				title.variants.map((variant) => sourceVariantKey(variant.sourceId, variant.titleUrl))
+			);
+			sourceSearchResults = (((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[]).filter(
+				(item) => !linkedVariantKeys.has(sourceVariantKey(item.sourceId, item.titleUrl))
+			);
+		} catch (cause) {
+			sourceManagementError =
+				cause instanceof Error ? cause.message : $_('title.sourceMatchFailed');
+			sourceSearchResults = [];
+		} finally {
+			sourceSearchLoading = false;
+		}
+	}
+
+	async function linkSourceVariant(item: ExploreItem) {
+		if (!title || linkingVariantKey) return;
+
+		const variantKey = sourceVariantKey(item.sourceId, item.titleUrl);
+		linkingVariantKey = variantKey;
+		sourceManagementError = null;
+		try {
+			await client.mutation(convexApi.library.linkVariant, {
+				titleId: title._id,
+				sourceId: item.sourceId,
+				sourcePkg: item.sourcePkg,
+				sourceLang: item.sourceLang,
+				titleUrl: item.titleUrl,
+				title: item.title,
+				description: item.description ?? null,
+				coverUrl: item.coverUrl ?? null,
+				author: null,
+				artist: null,
+				genre: null,
+				status: null
+			});
+			sourceSearchResults = sourceSearchResults.filter(
+				(result) => sourceVariantKey(result.sourceId, result.titleUrl) !== variantKey
+			);
+		} catch (cause) {
+			const message = cause instanceof Error ? cause.message : '';
+			sourceManagementError = message.includes('Linked to another title')
+				? $_('title.linkedElsewhere')
+				: $_('title.sourceLinkFailed');
+		} finally {
+			linkingVariantKey = null;
+		}
+	}
+
+	async function mergeIntoCurrentTitle(sourceTitleId: string) {
+		if (!title || mergeLoadingTitleId) return;
+
+		mergeLoadingTitleId = sourceTitleId;
+		sourceManagementError = null;
+		try {
+			await client.mutation(convexApi.library.mergeTitles, {
+				targetTitleId: title._id,
+				sourceTitleId: sourceTitleId as Id<'libraryTitles'>
+			});
+		} catch (cause) {
+			sourceManagementError =
+				cause instanceof Error ? cause.message : $_('title.sourceMergeFailed');
+		} finally {
+			mergeLoadingTitleId = null;
 		}
 	}
 </script>
@@ -1009,23 +1176,138 @@
 
 			<div class="flex flex-col gap-3">
 				<span class="text-label">{$_('title.sources')}</span>
-				<div class="flex items-start justify-between gap-3 text-sm">
-					<div class="min-w-0">
-						<div class="flex items-center gap-3">
-							<span class="text-[var(--text)]">{sourceName}</span>
-							{#if selectedStatusLabel}
-								<span class="text-[var(--text-ghost)]">{selectedStatusLabel}</span>
-							{/if}
+				<div class="flex flex-col gap-2">
+					{#each title.variants as variant (variant.id)}
+						<div class="flex items-start justify-between gap-3 bg-[var(--void-3)] px-3 py-3 text-sm">
+							<div class="min-w-0">
+								<div class="flex items-center gap-2">
+									<span class="truncate text-[var(--text)]">
+										{sourceDisplayName(variant.sourceId, variant.sourcePkg)}
+									</span>
+									<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
+										{variant.sourceLang}
+									</span>
+									{#if selectedPreferredVariantId === variant.id}
+										<span class="text-[11px] text-[var(--success)]">{$_('title.readingNow')}</span>
+									{/if}
+								</div>
+								<div class="mt-1 truncate text-xs text-[var(--text-ghost)]">{variant.title}</div>
+							</div>
+							<button
+								type="button"
+								class="shrink-0 px-2.5 py-1 text-xs transition-colors {selectedPreferredVariantId === variant.id
+									? 'bg-[var(--void-5)] text-[var(--text)]'
+									: 'bg-[var(--void-4)] text-[var(--text-ghost)] hover:bg-[var(--void-5)] hover:text-[var(--text-muted)]'}"
+								onclick={() => (selectedPreferredVariantId = variant.id)}
+							>
+								{selectedPreferredVariantId === variant.id
+									? $_('title.readingNow')
+									: $_('title.readFromSource')}
+							</button>
 						</div>
-						<div class="mt-1 text-[var(--text-ghost)]">{title.title}</div>
-					</div>
-					<span class="text-[var(--text-ghost)]">{title.sourceLang}</span>
+					{/each}
 				</div>
+
+				<div class="grid gap-2 md:grid-cols-[minmax(0,1fr)_160px_auto]">
+					<input
+						type="text"
+						class="min-w-0 bg-[var(--void-3)] px-3 py-2 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-ghost)]"
+						placeholder={title.title}
+						bind:value={sourceSearchQuery}
+					/>
+					<select
+						class="bg-[var(--void-3)] px-3 py-2 text-sm text-[var(--text)] outline-none"
+						bind:value={sourceSearchSourceId}
+					>
+						{#each sources as source (source.id)}
+							<option value={source.id}>{source.name} [{source.lang}]</option>
+						{/each}
+					</select>
+					<Button
+						variant="outline"
+						size="sm"
+						onclick={() => void searchOtherSources()}
+						disabled={!sourceSearchSourceId || sourceSearchLoading}
+						loading={sourceSearchLoading}
+					>
+						{$_('title.findOtherSources')}
+					</Button>
+				</div>
+
+				{#if sourceSearchResults.length > 0}
+					<div class="flex flex-col gap-2">
+						{#each sourceSearchResults as result (`${result.sourceId}::${result.titleUrl}`)}
+							<div class="flex items-start justify-between gap-3 bg-[var(--void-3)] px-3 py-3 text-sm">
+								<div class="min-w-0">
+									<div class="truncate text-[var(--text)]">{result.title}</div>
+									<div class="mt-1 text-xs text-[var(--text-ghost)]">
+										{sourceDisplayName(result.sourceId, result.sourcePkg)} [{result.sourceLang}]
+									</div>
+								</div>
+								<Button
+									variant="ghost"
+									size="sm"
+									onclick={() => void linkSourceVariant(result)}
+									disabled={linkingVariantKey === `${result.sourceId}::${result.titleUrl}`}
+									loading={linkingVariantKey === `${result.sourceId}::${result.titleUrl}`}
+								>
+									{$_('title.addSource')}
+								</Button>
+							</div>
+						{/each}
+					</div>
+				{:else if !sourceSearchLoading && sourceSearchAttempted}
+					<p class="text-xs text-[var(--text-ghost)]">{$_('title.noSourceMatches')}</p>
+				{/if}
+
+				<div class="flex flex-col gap-2">
+					<input
+						type="text"
+						class="min-w-0 bg-[var(--void-3)] px-3 py-2 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-ghost)]"
+						placeholder={$_('title.mergeTitle')}
+						bind:value={mergeQuery}
+					/>
+					{#if mergeCandidates.length > 0}
+						<div class="flex flex-col gap-2">
+							{#each mergeCandidates as candidate (candidate.id)}
+								<div class="flex items-start justify-between gap-3 bg-[var(--void-3)] px-3 py-3 text-sm">
+									<div class="min-w-0">
+										<div class="truncate text-[var(--text)]">{candidate.title}</div>
+										<div class="mt-1 text-xs text-[var(--text-ghost)]">
+											{sourceDisplayName(candidate.sourceId, candidate.sourcePkg)} [{candidate.sourceLang}]
+											· {candidate.variantsCount} {$_('title.variants').toLowerCase()}
+										</div>
+										{#if candidate.userStatus}
+											<div class="mt-1 text-[11px] text-[var(--void-6)]">
+												{candidate.userStatus.label}
+											</div>
+										{/if}
+									</div>
+									<Button
+										variant="ghost"
+										size="sm"
+										onclick={() => void mergeIntoCurrentTitle(candidate.id)}
+										disabled={mergeLoadingTitleId === candidate.id}
+										loading={mergeLoadingTitleId === candidate.id}
+									>
+										{$_('title.mergeTitle')}
+									</Button>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<p class="text-xs text-[var(--text-ghost)]">{$_('common.noResults')}</p>
+					{/if}
+				</div>
+
 				<p class="text-xs text-[var(--text-ghost)]">
 					{selectedCollectionCount} {$_('title.collections').toLowerCase()}
 				</p>
 			</div>
 
+			{#if sourceManagementError}
+				<p class="text-xs text-[var(--error)]">{sourceManagementError}</p>
+			{/if}
 			{#if preferencesError}
 				<p class="text-xs text-[var(--error)]">{preferencesError}</p>
 			{/if}
