@@ -661,6 +661,15 @@
 		return queries.reduce((best, query) => Math.max(best, sourceMatchScore(query, item)), 0);
 	}
 
+	function isSameExtensionUrlMatch(item: ExploreItem) {
+		if (!title) return false;
+		return title.variants.some(
+			(variant) =>
+				variant.sourcePkg === item.sourcePkg &&
+				variant.titleUrl.trim() === item.titleUrl.trim()
+		);
+	}
+
 	async function loadSourceMatches(options?: { manual?: boolean }) {
 		if (!title || sourceMatchesLoading) return;
 
@@ -699,9 +708,11 @@
 				return Object.values(deduped)
 					.map((item) => ({
 						item,
-						score: sourceMatchScoreForQueries(manual ? [query] : rankedQueries, item)
+						score:
+							sourceMatchScoreForQueries(manual ? [query] : rankedQueries, item) +
+							(isSameExtensionUrlMatch(item) ? 250 : 0)
 					}))
-					.filter(({ score }) => manual || score >= 55)
+					.filter(({ item, score }) => manual || isSameExtensionUrlMatch(item) || score >= 55)
 					.sort((left, right) => right.score - left.score)
 					.slice(0, MATCH_SEARCH_LIMIT)
 					.map(({ item }) => item);
