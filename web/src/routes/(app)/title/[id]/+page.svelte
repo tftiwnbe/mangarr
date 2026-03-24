@@ -194,6 +194,7 @@
 	let manualSearchSourceId = $state('');
 	let linkingVariantKey = $state<string | null>(null);
 	let preferredVariantSavingId = $state<string | null>(null);
+	let removingVariantId = $state<string | null>(null);
 	let lastSyncedPreferenceSignature = $state('');
 	let lastMetadataKey = $state('');
 
@@ -603,6 +604,20 @@
 			.trim();
 	}
 
+	function uniqueMatchQueries() {
+		if (!title) return [] as string[];
+		const seen: Record<string, true> = {};
+		const queries: string[] = [];
+		for (const candidate of [title.variants.map((variant) => variant.title), title.title].flat()) {
+			const trimmed = candidate.trim();
+			const normalized = normalizeMatchTitle(trimmed);
+			if (!normalized || seen[normalized] === true) continue;
+			seen[normalized] = true;
+			queries.push(trimmed);
+		}
+		return queries.slice(0, 6);
+	}
+
 	function sourceMatchScore(query: string, item: ExploreItem) {
 		if (!title) return 0;
 		const normalizedQuery = normalizeMatchTitle(query);
@@ -619,9 +634,14 @@
 		}
 
 		const queryTokens = normalizedQuery.split(' ').filter((token) => token.length > 1);
-		const titleTokens = new Set(normalizedTitle.split(' ').filter((token) => token.length > 1));
+		const titleTokens = Object.fromEntries(
+			normalizedTitle
+				.split(' ')
+				.filter((token) => token.length > 1)
+				.map((token) => [token, true] as const)
+		);
 		if (queryTokens.length > 0) {
-			const overlap = queryTokens.filter((token) => titleTokens.has(token)).length;
+			const overlap = queryTokens.filter((token) => titleTokens[token] === true).length;
 			score += Math.round((overlap / queryTokens.length) * 45);
 		}
 
@@ -637,11 +657,17 @@
 		return score;
 	}
 
+	function sourceMatchScoreForQueries(queries: string[], item: ExploreItem) {
+		return queries.reduce((best, query) => Math.max(best, sourceMatchScore(query, item)), 0);
+	}
+
 	async function loadSourceMatches(options?: { manual?: boolean }) {
 		if (!title || sourceMatchesLoading) return;
 
 		const manual = options?.manual === true;
 		const query = (manual ? manualSearchQuery : title.title).trim() || title.title;
+		const suggestionQueries = manual ? [query] : uniqueMatchQueries();
+		const rankedQueries = suggestionQueries.length > 0 ? suggestionQueries : [query];
 		const candidateSources = manual
 			? manualSearchSourceId
 				? availableMatchSources.filter((source) => source.id === manualSearchSourceId)
@@ -671,26 +697,85 @@
 				}
 
 				return Object.values(deduped)
-					.map((item) => ({ item, score: sourceMatchScore(query, item) }))
+					.map((item) => ({
+						item,
+						score: sourceMatchScoreForQueries(manual ? [query] : rankedQueries, item)
+					}))
 					.filter(({ score }) => manual || score >= 55)
 					.sort((left, right) => right.score - left.score)
 					.slice(0, MATCH_SEARCH_LIMIT)
 					.map(({ item }) => item);
 			};
+			const fetchDirectVariant = async (source: SourceItem, titleUrl: string) => {
+				const { commandId } = await client.mutation(convexApi.commands.enqueue, {
+					commandType: 'explore.title.fetch',
+					payload: {
+						sourceId: source.id,
+						titleUrl
+					},
+					idempotencyKey: `title.variant.fetch:${title._id}:${source.id}:${titleUrl}`
+				});
+				const command = await pollCommand(String(commandId));
+				const resolved = (command.result?.title as Record<string, unknown> | undefined) ?? {};
+				const resolvedTitle = String(resolved.title ?? '').trim();
+				const resolvedUrl = String(resolved.titleUrl ?? titleUrl).trim();
+				if (!resolvedTitle || !resolvedUrl) return;
+				collected.push({
+					canonicalKey: String(resolved.canonicalKey ?? `${source.id}::${resolvedUrl}`),
+					sourceId: source.id,
+					sourcePkg: String(resolved.sourcePkg ?? source.extensionPkg),
+					sourceLang: String(resolved.sourceLang ?? source.lang),
+					sourceName: source.name,
+					titleUrl: resolvedUrl,
+					title: resolvedTitle,
+					description:
+						typeof resolved.description === 'string' ? resolved.description : undefined,
+					coverUrl: typeof resolved.coverUrl === 'string' ? resolved.coverUrl : null
+				});
+			};
+			const searchSource = async (source: SourceItem, searchQuery: string) => {
+				const { commandId } = await client.mutation(convexApi.commands.enqueue, {
+					commandType: 'explore.search',
+					payload: {
+						query: searchQuery,
+						sourceId: source.id,
+						limit: MATCH_SEARCH_PER_SOURCE_LIMIT
+					},
+					idempotencyKey: `title.variant.search:${manual ? 'manual' : 'suggested'}:${title._id}:${source.id}:${searchQuery.toLowerCase()}`
+				});
+				const command = await pollCommand(String(commandId));
+				const items = ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[];
+				collected.push(...items);
+			};
 			const searchSourceBatch = async (sourceBatch: SourceItem[]) => {
 				await runWithConcurrency(sourceBatch, MATCH_SEARCH_CONCURRENCY, async (source) => {
-					const { commandId } = await client.mutation(convexApi.commands.enqueue, {
-						commandType: 'explore.search',
-						payload: {
-							query,
-							sourceId: source.id,
-							limit: MATCH_SEARCH_PER_SOURCE_LIMIT
-						},
-						idempotencyKey: `title.variant.search:${manual ? 'manual' : 'suggested'}:${title._id}:${source.id}:${query.toLowerCase()}`
-					});
-					const command = await pollCommand(String(commandId));
-					const items = ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[];
-					collected.push(...items);
+					if (manual) {
+						await searchSource(source, query);
+						return;
+					}
+
+					const sameExtensionUrls = [
+						...new Set(
+							title.variants
+								.filter((variant) => variant.sourcePkg === source.extensionPkg)
+								.map((variant) => variant.titleUrl)
+								.filter((titleUrl) => titleUrl.trim().length > 0)
+						)
+					];
+					if (sameExtensionUrls.length > 0) {
+						for (const titleUrl of sameExtensionUrls) {
+							try {
+								await fetchDirectVariant(source, titleUrl);
+								return;
+							} catch {
+								continue;
+							}
+						}
+					}
+
+					for (const variantQuery of rankedQueries) {
+						await searchSource(source, variantQuery);
+					}
 				});
 			};
 
@@ -765,6 +850,23 @@
 				: $_('title.sourceLinkFailed');
 		} finally {
 			linkingVariantKey = null;
+		}
+	}
+
+	async function removeSourceVariant(variantId: string) {
+		if (!title || removingVariantId) return;
+		removingVariantId = variantId;
+		sourceManagementError = null;
+		try {
+			await client.mutation(convexApi.library.removeVariant, {
+				titleId: title._id,
+				variantId: variantId as Id<'titleVariants'>
+			});
+		} catch (cause) {
+			sourceManagementError =
+				cause instanceof Error ? cause.message : $_('title.sourceRemoveFailed');
+		} finally {
+			removingVariantId = null;
 		}
 	}
 </script>
@@ -1003,146 +1105,6 @@
 									{/each}
 								</div>
 							{/if}
-
-							<div class="flex flex-col gap-4">
-								<div class="flex items-center justify-between gap-4">
-									<div>
-										<h2 class="text-sm text-[var(--text)]">{$_('title.sources')}</h2>
-										<p class="mt-1 text-xs text-[var(--text-ghost)]">
-											{$_('title.findMatchesDescription')}
-										</p>
-									</div>
-									<Button
-										variant="outline"
-										size="sm"
-										onclick={() => void loadSourceMatches()}
-										disabled={sourceMatchesLoading || availableMatchSources.length === 0}
-										loading={sourceMatchesLoading}
-									>
-										{$_('title.findOtherSources')}
-									</Button>
-								</div>
-
-								<div class="flex flex-col gap-2">
-									{#each title.variants as variant (variant.id)}
-										<div class="flex items-start justify-between gap-3 bg-[var(--void-2)] px-3 py-3 text-sm">
-											<div class="min-w-0">
-												<div class="flex items-center gap-2">
-													<span class="truncate text-[var(--text)]">
-														{sourceDisplayName(variant.sourceId, variant.sourcePkg)}
-													</span>
-													<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
-														{variant.sourceLang}
-													</span>
-													{#if preferredVariantId === variant.id}
-														<span class="text-[11px] text-[var(--success)]">
-															{$_('title.readingNow')}
-														</span>
-													{/if}
-												</div>
-												<div class="mt-1 truncate text-xs text-[var(--text-ghost)]">
-													{variant.title}
-												</div>
-											</div>
-											<Button
-												variant="ghost"
-												size="sm"
-												onclick={() => void choosePreferredVariant(variant.id)}
-												disabled={preferredVariantSavingId === variant.id || preferredVariantId === variant.id}
-												loading={preferredVariantSavingId === variant.id}
-											>
-												{preferredVariantId === variant.id
-													? $_('title.readingNow')
-													: $_('title.readFromSource')}
-											</Button>
-										</div>
-									{/each}
-								</div>
-
-								{#if sourceMatchesOpen}
-									<div class="flex flex-col gap-3 bg-[var(--void-1)] p-4">
-										<div class="flex items-center justify-between gap-4">
-											<div>
-												<p class="text-sm text-[var(--text)]">{$_('title.suggestedMatches')}</p>
-												<p class="mt-1 text-xs text-[var(--text-ghost)]">
-													{$_('title.enabledSourcesOnly')}
-												</p>
-											</div>
-											<button
-												type="button"
-												class="text-xs text-[var(--void-7)] transition-colors hover:text-[var(--text-muted)]"
-												onclick={() => (manualSearchOpen = !manualSearchOpen)}
-											>
-												{manualSearchOpen ? $_('common.less') : $_('title.searchManually')}
-											</button>
-										</div>
-
-										{#if sourceMatchesLoading}
-											<div class="flex items-center gap-2 text-xs text-[var(--text-ghost)]">
-												<SpinnerIcon size={12} class="animate-spin" />
-												<span>{$_('common.loading')}</span>
-											</div>
-										{:else if sourceMatches.length > 0}
-											<div class="flex flex-col gap-2">
-												{#each sourceMatches as result (`${result.sourceId}::${result.titleUrl}`)}
-													<div class="flex items-start justify-between gap-3 bg-[var(--void-2)] px-3 py-3 text-sm">
-														<div class="min-w-0">
-															<div class="truncate text-[var(--text)]">{result.title}</div>
-															<div class="mt-1 text-xs text-[var(--text-ghost)]">
-																{sourceDisplayName(result.sourceId, result.sourcePkg)} [{result.sourceLang}]
-															</div>
-														</div>
-														<Button
-															variant="ghost"
-															size="sm"
-															onclick={() => void linkSourceVariant(result)}
-															disabled={linkingVariantKey === `${result.sourceId}::${result.titleUrl}`}
-															loading={linkingVariantKey === `${result.sourceId}::${result.titleUrl}`}
-														>
-															{$_('title.addSource')}
-														</Button>
-													</div>
-												{/each}
-											</div>
-										{:else if sourceMatchesAttempted}
-											<p class="text-xs text-[var(--text-ghost)]">{$_('title.noSourceMatches')}</p>
-										{/if}
-
-										{#if manualSearchOpen}
-											<div class="grid gap-2 border-t border-[var(--void-3)] pt-3 md:grid-cols-[minmax(0,1fr)_180px_auto]">
-												<input
-													type="text"
-													class="min-w-0 bg-[var(--void-2)] px-3 py-2 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-ghost)]"
-													placeholder={title.title}
-													bind:value={manualSearchQuery}
-												/>
-												<select
-													class="bg-[var(--void-2)] px-3 py-2 text-sm text-[var(--text)] outline-none"
-													bind:value={manualSearchSourceId}
-												>
-													<option value="">{$_('title.allEnabledSources')}</option>
-													{#each availableMatchSources as source (source.id)}
-														<option value={source.id}>{source.name} [{source.lang}]</option>
-													{/each}
-												</select>
-												<Button
-													variant="outline"
-													size="sm"
-													onclick={() => void loadSourceMatches({ manual: true })}
-													disabled={sourceMatchesLoading || availableMatchSources.length === 0}
-													loading={sourceMatchesLoading}
-												>
-													{$_('common.search')}
-												</Button>
-											</div>
-										{/if}
-									</div>
-								{/if}
-
-								{#if sourceManagementError}
-									<p class="text-xs text-[var(--error)]">{sourceManagementError}</p>
-								{/if}
-							</div>
 
 							<div class="flex flex-col gap-8">
 								<div class="flex flex-col gap-3">
@@ -1409,6 +1371,161 @@
 					{/if}
 					<span>{updatesEnabled ? $_('downloads.enabled') : $_('downloads.disabled')}</span>
 				</button>
+			</div>
+
+			<div class="flex flex-col gap-3">
+				<div class="flex items-center justify-between gap-4">
+					<div>
+						<span class="text-label">{$_('title.sources')}</span>
+						<p class="mt-1 text-xs text-[var(--text-ghost)]">
+							{$_('title.findMatchesDescription')}
+						</p>
+					</div>
+					<Button
+						variant="outline"
+						size="sm"
+						onclick={() => void loadSourceMatches()}
+						disabled={sourceMatchesLoading || availableMatchSources.length === 0}
+						loading={sourceMatchesLoading}
+					>
+						{$_('title.findOtherSources')}
+					</Button>
+				</div>
+
+				<div class="flex flex-col gap-2">
+					{#each title.variants as variant (variant.id)}
+						<div class="bg-[var(--void-2)] px-3 py-3">
+							<div class="flex items-start justify-between gap-3">
+								<div class="min-w-0">
+									<div class="flex items-center gap-2">
+										<span class="truncate text-sm text-[var(--text)]">
+											{sourceDisplayName(variant.sourceId, variant.sourcePkg)}
+										</span>
+										<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
+											{variant.sourceLang}
+										</span>
+										{#if preferredVariantId === variant.id}
+											<span class="text-[11px] text-[var(--success)]">
+												{$_('title.readingNow')}
+											</span>
+										{/if}
+									</div>
+									<div class="mt-1 truncate text-xs text-[var(--text-ghost)]">
+										{variant.title}
+									</div>
+								</div>
+							</div>
+							<div class="mt-3 flex flex-wrap gap-2">
+								<Button
+									variant="ghost"
+									size="sm"
+									onclick={() => void choosePreferredVariant(variant.id)}
+									disabled={preferredVariantSavingId === variant.id || preferredVariantId === variant.id}
+									loading={preferredVariantSavingId === variant.id}
+								>
+									{preferredVariantId === variant.id
+										? $_('title.readingNow')
+										: $_('title.readFromSource')}
+								</Button>
+								{#if title.variants.length > 1}
+									<Button
+										variant="ghost"
+										size="sm"
+										onclick={() => void removeSourceVariant(variant.id)}
+										disabled={removingVariantId === variant.id}
+										loading={removingVariantId === variant.id}
+									>
+										{$_('title.removeSource')}
+									</Button>
+								{/if}
+							</div>
+						</div>
+					{/each}
+				</div>
+
+				{#if sourceMatchesOpen}
+					<div class="flex flex-col gap-3 bg-[var(--void-1)] p-4">
+						<div class="flex items-center justify-between gap-4">
+							<div>
+								<p class="text-sm text-[var(--text)]">{$_('title.suggestedMatches')}</p>
+								<p class="mt-1 text-xs text-[var(--text-ghost)]">
+									{$_('title.enabledSourcesOnly')}
+								</p>
+							</div>
+							<button
+								type="button"
+								class="text-xs text-[var(--void-7)] transition-colors hover:text-[var(--text-muted)]"
+								onclick={() => (manualSearchOpen = !manualSearchOpen)}
+							>
+								{manualSearchOpen ? $_('common.less') : $_('title.searchManually')}
+							</button>
+						</div>
+
+						{#if sourceMatchesLoading}
+							<div class="flex items-center gap-2 text-xs text-[var(--text-ghost)]">
+								<SpinnerIcon size={12} class="animate-spin" />
+								<span>{$_('common.loading')}</span>
+							</div>
+						{:else if sourceMatches.length > 0}
+							<div class="flex flex-col gap-2">
+								{#each sourceMatches as result (`${result.sourceId}::${result.titleUrl}`)}
+									<div class="flex items-start justify-between gap-3 bg-[var(--void-2)] px-3 py-3 text-sm">
+										<div class="min-w-0">
+											<div class="truncate text-[var(--text)]">{result.title}</div>
+											<div class="mt-1 text-xs text-[var(--text-ghost)]">
+												{sourceDisplayName(result.sourceId, result.sourcePkg)} [{result.sourceLang}]
+											</div>
+										</div>
+										<Button
+											variant="ghost"
+											size="sm"
+											onclick={() => void linkSourceVariant(result)}
+											disabled={linkingVariantKey === `${result.sourceId}::${result.titleUrl}`}
+											loading={linkingVariantKey === `${result.sourceId}::${result.titleUrl}`}
+										>
+											{$_('title.addSource')}
+										</Button>
+									</div>
+								{/each}
+							</div>
+						{:else if sourceMatchesAttempted}
+							<p class="text-xs text-[var(--text-ghost)]">{$_('title.noSourceMatches')}</p>
+						{/if}
+
+						{#if manualSearchOpen}
+							<div class="grid gap-2 border-t border-[var(--void-3)] pt-3">
+								<input
+									type="text"
+									class="min-w-0 bg-[var(--void-2)] px-3 py-2 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-ghost)]"
+									placeholder={title.title}
+									bind:value={manualSearchQuery}
+								/>
+								<select
+									class="bg-[var(--void-2)] px-3 py-2 text-sm text-[var(--text)] outline-none"
+									bind:value={manualSearchSourceId}
+								>
+									<option value="">{$_('title.allEnabledSources')}</option>
+									{#each availableMatchSources as source (source.id)}
+										<option value={source.id}>{source.name} [{source.lang}]</option>
+									{/each}
+								</select>
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={() => void loadSourceMatches({ manual: true })}
+									disabled={sourceMatchesLoading || availableMatchSources.length === 0}
+									loading={sourceMatchesLoading}
+								>
+									{$_('common.search')}
+								</Button>
+							</div>
+						{/if}
+					</div>
+				{/if}
+
+				{#if sourceManagementError}
+					<p class="text-xs text-[var(--error)]">{sourceManagementError}</p>
+				{/if}
 			</div>
 
 			{#if preferencesError}

@@ -1311,6 +1311,73 @@ export const linkVariant = mutation({
 	}
 });
 
+export const removeVariant = mutation({
+	args: {
+		titleId: v.id('libraryTitles'),
+		variantId: v.id('titleVariants')
+	},
+	handler: async (ctx, args) => {
+		const title = await requireOwnedTitle(ctx, args.titleId);
+		const variant = await requireOwnedVariant(ctx, args.variantId);
+		if (variant.libraryTitleId !== title._id) {
+			throw new Error('Library variant not found');
+		}
+
+		const variants = await ctx.db
+			.query('titleVariants')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+			)
+			.collect();
+		if (variants.length <= 1) {
+			throw new Error('Cannot remove the last source');
+		}
+
+		const chapters = await ctx.db
+			.query('libraryChapters')
+			.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+			.collect();
+		const variantChapters = chapters.filter((chapter) => chapter.titleVariantId === variant._id);
+
+		for (const chapter of variantChapters) {
+			const [progressRows, commentRows] = await Promise.all([
+				ctx.db
+					.query('chapterProgress')
+					.withIndex('by_owner_user_id_chapter_id', (q) =>
+						q.eq('ownerUserId', title.ownerUserId).eq('chapterId', chapter._id)
+					)
+					.collect(),
+				ctx.db
+					.query('chapterComments')
+					.withIndex('by_owner_user_id_chapter_id_updated_at', (q) =>
+						q.eq('ownerUserId', title.ownerUserId).eq('chapterId', chapter._id)
+					)
+					.collect()
+			]);
+
+			for (const progress of progressRows) {
+				await ctx.db.delete(progress._id);
+			}
+			for (const comment of commentRows) {
+				await ctx.db.delete(comment._id);
+			}
+			await ctx.db.delete(chapter._id);
+		}
+
+		await ctx.db.delete(variant._id);
+		const nextPreferredVariantId =
+			title.preferredVariantId === variant._id ? undefined : title.preferredVariantId;
+		const preferredVariantId = await setTitlePreferredVariant(ctx, title._id, nextPreferredVariantId, Date.now());
+
+		return {
+			ok: true,
+			removedVariantId: variant._id,
+			removedChapterCount: variantChapters.length,
+			preferredVariantId: preferredVariantId ?? null
+		};
+	}
+});
+
 export const mergeTitles = mutation({
 	args: {
 		targetTitleId: v.id('libraryTitles'),

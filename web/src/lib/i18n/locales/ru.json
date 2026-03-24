@@ -137,6 +137,8 @@
 		"noSourceMatches": "Совпадения в других источниках не найдены",
 		"sourceMatchFailed": "Не удалось найти совпадающие источники",
 		"sourceLinkFailed": "Не удалось привязать источник",
+		"sourceRemoveFailed": "Не удалось убрать источник",
+		"removeSource": "Убрать источник",
 		"sourceMergeFailed": "Не удалось объединить тайтлы",
 		"linkedElsewhere": "Уже привязан к другому тайтлу",
 		"mergeTitle": "Объединить",

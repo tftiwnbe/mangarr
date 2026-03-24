@@ -137,6 +137,8 @@
 		"noSourceMatches": "No matching sources found",
 		"sourceMatchFailed": "Unable to find matching sources",
 		"sourceLinkFailed": "Unable to link source",
+		"sourceRemoveFailed": "Unable to remove source",
+		"removeSource": "Remove source",
 		"sourceMergeFailed": "Unable to merge titles",
 		"linkedElsewhere": "Linked to another title",
 		"mergeTitle": "Merge",
