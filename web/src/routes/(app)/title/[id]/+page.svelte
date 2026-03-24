@@ -71,6 +71,7 @@
 			sourceId: string;
 			sourcePkg: string;
 			sourceLang: string;
+			sourceName?: string | null;
 			titleUrl: string;
 			title: string;
 			author?: string | null;
@@ -79,6 +80,9 @@
 			coverUrl?: string | null;
 			genre?: string | null;
 			status?: number | null;
+			isInstalled?: boolean;
+			isEnabled?: boolean;
+			isStale?: boolean;
 			isPreferred: boolean;
 			lastSyncedAt?: number | null;
 		}>;
@@ -195,6 +199,8 @@
 	let linkingVariantKey = $state<string | null>(null);
 	let preferredVariantSavingId = $state<string | null>(null);
 	let removingVariantId = $state<string | null>(null);
+	let normalizingSources = $state(false);
+	let lastSourceNormalizationSignature = $state('');
 	let lastSyncedPreferenceSignature = $state('');
 	let lastMetadataKey = $state('');
 
@@ -243,9 +249,17 @@
 	);
 	const sourcesCount = $derived(title?.variants.length ?? (title ? 1 : 0));
 	const readingProgressCount = $derived(title?.readingProgress.startedChapters ?? 0);
+	const preferredVariantId = $derived.by(
+		() => title?.preferredVariantId ?? title?.variants.find((variant) => variant.isPreferred)?.id ?? null
+	);
 	const sourceName = $derived.by(() => {
 		if (!title) return '';
-		return sources.find((item) => item.id === title.sourceId)?.name ?? title.sourcePkg;
+		const preferredVariant = title.variants.find((variant) => variant.id === preferredVariantId) ?? null;
+		return (
+			preferredVariant?.sourceName?.trim() ||
+			sources.find((item) => item.id === title.sourceId)?.name ||
+			title.sourcePkg
+		);
 	});
 	const author = $derived.by(() =>
 		String(fallbackMetadata?.author ?? fetchedMetadata?.author ?? title?.author ?? '').trim()
@@ -272,9 +286,7 @@
 				return left.name.localeCompare(right.name);
 			});
 	});
-	const preferredVariantId = $derived.by(
-		() => title?.preferredVariantId ?? title?.variants.find((variant) => variant.isPreferred)?.id ?? null
-	);
+	const hasStaleVariants = $derived.by(() => title?.variants.some((variant) => variant.isStale) ?? false);
 	const chaptersLabel = $derived.by(() =>
 		`${title?.chapterStats.total ?? 0} ${$_('title.chapters').toLowerCase()}`
 	);
@@ -350,6 +362,18 @@
 		selectedRating = title.userRating ? Math.round(title.userRating) : 0;
 		selectedCollectionIds = title.collections.map((collection) => collection.id);
 		lastSyncedPreferenceSignature = signature;
+	});
+
+	$effect(() => {
+		if (!title || !hasStaleVariants || normalizingSources) return;
+		const signature = `${title._id}::${title.variants
+			.map((variant) => `${variant.id}:${variant.sourceId}:${variant.isStale ? '1' : '0'}`)
+			.join('|')}`;
+		if (signature === lastSourceNormalizationSignature) {
+			return;
+		}
+		lastSourceNormalizationSignature = signature;
+		void normalizeSourceLinks();
 	});
 
 	$effect(() => {
@@ -460,8 +484,8 @@
 		return new Date(value).toLocaleString();
 	}
 
-	function sourceDisplayName(sourceId: string, fallback: string): string {
-		return sources.find((source) => source.id === sourceId)?.name ?? fallback;
+	function sourceDisplayName(sourceId: string, fallback: string, sourceName?: string | null): string {
+		return sourceName?.trim() || sources.find((source) => source.id === sourceId)?.name || fallback;
 	}
 
 	function sourceVariantKey(sourceId: string, titleUrl: string): string {
@@ -878,6 +902,22 @@
 				cause instanceof Error ? cause.message : $_('title.sourceRemoveFailed');
 		} finally {
 			removingVariantId = null;
+		}
+	}
+
+	async function normalizeSourceLinks() {
+		if (!title || normalizingSources) return;
+		normalizingSources = true;
+		sourceManagementError = null;
+		try {
+			await client.mutation(convexApi.library.normalizeTitleVariants, {
+				titleId: title._id
+			});
+		} catch (cause) {
+			sourceManagementError =
+				cause instanceof Error ? cause.message : $_('title.sourceRepairFailed');
+		} finally {
+			normalizingSources = false;
 		}
 	}
 </script>
@@ -1392,15 +1432,28 @@
 							{$_('title.findMatchesDescription')}
 						</p>
 					</div>
-					<Button
-						variant="outline"
-						size="sm"
-						onclick={() => void loadSourceMatches()}
-						disabled={sourceMatchesLoading || availableMatchSources.length === 0}
-						loading={sourceMatchesLoading}
-					>
-						{$_('title.findOtherSources')}
-					</Button>
+					<div class="flex items-center gap-2">
+						{#if hasStaleVariants}
+							<Button
+								variant="outline"
+								size="sm"
+								onclick={() => void normalizeSourceLinks()}
+								disabled={normalizingSources}
+								loading={normalizingSources}
+							>
+								{$_('title.repairSources')}
+							</Button>
+						{/if}
+						<Button
+							variant="outline"
+							size="sm"
+							onclick={() => void loadSourceMatches()}
+							disabled={sourceMatchesLoading || availableMatchSources.length === 0}
+							loading={sourceMatchesLoading}
+						>
+							{$_('title.findOtherSources')}
+						</Button>
+					</div>
 				</div>
 
 				<div class="flex flex-col gap-2">
@@ -1410,11 +1463,20 @@
 								<div class="min-w-0">
 									<div class="flex items-center gap-2">
 										<span class="truncate text-sm text-[var(--text)]">
-											{sourceDisplayName(variant.sourceId, variant.sourcePkg)}
+											{sourceDisplayName(variant.sourceId, variant.sourcePkg, variant.sourceName)}
 										</span>
 										<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
 											{variant.sourceLang}
 										</span>
+										{#if variant.isStale}
+											<span class="text-[11px] text-[var(--error)]">
+												{$_('title.staleSource')}
+											</span>
+										{:else if variant.isEnabled === false}
+											<span class="text-[11px] text-[var(--text-ghost)]">
+												{$_('downloads.disabled')}
+											</span>
+										{/if}
 										{#if preferredVariantId === variant.id}
 											<span class="text-[11px] text-[var(--success)]">
 												{$_('title.readingNow')}

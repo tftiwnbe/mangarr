@@ -1378,6 +1378,92 @@ export const removeVariant = mutation({
 	}
 });
 
+export const normalizeTitleVariants = mutation({
+	args: {
+		titleId: v.id('libraryTitles')
+	},
+	handler: async (ctx, args) => {
+		const title = await requireOwnedTitle(ctx, args.titleId);
+		const now = Date.now();
+		const [variants, chapters, installedSourceCatalog] = await Promise.all([
+			ctx.db
+				.query('titleVariants')
+				.withIndex('by_owner_user_id_library_title_id', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.collect(),
+			ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+				.collect(),
+			loadInstalledSourceCatalog(ctx)
+		]);
+
+		const assignments = pickVariantNormalizationAssignments(variants, installedSourceCatalog);
+		let repairedCount = 0;
+		const unresolvedVariantIds: string[] = [];
+
+		for (const variant of variants) {
+			const installedRecord = variantInstalledSourceRecord(installedSourceCatalog, variant);
+			if (installedRecord !== null) {
+				continue;
+			}
+
+			const assignment = assignments.get(String(variant._id));
+			if (!assignment) {
+				unresolvedVariantIds.push(String(variant._id));
+				continue;
+			}
+
+			const conflictingVariant = await ctx.db
+				.query('titleVariants')
+				.withIndex('by_owner_user_id_source_id_title_url', (q) =>
+					q.eq('ownerUserId', title.ownerUserId)
+						.eq('sourceId', assignment.sourceId)
+						.eq('titleUrl', variant.titleUrl)
+				)
+				.unique();
+			if (conflictingVariant && conflictingVariant._id !== variant._id) {
+				unresolvedVariantIds.push(String(variant._id));
+				continue;
+			}
+
+			await ctx.db.patch(variant._id, {
+				sourceId: assignment.sourceId,
+				sourceLang: assignment.sourceLang,
+				updatedAt: now
+			});
+
+			for (const chapter of chapters) {
+				const belongsToVariant =
+					chapter.titleVariantId === variant._id ||
+					(!chapter.titleVariantId &&
+						chapter.sourceId === variant.sourceId &&
+						chapter.sourcePkg === variant.sourcePkg &&
+						chapter.titleUrl === variant.titleUrl);
+				if (!belongsToVariant) continue;
+
+				await ctx.db.patch(chapter._id, {
+					titleVariantId: variant._id,
+					sourceId: assignment.sourceId,
+					sourceLang: assignment.sourceLang,
+					updatedAt: now
+				});
+			}
+
+			repairedCount += 1;
+		}
+
+		await setTitlePreferredVariant(ctx, title._id, title.preferredVariantId, now);
+
+		return {
+			ok: true,
+			repairedCount,
+			unresolvedVariantIds
+		};
+	}
+});
+
 export const mergeTitles = mutation({
 	args: {
 		targetTitleId: v.id('libraryTitles'),
@@ -2164,6 +2250,129 @@ async function requireOwnedVariant(
 	return variant;
 }
 
+type InstalledSourceCatalogItem = {
+	id: string;
+	pkg: string;
+	lang: string;
+	name: string;
+	enabled: boolean;
+};
+
+async function loadInstalledSourceCatalog(ctx: QueryCtx | MutationCtx) {
+	const extensions = await ctx.db.query('installedExtensions').collect();
+	const byId = new Map<string, InstalledSourceCatalogItem>();
+	const byPkg = new Map<string, InstalledSourceCatalogItem[]>();
+
+	for (const extension of extensions) {
+		const sources =
+			extension.sources ??
+			extension.sourceIds.map((id) => ({
+				id,
+				name: id,
+				lang: extension.lang,
+				supportsLatest: false,
+				enabled: true
+			}));
+		for (const source of sources) {
+			const item: InstalledSourceCatalogItem = {
+				id: source.id,
+				pkg: extension.pkg,
+				lang: source.lang,
+				name: source.name,
+				enabled: source.enabled !== false
+			};
+			byId.set(item.id, item);
+			const pkgItems = byPkg.get(item.pkg) ?? [];
+			pkgItems.push(item);
+			byPkg.set(item.pkg, pkgItems);
+		}
+	}
+
+	return { byId, byPkg };
+}
+
+function variantInstalledSourceRecord(
+	catalog: { byId: Map<string, InstalledSourceCatalogItem> },
+	variant: { sourceId: string; sourcePkg: string }
+) {
+	const installed = catalog.byId.get(variant.sourceId);
+	return installed && installed.pkg === variant.sourcePkg ? installed : null;
+}
+
+function pickVariantNormalizationAssignments(
+	variants: Array<{
+		_id: GenericId<'titleVariants'>;
+		sourceId: string;
+		sourcePkg: string;
+		sourceLang: string;
+		titleUrl: string;
+	}>,
+	catalog: {
+		byId: Map<string, InstalledSourceCatalogItem>;
+		byPkg: Map<string, InstalledSourceCatalogItem[]>;
+	}
+) {
+	const assignments = new Map<
+		string,
+		{
+			sourceId: string;
+			sourceLang: string;
+			sourceName: string;
+		}
+	>();
+
+	const variantsByPkg = new Map<string, typeof variants>();
+	for (const variant of variants) {
+		const pkgVariants = variantsByPkg.get(variant.sourcePkg) ?? [];
+		pkgVariants.push(variant);
+		variantsByPkg.set(variant.sourcePkg, pkgVariants);
+	}
+
+	for (const [sourcePkg, pkgVariants] of variantsByPkg.entries()) {
+		const installedSources = catalog.byPkg.get(sourcePkg) ?? [];
+		const activeSourceIds = new Set(
+			pkgVariants
+				.filter((variant) => variantInstalledSourceRecord(catalog, variant) !== null)
+				.map((variant) => variant.sourceId)
+		);
+		const staleVariants = pkgVariants.filter((variant) => variantInstalledSourceRecord(catalog, variant) === null);
+		if (staleVariants.length === 0) continue;
+
+		const remainingSources = installedSources.filter((source) => !activeSourceIds.has(source.id));
+		const consumedSourceIds = new Set<string>();
+
+		for (const variant of staleVariants) {
+			const langMatches = remainingSources.filter(
+				(source) => !consumedSourceIds.has(source.id) && source.lang === variant.sourceLang
+			);
+			if (langMatches.length === 1) {
+				const matched = langMatches[0];
+				assignments.set(String(variant._id), {
+					sourceId: matched.id,
+					sourceLang: matched.lang,
+					sourceName: matched.name
+				});
+				consumedSourceIds.add(matched.id);
+			}
+		}
+
+		const unresolved = staleVariants.filter((variant) => !assignments.has(String(variant._id)));
+		const unresolvedRemainingSources = remainingSources.filter(
+			(source) => !consumedSourceIds.has(source.id)
+		);
+		if (unresolved.length === 1 && unresolvedRemainingSources.length === 1) {
+			const matched = unresolvedRemainingSources[0];
+			assignments.set(String(unresolved[0]._id), {
+				sourceId: matched.id,
+				sourceLang: matched.lang,
+				sourceName: matched.name
+			});
+		}
+	}
+
+	return assignments;
+}
+
 async function getPreferredVariantForTitle(
 	ctx: QueryCtx | MutationCtx,
 	title: {
@@ -2226,19 +2435,27 @@ async function listVariantsForTitle(
 		status?: number;
 	}
 ) {
-	const variants = await ctx.db
-		.query('titleVariants')
-		.withIndex('by_owner_user_id_library_title_id', (q) =>
-			q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-		)
-		.collect();
+	const [variants, installedSourceCatalog] = await Promise.all([
+		ctx.db
+			.query('titleVariants')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+			)
+			.collect(),
+		loadInstalledSourceCatalog(ctx)
+	]);
 
 	return variants
+		.map((variant) => ({
+			...variant,
+			installedSource: variantInstalledSourceRecord(installedSourceCatalog, variant)
+		}))
 		.map((variant) => ({
 			id: variant._id,
 			sourceId: variant.sourceId,
 			sourcePkg: variant.sourcePkg,
 			sourceLang: variant.sourceLang,
+			sourceName: variant.installedSource?.name ?? null,
 			titleUrl: variant.titleUrl,
 			title: variant.title,
 			author: variant.author ?? null,
@@ -2247,6 +2464,9 @@ async function listVariantsForTitle(
 			coverUrl: variant.coverUrl ?? null,
 			genre: variant.genre ?? null,
 			status: variant.status ?? null,
+			isInstalled: variant.installedSource !== null,
+			isEnabled: variant.installedSource?.enabled ?? false,
+			isStale: variant.installedSource === null,
 			isPreferred: title.preferredVariantId
 				? variant._id === title.preferredVariantId
 				: variant.isPreferred,
