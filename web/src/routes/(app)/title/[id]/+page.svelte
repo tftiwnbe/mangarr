@@ -157,26 +157,6 @@
 		titlesCount?: number;
 	};
 
-	type MergeCandidate = {
-		id: string;
-		title: string;
-		author?: string | null;
-		artist?: string | null;
-		sourceId: string;
-		sourcePkg: string;
-		sourceLang: string;
-		titleUrl: string;
-		variantsCount: number;
-		userStatus?: {
-			id: string;
-			key: string;
-			label: string;
-			position: number;
-			isDefault: boolean;
-		} | null;
-		updatedAt: number;
-	};
-
 	const client = useConvexClient();
 	const titleQuery = useQuery(convexApi.library.getMineById, () => ({
 		titleId: data.titleId as Id<'libraryTitles'>
@@ -184,6 +164,10 @@
 	const sourcesQuery = useQuery(convexApi.extensions.listSources, () => ({}));
 	const statusesQuery = useQuery(convexApi.library.listUserStatuses, () => ({}));
 	const collectionsQuery = useQuery(convexApi.library.listCollections, () => ({}));
+
+	const MATCH_SEARCH_CONCURRENCY = 3;
+	const MATCH_SEARCH_LIMIT = 12;
+	const MATCH_SEARCH_PER_SOURCE_LIMIT = 6;
 
 	let activeTab = $state<'info' | 'chapters' | 'comments'>('info');
 	let showFullDescription = $state(false);
@@ -200,23 +184,18 @@
 	let selectedStatusId = $state<string | null>(null);
 	let selectedRating = $state<number>(0);
 	let selectedCollectionIds = $state<string[]>([]);
-	let selectedPreferredVariantId = $state<string | null>(null);
 	let sourceManagementError = $state<string | null>(null);
-	let sourceSearchSourceId = $state('');
-	let sourceSearchQuery = $state('');
-	let sourceSearchLoading = $state(false);
-	let sourceSearchAttempted = $state(false);
-	let sourceSearchResults = $state<ExploreItem[]>([]);
+	let sourceMatchesOpen = $state(false);
+	let sourceMatchesLoading = $state(false);
+	let sourceMatchesAttempted = $state(false);
+	let sourceMatches = $state<ExploreItem[]>([]);
+	let manualSearchOpen = $state(false);
+	let manualSearchQuery = $state('');
+	let manualSearchSourceId = $state('');
 	let linkingVariantKey = $state<string | null>(null);
-	let mergeLoadingTitleId = $state<string | null>(null);
-	let mergeQuery = $state('');
+	let preferredVariantSavingId = $state<string | null>(null);
 	let lastSyncedPreferenceSignature = $state('');
 	let lastMetadataKey = $state('');
-	const mergeCandidatesQuery = useQuery(convexApi.library.listMergeCandidates, () => ({
-		titleId: data.titleId as Id<'libraryTitles'>,
-		query: mergeQuery.trim() || undefined,
-		limit: 8
-	}));
 
 	const title = $derived((titleQuery.data as TitleDetail | null) ?? null);
 	const sources = $derived((sourcesQuery.data ?? []) as SourceItem[]);
@@ -228,7 +207,6 @@
 			(left, right) => left.position - right.position
 		)
 	);
-	const mergeCandidates = $derived((mergeCandidatesQuery.data ?? []) as MergeCandidate[]);
 	const loading = $derived(titleQuery.isLoading);
 	const errorMessage = $derived(
 		titleQuery.error instanceof Error ? titleQuery.error.message : null
@@ -275,12 +253,26 @@
 		String(fallbackMetadata?.artist ?? fetchedMetadata?.artist ?? title?.artist ?? '').trim()
 	);
 	const updatesEnabled = $derived(Boolean(title?.downloadProfile?.enabled));
-	const selectedStatusLabel = $derived.by(
-		() => availableStatuses.find((status) => status.id === selectedStatusId)?.label ?? null
+	const linkedSourceKeys = $derived.by(
+		() => new Set(title?.variants.map((variant) => sourceVariantKey(variant.sourceId, variant.titleUrl)) ?? [])
 	);
-	const selectedCollectionCount = $derived(selectedCollectionIds.length);
-	const selectedPreferredVariant = $derived.by(
-		() => title?.variants.find((variant) => variant.id === selectedPreferredVariantId) ?? null
+	const availableMatchSources = $derived.by(() => {
+		if (!title) return [] as SourceItem[];
+		const linkedSourceIds = new Set(title.variants.map((variant) => variant.sourceId));
+		return [...sources]
+			.filter((source) => !linkedSourceIds.has(source.id))
+			.sort((left, right) => {
+				const leftScore = left.lang === title.sourceLang ? 0 : 1;
+				const rightScore = right.lang === title.sourceLang ? 0 : 1;
+				if (leftScore !== rightScore) return leftScore - rightScore;
+				if (left.extensionName !== right.extensionName) {
+					return left.extensionName.localeCompare(right.extensionName);
+				}
+				return left.name.localeCompare(right.name);
+			});
+	});
+	const preferredVariantId = $derived.by(
+		() => title?.preferredVariantId ?? title?.variants.find((variant) => variant.isPreferred)?.id ?? null
 	);
 	const chaptersLabel = $derived.by(() =>
 		`${title?.chapterStats.total ?? 0} ${$_('title.chapters').toLowerCase()}`
@@ -313,14 +305,11 @@
 		const currentRating = title.userRating ? Math.round(title.userRating) : 0;
 		const currentCollectionIds = [...title.collections.map((collection) => collection.id)].sort();
 		const nextCollectionIds = [...selectedCollectionIds].sort();
-		const currentPreferredVariantId =
-			title.preferredVariantId ?? title.variants.find((variant) => variant.isPreferred)?.id ?? null;
 
 		return (
 			currentStatusId !== selectedStatusId ||
 			currentRating !== selectedRating ||
-			currentCollectionIds.join(',') !== nextCollectionIds.join(',') ||
-			currentPreferredVariantId !== selectedPreferredVariantId
+			currentCollectionIds.join(',') !== nextCollectionIds.join(',')
 		);
 	});
 
@@ -350,8 +339,7 @@
 			title._id,
 			title.userStatus?.id ?? '',
 			String(title.userRating ?? ''),
-			[...title.collections.map((collection) => collection.id)].sort().join(','),
-			title.preferredVariantId ?? title.variants.find((variant) => variant.isPreferred)?.id ?? ''
+			[...title.collections.map((collection) => collection.id)].sort().join(',')
 		].join('::');
 		if (signature === lastSyncedPreferenceSignature) {
 			return;
@@ -360,22 +348,27 @@
 		selectedStatusId = title.userStatus?.id ?? null;
 		selectedRating = title.userRating ? Math.round(title.userRating) : 0;
 		selectedCollectionIds = title.collections.map((collection) => collection.id);
-		selectedPreferredVariantId =
-			title.preferredVariantId ?? title.variants.find((variant) => variant.isPreferred)?.id ?? null;
 		lastSyncedPreferenceSignature = signature;
 	});
 
 	$effect(() => {
-		if (!title || sources.length === 0) return;
-		const sourceStillAvailable = sources.some((source) => source.id === sourceSearchSourceId);
-		if (sourceSearchSourceId && sourceStillAvailable) {
+		if (availableMatchSources.length === 0) {
+			if (manualSearchSourceId !== '') {
+				manualSearchSourceId = '';
+			}
 			return;
 		}
 
-		const nextSource =
-			sources.find((source) => source.id !== title.sourceId)?.id ?? sources[0]?.id ?? '';
-		if (nextSource !== sourceSearchSourceId) {
-			sourceSearchSourceId = nextSource;
+		if (
+			manualSearchSourceId &&
+			availableMatchSources.some((source) => source.id === manualSearchSourceId)
+		) {
+			return;
+		}
+
+		const nextSource = availableMatchSources[0]?.id ?? '';
+		if (manualSearchSourceId !== nextSource) {
+			manualSearchSourceId = nextSource;
 		}
 	});
 
@@ -569,10 +562,7 @@
 					? (selectedStatusId as Id<'libraryUserStatuses'>)
 					: null,
 				userRating: selectedRating > 0 ? selectedRating : null,
-				collectionIds: selectedCollectionIds as Id<'libraryCollections'>[],
-				preferredVariantId: selectedPreferredVariantId
-					? (selectedPreferredVariantId as Id<'titleVariants'>)
-					: null
+				collectionIds: selectedCollectionIds as Id<'libraryCollections'>[]
 			});
 			preferencesSuccess = true;
 			setTimeout(() => {
@@ -586,36 +576,161 @@
 		}
 	}
 
-	async function searchOtherSources() {
-		if (!title || sourceSearchLoading || !sourceSearchSourceId) return;
+	async function runWithConcurrency<T>(
+		items: T[],
+		limit: number,
+		worker: (item: T) => Promise<void>
+	) {
+		const concurrency = Math.max(1, limit);
+		let index = 0;
+		await Promise.all(
+			Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+				while (index < items.length) {
+					const current = items[index];
+					index += 1;
+					await worker(current);
+				}
+			})
+		);
+	}
 
-		sourceSearchLoading = true;
-		sourceSearchAttempted = true;
+	function normalizeMatchTitle(value: string) {
+		return value
+			.toLowerCase()
+			.normalize('NFKD')
+			.replace(/[^\p{L}\p{N}]+/gu, ' ')
+			.replace(/\s+/g, ' ')
+			.trim();
+	}
+
+	function sourceMatchScore(query: string, item: ExploreItem) {
+		if (!title) return 0;
+		const normalizedQuery = normalizeMatchTitle(query);
+		const normalizedTitle = normalizeMatchTitle(item.title);
+		if (!normalizedQuery || !normalizedTitle) return 0;
+
+		let score = 0;
+		if (normalizedTitle === normalizedQuery) {
+			score += 120;
+		} else if (normalizedTitle.startsWith(normalizedQuery)) {
+			score += 95;
+		} else if (normalizedTitle.includes(normalizedQuery)) {
+			score += 75 - Math.min(20, Math.max(0, normalizedTitle.length - normalizedQuery.length));
+		}
+
+		const queryTokens = normalizedQuery.split(' ').filter((token) => token.length > 1);
+		const titleTokens = new Set(normalizedTitle.split(' ').filter((token) => token.length > 1));
+		if (queryTokens.length > 0) {
+			const overlap = queryTokens.filter((token) => titleTokens.has(token)).length;
+			score += Math.round((overlap / queryTokens.length) * 45);
+		}
+
+		if (item.sourceLang === title.sourceLang) {
+			score += 10;
+		}
+
+		if (normalizedTitle.includes('doujinshi')) score -= 70;
+		if (normalizedTitle.includes('anthology')) score -= 35;
+		if (normalizedTitle.includes('fan colored')) score -= 20;
+		if (normalizedTitle.includes('official colored')) score -= 10;
+
+		return score;
+	}
+
+	async function loadSourceMatches(options?: { manual?: boolean }) {
+		if (!title || sourceMatchesLoading) return;
+
+		const manual = options?.manual === true;
+		const query = (manual ? manualSearchQuery : title.title).trim() || title.title;
+		const candidateSources = manual
+			? manualSearchSourceId
+				? availableMatchSources.filter((source) => source.id === manualSearchSourceId)
+				: availableMatchSources
+			: availableMatchSources;
+		if (candidateSources.length === 0) {
+			sourceMatches = [];
+			sourceMatchesAttempted = true;
+			return;
+		}
+
+		sourceMatchesLoading = true;
+		sourceMatchesAttempted = true;
 		sourceManagementError = null;
+		sourceMatchesOpen = true;
+
 		try {
-			const query = sourceSearchQuery.trim() || title.title;
-			const { commandId } = await client.mutation(convexApi.commands.enqueue, {
-				commandType: 'explore.search',
-				payload: {
-					query,
-					sourceId: sourceSearchSourceId,
-					limit: 12
-				},
-				idempotencyKey: `title.variant.search:${title._id}:${sourceSearchSourceId}:${query.trim().toLowerCase()}`
-			});
-			const command = await pollCommand(String(commandId));
-			const linkedVariantKeys = new Set(
-				title.variants.map((variant) => sourceVariantKey(variant.sourceId, variant.titleUrl))
-			);
-			sourceSearchResults = (((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[]).filter(
-				(item) => !linkedVariantKeys.has(sourceVariantKey(item.sourceId, item.titleUrl))
-			);
+			const collected: ExploreItem[] = [];
+			const buildRankedMatches = () => {
+				const deduped: Record<string, ExploreItem> = {};
+				for (const item of collected) {
+					const key = sourceVariantKey(item.sourceId, item.titleUrl);
+					if (linkedSourceKeys.has(key) || deduped[key]) {
+						continue;
+					}
+					deduped[key] = item;
+				}
+
+				return Object.values(deduped)
+					.map((item) => ({ item, score: sourceMatchScore(query, item) }))
+					.filter(({ score }) => manual || score >= 55)
+					.sort((left, right) => right.score - left.score)
+					.slice(0, MATCH_SEARCH_LIMIT)
+					.map(({ item }) => item);
+			};
+			const searchSourceBatch = async (sourceBatch: SourceItem[]) => {
+				await runWithConcurrency(sourceBatch, MATCH_SEARCH_CONCURRENCY, async (source) => {
+					const { commandId } = await client.mutation(convexApi.commands.enqueue, {
+						commandType: 'explore.search',
+						payload: {
+							query,
+							sourceId: source.id,
+							limit: MATCH_SEARCH_PER_SOURCE_LIMIT
+						},
+						idempotencyKey: `title.variant.search:${manual ? 'manual' : 'suggested'}:${title._id}:${source.id}:${query.toLowerCase()}`
+					});
+					const command = await pollCommand(String(commandId));
+					const items = ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[];
+					collected.push(...items);
+				});
+			};
+
+			if (manual) {
+				await searchSourceBatch(candidateSources);
+				sourceMatches = buildRankedMatches();
+			} else {
+				const batchSize = 6;
+				sourceMatches = [];
+				for (let index = 0; index < candidateSources.length; index += batchSize) {
+					await searchSourceBatch(candidateSources.slice(index, index + batchSize));
+					sourceMatches = buildRankedMatches();
+					if (sourceMatches.length >= Math.min(6, MATCH_SEARCH_LIMIT)) {
+						break;
+					}
+				}
+			}
 		} catch (cause) {
 			sourceManagementError =
 				cause instanceof Error ? cause.message : $_('title.sourceMatchFailed');
-			sourceSearchResults = [];
+			sourceMatches = [];
 		} finally {
-			sourceSearchLoading = false;
+			sourceMatchesLoading = false;
+		}
+	}
+
+	async function choosePreferredVariant(variantId: string) {
+		if (!title || preferredVariantSavingId) return;
+		preferredVariantSavingId = variantId;
+		sourceManagementError = null;
+		try {
+			await client.mutation(convexApi.library.updateTitlePreferences, {
+				titleId: title._id,
+				preferredVariantId: variantId as Id<'titleVariants'>
+			});
+		} catch (cause) {
+			sourceManagementError =
+				cause instanceof Error ? cause.message : $_('title.sourceLinkFailed');
+		} finally {
+			preferredVariantSavingId = null;
 		}
 	}
 
@@ -640,7 +755,7 @@
 				genre: null,
 				status: null
 			});
-			sourceSearchResults = sourceSearchResults.filter(
+			sourceMatches = sourceMatches.filter(
 				(result) => sourceVariantKey(result.sourceId, result.titleUrl) !== variantKey
 			);
 		} catch (cause) {
@@ -650,24 +765,6 @@
 				: $_('title.sourceLinkFailed');
 		} finally {
 			linkingVariantKey = null;
-		}
-	}
-
-	async function mergeIntoCurrentTitle(sourceTitleId: string) {
-		if (!title || mergeLoadingTitleId) return;
-
-		mergeLoadingTitleId = sourceTitleId;
-		sourceManagementError = null;
-		try {
-			await client.mutation(convexApi.library.mergeTitles, {
-				targetTitleId: title._id,
-				sourceTitleId: sourceTitleId as Id<'libraryTitles'>
-			});
-		} catch (cause) {
-			sourceManagementError =
-				cause instanceof Error ? cause.message : $_('title.sourceMergeFailed');
-		} finally {
-			mergeLoadingTitleId = null;
 		}
 	}
 </script>
@@ -906,6 +1003,146 @@
 									{/each}
 								</div>
 							{/if}
+
+							<div class="flex flex-col gap-4">
+								<div class="flex items-center justify-between gap-4">
+									<div>
+										<h2 class="text-sm text-[var(--text)]">{$_('title.sources')}</h2>
+										<p class="mt-1 text-xs text-[var(--text-ghost)]">
+											{$_('title.findMatchesDescription')}
+										</p>
+									</div>
+									<Button
+										variant="outline"
+										size="sm"
+										onclick={() => void loadSourceMatches()}
+										disabled={sourceMatchesLoading || availableMatchSources.length === 0}
+										loading={sourceMatchesLoading}
+									>
+										{$_('title.findOtherSources')}
+									</Button>
+								</div>
+
+								<div class="flex flex-col gap-2">
+									{#each title.variants as variant (variant.id)}
+										<div class="flex items-start justify-between gap-3 bg-[var(--void-2)] px-3 py-3 text-sm">
+											<div class="min-w-0">
+												<div class="flex items-center gap-2">
+													<span class="truncate text-[var(--text)]">
+														{sourceDisplayName(variant.sourceId, variant.sourcePkg)}
+													</span>
+													<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
+														{variant.sourceLang}
+													</span>
+													{#if preferredVariantId === variant.id}
+														<span class="text-[11px] text-[var(--success)]">
+															{$_('title.readingNow')}
+														</span>
+													{/if}
+												</div>
+												<div class="mt-1 truncate text-xs text-[var(--text-ghost)]">
+													{variant.title}
+												</div>
+											</div>
+											<Button
+												variant="ghost"
+												size="sm"
+												onclick={() => void choosePreferredVariant(variant.id)}
+												disabled={preferredVariantSavingId === variant.id || preferredVariantId === variant.id}
+												loading={preferredVariantSavingId === variant.id}
+											>
+												{preferredVariantId === variant.id
+													? $_('title.readingNow')
+													: $_('title.readFromSource')}
+											</Button>
+										</div>
+									{/each}
+								</div>
+
+								{#if sourceMatchesOpen}
+									<div class="flex flex-col gap-3 bg-[var(--void-1)] p-4">
+										<div class="flex items-center justify-between gap-4">
+											<div>
+												<p class="text-sm text-[var(--text)]">{$_('title.suggestedMatches')}</p>
+												<p class="mt-1 text-xs text-[var(--text-ghost)]">
+													{$_('title.enabledSourcesOnly')}
+												</p>
+											</div>
+											<button
+												type="button"
+												class="text-xs text-[var(--void-7)] transition-colors hover:text-[var(--text-muted)]"
+												onclick={() => (manualSearchOpen = !manualSearchOpen)}
+											>
+												{manualSearchOpen ? $_('common.less') : $_('title.searchManually')}
+											</button>
+										</div>
+
+										{#if sourceMatchesLoading}
+											<div class="flex items-center gap-2 text-xs text-[var(--text-ghost)]">
+												<SpinnerIcon size={12} class="animate-spin" />
+												<span>{$_('common.loading')}</span>
+											</div>
+										{:else if sourceMatches.length > 0}
+											<div class="flex flex-col gap-2">
+												{#each sourceMatches as result (`${result.sourceId}::${result.titleUrl}`)}
+													<div class="flex items-start justify-between gap-3 bg-[var(--void-2)] px-3 py-3 text-sm">
+														<div class="min-w-0">
+															<div class="truncate text-[var(--text)]">{result.title}</div>
+															<div class="mt-1 text-xs text-[var(--text-ghost)]">
+																{sourceDisplayName(result.sourceId, result.sourcePkg)} [{result.sourceLang}]
+															</div>
+														</div>
+														<Button
+															variant="ghost"
+															size="sm"
+															onclick={() => void linkSourceVariant(result)}
+															disabled={linkingVariantKey === `${result.sourceId}::${result.titleUrl}`}
+															loading={linkingVariantKey === `${result.sourceId}::${result.titleUrl}`}
+														>
+															{$_('title.addSource')}
+														</Button>
+													</div>
+												{/each}
+											</div>
+										{:else if sourceMatchesAttempted}
+											<p class="text-xs text-[var(--text-ghost)]">{$_('title.noSourceMatches')}</p>
+										{/if}
+
+										{#if manualSearchOpen}
+											<div class="grid gap-2 border-t border-[var(--void-3)] pt-3 md:grid-cols-[minmax(0,1fr)_180px_auto]">
+												<input
+													type="text"
+													class="min-w-0 bg-[var(--void-2)] px-3 py-2 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-ghost)]"
+													placeholder={title.title}
+													bind:value={manualSearchQuery}
+												/>
+												<select
+													class="bg-[var(--void-2)] px-3 py-2 text-sm text-[var(--text)] outline-none"
+													bind:value={manualSearchSourceId}
+												>
+													<option value="">{$_('title.allEnabledSources')}</option>
+													{#each availableMatchSources as source (source.id)}
+														<option value={source.id}>{source.name} [{source.lang}]</option>
+													{/each}
+												</select>
+												<Button
+													variant="outline"
+													size="sm"
+													onclick={() => void loadSourceMatches({ manual: true })}
+													disabled={sourceMatchesLoading || availableMatchSources.length === 0}
+													loading={sourceMatchesLoading}
+												>
+													{$_('common.search')}
+												</Button>
+											</div>
+										{/if}
+									</div>
+								{/if}
+
+								{#if sourceManagementError}
+									<p class="text-xs text-[var(--error)]">{sourceManagementError}</p>
+								{/if}
+							</div>
 
 							<div class="flex flex-col gap-8">
 								<div class="flex flex-col gap-3">
@@ -1174,140 +1411,6 @@
 				</button>
 			</div>
 
-			<div class="flex flex-col gap-3">
-				<span class="text-label">{$_('title.sources')}</span>
-				<div class="flex flex-col gap-2">
-					{#each title.variants as variant (variant.id)}
-						<div class="flex items-start justify-between gap-3 bg-[var(--void-3)] px-3 py-3 text-sm">
-							<div class="min-w-0">
-								<div class="flex items-center gap-2">
-									<span class="truncate text-[var(--text)]">
-										{sourceDisplayName(variant.sourceId, variant.sourcePkg)}
-									</span>
-									<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
-										{variant.sourceLang}
-									</span>
-									{#if selectedPreferredVariantId === variant.id}
-										<span class="text-[11px] text-[var(--success)]">{$_('title.readingNow')}</span>
-									{/if}
-								</div>
-								<div class="mt-1 truncate text-xs text-[var(--text-ghost)]">{variant.title}</div>
-							</div>
-							<button
-								type="button"
-								class="shrink-0 px-2.5 py-1 text-xs transition-colors {selectedPreferredVariantId === variant.id
-									? 'bg-[var(--void-5)] text-[var(--text)]'
-									: 'bg-[var(--void-4)] text-[var(--text-ghost)] hover:bg-[var(--void-5)] hover:text-[var(--text-muted)]'}"
-								onclick={() => (selectedPreferredVariantId = variant.id)}
-							>
-								{selectedPreferredVariantId === variant.id
-									? $_('title.readingNow')
-									: $_('title.readFromSource')}
-							</button>
-						</div>
-					{/each}
-				</div>
-
-				<div class="grid gap-2 md:grid-cols-[minmax(0,1fr)_160px_auto]">
-					<input
-						type="text"
-						class="min-w-0 bg-[var(--void-3)] px-3 py-2 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-ghost)]"
-						placeholder={title.title}
-						bind:value={sourceSearchQuery}
-					/>
-					<select
-						class="bg-[var(--void-3)] px-3 py-2 text-sm text-[var(--text)] outline-none"
-						bind:value={sourceSearchSourceId}
-					>
-						{#each sources as source (source.id)}
-							<option value={source.id}>{source.name} [{source.lang}]</option>
-						{/each}
-					</select>
-					<Button
-						variant="outline"
-						size="sm"
-						onclick={() => void searchOtherSources()}
-						disabled={!sourceSearchSourceId || sourceSearchLoading}
-						loading={sourceSearchLoading}
-					>
-						{$_('title.findOtherSources')}
-					</Button>
-				</div>
-
-				{#if sourceSearchResults.length > 0}
-					<div class="flex flex-col gap-2">
-						{#each sourceSearchResults as result (`${result.sourceId}::${result.titleUrl}`)}
-							<div class="flex items-start justify-between gap-3 bg-[var(--void-3)] px-3 py-3 text-sm">
-								<div class="min-w-0">
-									<div class="truncate text-[var(--text)]">{result.title}</div>
-									<div class="mt-1 text-xs text-[var(--text-ghost)]">
-										{sourceDisplayName(result.sourceId, result.sourcePkg)} [{result.sourceLang}]
-									</div>
-								</div>
-								<Button
-									variant="ghost"
-									size="sm"
-									onclick={() => void linkSourceVariant(result)}
-									disabled={linkingVariantKey === `${result.sourceId}::${result.titleUrl}`}
-									loading={linkingVariantKey === `${result.sourceId}::${result.titleUrl}`}
-								>
-									{$_('title.addSource')}
-								</Button>
-							</div>
-						{/each}
-					</div>
-				{:else if !sourceSearchLoading && sourceSearchAttempted}
-					<p class="text-xs text-[var(--text-ghost)]">{$_('title.noSourceMatches')}</p>
-				{/if}
-
-				<div class="flex flex-col gap-2">
-					<input
-						type="text"
-						class="min-w-0 bg-[var(--void-3)] px-3 py-2 text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-ghost)]"
-						placeholder={$_('title.mergeTitle')}
-						bind:value={mergeQuery}
-					/>
-					{#if mergeCandidates.length > 0}
-						<div class="flex flex-col gap-2">
-							{#each mergeCandidates as candidate (candidate.id)}
-								<div class="flex items-start justify-between gap-3 bg-[var(--void-3)] px-3 py-3 text-sm">
-									<div class="min-w-0">
-										<div class="truncate text-[var(--text)]">{candidate.title}</div>
-										<div class="mt-1 text-xs text-[var(--text-ghost)]">
-											{sourceDisplayName(candidate.sourceId, candidate.sourcePkg)} [{candidate.sourceLang}]
-											· {candidate.variantsCount} {$_('title.variants').toLowerCase()}
-										</div>
-										{#if candidate.userStatus}
-											<div class="mt-1 text-[11px] text-[var(--void-6)]">
-												{candidate.userStatus.label}
-											</div>
-										{/if}
-									</div>
-									<Button
-										variant="ghost"
-										size="sm"
-										onclick={() => void mergeIntoCurrentTitle(candidate.id)}
-										disabled={mergeLoadingTitleId === candidate.id}
-										loading={mergeLoadingTitleId === candidate.id}
-									>
-										{$_('title.mergeTitle')}
-									</Button>
-								</div>
-							{/each}
-						</div>
-					{:else}
-						<p class="text-xs text-[var(--text-ghost)]">{$_('common.noResults')}</p>
-					{/if}
-				</div>
-
-				<p class="text-xs text-[var(--text-ghost)]">
-					{selectedCollectionCount} {$_('title.collections').toLowerCase()}
-				</p>
-			</div>
-
-			{#if sourceManagementError}
-				<p class="text-xs text-[var(--error)]">{sourceManagementError}</p>
-			{/if}
 			{#if preferencesError}
 				<p class="text-xs text-[var(--error)]">{preferencesError}</p>
 			{/if}
