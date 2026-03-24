@@ -49,17 +49,6 @@
 		coverUrl?: string | null;
 	};
 
-	type CommandItem = {
-		id: string;
-		commandType: string;
-		status: string;
-		payload?: Record<string, unknown> | null;
-		result?: Record<string, unknown> | null;
-		lastErrorMessage?: string | null;
-		updatedAt?: number;
-		createdAt?: number;
-	};
-
 	type LibraryTitleItem = {
 		_id: string;
 		sourceId: string;
@@ -137,7 +126,6 @@
 	]);
 
 	const client = useConvexClient();
-	const commandsQuery = useQuery(convexApi.commands.listMine, () => ({ limit: 300 }));
 	const sourcesQuery = useQuery(convexApi.extensions.listSources, () => ({}));
 	const libraryQuery = useQuery(convexApi.library.listMine, () => ({}));
 
@@ -179,7 +167,6 @@
 	let stableCardsByKey: Record<string, ExploreCard> = {};
 
 	const sources = $derived((sourcesQuery.data ?? []) as SourceItem[]);
-	const commands = $derived((commandsQuery.data ?? []) as CommandItem[]);
 	const libraryTitles = $derived((libraryQuery.data ?? []) as LibraryTitleItem[]);
 	const preferredContentLanguages = $derived(toMainContentLanguages($contentLanguages));
 
@@ -463,22 +450,7 @@
 	}
 
 	function latestFeedResult(commandType: string, sourceId: string, page: number): FeedResult | null {
-		const live = liveFeedResults[feedResultKey(commandType, sourceId, page)];
-		if (live) return live;
-
-		for (const item of commands) {
-			if (item.commandType !== commandType || item.status !== 'succeeded') continue;
-			const payload = item.payload ?? {};
-			if (String(payload.sourceId ?? '') !== sourceId) continue;
-			if (Number(payload.page ?? 1) !== page) continue;
-			return {
-				items: ((item.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[],
-				page: Number(item.result?.page ?? page),
-				hasNextPage: Boolean(item.result?.hasNextPage ?? false)
-			};
-		}
-
-		return null;
+		return liveFeedResults[feedResultKey(commandType, sourceId, page)] ?? null;
 	}
 
 	function latestSearchResult(
@@ -487,23 +459,7 @@
 		searchFilters: Record<string, unknown>
 	): SearchResult | null {
 		const key = searchResultKey(sourceId, query, searchFilters);
-		const live = liveSearchResults[key];
-		if (live) return live;
-
-		for (const item of commands) {
-			if (item.commandType !== 'explore.search' || item.status !== 'succeeded') continue;
-			const payload = item.payload ?? {};
-			if (String(payload.sourceId ?? '') !== sourceId) continue;
-			if (String(payload.query ?? '').trim().toLowerCase() !== query.trim().toLowerCase()) continue;
-			if (JSON.stringify((payload.searchFilters as Record<string, unknown> | undefined) ?? {}) !== JSON.stringify(searchFilters)) {
-				continue;
-			}
-			return {
-				items: ((item.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[]
-			};
-		}
-
-		return null;
+		return liveSearchResults[key] ?? null;
 	}
 
 	function feedItemsForSource(commandType: string, sourceId: string, maxPage: number): ExploreItem[] {

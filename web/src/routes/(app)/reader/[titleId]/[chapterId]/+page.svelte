@@ -107,7 +107,6 @@
 		convexApi.library.getReaderByChapterId,
 		() => (data.chapterId ? { chapterId: data.chapterId as Id<'libraryChapters'> } : 'skip')
 	);
-	const commandsQuery = useQuery(convexApi.commands.listMine, () => ({ limit: 100 }));
 	const commentsQuery = useQuery(
 		convexApi.library.listChapterComments,
 		() => (data.chapterId ? { chapterId: data.chapterId as Id<'libraryChapters'> } : 'skip')
@@ -136,13 +135,13 @@
 	let initializedProgress = $state(false);
 	let progressSaveTimer = $state<ReturnType<typeof setTimeout> | null>(null);
 	let lastChapterId = $state<string | null>(null);
+	let remotePagesCommand = $state<CommandItem | null>(null);
 
 	const readerData = $derived((readerQuery.data as ReaderQuery) ?? null);
 	const title = $derived(readerData?.title ?? null);
 	const chapter = $derived(readerData?.chapter ?? null);
 	const currentChapterId = $derived(chapter?._id ?? null);
 	const chapters = $derived(readerData?.chapters ?? []);
-	const commands = $derived((commandsQuery.data ?? []) as CommandItem[]);
 	const comments = $derived((commentsQuery.data ?? []) as CommentItem[]);
 	const loadError = $derived(
 		readerQuery.error instanceof Error ? readerQuery.error.message : null
@@ -155,21 +154,7 @@
 		return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
 	});
 
-	const remotePagesResult = $derived.by(() => {
-		if (!chapter) return null;
-		for (const item of commands) {
-			if (item.commandType !== 'reader.pages.fetch') continue;
-			const payload = item.payload ?? {};
-			if (
-				String(payload.sourceId ?? '') !== chapter.sourceId ||
-				String(payload.chapterUrl ?? '') !== chapter.chapterUrl
-			) {
-				continue;
-			}
-			return item;
-		}
-		return null;
-	});
+	const remotePagesResult = $derived(remotePagesCommand);
 
 	const remotePages = $derived.by(() =>
 		((remotePagesResult?.result?.pages as RemotePage[] | undefined) ?? []).sort(
@@ -392,23 +377,72 @@
 		return () => panelOverlayOpen.set(false);
 	});
 
+	async function pollCommand(commandId: string, timeoutMs = 15000, onUpdate?: (command: CommandItem) => void) {
+		const startedAt = Date.now();
+		while (Date.now() - startedAt < timeoutMs) {
+			const command = (await client.query(convexApi.commands.getMineById, {
+				commandId: commandId as Id<'commands'>
+			})) as CommandItem | null;
+			if (!command) {
+				throw new Error('Command not found');
+			}
+			onUpdate?.(command);
+			if (command.status === 'succeeded') {
+				return command;
+			}
+			if (command.status === 'failed' || command.status === 'cancelled' || command.status === 'dead_letter') {
+				throw new Error(command.lastErrorMessage ?? 'Command failed');
+			}
+			await new Promise((resolve) => setTimeout(resolve, 250));
+		}
+		throw new Error('Command timed out');
+	}
+
 	$effect(() => {
 		if (!chapter || fetchRequested) return;
 		if (chapter.downloadStatus === 'downloaded' && chapter.totalPages) return;
 		if (remotePagesResult?.status === 'running' || remotePagesResult?.status === 'queued') return;
 		if (remotePages.length > 0) return;
+		const requestKey = `${chapter.sourceId}::${chapter.chapterUrl}`;
 		fetchRequested = true;
-		void client
-			.mutation(convexApi.commands.enqueue, {
-				commandType: 'reader.pages.fetch',
-				payload: {
-					sourceId: chapter.sourceId,
-					chapterUrl: chapter.chapterUrl
+		remotePagesCommand = {
+			id: requestKey,
+			commandType: 'reader.pages.fetch',
+			status: 'queued'
+		};
+		void (async () => {
+			try {
+				const { commandId } = await client.mutation(convexApi.commands.enqueue, {
+					commandType: 'reader.pages.fetch',
+					payload: {
+						sourceId: chapter.sourceId,
+						chapterUrl: chapter.chapterUrl
+					}
+				});
+				const command = await pollCommand(String(commandId), 15000, (next) => {
+					if (`${chapter.sourceId}::${chapter.chapterUrl}` === requestKey) {
+						remotePagesCommand = next;
+					}
+				});
+				if (`${chapter.sourceId}::${chapter.chapterUrl}` === requestKey) {
+					remotePagesCommand = command;
 				}
-			})
-			.catch(() => {
-				fetchRequested = false;
-			});
+			} catch (error) {
+				if (`${chapter.sourceId}::${chapter.chapterUrl}` === requestKey) {
+					remotePagesCommand = {
+						id: requestKey,
+						commandType: 'reader.pages.fetch',
+						status: 'failed',
+						lastErrorMessage:
+							error instanceof Error ? error.message : $_('reader.noPages')
+					};
+				}
+			} finally {
+				if (`${chapter.sourceId}::${chapter.chapterUrl}` === requestKey) {
+					fetchRequested = false;
+				}
+			}
+		})();
 	});
 
 	$effect(() => {
@@ -426,6 +460,7 @@
 		if (currentChapterId === null) {
 			lastChapterId = null;
 			fetchRequested = false;
+			remotePagesCommand = null;
 			initializedProgress = false;
 			currentPageIndex = 0;
 			loadedPageIds.clear();
@@ -436,6 +471,7 @@
 		if (lastChapterId !== currentChapterId) {
 			lastChapterId = currentChapterId;
 			fetchRequested = false;
+			remotePagesCommand = null;
 			initializedProgress = false;
 			currentPageIndex = 0;
 			loadedPageIds.clear();

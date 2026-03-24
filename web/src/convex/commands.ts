@@ -148,11 +148,10 @@ export const listMine = query({
 			.withIndex('by_requested_by_user_id_created_at', (q) =>
 				q.eq('requestedByUserId', identity.subject as GenericId<'users'>)
 			)
-			.collect();
+			.order('desc')
+			.take(limit);
 
 		return rows
-			.sort((left, right) => right.createdAt - left.createdAt)
-			.slice(0, limit)
 			.map((row) => ({
 				id: row._id,
 				commandType: row.commandType,

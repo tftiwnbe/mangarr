@@ -129,14 +129,6 @@
 		extensionPkg: string;
 	};
 
-	type CommandItem = {
-		id: string;
-		commandType: string;
-		status: string;
-		payload?: Record<string, unknown> | null;
-		result?: Record<string, unknown> | null;
-	};
-
 	type UserStatusOption = {
 		id: string;
 		key: string;
@@ -158,7 +150,6 @@
 		titleId: data.titleId as Id<'libraryTitles'>
 	}));
 	const sourcesQuery = useQuery(convexApi.extensions.listSources, () => ({}));
-	const commandsQuery = useQuery(convexApi.commands.listMine, () => ({ limit: 100 }));
 	const statusesQuery = useQuery(convexApi.library.listUserStatuses, () => ({}));
 	const collectionsQuery = useQuery(convexApi.library.listCollections, () => ({}));
 
@@ -172,15 +163,16 @@
 	let preferencesError = $state<string | null>(null);
 	let preferencesSuccess = $state(false);
 	let metadataRequested = $state(false);
+	let fetchedMetadata = $state<Record<string, unknown> | null>(null);
 	let fallbackMetadata = $state<{ author: string | null; artist: string | null } | null>(null);
 	let selectedStatusId = $state<string | null>(null);
 	let selectedRating = $state<number>(0);
 	let selectedCollectionIds = $state<string[]>([]);
 	let lastSyncedPreferenceSignature = $state('');
+	let lastMetadataKey = $state('');
 
 	const title = $derived((titleQuery.data as TitleDetail | null) ?? null);
 	const sources = $derived((sourcesQuery.data ?? []) as SourceItem[]);
-	const commands = $derived((commandsQuery.data ?? []) as CommandItem[]);
 	const availableStatuses = $derived(
 		((statusesQuery.data ?? []) as UserStatusOption[]).sort((left, right) => left.position - right.position)
 	);
@@ -214,21 +206,6 @@
 			return `/api/internal/bridge/library/cover?${params.toString()}`;
 		}
 		return title.coverUrl ?? null;
-	});
-	const fetchedMetadata = $derived.by(() => {
-		if (!title) return null;
-		for (const item of commands) {
-			if (item.commandType !== 'explore.title.fetch' || item.status !== 'succeeded') continue;
-			const payload = item.payload ?? {};
-			if (
-				String(payload.sourceId ?? '') !== title.sourceId ||
-				String(payload.titleUrl ?? '') !== title.titleUrl
-			) {
-				continue;
-			}
-			return (item.result?.title as Record<string, unknown> | null) ?? null;
-		}
-		return null;
 	});
 
 	const genres = $derived.by(() =>
@@ -331,18 +308,61 @@
 		lastSyncedPreferenceSignature = signature;
 	});
 
+	async function pollCommand(commandId: string, timeoutMs = 15000) {
+		const startedAt = Date.now();
+		while (Date.now() - startedAt < timeoutMs) {
+			const command = await client.query(convexApi.commands.getMineById, {
+				commandId: commandId as Id<'commands'>
+			});
+			if (!command) {
+				throw new Error('Command not found');
+			}
+			if (command.status === 'succeeded') {
+				return command;
+			}
+			if (command.status === 'failed' || command.status === 'cancelled' || command.status === 'dead_letter') {
+				throw new Error(command.lastErrorMessage ?? 'Command failed');
+			}
+			await new Promise((resolve) => setTimeout(resolve, 250));
+		}
+		throw new Error('Command timed out');
+	}
+
+	$effect(() => {
+		const key = title ? `${title.sourceId}::${title.titleUrl}` : '';
+		if (key === lastMetadataKey) return;
+		lastMetadataKey = key;
+		metadataRequested = false;
+		fetchedMetadata = null;
+		fallbackMetadata = null;
+	});
+
 	$effect(() => {
 		if (!title || metadataRequested) return;
 		if (author && artist) return;
 		if (fetchedMetadata) return;
+		const metadataKey = `${title.sourceId}::${title.titleUrl}`;
 		metadataRequested = true;
-		void client.mutation(convexApi.commands.enqueue, {
-			commandType: 'explore.title.fetch',
-			payload: {
-				sourceId: title.sourceId,
-				titleUrl: title.titleUrl
+		void (async () => {
+			try {
+				const { commandId } = await client.mutation(convexApi.commands.enqueue, {
+					commandType: 'explore.title.fetch',
+					payload: {
+						sourceId: title.sourceId,
+						titleUrl: title.titleUrl
+					}
+				});
+				const command = await pollCommand(String(commandId));
+				if (`${title.sourceId}::${title.titleUrl}` !== metadataKey) {
+					return;
+				}
+				fetchedMetadata = (command.result?.title as Record<string, unknown> | null) ?? null;
+			} catch {
+				if (`${title.sourceId}::${title.titleUrl}` === metadataKey) {
+					fetchedMetadata = null;
+				}
 			}
-		});
+		})();
 	});
 
 	$effect(() => {

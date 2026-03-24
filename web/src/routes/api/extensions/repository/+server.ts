@@ -20,12 +20,9 @@ async function waitForCommand(
 	const startedAt = Date.now();
 
 	while (Date.now() - startedAt < timeoutMs) {
-		const row =
-			(
-				(await client.query(convexApi.commands.listMine, {
-					limit: 100
-				})) as CommandRow[]
-			).find((item) => item.id === commandId) ?? null;
+		const row = (await client.query(convexApi.commands.getMineById, {
+			commandId
+		})) as CommandRow | null;
 
 		if (!row) {
 			throw error(404, 'Queued command was not found');

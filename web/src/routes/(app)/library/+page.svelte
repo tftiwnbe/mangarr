@@ -63,14 +63,6 @@
 		collections?: RawCollection[] | null;
 	};
 
-	type CommandItem = {
-		id: string;
-		commandType: string;
-		status: string;
-		payload?: Record<string, unknown> | null;
-		result?: Record<string, unknown> | null;
-	};
-
 	type LibraryCollectionResource = {
 		id: string;
 		name: string;
@@ -95,7 +87,6 @@
 
 	const client = useConvexClient();
 	const library = useQuery(convexApi.library.listMine, () => ({}));
-	const commands = useQuery(convexApi.commands.listMine, () => ({ limit: 150 }));
 
 	let searchQuery = $state('');
 	let selectedCollectionId = $state<string | null>(null);
@@ -106,6 +97,9 @@
 	let activeSourceStatusKeys = $state<string[]>([]);
 	let activeGenres = $state<string[]>([]);
 	let requestedMetadataKeys = $state<string[]>([]);
+	let metadataQueue = $state<string[]>([]);
+	let metadataFetchCount = $state(0);
+	let fetchedMetadataByTitleKey = $state<Record<string, { status?: number; genre?: string | null }>>({});
 
 	const debouncedSearch = new DebouncedValue(() => searchQuery, 150);
 
@@ -113,6 +107,26 @@
 		panelOverlayOpen.set(filterPanelOpen);
 		return () => panelOverlayOpen.set(false);
 	});
+
+	async function pollCommand(commandId: string, timeoutMs = 15000) {
+		const startedAt = Date.now();
+		while (Date.now() - startedAt < timeoutMs) {
+			const command = await client.query(convexApi.commands.getMineById, {
+				commandId: commandId as Id<'commands'>
+			});
+			if (!command) {
+				throw new Error('Command not found');
+			}
+			if (command.status === 'succeeded') {
+				return command;
+			}
+			if (command.status === 'failed' || command.status === 'cancelled' || command.status === 'dead_letter') {
+				throw new Error(command.lastErrorMessage ?? 'Command failed');
+			}
+			await new Promise((resolve) => setTimeout(resolve, 250));
+		}
+		throw new Error('Command timed out');
+	}
 
 	const SORT_MODES: { value: SortMode; label: string }[] = [
 		{ value: 'updated', label: 'updated' },
@@ -132,30 +146,20 @@
 		{ key: 'hiatus', label: 'hiatus', values: [TITLE_STATUS.HIATUS] }
 	];
 
-	const allCommands = $derived((commands.data ?? []) as CommandItem[]);
-
-	const metadataByTitleKey = $derived.by(() => {
-		const map = new SvelteMap<string, { status?: number; genre?: string | null }>();
-		for (const item of allCommands) {
-			if (item.commandType !== 'explore.title.fetch' || item.status !== 'succeeded') continue;
-			const payload = item.payload ?? {};
-			const result = item.result ?? {};
-			const title = (result.title ?? null) as Record<string, unknown> | null;
-			if (!title) continue;
-			const sourceId = String(payload.sourceId ?? '');
-			const titleUrl = String(payload.titleUrl ?? '');
-			if (!sourceId || !titleUrl) continue;
-			map.set(`${sourceId}::${titleUrl}`, {
-				status: typeof title.status === 'number' ? title.status : 0,
-				genre: typeof title.genre === 'string' ? title.genre : null
+	const metadataTargets = $derived.by(() => {
+		const targets = new SvelteMap<string, { sourceId: string; titleUrl: string }>();
+		for (const title of (library.data ?? []) as TitleItem[]) {
+			targets.set(`${title.sourceId}::${title.titleUrl}`, {
+				sourceId: title.sourceId,
+				titleUrl: title.titleUrl
 			});
 		}
-		return map;
+		return targets;
 	});
 
 	const titles = $derived(
 		((library.data ?? []) as TitleItem[]).map((title) =>
-			mapTitleToSummary(title, metadataByTitleKey.get(`${title.sourceId}::${title.titleUrl}`))
+			mapTitleToSummary(title, fetchedMetadataByTitleKey[`${title.sourceId}::${title.titleUrl}`])
 		)
 	);
 	const loading = $derived(library.isLoading);
@@ -267,21 +271,53 @@
 	});
 
 	$effect(() => {
+		const nextRequested: string[] = [];
 		for (const title of (library.data ?? []) as TitleItem[]) {
 			if ((title.status ?? 0) > 0 && (title.genre ?? '').trim()) continue;
 			const key = `${title.sourceId}::${title.titleUrl}`;
 			if (requestedMetadataKeys.includes(key)) continue;
-			if (metadataByTitleKey.has(key)) continue;
-
-			requestedMetadataKeys = [...requestedMetadataKeys, key];
-			void client.mutation(convexApi.commands.enqueue, {
-				commandType: 'explore.title.fetch',
-				payload: {
-					sourceId: title.sourceId,
-					titleUrl: title.titleUrl
-				}
-			});
+			if (fetchedMetadataByTitleKey[key] !== undefined) continue;
+			nextRequested.push(key);
 		}
+		if (nextRequested.length === 0) return;
+		requestedMetadataKeys = [...requestedMetadataKeys, ...nextRequested];
+		metadataQueue = [...metadataQueue, ...nextRequested];
+	});
+
+	$effect(() => {
+		if (metadataFetchCount >= 2 || metadataQueue.length === 0) return;
+		const [nextKey, ...rest] = metadataQueue;
+		const target = metadataTargets.get(nextKey);
+		metadataQueue = rest;
+		if (!target) return;
+		metadataFetchCount += 1;
+		void (async () => {
+			try {
+				const { commandId } = await client.mutation(convexApi.commands.enqueue, {
+					commandType: 'explore.title.fetch',
+					payload: {
+						sourceId: target.sourceId,
+						titleUrl: target.titleUrl
+					}
+				});
+				const command = await pollCommand(String(commandId));
+				const resultTitle = (command.result?.title as Record<string, unknown> | null) ?? null;
+				fetchedMetadataByTitleKey = {
+					...fetchedMetadataByTitleKey,
+					[nextKey]: {
+						status: typeof resultTitle?.status === 'number' ? resultTitle.status : 0,
+						genre: typeof resultTitle?.genre === 'string' ? resultTitle.genre : null
+					}
+				};
+			} catch {
+				fetchedMetadataByTitleKey = {
+					...fetchedMetadataByTitleKey,
+					[nextKey]: {}
+				};
+			} finally {
+				metadataFetchCount -= 1;
+			}
+		})();
 	});
 
 	function mapTitleToSummary(
