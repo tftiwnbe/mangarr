@@ -150,7 +150,13 @@ class BridgeServer(
                 } else {
                     null
                 }
-            val bridgeService = BridgeService(extensionManager, repoService, DownloadStorage(dataPath))
+            val bridgeService =
+                BridgeService(
+                    extensionManager,
+                    repoService,
+                    DownloadStorage(dataPath),
+                    dataPath.resolve("cache/feeds"),
+                )
             bridgeState = BridgeState(config.runtime.bridgeId, config.runtime.port, convexClient != null)
             heartbeatReporter =
                 BridgeHeartbeatReporter(

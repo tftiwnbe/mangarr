@@ -2,6 +2,7 @@ package mangarr.tachibridge.runtime
 
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonArray
@@ -22,8 +23,13 @@ import mangarr.tachibridge.repo.ExtensionRepoService
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.io.path.exists
+import kotlin.io.path.readText
+import kotlin.io.path.writeText
 
 private val logger = KotlinLogging.logger {}
 private val json = Json { ignoreUnknownKeys = true }
@@ -35,6 +41,7 @@ class BridgeService(
     private val extensionManager: ExtensionManager,
     private val repoService: ExtensionRepoService,
     private val downloadStorage: DownloadStorage,
+    private val feedCacheDir: Path,
 ) {
     private val httpClient = OkHttpClient()
     private val feedCache = ConcurrentHashMap<String, CachedFeedResult>()
@@ -636,6 +643,10 @@ class BridgeService(
         val cacheKey = "$feed:$sourceId:$page:$normalizedLimit"
         val now = System.currentTimeMillis()
         feedCache[cacheKey]?.takeIf { it.expiresAt > now }?.let { return it.payload }
+        loadPersistedFeed(cacheKey, now)?.let { payload ->
+            feedCache[cacheKey] = CachedFeedResult(payload = payload, expiresAt = now + FEED_CACHE_TTL_MS)
+            return payload
+        }
         val parsedSourceId = sourceId.toLong()
         if (!ConfigManager.isSourceEnabled(parsedSourceId)) {
             error("Source is disabled: $sourceId")
@@ -648,7 +659,7 @@ class BridgeService(
         val sourcePkg = ConfigManager.config.findBySourceId(parsedSourceId)?.packageName.orEmpty()
         if (sourcePkg == MANGADEX_PACKAGE && feed == "popular") {
             val payload = fetchMangaDexPopularFeed(sourceId, source, normalizedLimit, page, sourcePkg)
-            feedCache[cacheKey] = CachedFeedResult(payload = payload, expiresAt = now + FEED_CACHE_TTL_MS)
+            storeFeedCache(cacheKey, payload, now + FEED_CACHE_TTL_MS)
             return payload
         }
         val response =
@@ -683,8 +694,13 @@ class BridgeService(
             put("hasNextPage", response.hasNextPage)
             put("items", JsonArray(items))
         }
-        feedCache[cacheKey] = CachedFeedResult(payload = payload, expiresAt = now + FEED_CACHE_TTL_MS)
+        storeFeedCache(cacheKey, payload, now + FEED_CACHE_TTL_MS)
         return payload
+    }
+
+    private fun storeFeedCache(cacheKey: String, payload: JsonObject, expiresAt: Long) {
+        feedCache[cacheKey] = CachedFeedResult(payload = payload, expiresAt = expiresAt)
+        persistFeed(cacheKey, payload, expiresAt)
     }
 
     private fun fetchMangaDexPopularFeed(
@@ -820,6 +836,49 @@ class BridgeService(
         return "${normalizedRepoUrl.substringBeforeLast("/")}/icon/$pkg.png"
     }
 
+    private fun loadPersistedFeed(cacheKey: String, now: Long): JsonObject? {
+        val cachePath = feedCachePath(cacheKey)
+        if (!cachePath.exists()) {
+            return null
+        }
+
+        return runCatching {
+            val snapshot =
+                json.decodeFromString(
+                    CachedFeedSnapshot.serializer(),
+                    cachePath.readText(),
+                )
+            if (snapshot.expiresAt <= now) {
+                Files.deleteIfExists(cachePath)
+                null
+            } else {
+                snapshot.payload
+            }
+        }.getOrNull()
+    }
+
+    private fun persistFeed(cacheKey: String, payload: JsonObject, expiresAt: Long) {
+        runCatching {
+            Files.createDirectories(feedCacheDir)
+            feedCachePath(cacheKey).writeText(
+                json.encodeToString(
+                    CachedFeedSnapshot.serializer(),
+                    CachedFeedSnapshot(expiresAt = expiresAt, payload = payload),
+                ),
+            )
+        }.onFailure { error ->
+            logger.warn(error) { "Failed to persist explore feed cache" }
+        }
+    }
+
+    private fun feedCachePath(cacheKey: String): Path = feedCacheDir.resolve("${hashCacheKey(cacheKey)}.json")
+
+    private fun hashCacheKey(value: String): String =
+        java.security.MessageDigest
+            .getInstance("SHA-1")
+            .digest(value.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> "%02x".format(byte) }
+
     private fun normalizeFilter(filter: mangarr.tachibridge.extensions.Filter): JsonObject {
         val parsedData =
             runCatching { json.parseToJsonElement(filter.data) }
@@ -875,4 +934,10 @@ private fun mangarr.tachibridge.config.BridgeConfig.SourceInfo.toPayload() =
 private data class CachedFeedResult(
     val payload: JsonObject,
     val expiresAt: Long,
+)
+
+@Serializable
+private data class CachedFeedSnapshot(
+    val expiresAt: Long,
+    val payload: JsonObject,
 )
