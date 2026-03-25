@@ -122,7 +122,13 @@ class BridgeServer(
 
             val initialRepoUrl = ConfigManager.config.repoUrl
             val json = Json { ignoreUnknownKeys = true }
-            repoService = ExtensionRepoService(networkHelper, initialRepoUrl, json)
+            repoService =
+                ExtensionRepoService(
+                    networkHelper = networkHelper,
+                    initialRepoIndexUrl = initialRepoUrl,
+                    cachePath = dataPath.resolve("cache/repo/index.json"),
+                    json = json,
+                )
 
             extensionManager =
                 ExtensionManager(
