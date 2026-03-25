@@ -4,11 +4,11 @@ import mangarr.tachibridge.extensions.PageImagePayload
 import mangarr.tachibridge.config.ConfigManager
 import mangarr.tachibridge.util.ImageUtil
 import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import java.net.URLConnection
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
@@ -41,7 +41,8 @@ data class DownloadStorageSummary(
 data class StoredChapterFilePayload(
     val fileName: String,
     val contentType: String,
-    val bytes: ByteArray,
+    val filePath: Path,
+    val fileSizeBytes: Long,
 )
 
 class DownloadStorage(
@@ -166,14 +167,16 @@ class DownloadStorage(
                 StoredChapterFilePayload(
                     fileName = resolved.fileName.toString(),
                     contentType = "application/vnd.comicbook+zip",
-                    bytes = resolved.readBytes(),
+                    filePath = resolved,
+                    fileSizeBytes = Files.size(resolved),
                 )
             "directory" -> {
-                val archiveName = "${resolved.fileName}.cbz"
+                val cachedArchive = ensureDirectoryArchive(resolved)
                 StoredChapterFilePayload(
-                    fileName = archiveName,
+                    fileName = cachedArchive.fileName.toString(),
                     contentType = "application/vnd.comicbook+zip",
-                    bytes = zipDirectoryToBytes(resolved),
+                    filePath = cachedArchive,
+                    fileSizeBytes = Files.size(cachedArchive),
                 )
             }
             else -> error("Unsupported storage kind: $storageKind")
@@ -379,23 +382,43 @@ class DownloadStorage(
         }
     }
 
-    private fun zipDirectoryToBytes(sourceDir: Path): ByteArray {
+    private fun ensureDirectoryArchive(sourceDir: Path): Path {
         require(sourceDir.exists() && sourceDir.isDirectory()) { "Downloaded chapter directory is unavailable" }
-        val buffer = ByteArrayOutputStream()
-        ZipOutputStream(buffer).use { output ->
+        val archivePath = sourceDir.parent.resolve("${sourceDir.fileName}.cbz")
+        if (archivePath.exists() && !directoryArchiveIsStale(sourceDir, archivePath)) {
+            return archivePath
+        }
+
+        val tempArchive = Files.createTempFile(sourceDir.parent, "${sourceDir.fileName}.", ".cbz.tmp")
+        try {
+            writeArchive(sourceDir, tempArchive)
+            Files.move(
+                tempArchive,
+                archivePath,
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE,
+            )
+        } catch (error: Exception) {
+            tempArchive.deleteIfExists()
+            throw error
+        }
+        return archivePath
+    }
+
+    private fun directoryArchiveIsStale(
+        sourceDir: Path,
+        archivePath: Path,
+    ): Boolean {
+        val archiveModifiedAt = Files.getLastModifiedTime(archivePath).toMillis()
+        val sourceModifiedAt =
             Files.walk(sourceDir).use { stream ->
                 stream
                     .filter { path -> Files.isRegularFile(path) }
-                    .sorted(compareBy { it.relativeTo(sourceDir).pathString })
-                    .forEach { path ->
-                        val entryName = path.relativeTo(sourceDir).pathString.replace('\\', '/')
-                        output.putNextEntry(ZipEntry(entryName))
-                        path.inputStream().use { input -> input.copyTo(output) }
-                        output.closeEntry()
-                    }
+                    .mapToLong { path -> Files.getLastModifiedTime(path).toMillis() }
+                    .max()
+                    .orElse(0L)
             }
-        }
-        return buffer.toByteArray()
+        return sourceModifiedAt > archiveModifiedAt
     }
 
     private fun pathSize(path: Path): Long =

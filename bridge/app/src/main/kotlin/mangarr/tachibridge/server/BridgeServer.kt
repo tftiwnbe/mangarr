@@ -107,6 +107,7 @@ class BridgeServer(
             )
 
             ConfigManager.init(dataPath)
+            System.setProperty("mangarr.data.dir", dataPath.toString())
 
             val tmpDir = dataPath.resolve("tmp").also { it.createDirectories() }
             System.setProperty("java.io.tmpdir", tmpDir.toString())

@@ -1776,42 +1776,72 @@ export const runDownloadCycle = mutation({
 		const userId = await requireViewerUserId(ctx);
 		const limit = Math.max(1, Math.min(Math.floor(args.limit ?? 25), 100));
 		const now = Date.now();
-		const profiles = await ctx.db
-			.query('downloadProfiles')
-			.withIndex('by_owner_user_id_enabled_updated_at', (q) =>
-				q.eq('ownerUserId', userId).eq('enabled', true)
-			)
-			.collect();
+		const profiles = (
+			await ctx.db
+				.query('downloadProfiles')
+				.withIndex('by_owner_user_id_enabled_updated_at', (q) =>
+					q.eq('ownerUserId', userId).eq('enabled', true)
+				)
+				.collect()
+		)
+			.sort((left, right) => right.updatedAt - left.updatedAt)
+			.slice(0, limit);
+		const activeProfiles = profiles.filter((profile) => !profile.paused);
+		const titleIds = [...new Set(activeProfiles.map((profile) => String(profile.libraryTitleId)))];
+		const [titles, missingChapters, failedChapters] = await Promise.all([
+			Promise.all(
+				titleIds.map(async (titleId) => {
+					const title = await ctx.db.get(titleId as GenericId<'libraryTitles'>);
+					return title && title.ownerUserId === userId ? title : null;
+				})
+			),
+			ctx.db
+				.query('libraryChapters')
+				.withIndex('by_owner_user_id_download_status', (q) =>
+					q.eq('ownerUserId', userId).eq('downloadStatus', DOWNLOAD_STATUS.MISSING)
+				)
+				.collect(),
+			ctx.db
+				.query('libraryChapters')
+				.withIndex('by_owner_user_id_download_status', (q) =>
+					q.eq('ownerUserId', userId).eq('downloadStatus', DOWNLOAD_STATUS.FAILED)
+				)
+				.collect()
+		]);
+		const titleById = new Map(
+			titles
+				.filter((title): title is NonNullable<typeof title> => title !== null)
+				.map((title) => [String(title._id), title] as const)
+		);
+		const eligibleChaptersByTitleId = new Map<
+			string,
+			Array<(typeof missingChapters)[number] | (typeof failedChapters)[number]>
+		>();
+		for (const chapter of [...missingChapters, ...failedChapters]) {
+			const titleId = String(chapter.libraryTitleId);
+			if (!titleById.has(titleId)) {
+				continue;
+			}
+			const next = eligibleChaptersByTitleId.get(titleId) ?? [];
+			next.push(chapter);
+			eligibleChaptersByTitleId.set(titleId, next);
+		}
 
 		let checked = 0;
 		let enqueued = 0;
-		for (const profile of profiles
-			.sort((left, right) => right.updatedAt - left.updatedAt)
-			.slice(0, limit)) {
+		for (const profile of profiles) {
 			if (profile.paused) {
 				continue;
 			}
-
-			const title = await ctx.db.get(profile.libraryTitleId);
-			if (!title || title.ownerUserId !== userId) {
+			const title = titleById.get(String(profile.libraryTitleId));
+			if (!title) {
 				continue;
 			}
-
-			const chapters = await ctx.db
-				.query('libraryChapters')
-				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
-				.collect();
+			const chapters = eligibleChaptersByTitleId.get(String(title._id)) ?? [];
 
 			checked += 1;
 			let localEnqueued = 0;
 			for (const chapter of chapters) {
-				if (
-					chapter.downloadStatus !== DOWNLOAD_STATUS.MISSING &&
-					chapter.downloadStatus !== DOWNLOAD_STATUS.FAILED
-				) {
-					continue;
-				}
-
 				await ctx.db.patch(chapter._id, {
 					downloadStatus: DOWNLOAD_STATUS.QUEUED,
 					downloadedPages: 0,
@@ -1869,15 +1899,23 @@ export const requestMissingDownloads = mutation({
 			throw new Error('Not authenticated');
 		}
 
-		const chapters = await ctx.db
-			.query('libraryChapters')
-			.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
-			.collect();
+		const [missingChapters, failedChapters] = await Promise.all([
+			ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id_download_status', (q) =>
+					q.eq('libraryTitleId', title._id).eq('downloadStatus', DOWNLOAD_STATUS.MISSING)
+				)
+				.collect(),
+			ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id_download_status', (q) =>
+					q.eq('libraryTitleId', title._id).eq('downloadStatus', DOWNLOAD_STATUS.FAILED)
+				)
+				.collect()
+		]);
 
-		const eligible = chapters.filter(
-			(chapter) =>
-				chapter.downloadStatus === DOWNLOAD_STATUS.MISSING ||
-				chapter.downloadStatus === DOWNLOAD_STATUS.FAILED
+		const eligible = [...missingChapters, ...failedChapters].sort(
+			(left, right) => left.sequence - right.sequence
 		);
 
 		const now = Date.now();

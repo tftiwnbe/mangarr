@@ -25,6 +25,7 @@ import mangarr.tachibridge.runtime.ConvexBridgeClient
 import mangarr.tachibridge.runtime.DownloadReconcileChapter
 import java.net.URLDecoder
 import java.net.InetSocketAddress
+import java.nio.file.Files
 import java.util.concurrent.Executors
 
 private val logger = KotlinLogging.logger {}
@@ -224,11 +225,12 @@ class BridgeHttpServer(
 
             try {
                 val file = bridgeService.fetchStoredChapterFile(localRelativePath, storageKind)
-                sendBytes(
+                sendFile(
                     exchange,
                     200,
-                    file.bytes,
+                    file.filePath,
                     file.contentType,
+                    file.fileSizeBytes,
                     mapOf("content-disposition" to """attachment; filename="${file.fileName}""""),
                 )
             } catch (error: Exception) {
@@ -545,6 +547,23 @@ class BridgeHttpServer(
         }
         exchange.sendResponseHeaders(status, body.size.toLong())
         exchange.responseBody.use { output -> output.write(body) }
+    }
+
+    private fun sendFile(
+        exchange: HttpExchange,
+        status: Int,
+        filePath: java.nio.file.Path,
+        contentType: String,
+        contentLength: Long,
+        extraHeaders: Map<String, String> = emptyMap(),
+    ) {
+        exchange.responseHeaders.set("content-type", contentType)
+        exchange.responseHeaders.set("cache-control", "private, max-age=300")
+        for ((name, value) in extraHeaders) {
+            exchange.responseHeaders.set(name, value)
+        }
+        exchange.sendResponseHeaders(status, contentLength)
+        exchange.responseBody.use { output -> Files.copy(filePath, output) }
     }
 
     private fun HttpExchange.queryParam(name: String): String? =
