@@ -47,7 +47,6 @@
 		title: string;
 		description?: string;
 		coverUrl?: string | null;
-		genre?: string | null;
 	};
 
 	type LibraryTitleItem = {
@@ -68,7 +67,6 @@
 		titleUrl: string;
 		canonicalKey: string;
 		importedLibraryId: string | null;
-		genre: string | null;
 	};
 
 	type FilterMeta = {
@@ -146,7 +144,6 @@
 	let openingTitleKey = $state<string | null>(null);
 	let selectedExtensionPkgs = $state<string[]>([]);
 	let selectedSourceId = $state('');
-	let selectedCategory = $state('');
 	let activeFeedSourceIds = $state<string[]>([]);
 	let loadedPagesBySource = $state<Record<string, number>>({});
 	let exhaustedFeedSources = $state<Record<string, boolean>>({});
@@ -228,36 +225,6 @@
 	const feedCommandType = $derived(activeTab === 'latest' ? 'explore.latest' : 'explore.popular');
 	const showSearchPrompt = $derived(activeTab === 'search' && searchQuery.trim().length === 0);
 	const currentLoading = $derived(loading || loadingMore || sourcesQuery.isLoading || libraryQuery.isLoading);
-	const feedCategories = $derived.by(() => {
-		if (activeTab === 'search') return [] as Array<{ name: string; count: number }>;
-
-		const buckets: Record<string, { name: string; count: number }> = {};
-		for (const sourceId of activeFeedSourceIds) {
-			const items = feedItemsForSource(feedCommandType, sourceId, loadedPagesBySource[sourceId] ?? 0);
-			for (const item of items) {
-				const genres = uniqueGenres(item.genre);
-				for (const genre of genres) {
-					const normalized = normalizeCategoryName(genre);
-					if (!normalized) continue;
-					const existing = buckets[normalized];
-					if (existing) {
-						existing.count += 1;
-					} else {
-						buckets[normalized] = { name: genre, count: 1 };
-					}
-				}
-			}
-		}
-
-		return Object.values(buckets)
-			.sort((left, right) => {
-				if (left.count !== right.count) return right.count - left.count;
-				return left.name.localeCompare(right.name);
-			})
-			.slice(0, 30);
-	});
-	const selectedCategoryNormalized = $derived(normalizeCategoryName(selectedCategory));
-
 	const incomingCards = $derived.by(() => {
 		const sourceIds =
 			activeTab === 'search'
@@ -276,14 +243,6 @@
 					: feedItemsForSource(feedCommandType, sourceId, loadedPagesBySource[sourceId] ?? 0);
 
 			for (const item of resultItems) {
-				if (
-					activeTab !== 'search' &&
-					selectedCategoryNormalized &&
-					!itemMatchesCategory(item.genre, selectedCategoryNormalized)
-				) {
-					continue;
-				}
-
 				const importedLibraryId = importedLibraryIds[`${item.sourceId}::${item.titleUrl}`] ?? null;
 				const nextCard: ExploreCard = {
 					key: cardKeyFor(item),
@@ -295,8 +254,7 @@
 					sourceLang: item.sourceLang,
 					titleUrl: item.titleUrl,
 					canonicalKey: item.canonicalKey,
-					importedLibraryId,
-					genre: item.genre ?? null
+					importedLibraryId
 				};
 
 				const signatures = itemMergeSignatures(item);
@@ -366,34 +324,6 @@
 
 	function displayExtensionName(name: string): string {
 		return name.replace(/^tachiyomi:\s*/i, '').trim() || name;
-	}
-
-	function normalizeCategoryName(value: string | null | undefined): string {
-		return (value ?? '')
-			.trim()
-			.toLowerCase()
-			.normalize('NFKD')
-			.replace(/[^\p{L}\p{N}]+/gu, ' ')
-			.replace(/\s+/g, ' ')
-			.trim();
-	}
-
-	function uniqueGenres(value: string | null | undefined): string[] {
-		const unique: Record<string, string> = {};
-		for (const raw of String(value ?? '')
-			.split(',')
-			.map((part) => part.trim())
-			.filter(Boolean)) {
-			const normalized = normalizeCategoryName(raw);
-			if (!normalized || unique[normalized]) continue;
-			unique[normalized] = raw;
-		}
-		return Object.values(unique);
-	}
-
-	function itemMatchesCategory(genreValue: string | null | undefined, category: string): boolean {
-		if (!category) return true;
-		return uniqueGenres(genreValue).some((genre) => normalizeCategoryName(genre) === category);
 	}
 
 	function sourcesForContentLanguage(): SourceItem[] {
@@ -573,8 +503,6 @@
 		if (activeTab !== 'search') {
 			searchQuery = '';
 			selectedSourceId = '';
-		} else {
-			selectedCategory = '';
 		}
 	}
 
@@ -1057,15 +985,6 @@
 	});
 
 	$effect(() => {
-		if (activeTab === 'search') return;
-		if (!selectedCategoryNormalized) return;
-		if (feedCategories.some((category) => normalizeCategoryName(category.name) === selectedCategoryNormalized)) {
-			return;
-		}
-		selectedCategory = '';
-	});
-
-	$effect(() => {
 		if (!sources.length) return;
 		if (activeTab === 'search') {
 			lastFeedLoadSignature = '';
@@ -1243,52 +1162,6 @@
 					>
 						<span>{extension.name}</span>
 						<span class="text-[10px] text-[var(--text-ghost)]">{extension.sourceCount}</span>
-					</button>
-				{/each}
-			</div>
-		</div>
-	{/if}
-
-	{#if feedCategories.length > 0 && activeTab !== 'search'}
-		<div class="flex flex-col gap-2">
-			<div class="flex items-center justify-between">
-				<p class="text-xs text-[var(--text-ghost)]">{$_('explore.filterByCategory')}</p>
-				{#if selectedCategory}
-					<button
-						type="button"
-						class="text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
-						onclick={() => (selectedCategory = '')}
-					>
-						{$_('common.clear')}
-					</button>
-				{/if}
-			</div>
-			<div class="no-scrollbar flex gap-2 overflow-x-auto pb-1">
-				<button
-					type="button"
-					class="inline-flex h-7 shrink-0 items-center gap-1 border px-2.5 text-[10px] tracking-wider uppercase transition-colors {!selectedCategory
-						? 'border-[var(--text)] bg-[var(--void-2)] text-[var(--text)]'
-						: 'border-[var(--line)] text-[var(--text-ghost)] hover:border-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-					onclick={() => (selectedCategory = '')}
-				>
-					{$_('explore.allCategories')}
-				</button>
-				{#each feedCategories as category (`${category.name}:${category.count}`)}
-					<button
-						type="button"
-						class="inline-flex h-7 shrink-0 items-center gap-1 border px-2.5 text-[10px] tracking-wider uppercase transition-colors {normalizeCategoryName(
-							category.name
-						) === selectedCategoryNormalized
-							? 'border-[var(--text)] bg-[var(--void-2)] text-[var(--text)]'
-							: 'border-[var(--line)] text-[var(--text-ghost)] hover:border-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-						onclick={() => {
-							const next = category.name;
-							selectedCategory =
-								normalizeCategoryName(next) === selectedCategoryNormalized ? '' : next;
-						}}
-					>
-						<span>{category.name}</span>
-						<span class="text-[10px] text-[var(--text-ghost)]">{category.count}</span>
 					</button>
 				{/each}
 			</div>

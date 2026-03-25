@@ -128,22 +128,22 @@
 		throw new Error('Command timed out');
 	}
 
-	const SORT_MODES: { value: SortMode; label: string }[] = [
-		{ value: 'updated', label: 'updated' },
-		{ value: 'added', label: 'added' },
-		{ value: 'reading', label: 'reading' },
-		{ value: 'alpha', label: 'a-z' },
-		{ value: 'status', label: 'status' }
+	const SORT_MODES: Array<{ value: SortMode; labelKey: string }> = [
+		{ value: 'updated', labelKey: 'library.sortModes.updated' },
+		{ value: 'added', labelKey: 'library.sortModes.added' },
+		{ value: 'reading', labelKey: 'library.sortModes.reading' },
+		{ value: 'alpha', labelKey: 'library.sortModes.alpha' },
+		{ value: 'status', labelKey: 'library.sortModes.status' }
 	];
 
-	const SOURCE_STATUS_FILTERS: { key: string; label: string; values: number[] }[] = [
-		{ key: 'ongoing', label: 'ongoing', values: [TITLE_STATUS.ONGOING] },
+	const SOURCE_STATUS_FILTERS: Array<{ key: string; labelKey: string; values: number[] }> = [
+		{ key: 'ongoing', labelKey: 'status.ongoing', values: [TITLE_STATUS.ONGOING] },
 		{
 			key: 'completed',
-			label: 'completed',
+			labelKey: 'status.completed',
 			values: [TITLE_STATUS.COMPLETED, TITLE_STATUS.COMPLETED_ALT]
 		},
-		{ key: 'hiatus', label: 'hiatus', values: [TITLE_STATUS.HIATUS] }
+		{ key: 'hiatus', labelKey: 'status.hiatus', values: [TITLE_STATUS.HIATUS] }
 	];
 
 	const metadataTargets = $derived.by(() => {
@@ -401,6 +401,14 @@
 		activeSourceStatusKeys = [];
 		activeGenres = [];
 	}
+
+	function sortModeLabel(labelKey: string) {
+		return $_(labelKey);
+	}
+
+	function sourceStatusLabel(labelKey: string) {
+		return $_(labelKey);
+	}
 </script>
 
 <svelte:head>
@@ -573,17 +581,23 @@
 	{/if}
 </div>
 
-<SlidePanel open={filterPanelOpen} title="sort & filter" onclose={() => (filterPanelOpen = false)}>
+<SlidePanel
+	open={filterPanelOpen}
+	title={$_('library.sortAndFilter')}
+	onclose={() => (filterPanelOpen = false)}
+>
 	<div class="flex flex-col gap-3 border-b border-[var(--void-3)] pt-1 pb-5">
 		<div class="flex items-center justify-between">
-			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">sort</span>
+			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
+				{$_('library.sort')}
+			</span>
 			<button
 				type="button"
 				class="flex items-center gap-1.5 text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 				onclick={() => (sortDesc = !sortDesc)}
 			>
 				{#if sortDesc}<CaretDownIcon size={12} />{:else}<CaretUpIcon size={12} />{/if}
-				<span>{sortDesc ? 'desc' : 'asc'}</span>
+				<span>{sortDesc ? $_('library.desc') : $_('library.asc')}</span>
 			</button>
 		</div>
 		<div class="flex flex-wrap gap-1.5">
@@ -595,7 +609,7 @@
 						: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 					onclick={() => (sortMode = mode.value)}
 				>
-					{mode.label}
+					{sortModeLabel(mode.labelKey)}
 				</button>
 			{/each}
 		</div>
@@ -604,7 +618,7 @@
 	{#if allUserStatuses.length > 0}
 		<div class="flex flex-col gap-3 border-b border-[var(--void-3)] py-5">
 			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase"
-				>reading status</span
+				>{$_('library.readingStatus')}</span
 			>
 			<div class="flex flex-wrap gap-1.5">
 				{#each allUserStatuses as status (status.id)}
@@ -630,7 +644,7 @@
 				: ''}"
 		>
 			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase"
-				>source status</span
+				>{$_('library.sourceStatus')}</span
 			>
 			<div class="flex flex-wrap gap-1.5">
 				{#each SOURCE_STATUS_FILTERS.filter((filter) => presentSourceStatusKeys.includes(filter.key)) as sourceFilter (sourceFilter.key)}
@@ -642,7 +656,7 @@
 							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 						onclick={() => toggleSourceStatus(sourceFilter.key)}
 					>
-						{sourceFilter.label}
+						{sourceStatusLabel(sourceFilter.labelKey)}
 					</button>
 				{/each}
 			</div>
@@ -651,7 +665,9 @@
 
 	{#if allGenres.length > 0}
 		<div class="flex flex-col gap-3 py-5">
-			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">genre</span>
+			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
+				{$_('library.genres')}
+			</span>
 			<div class="flex flex-wrap gap-1.5">
 				{#each allGenres as genre (genre)}
 					{@const active = activeGenres.includes(genre)}
@@ -676,7 +692,7 @@
 				onclick={clearFilters}
 				class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text-muted)]"
 			>
-				clear filters
+				{$_('library.clearFilters')}
 			</button>
 		</div>
 	{/if}

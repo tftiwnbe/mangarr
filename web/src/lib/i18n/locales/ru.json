@@ -89,8 +89,23 @@
 		"lastRead": "Читали {time}",
 		"continueReading": "Продолжить чтение",
 		"searchPlaceholder": "Поиск в библиотеке...",
+		"sortAndFilter": "Сортировка и фильтры",
+		"sort": "Сортировка",
+		"asc": "возр",
+		"desc": "убыв",
+		"readingStatus": "Статус чтения",
+		"sourceStatus": "Статус источника",
+		"genres": "Жанры",
+		"clearFilters": "Сбросить фильтры",
 		"filterByStatus": "Фильтр по статусу",
 		"sortBy": "Сортировать по",
+		"sortModes": {
+			"updated": "обновлено",
+			"added": "добавлено",
+			"reading": "чтение",
+			"alpha": "а-я",
+			"status": "статус"
+		},
 		"sortOptions": {
 			"lastRead": "Последнее чтение",
 			"title": "Названию",

@@ -89,8 +89,23 @@
 		"lastRead": "Last read {time}",
 		"continueReading": "Continue Reading",
 		"searchPlaceholder": "Search your library...",
+		"sortAndFilter": "Sort & Filter",
+		"sort": "Sort",
+		"asc": "asc",
+		"desc": "desc",
+		"readingStatus": "Reading status",
+		"sourceStatus": "Source status",
+		"genres": "Genres",
+		"clearFilters": "Clear filters",
 		"filterByStatus": "Filter by status",
 		"sortBy": "Sort by",
+		"sortModes": {
+			"updated": "updated",
+			"added": "added",
+			"reading": "reading",
+			"alpha": "a-z",
+			"status": "status"
+		},
 		"sortOptions": {
 			"lastRead": "Last Read",
 			"title": "Title",
