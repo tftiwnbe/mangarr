@@ -184,7 +184,6 @@
 	let preferencesError = $state<string | null>(null);
 	let preferencesSuccess = $state(false);
 	let metadataRequested = $state(false);
-	let fallbackMetadata = $state<{ author: string | null; artist: string | null } | null>(null);
 	let selectedStatusId = $state<string | null>(null);
 	let selectedRating = $state<number>(0);
 	let selectedCollectionIds = $state<string[]>([]);
@@ -261,8 +260,8 @@
 			title.sourcePkg
 		);
 	});
-	const author = $derived.by(() => String(fallbackMetadata?.author ?? title?.author ?? '').trim());
-	const artist = $derived.by(() => String(fallbackMetadata?.artist ?? title?.artist ?? '').trim());
+	const author = $derived.by(() => String(title?.author ?? '').trim());
+	const artist = $derived.by(() => String(title?.artist ?? '').trim());
 	const updatesEnabled = $derived(Boolean(title?.downloadProfile?.enabled));
 	const linkedSourceKeys = $derived.by(
 		() => new Set(title?.variants.map((variant) => sourceVariantKey(variant.sourceId, variant.titleUrl)) ?? [])
@@ -398,7 +397,6 @@
 		if (key === lastMetadataKey) return;
 		lastMetadataKey = key;
 		metadataRequested = false;
-		fallbackMetadata = null;
 	});
 
 	$effect(() => {
@@ -416,38 +414,14 @@
 		metadataRequested = true;
 		void (async () => {
 			try {
-				const { commandId } = await client.mutation(convexApi.commands.enqueue, {
-					commandType: 'explore.title.fetch',
-					payload: {
-						sourceId: title.sourceId,
-						titleUrl: title.titleUrl
-					}
+				await client.mutation(convexApi.library.ensureTitleMetadata, {
+					titleId: title._id
 				});
-				await waitForCommand(client, commandId as Id<'commands'>);
 				if (`${title.sourceId}::${title.titleUrl}` !== metadataKey) {
 					return;
 				}
 			} catch {
 				// Leave fields as-is; key reset on navigation/title change enables a later retry.
-			}
-		})();
-	});
-
-	$effect(() => {
-		if (!title) return;
-		if (author && artist) return;
-		if (fallbackMetadata !== null) return;
-		void (async () => {
-			try {
-				const params = new URLSearchParams({
-					sourcePkg: title.sourcePkg,
-					titleUrl: title.titleUrl
-				});
-				const response = await fetch(`/api/title/metadata?${params.toString()}`);
-				if (!response.ok) return;
-				fallbackMetadata = (await response.json()) as { author: string | null; artist: string | null };
-			} catch {
-				fallbackMetadata = { author: null, artist: null };
 			}
 		})();
 	});

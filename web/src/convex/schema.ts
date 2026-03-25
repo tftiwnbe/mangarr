@@ -250,6 +250,44 @@ export default defineSchema({
 		.index('by_owner_user_id_library_title_id', ['ownerUserId', 'libraryTitleId'])
 		.index('by_owner_user_id_enabled_updated_at', ['ownerUserId', 'enabled', 'updatedAt']),
 
+	downloadTasks: defineTable({
+		ownerUserId: v.id('users'),
+		requestedByUserId: v.optional(v.id('users')),
+		libraryTitleId: v.id('libraryTitles'),
+		libraryChapterId: v.id('libraryChapters'),
+		commandId: v.optional(v.id('commands')),
+		trigger: v.union(v.literal('manual'), v.literal('watch'), v.literal('retry')),
+		attemptNumber: v.float64(),
+		status: v.union(
+			v.literal('queued'),
+			v.literal('downloading'),
+			v.literal('completed'),
+			v.literal('failed'),
+			v.literal('cancelled')
+		),
+		titleName: v.string(),
+		chapterName: v.string(),
+		chapterUrl: v.string(),
+		coverUrl: v.optional(v.string()),
+		localCoverPath: v.optional(v.string()),
+		downloadedPages: v.optional(v.float64()),
+		totalPages: v.optional(v.float64()),
+		progressPercent: v.optional(v.float64()),
+		localRelativePath: v.optional(v.string()),
+		storageKind: v.optional(v.union(v.literal('directory'), v.literal('archive'))),
+		fileSizeBytes: v.optional(v.float64()),
+		errorMessage: v.optional(v.string()),
+		startedAt: v.optional(v.float64()),
+		completedAt: v.optional(v.float64()),
+		cancelledAt: v.optional(v.float64()),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_owner_user_id_updated_at', ['ownerUserId', 'updatedAt'])
+		.index('by_owner_user_id_status_updated_at', ['ownerUserId', 'status', 'updatedAt'])
+		.index('by_library_chapter_id_created_at', ['libraryChapterId', 'createdAt'])
+		.index('by_command_id', ['commandId']),
+
 	chapterProgress: defineTable({
 		ownerUserId: v.id('users'),
 		libraryTitleId: v.id('libraryTitles'),

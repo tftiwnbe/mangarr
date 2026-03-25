@@ -587,6 +587,7 @@ class BridgeCommandRunner(
             }
             "downloads.chapter" -> {
                 val chapterId = payload.requiredString("chapterId")
+                val downloadTaskId = payload.optionalString("downloadTaskId")
                 val titleId = payload.requiredString("titleId")
                 val sourceId = payload.requiredString("sourceId")
                 val chapterUrl = payload.requiredString("chapterUrl")
@@ -595,6 +596,7 @@ class BridgeCommandRunner(
                     client.payload(
                         buildJsonObject {
                             put("chapterId", chapterId)
+                            downloadTaskId?.let { put("downloadTaskId", it) }
                             put("status", "downloading")
                             put("downloadedPages", 0)
                             put("lastErrorMessage", "")
@@ -646,6 +648,7 @@ class BridgeCommandRunner(
                                     client.payload(
                                         buildJsonObject {
                                             put("chapterId", chapterId)
+                                            downloadTaskId?.let { put("downloadTaskId", it) }
                                             put("status", "downloading")
                                             put("downloadedPages", downloadedPages)
                                             put("totalPages", totalPages)
@@ -660,6 +663,7 @@ class BridgeCommandRunner(
                         client.payload(
                             buildJsonObject {
                                 put("chapterId", chapterId)
+                                downloadTaskId?.let { put("downloadTaskId", it) }
                                 put("status", "downloaded")
                                 put("downloadedPages", result.requiredInt("downloadedPages"))
                                 put("totalPages", result.requiredInt("totalPages"))
@@ -678,6 +682,7 @@ class BridgeCommandRunner(
                         client.payload(
                             buildJsonObject {
                                 put("chapterId", chapterId)
+                                downloadTaskId?.let { put("downloadTaskId", it) }
                                 put("status", "failed")
                                 put("lastErrorMessage", error.message ?: "Download failed")
                                 put("now", System.currentTimeMillis())

@@ -15,7 +15,6 @@
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import { convexApi } from '$lib/convex/api';
-	import { waitForCommand } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
 	import { Input } from '$lib/elements/input';
 	import { LazyImage } from '$lib/elements/lazy-image';
@@ -97,9 +96,7 @@
 	let activeReadingStatusIds = $state<string[]>([]);
 	let activeSourceStatusKeys = $state<string[]>([]);
 	let activeGenres = $state<string[]>([]);
-	let requestedMetadataKeys = $state<string[]>([]);
-	let metadataQueue = $state<string[]>([]);
-	let metadataFetchCount = $state(0);
+	let requestedMetadataTitleIds = $state<string[]>([]);
 
 	const debouncedSearch = new DebouncedValue(() => searchQuery, 150);
 
@@ -125,17 +122,6 @@
 		},
 		{ key: 'hiatus', labelKey: 'status.hiatus', values: [TITLE_STATUS.HIATUS] }
 	];
-
-	const metadataTargets = $derived.by(() => {
-		const targets = new SvelteMap<string, { sourceId: string; titleUrl: string }>();
-		for (const title of (library.data ?? []) as TitleItem[]) {
-			targets.set(`${title.sourceId}::${title.titleUrl}`, {
-				sourceId: title.sourceId,
-				titleUrl: title.titleUrl
-			});
-		}
-		return targets;
-	});
 
 	const titles = $derived(((library.data ?? []) as TitleItem[]).map((title) => mapTitleToSummary(title)));
 	const loading = $derived(library.isLoading);
@@ -250,36 +236,20 @@
 		const nextRequested: string[] = [];
 		for (const title of (library.data ?? []) as TitleItem[]) {
 			if ((title.status ?? 0) > 0 && (title.genre ?? '').trim()) continue;
-			const key = `${title.sourceId}::${title.titleUrl}`;
-			if (requestedMetadataKeys.includes(key)) continue;
+			const key = String(title._id);
+			if (requestedMetadataTitleIds.includes(key)) continue;
 			nextRequested.push(key);
 		}
 		if (nextRequested.length === 0) return;
-		requestedMetadataKeys = [...requestedMetadataKeys, ...nextRequested];
-		metadataQueue = [...metadataQueue, ...nextRequested];
-	});
-
-	$effect(() => {
-		if (metadataFetchCount >= 2 || metadataQueue.length === 0) return;
-		const [nextKey, ...rest] = metadataQueue;
-		const target = metadataTargets.get(nextKey);
-		metadataQueue = rest;
-		if (!target) return;
-		metadataFetchCount += 1;
+		requestedMetadataTitleIds = [...requestedMetadataTitleIds, ...nextRequested];
 		void (async () => {
 			try {
-				const { commandId } = await client.mutation(convexApi.commands.enqueue, {
-					commandType: 'explore.title.fetch',
-					payload: {
-						sourceId: target.sourceId,
-						titleUrl: target.titleUrl
-					}
+				await client.mutation(convexApi.library.ensureTitlesMetadata, {
+					titleIds: nextRequested as Id<'libraryTitles'>[],
+					limit: 20
 				});
-				await waitForCommand(client, commandId as Id<'commands'>);
 			} catch {
 				// Keep the key marked as requested for this session to avoid a fetch loop.
-			} finally {
-				metadataFetchCount -= 1;
 			}
 		})();
 	});

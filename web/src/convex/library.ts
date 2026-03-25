@@ -26,6 +26,21 @@ const DEFAULT_COLLECTIONS = [
 	{ name: 'Archive' }
 ] as const;
 
+export {
+	cancelQueuedChapterDownload,
+	getDownloadDashboard,
+	requestChapterDownload,
+	requestMissingDownloads,
+	runDownloadCycle,
+	setChapterDownloadState,
+	updateDownloadProfile
+} from './library_downloads';
+export {
+	ensureTitleMetadata,
+	ensureTitlesMetadata,
+	upsertTitleMetadataFromBridge
+} from './library_metadata';
+
 export const listMine = query({
 	args: {},
 	handler: async (ctx) => {
@@ -502,7 +517,7 @@ export const getMineChapterById = query({
 	}
 });
 
-export const getDownloadDashboard = query({
+export const deprecatedGetDownloadDashboard = query({
 	args: {
 		watchedLimit: v.optional(v.float64()),
 		activeLimit: v.optional(v.float64()),
@@ -762,7 +777,7 @@ export const getDownloadDashboard = query({
 	}
 });
 
-export const cancelQueuedChapterDownload = mutation({
+export const deprecatedCancelQueuedChapterDownload = mutation({
 	args: {
 		chapterId: v.id('libraryChapters')
 	},
@@ -1643,7 +1658,7 @@ export const requestChapterSync = mutation({
 	}
 });
 
-export const requestChapterDownload = mutation({
+export const deprecatedRequestChapterDownload = mutation({
 	args: {
 		chapterId: v.id('libraryChapters')
 	},
@@ -1701,7 +1716,7 @@ export const requestChapterDownload = mutation({
 	}
 });
 
-export const updateDownloadProfile = mutation({
+export const deprecatedUpdateDownloadProfile = mutation({
 	args: {
 		titleId: v.id('libraryTitles'),
 		enabled: v.optional(v.boolean()),
@@ -1768,7 +1783,7 @@ export const updateDownloadProfile = mutation({
 	}
 });
 
-export const runDownloadCycle = mutation({
+export const deprecatedRunDownloadCycle = mutation({
 	args: {
 		limit: v.optional(v.float64())
 	},
@@ -1888,7 +1903,7 @@ export const runDownloadCycle = mutation({
 	}
 });
 
-export const requestMissingDownloads = mutation({
+export const deprecatedRequestMissingDownloads = mutation({
 	args: {
 		titleId: v.id('libraryTitles')
 	},
@@ -2100,7 +2115,7 @@ export const setLocalCoverPath = mutation({
 	}
 });
 
-export const upsertTitleMetadataFromBridge = mutation({
+export const deprecatedUpsertTitleMetadataFromBridge = mutation({
 	args: {
 		sourceId: v.string(),
 		titleUrl: v.string(),
@@ -2242,7 +2257,7 @@ export const upsertTitleMetadataFromBridge = mutation({
 	}
 });
 
-export const setChapterDownloadState = mutation({
+export const deprecatedSetChapterDownloadState = mutation({
 	args: {
 		chapterId: v.id('libraryChapters'),
 		status: v.union(
