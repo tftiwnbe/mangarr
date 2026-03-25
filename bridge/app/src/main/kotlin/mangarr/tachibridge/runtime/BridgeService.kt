@@ -292,6 +292,7 @@ class BridgeService(
                             put("title", title.title)
                             put("description", title.description)
                             put("coverUrl", title.thumbnailUrl)
+                            put("genre", title.genre)
                         }
                 }
             } catch (error: Exception) {
@@ -659,6 +660,7 @@ class BridgeService(
                         put("title", title.title)
                         put("description", title.description)
                         put("coverUrl", title.thumbnailUrl)
+                        put("genre", title.genre)
                     }
                 }
 
@@ -711,6 +713,16 @@ class BridgeService(
                     val attributes = item["attributes"]?.jsonObject ?: return@mapNotNull null
                     val title = firstLocalizedValue(attributes["title"]) ?: return@mapNotNull null
                     val description = firstLocalizedValue(attributes["description"])
+                    val genre =
+                        item["attributes"]
+                            ?.jsonObject
+                            ?.get("tags")
+                            ?.jsonArray
+                            ?.mapNotNull { tag ->
+                                firstLocalizedValue(tag.jsonObject["attributes"]?.jsonObject?.get("name"))
+                            }?.distinct()
+                            ?.takeIf { it.isNotEmpty() }
+                            ?.joinToString(", ")
                     val coverFileName =
                         item["relationships"]
                             ?.jsonArray
@@ -737,6 +749,7 @@ class BridgeService(
                         put("title", title)
                         description?.let { put("description", it) }
                         coverUrl?.let { put("coverUrl", it) }
+                        genre?.let { put("genre", it) }
                     }
                 } ?: emptyList()
 
