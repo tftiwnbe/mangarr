@@ -123,14 +123,33 @@ export const getMineById = query({
 	},
 	handler: async (ctx, args) => {
 		const title = await requireOwnedTitle(ctx, args.titleId);
-		const [chapters, userStatus, collections, variants] = await Promise.all([
+		const [chapters, userStatus, collections, variants, progressRows, titleComments, downloadProfile] =
+			await Promise.all([
 			ctx.db
 				.query('libraryChapters')
 				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
 				.collect(),
 			resolveOwnedTitleUserStatus(ctx, title),
 			listCollectionsForTitle(ctx, title),
-			listVariantsForTitle(ctx, title)
+			listVariantsForTitle(ctx, title),
+			ctx.db
+				.query('chapterProgress')
+				.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.collect(),
+			ctx.db
+				.query('chapterComments')
+				.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.collect(),
+			ctx.db
+				.query('downloadProfiles')
+				.withIndex('by_owner_user_id_library_title_id', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.unique()
 		]);
 
 		let queued = 0;
@@ -153,30 +172,9 @@ export const getMineById = query({
 					break;
 			}
 		}
-
-		const progressRows = await ctx.db
-			.query('chapterProgress')
-			.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
-				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-			)
-			.collect();
-
-		const titleComments = await ctx.db
-			.query('chapterComments')
-			.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
-				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-			)
-			.collect();
-
 		const chapterById = new Map(chapters.map((chapter) => [chapter._id, chapter]));
 		const latestProgress =
 			[...progressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
-		const downloadProfile = await ctx.db
-			.query('downloadProfiles')
-			.withIndex('by_owner_user_id_library_title_id', (q) =>
-				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-			)
-			.unique();
 
 		return {
 			...title,
@@ -781,16 +779,18 @@ export const cancelQueuedChapterDownload = mutation({
 
 		const userId = identity.subject as GenericId<'users'>;
 		const now = Date.now();
-		const recentCommands = await ctx.db
+		const queuedDownloadCommands = await ctx.db
 			.query('commands')
-			.withIndex('by_requested_by_user_id_created_at', (q) => q.eq('requestedByUserId', userId))
+			.withIndex('by_requested_by_user_id_command_type_status_created_at', (q) =>
+				q
+					.eq('requestedByUserId', userId)
+					.eq('commandType', 'downloads.chapter')
+					.eq('status', 'queued')
+			)
 			.order('desc')
-			.take(200);
+			.collect();
 
-		const matchingQueued = recentCommands.filter((row) => {
-			if (row.commandType !== 'downloads.chapter' || row.status !== 'queued') {
-				return false;
-			}
+		const matchingQueued = queuedDownloadCommands.filter((row) => {
 			const payload = (row.payload ?? {}) as Record<string, unknown>;
 			return String(payload.chapterId ?? '').trim() === String(chapter._id);
 		});

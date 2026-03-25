@@ -291,5 +291,11 @@ export default defineSchema({
 		.index('by_lease_owner_bridge_id', ['leaseOwnerBridgeId'])
 		.index('by_idempotency_key', ['idempotencyKey'])
 		.index('by_requested_by_user_id_created_at', ['requestedByUserId', 'createdAt'])
+		.index('by_requested_by_user_id_command_type_status_created_at', [
+			'requestedByUserId',
+			'commandType',
+			'status',
+			'createdAt'
+		])
 		.index('by_created_at', ['createdAt'])
 });
