@@ -100,7 +100,6 @@
 	let requestedMetadataKeys = $state<string[]>([]);
 	let metadataQueue = $state<string[]>([]);
 	let metadataFetchCount = $state(0);
-	let fetchedMetadataByTitleKey = $state<Record<string, { status?: number; genre?: string | null }>>({});
 
 	const debouncedSearch = new DebouncedValue(() => searchQuery, 150);
 
@@ -138,11 +137,7 @@
 		return targets;
 	});
 
-	const titles = $derived(
-		((library.data ?? []) as TitleItem[]).map((title) =>
-			mapTitleToSummary(title, fetchedMetadataByTitleKey[`${title.sourceId}::${title.titleUrl}`])
-		)
-	);
+	const titles = $derived(((library.data ?? []) as TitleItem[]).map((title) => mapTitleToSummary(title)));
 	const loading = $derived(library.isLoading);
 	const error = $derived(library.error instanceof Error ? library.error.message : null);
 
@@ -257,7 +252,6 @@
 			if ((title.status ?? 0) > 0 && (title.genre ?? '').trim()) continue;
 			const key = `${title.sourceId}::${title.titleUrl}`;
 			if (requestedMetadataKeys.includes(key)) continue;
-			if (fetchedMetadataByTitleKey[key] !== undefined) continue;
 			nextRequested.push(key);
 		}
 		if (nextRequested.length === 0) return;
@@ -281,30 +275,16 @@
 						titleUrl: target.titleUrl
 					}
 				});
-				const command = await waitForCommand(client, commandId as Id<'commands'>);
-				const resultTitle = (command.result?.title as Record<string, unknown> | null) ?? null;
-				fetchedMetadataByTitleKey = {
-					...fetchedMetadataByTitleKey,
-					[nextKey]: {
-						status: typeof resultTitle?.status === 'number' ? resultTitle.status : 0,
-						genre: typeof resultTitle?.genre === 'string' ? resultTitle.genre : null
-					}
-				};
+				await waitForCommand(client, commandId as Id<'commands'>);
 			} catch {
-				fetchedMetadataByTitleKey = {
-					...fetchedMetadataByTitleKey,
-					[nextKey]: {}
-				};
+				// Keep the key marked as requested for this session to avoid a fetch loop.
 			} finally {
 				metadataFetchCount -= 1;
 			}
 		})();
 	});
 
-	function mapTitleToSummary(
-		title: TitleItem,
-		metadata?: { status?: number; genre?: string | null }
-	): LibraryTitleSummary {
+	function mapTitleToSummary(title: TitleItem): LibraryTitleSummary {
 		return {
 			id: title._id,
 			title: title.title,
@@ -314,8 +294,8 @@
 			added_at: title.createdAt,
 			last_read_at: title.lastReadAt ?? null,
 			user_status: title.user_status ?? title.userStatus ?? null,
-			status: metadata?.status ?? title.status ?? 0,
-			genre: metadata?.genre ?? title.genre ?? null,
+			status: title.status ?? 0,
+			genre: title.genre ?? null,
 			collections:
 				title.collections?.map((collection) => ({
 					id: String(collection.id),

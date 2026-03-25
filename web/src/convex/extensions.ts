@@ -12,7 +12,8 @@ export const getRepository = query({
 			.unique();
 		return {
 			url: installation?.extensionRepoUrl ?? '',
-			configured: Boolean(installation?.extensionRepoUrl)
+			configured: Boolean(installation?.extensionRepoUrl),
+			languages: installation?.extensionRepoLanguages ?? []
 		};
 	}
 });
@@ -58,6 +59,7 @@ export const listSources = query({
 export const setRepository = mutation({
 	args: {
 		url: v.string(),
+		languages: v.optional(v.array(v.string())),
 		now: v.float64()
 	},
 	handler: async (ctx, args) => {
@@ -70,6 +72,7 @@ export const setRepository = mutation({
 		if (installation) {
 			await ctx.db.patch(installation._id, {
 				extensionRepoUrl: args.url,
+				extensionRepoLanguages: args.languages,
 				updatedAt: args.now
 			});
 			return { updated: true, created: false };
@@ -80,6 +83,7 @@ export const setRepository = mutation({
 			setupState: 'open',
 			schemaVersion: '1',
 			extensionRepoUrl: args.url,
+			extensionRepoLanguages: args.languages,
 			createdAt: args.now,
 			updatedAt: args.now
 		});

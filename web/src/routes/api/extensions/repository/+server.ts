@@ -51,35 +51,11 @@ function requireAdmin(locals: App.Locals) {
 	}
 }
 
-export const GET: RequestHandler = async ({ locals, url }) => {
+export const GET: RequestHandler = async ({ locals }) => {
 	requireAdmin(locals);
-	const user = locals.auth.user;
-	if (!user) {
-		throw error(401, 'Not signed in');
-	}
 
 	const client = getConvexClient();
-	const repository = await client.query(convexApi.extensions.getRepository, {});
-	const includeItems = url.searchParams.get('includeItems');
-	if (includeItems !== '1' && includeItems !== 'true') {
-		return json(repository);
-	}
-	if (!repository.configured || !repository.url) {
-		return json({ ...repository, items: [] });
-	}
-
-	const userClient = await getUserConvexClient(user);
-	const search = await userClient.mutation(convexApi.commands.enqueue, {
-		commandType: 'extensions.repo.search',
-		payload: { query: '', limit: 5000 },
-		idempotencyKey: 'extensions.repo.search:settings:5000'
-	});
-	const searchResult = await waitForCommand(userClient, search.commandId);
-
-	return json({
-		...repository,
-		items: (searchResult.result as { items?: unknown[] } | null)?.items ?? []
-	});
+	return json(await client.query(convexApi.extensions.getRepository, {}));
 };
 
 export const PUT: RequestHandler = async ({ locals, request }) => {

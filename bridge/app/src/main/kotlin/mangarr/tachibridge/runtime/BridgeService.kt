@@ -43,10 +43,21 @@ class BridgeService(
         repoService.updateRepoIndexUrl(url)
         ConfigManager.setRepoUrl(url)
         val entries = repoService.fetchIndex(forceRefresh = true)
+        val languages =
+            entries
+                .asSequence()
+                .flatMap { entry -> sequenceOf(entry.lang) + entry.sources.asSequence().map { source -> source.lang } }
+                .map { normalizeLangCode(it) }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .sorted()
+                .map { JsonPrimitive(it) }
+                .toList()
         return buildJsonObject {
             put("ok", true)
             put("url", url)
             put("extensionCount", entries.size)
+            put("languages", JsonArray(languages))
         }
     }
 

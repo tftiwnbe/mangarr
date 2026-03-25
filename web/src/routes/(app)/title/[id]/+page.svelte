@@ -184,7 +184,6 @@
 	let preferencesError = $state<string | null>(null);
 	let preferencesSuccess = $state(false);
 	let metadataRequested = $state(false);
-	let fetchedMetadata = $state<Record<string, unknown> | null>(null);
 	let fallbackMetadata = $state<{ author: string | null; artist: string | null } | null>(null);
 	let selectedStatusId = $state<string | null>(null);
 	let selectedRating = $state<number>(0);
@@ -243,7 +242,7 @@
 	});
 
 	const genres = $derived.by(() =>
-		String(fetchedMetadata?.genre ?? title?.genre ?? '')
+		String(title?.genre ?? '')
 			.split(',')
 			.map((item) => item.trim())
 			.filter(Boolean)
@@ -262,12 +261,8 @@
 			title.sourcePkg
 		);
 	});
-	const author = $derived.by(() =>
-		String(fallbackMetadata?.author ?? fetchedMetadata?.author ?? title?.author ?? '').trim()
-	);
-	const artist = $derived.by(() =>
-		String(fallbackMetadata?.artist ?? fetchedMetadata?.artist ?? title?.artist ?? '').trim()
-	);
+	const author = $derived.by(() => String(fallbackMetadata?.author ?? title?.author ?? '').trim());
+	const artist = $derived.by(() => String(fallbackMetadata?.artist ?? title?.artist ?? '').trim());
 	const updatesEnabled = $derived(Boolean(title?.downloadProfile?.enabled));
 	const linkedSourceKeys = $derived.by(
 		() => new Set(title?.variants.map((variant) => sourceVariantKey(variant.sourceId, variant.titleUrl)) ?? [])
@@ -302,7 +297,7 @@
 		return title.chapters.length ? title.chapters.at(-1) ?? null : null;
 	});
 	const displayStatus = $derived.by(() => {
-		const status = Number(fetchedMetadata?.status ?? title?.status ?? 0);
+		const status = Number(title?.status ?? 0);
 		if (status === TITLE_STATUS.ONGOING) return $_('status.ongoing');
 		if (status === TITLE_STATUS.COMPLETED || status === TITLE_STATUS.COMPLETED_ALT) {
 			return $_('status.completed');
@@ -403,14 +398,20 @@
 		if (key === lastMetadataKey) return;
 		lastMetadataKey = key;
 		metadataRequested = false;
-		fetchedMetadata = null;
 		fallbackMetadata = null;
 	});
 
 	$effect(() => {
 		if (!title || metadataRequested) return;
-		if (author && artist) return;
-		if (fetchedMetadata) return;
+		if (
+			(title.author ?? '').trim() &&
+			(title.artist ?? '').trim() &&
+			(title.genre ?? '').trim() &&
+			Number(title.status ?? 0) > 0 &&
+			(title.description ?? '').trim()
+		) {
+			return;
+		}
 		const metadataKey = `${title.sourceId}::${title.titleUrl}`;
 		metadataRequested = true;
 		void (async () => {
@@ -422,15 +423,12 @@
 						titleUrl: title.titleUrl
 					}
 				});
-				const command = await waitForCommand(client, commandId as Id<'commands'>);
+				await waitForCommand(client, commandId as Id<'commands'>);
 				if (`${title.sourceId}::${title.titleUrl}` !== metadataKey) {
 					return;
 				}
-				fetchedMetadata = (command.result?.title as Record<string, unknown> | null) ?? null;
 			} catch {
-				if (`${title.sourceId}::${title.titleUrl}` === metadataKey) {
-					fetchedMetadata = null;
-				}
+				// Leave fields as-is; key reset on navigation/title change enables a later retry.
 			}
 		})();
 	});

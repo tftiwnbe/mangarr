@@ -110,6 +110,9 @@ class ConvexBridgeClient(
     fun setLibraryTitleLocalCover(args: JsonObject): OkResponse =
         mutation("library:setLocalCoverPath", args)
 
+    fun upsertLibraryTitleMetadata(args: JsonObject): OkResponse =
+        mutation("library:upsertTitleMetadataFromBridge", args)
+
     fun setLibraryChapterDownloadState(args: JsonObject): OkResponse =
         mutation("library:setChapterDownloadState", args)
 

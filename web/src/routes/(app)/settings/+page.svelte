@@ -93,7 +93,7 @@
 	type RepositoryState = {
 		url: string;
 		configured: boolean;
-		items?: RepositoryEntry[];
+		languages?: string[];
 	};
 
 	type RepositoryEntry = {
@@ -362,9 +362,9 @@
 		extensionRepoLoading = true;
 		extensionRepoError = null;
 		try {
-			const repository = await fetchJson<RepositoryState>('/api/extensions/repository?includeItems=1');
+			const repository = await fetchJson<RepositoryState>('/api/extensions/repository');
 			extensionRepoUrl = repository.url;
-			const repoLangs = toMainContentLanguages((repository.items ?? []).map((item) => item.lang));
+			const repoLangs = toMainContentLanguages(repository.languages ?? []);
 			const nextKnownLangs = toMainContentLanguages([...knownLangs, ...repoLangs, ...$contentLanguages]);
 			if (nextKnownLangs.length > 0) {
 				setKnownContentLanguages(nextKnownLangs);

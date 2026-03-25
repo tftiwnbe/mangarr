@@ -2100,6 +2100,148 @@ export const setLocalCoverPath = mutation({
 	}
 });
 
+export const upsertTitleMetadataFromBridge = mutation({
+	args: {
+		sourceId: v.string(),
+		titleUrl: v.string(),
+		sourcePkg: v.optional(v.string()),
+		sourceLang: v.optional(v.string()),
+		title: v.string(),
+		author: v.optional(v.string()),
+		artist: v.optional(v.string()),
+		description: v.optional(v.string()),
+		coverUrl: v.optional(v.string()),
+		genre: v.optional(v.string()),
+		status: v.optional(v.float64()),
+		now: v.float64()
+	},
+	handler: async (ctx, args) => {
+		await requireBridgeIdentity(ctx);
+
+		const existingCache = await ctx.db
+			.query('exploreTitleDetailsCache')
+			.withIndex('by_source_id_title_url', (q) =>
+				q.eq('sourceId', args.sourceId).eq('titleUrl', args.titleUrl)
+			)
+			.unique();
+
+		if (existingCache) {
+			await ctx.db.patch(existingCache._id, {
+				sourcePkg: args.sourcePkg,
+				sourceLang: args.sourceLang,
+				title: args.title,
+				author: args.author,
+				artist: args.artist,
+				description: args.description,
+				coverUrl: args.coverUrl,
+				genre: args.genre,
+				status: args.status,
+				fetchedAt: args.now,
+				updatedAt: args.now
+			});
+		} else {
+			await ctx.db.insert('exploreTitleDetailsCache', {
+				sourceId: args.sourceId,
+				titleUrl: args.titleUrl,
+				sourcePkg: args.sourcePkg,
+				sourceLang: args.sourceLang,
+				title: args.title,
+				author: args.author,
+				artist: args.artist,
+				description: args.description,
+				coverUrl: args.coverUrl,
+				genre: args.genre,
+				status: args.status,
+				fetchedAt: args.now,
+				createdAt: args.now,
+				updatedAt: args.now
+			});
+		}
+
+		const matchingVariants = await ctx.db
+			.query('titleVariants')
+			.withIndex('by_source_id_title_url', (q) =>
+				q.eq('sourceId', args.sourceId).eq('titleUrl', args.titleUrl)
+			)
+			.collect();
+		const matchingVariantIds = new Set<string>();
+		const matchingTitleIds = new Set<string>();
+
+		for (const variant of matchingVariants) {
+			matchingVariantIds.add(String(variant._id));
+			matchingTitleIds.add(String(variant.libraryTitleId));
+			await ctx.db.patch(variant._id, {
+				sourcePkg: args.sourcePkg ?? variant.sourcePkg,
+				sourceLang: args.sourceLang ?? variant.sourceLang,
+				title: args.title,
+				author: args.author,
+				artist: args.artist,
+				description: args.description,
+				coverUrl: args.coverUrl,
+				genre: args.genre,
+				status: args.status,
+				updatedAt: args.now,
+				lastSyncedAt: args.now
+			});
+		}
+
+		const directTitles = await ctx.db
+			.query('libraryTitles')
+			.withIndex('by_source_id_title_url', (q) =>
+				q.eq('sourceId', args.sourceId).eq('titleUrl', args.titleUrl)
+			)
+			.collect();
+
+		for (const title of directTitles) {
+			matchingTitleIds.add(String(title._id));
+			await ctx.db.patch(title._id, {
+				title: args.title,
+				sourcePkg: args.sourcePkg ?? title.sourcePkg,
+				sourceLang: args.sourceLang ?? title.sourceLang,
+				author: args.author,
+				artist: args.artist,
+				description: args.description,
+				coverUrl: args.coverUrl,
+				genre: args.genre,
+				status: args.status,
+				updatedAt: args.now
+			});
+		}
+
+		for (const titleId of matchingTitleIds) {
+			const title = await ctx.db.get(titleId as GenericId<'libraryTitles'>);
+			if (!title || title.preferredVariantId == null) {
+				continue;
+			}
+			if (!matchingVariantIds.has(String(title.preferredVariantId))) {
+				continue;
+			}
+
+			await applyVariantSnapshotToTitle(ctx, title._id, {
+				sourceId: args.sourceId,
+				sourcePkg: args.sourcePkg ?? title.sourcePkg,
+				sourceLang: args.sourceLang ?? title.sourceLang,
+				titleUrl: args.titleUrl,
+				title: args.title,
+				author: args.author,
+				artist: args.artist,
+				description: args.description,
+				coverUrl: args.coverUrl,
+				genre: args.genre,
+				status: args.status,
+				preferredVariantId: title.preferredVariantId,
+				now: args.now
+			});
+		}
+
+		return {
+			ok: true,
+			matchedVariants: matchingVariants.length,
+			matchedTitles: matchingTitleIds.size
+		};
+	}
+});
+
 export const setChapterDownloadState = mutation({
 	args: {
 		chapterId: v.id('libraryChapters'),

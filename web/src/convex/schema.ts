@@ -7,6 +7,7 @@ export default defineSchema({
 		setupState: v.union(v.literal('open'), v.literal('configured')),
 		schemaVersion: v.string(),
 		extensionRepoUrl: v.optional(v.string()),
+		extensionRepoLanguages: v.optional(v.array(v.string())),
 		preferredContentLanguages: v.optional(v.array(v.string())),
 		defaultAdminCreatedAt: v.optional(v.float64()),
 		createdAt: v.float64(),
@@ -119,7 +120,8 @@ export default defineSchema({
 	})
 		.index('by_owner_user_id', ['ownerUserId'])
 		.index('by_owner_user_id_canonical_key', ['ownerUserId', 'canonicalKey'])
-		.index('by_owner_user_id_updated_at', ['ownerUserId', 'updatedAt']),
+		.index('by_owner_user_id_updated_at', ['ownerUserId', 'updatedAt'])
+		.index('by_source_id_title_url', ['sourceId', 'titleUrl']),
 
 	libraryUserStatuses: defineTable({
 		ownerUserId: v.id('users'),
@@ -163,7 +165,27 @@ export default defineSchema({
 	})
 		.index('by_owner_user_id_library_title_id', ['ownerUserId', 'libraryTitleId'])
 		.index('by_owner_user_id_source_id_title_url', ['ownerUserId', 'sourceId', 'titleUrl'])
-		.index('by_library_title_id_source_id_title_url', ['libraryTitleId', 'sourceId', 'titleUrl']),
+		.index('by_library_title_id_source_id_title_url', ['libraryTitleId', 'sourceId', 'titleUrl'])
+		.index('by_source_id_title_url', ['sourceId', 'titleUrl']),
+
+	exploreTitleDetailsCache: defineTable({
+		sourceId: v.string(),
+		titleUrl: v.string(),
+		sourcePkg: v.optional(v.string()),
+		sourceLang: v.optional(v.string()),
+		title: v.string(),
+		author: v.optional(v.string()),
+		artist: v.optional(v.string()),
+		description: v.optional(v.string()),
+		coverUrl: v.optional(v.string()),
+		genre: v.optional(v.string()),
+		status: v.optional(v.float64()),
+		fetchedAt: v.float64(),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_source_id_title_url', ['sourceId', 'titleUrl'])
+		.index('by_fetched_at', ['fetchedAt']),
 
 	libraryCollectionTitles: defineTable({
 		ownerUserId: v.id('users'),

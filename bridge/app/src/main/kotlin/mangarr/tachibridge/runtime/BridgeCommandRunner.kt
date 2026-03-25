@@ -258,6 +258,7 @@ class BridgeCommandRunner(
                         client.payload(
                             buildJsonObject {
                                 put("url", url)
+                                put("languages", syncResult["languages"] ?: kotlinx.serialization.json.JsonArray(emptyList()))
                                 put("now", System.currentTimeMillis())
                             },
                         ),
@@ -429,7 +430,27 @@ class BridgeCommandRunner(
             "explore.title.fetch" -> {
                 val sourceId = payload.requiredString("sourceId")
                 val titleUrl = payload.requiredString("titleUrl")
-                kotlinx.coroutines.runBlocking { service.fetchTitle(sourceId, titleUrl) }
+                val titleResult = kotlinx.coroutines.runBlocking { service.fetchTitle(sourceId, titleUrl) }
+                val normalizedTitle = titleResult["title"]?.jsonObject ?: error("Missing title payload")
+                client.upsertLibraryTitleMetadata(
+                    client.payload(
+                        buildJsonObject {
+                            put("sourceId", sourceId)
+                            put("titleUrl", titleUrl)
+                            put("sourcePkg", normalizedTitle.optionalString("sourcePkg"))
+                            put("sourceLang", normalizedTitle.optionalString("sourceLang"))
+                            put("title", normalizedTitle.requiredString("title"))
+                            put("author", normalizedTitle.optionalString("author"))
+                            put("artist", normalizedTitle.optionalString("artist"))
+                            put("description", normalizedTitle.optionalString("description"))
+                            put("coverUrl", normalizedTitle.optionalString("coverUrl"))
+                            put("genre", normalizedTitle.optionalString("genre"))
+                            put("status", normalizedTitle.optionalInt("status") ?: 0)
+                            put("now", System.currentTimeMillis())
+                        },
+                    ),
+                )
+                titleResult
             }
             "explore.chapters.fetch" -> {
                 val sourceId = payload.requiredString("sourceId")
@@ -474,6 +495,25 @@ class BridgeCommandRunner(
                     kotlinx.coroutines.runBlocking {
                         service.resolveImport(sourceId, sourcePkg, sourceLang, titleUrl)
                     }
+
+                client.upsertLibraryTitleMetadata(
+                    client.payload(
+                        buildJsonObject {
+                            put("sourceId", sourceId)
+                            put("titleUrl", titleUrl)
+                            put("sourcePkg", sourcePkg)
+                            put("sourceLang", sourceLang)
+                            put("title", resolved.requiredString("title"))
+                            put("author", resolved.optionalString("author"))
+                            put("artist", resolved.optionalString("artist"))
+                            put("description", resolved.optionalString("description"))
+                            put("coverUrl", resolved.optionalString("coverUrl"))
+                            put("genre", resolved.optionalString("genre"))
+                            put("status", resolved.optionalInt("status") ?: 0)
+                            put("now", System.currentTimeMillis())
+                        },
+                    ),
+                )
 
                 val clientResult =
                     client.importLibraryTitle(
