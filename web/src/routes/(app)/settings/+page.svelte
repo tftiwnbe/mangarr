@@ -93,6 +93,7 @@
 	type RepositoryState = {
 		url: string;
 		configured: boolean;
+		items?: RepositoryEntry[];
 	};
 
 	type RepositoryEntry = {
@@ -361,9 +362,14 @@
 		extensionRepoLoading = true;
 		extensionRepoError = null;
 		try {
-			const repository = await fetchJson<RepositoryState>('/api/extensions/repository');
+			const repository = await fetchJson<RepositoryState>('/api/extensions/repository?includeItems=1');
 			extensionRepoUrl = repository.url;
-			knownLangs = toMainContentLanguages([...knownLangs, ...$contentLanguages]);
+			const repoLangs = toMainContentLanguages((repository.items ?? []).map((item) => item.lang));
+			const nextKnownLangs = toMainContentLanguages([...knownLangs, ...repoLangs, ...$contentLanguages]);
+			if (nextKnownLangs.length > 0) {
+				setKnownContentLanguages(nextKnownLangs);
+				knownLangs = nextKnownLangs;
+			}
 		} catch (cause) {
 			extensionRepoError =
 				cause instanceof Error ? cause.message : 'Failed to load extension settings';

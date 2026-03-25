@@ -315,11 +315,14 @@ class DownloadStorage(
 
     private fun downloadsRoot(): Path {
         val configured = ConfigManager.config.downloads.downloadPath.trim()
+        val envDefault = System.getenv("MANGARR_DOWNLOADS_DIR")?.trim().orEmpty()
         val root =
-            if (configured.isEmpty()) {
-                dataRoot.resolve("downloads")
-            } else {
+            if (configured.isNotEmpty()) {
                 Paths.get(configured)
+            } else if (envDefault.isNotEmpty()) {
+                Paths.get(envDefault)
+            } else {
+                dataRoot.resolve("downloads")
             }.toAbsolutePath().normalize()
         Files.createDirectories(root)
         return root

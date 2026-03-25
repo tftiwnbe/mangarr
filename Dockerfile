@@ -104,6 +104,7 @@ INSTANCE_NAME="${INSTANCE_NAME:-mangarr}"
 MANGARR_BRIDGE_HOST="${MANGARR_BRIDGE_HOST:-127.0.0.1}"
 MANGARR_BRIDGE_PORT="${MANGARR_BRIDGE_PORT:-3212}"
 MANGARR_BRIDGE_INTERNAL_URL="${MANGARR_BRIDGE_INTERNAL_URL:-http://127.0.0.1:${MANGARR_BRIDGE_PORT}}"
+MANGARR_DOWNLOADS_DIR="${MANGARR_DOWNLOADS_DIR:-/app/downloads}"
 MANGARR_CONVEX_AUTH_ISSUER="${MANGARR_CONVEX_AUTH_ISSUER:-https://auth.mangarr.local/convex}"
 MANGARR_CONVEX_AUTH_APPLICATION_ID="${MANGARR_CONVEX_AUTH_APPLICATION_ID:-mangarr-web}"
 MANGARR_CONVEX_AUTH_TOKEN_TTL_SECONDS="${MANGARR_CONVEX_AUTH_TOKEN_TTL_SECONDS:-3600}"
@@ -114,6 +115,23 @@ MANGARR_XVFB_DISPLAY="${MANGARR_XVFB_DISPLAY:-:99}"
 RUST_LOG="${RUST_LOG:-error,database::search_index_workers::retriable_worker=off}"
 
 mkdir -p "${CONVEX_ROOT}" "${CONVEX_STORAGE_DIR}" "${CONVEX_TMP_DIR}" "$(dirname "${CONVEX_SQLITE_PATH}")"
+
+DEFAULT_DOWNLOADS_BACKING_DIR="/app/data/downloads"
+LEGACY_DOWNLOADS_DIR="${MANGARR_BRIDGE_DATA_DIR:-/app/config/bridge}/downloads"
+mkdir -p "${DEFAULT_DOWNLOADS_BACKING_DIR}"
+if [ "${MANGARR_DOWNLOADS_DIR}" = "/app/downloads" ]; then
+  if [ -d "${LEGACY_DOWNLOADS_DIR}" ] && [ -z "$(find "${DEFAULT_DOWNLOADS_BACKING_DIR}" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+    cp -a "${LEGACY_DOWNLOADS_DIR}/." "${DEFAULT_DOWNLOADS_BACKING_DIR}/" 2>/dev/null || true
+  fi
+  if [ -e "${MANGARR_DOWNLOADS_DIR}" ] && [ ! -L "${MANGARR_DOWNLOADS_DIR}" ]; then
+    rmdir "${MANGARR_DOWNLOADS_DIR}" 2>/dev/null || true
+  fi
+  if [ ! -e "${MANGARR_DOWNLOADS_DIR}" ]; then
+    ln -s "${DEFAULT_DOWNLOADS_BACKING_DIR}" "${MANGARR_DOWNLOADS_DIR}"
+  fi
+else
+  mkdir -p "${MANGARR_DOWNLOADS_DIR}"
+fi
 
 SECRET_FILE="${CONVEX_ROOT}/instance_secret"
 if [ ! -s "${SECRET_FILE}" ]; then
