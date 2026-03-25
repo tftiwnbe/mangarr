@@ -650,11 +650,13 @@
 		const nextExhausted: Record<string, boolean> = append ? { ...exhaustedFeedSources } : {};
 		const nextLiveFeedResults = { ...liveFeedResults };
 		const failures: string[] = [];
+		let successfulSources = 0;
 		const requestCommandType = feedCommandType;
 
 		await runWithConcurrency(sourceIds, COMMAND_CONCURRENCY, async (sourceId) => {
 				try {
 					const result = await fetchFeedPage(sourceId, 1);
+					successfulSources += 1;
 					nextLiveFeedResults[feedResultKey(feedCommandType, sourceId, 1)] = result;
 					nextPages[sourceId] = 1;
 					if (result.hasNextPage === true) {
@@ -680,7 +682,7 @@
 		loadedPagesBySource = nextPages;
 		exhaustedFeedSources = nextExhausted;
 		refreshCanLoadMoreFeed(nextPages, nextExhausted);
-		error = failures[0] ?? null;
+		error = failures.length > 0 && successfulSources === 0 ? failures[0] ?? null : null;
 		if (append) {
 			loadingMore = false;
 		} else {
@@ -716,6 +718,7 @@
 		const nextExhausted = { ...exhaustedFeedSources };
 		const nextLiveFeedResults = { ...liveFeedResults };
 		const failures: string[] = [];
+		let successfulSources = 0;
 
 		await runWithConcurrency(nextSourcePages, COMMAND_CONCURRENCY, async ({ sourceId, page }) => {
 				try {
@@ -725,6 +728,7 @@
 						page,
 						existingItems
 					);
+					successfulSources += 1;
 					nextLiveFeedResults[feedResultKey(feedCommandType, sourceId, finalPage)] = result;
 					nextLoaded[sourceId] = finalPage;
 					if (exhausted) {
@@ -749,8 +753,10 @@
 		loadedPagesBySource = nextLoaded;
 		exhaustedFeedSources = nextExhausted;
 		refreshCanLoadMoreFeed(nextLoaded, nextExhausted);
-		if (failures.length > 0) {
+		if (failures.length > 0 && successfulSources === 0 && cards.length === 0) {
 			error = failures[0];
+		} else if (successfulSources > 0 || cards.length > 0) {
+			error = null;
 		}
 		loadingMore = false;
 	}
