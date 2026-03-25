@@ -3,6 +3,21 @@ import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
 
+async function requireAdminIdentity(ctx: {
+	auth: {
+		getUserIdentity: () => Promise<Record<string, unknown> | null>;
+	};
+}) {
+	const identity = await ctx.auth.getUserIdentity();
+	if (!identity) {
+		throw new Error('Not authenticated');
+	}
+	if (identity.isAdmin !== true && identity.role !== 'admin') {
+		throw new Error('Admin privileges are required');
+	}
+	return identity;
+}
+
 export const getRepository = query({
 	args: {},
 	handler: async (ctx) => {
@@ -72,6 +87,41 @@ export const setRepository = mutation({
 		if (installation) {
 			await ctx.db.patch(installation._id, {
 				extensionRepoUrl: args.url,
+				extensionRepoLanguages: args.languages,
+				updatedAt: args.now
+			});
+			return { updated: true, created: false };
+		}
+
+		await ctx.db.insert('installation', {
+			key: 'main',
+			setupState: 'open',
+			schemaVersion: '1',
+			extensionRepoUrl: args.url,
+			extensionRepoLanguages: args.languages,
+			createdAt: args.now,
+			updatedAt: args.now
+		});
+		return { updated: true, created: true };
+	}
+});
+
+export const backfillRepositoryLanguages = mutation({
+	args: {
+		url: v.optional(v.string()),
+		languages: v.array(v.string()),
+		now: v.float64()
+	},
+	handler: async (ctx, args) => {
+		await requireAdminIdentity(ctx);
+		const installation = await ctx.db
+			.query('installation')
+			.withIndex('by_key', (q) => q.eq('key', 'main'))
+			.unique();
+
+		if (installation) {
+			await ctx.db.patch(installation._id, {
+				extensionRepoUrl: args.url ?? installation.extensionRepoUrl,
 				extensionRepoLanguages: args.languages,
 				updatedAt: args.now
 			});

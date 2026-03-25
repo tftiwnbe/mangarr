@@ -328,6 +328,23 @@ class BridgeHttpServer(
             }
         }
 
+        server.createContext("/extensions/repository") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+            if (exchange.requestMethod.uppercase() != "GET") {
+                sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+                return@createContext
+            }
+
+            try {
+                sendJson(exchange, 200, bridgeService.repositorySnapshot())
+            } catch (error: Exception) {
+                logger.warn(error) { "Failed to read repository snapshot" }
+                sendJson(exchange, 502, buildJsonObject { put("message", "Unable to read repository snapshot") })
+            }
+        }
+
         server.createContext("/extensions/proxy") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext

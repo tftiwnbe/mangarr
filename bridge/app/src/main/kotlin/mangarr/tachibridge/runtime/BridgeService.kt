@@ -46,25 +46,37 @@ class BridgeService(
     private val httpClient = OkHttpClient()
     private val feedCache = ConcurrentHashMap<String, CachedFeedResult>()
 
+    fun repositorySnapshot(forceRefresh: Boolean = false): JsonObject {
+        val url = repoService.currentRepoIndexUrl().trim()
+        if (url.isBlank()) {
+            return buildJsonObject {
+                put("ok", true)
+                put("configured", false)
+                put("url", "")
+                put("extensionCount", 0)
+                put("languages", JsonArray(emptyList()))
+            }
+        }
+
+        val entries = repoService.fetchIndex(forceRefresh = forceRefresh)
+        return buildJsonObject {
+            put("ok", true)
+            put("configured", true)
+            put("url", url)
+            put("extensionCount", entries.size)
+            put("languages", JsonArray(repositoryLanguages(entries)))
+        }
+    }
+
     fun syncRepository(url: String): JsonObject {
         repoService.updateRepoIndexUrl(url)
         ConfigManager.setRepoUrl(url)
         val entries = repoService.fetchIndex(forceRefresh = true)
-        val languages =
-            entries
-                .asSequence()
-                .flatMap { entry -> sequenceOf(entry.lang) + entry.sources.asSequence().map { source -> source.lang } }
-                .map { normalizeLangCode(it) }
-                .filter { it.isNotBlank() }
-                .distinct()
-                .sorted()
-                .map { JsonPrimitive(it) }
-                .toList()
         return buildJsonObject {
             put("ok", true)
             put("url", url)
             put("extensionCount", entries.size)
-            put("languages", JsonArray(languages))
+            put("languages", JsonArray(repositoryLanguages(entries)))
         }
     }
 
@@ -824,6 +836,17 @@ class BridgeService(
         }
 
     private fun normalizeExtensionName(name: String): String = name.removePrefix("Tachiyomi: ").trim()
+
+    private fun repositoryLanguages(entries: List<mangarr.tachibridge.repo.ExtensionRepoEntry>): List<JsonPrimitive> =
+        entries
+            .asSequence()
+            .flatMap { entry -> sequenceOf(entry.lang) + entry.sources.asSequence().map { source -> source.lang } }
+            .map { normalizeLangCode(it) }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+            .map(::JsonPrimitive)
+            .toList()
 
     private fun normalizeLangCode(lang: String): String {
         val normalized = lang.trim().ifBlank { "all" }

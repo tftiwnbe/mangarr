@@ -4,12 +4,20 @@ import type { GenericId } from 'convex/values';
 
 import { convexApi } from '$lib/server/convex-api';
 import { getConvexClient, getUserConvexClient } from '$lib/server/convex';
+import { buildBridgeInternalHeaders, getBridgeBaseUrl } from '$lib/server/bridge';
 
 type CommandRow = {
 	id: GenericId<'commands'>;
 	status: string;
 	result?: Record<string, unknown> | null;
 	lastErrorMessage?: string | null;
+};
+
+type RepositoryState = {
+	url?: string;
+	configured?: boolean;
+	languages?: string[];
+	extensionCount?: number;
 };
 
 async function waitForCommand(
@@ -55,7 +63,54 @@ export const GET: RequestHandler = async ({ locals }) => {
 	requireAdmin(locals);
 
 	const client = getConvexClient();
-	return json(await client.query(convexApi.extensions.getRepository, {}));
+	const repository = (await client.query(convexApi.extensions.getRepository, {})) as RepositoryState;
+	const storedLanguages = Array.isArray(repository.languages) ? repository.languages : [];
+	if (!repository.configured || storedLanguages.length > 0) {
+		return json({
+			...repository,
+			languages: storedLanguages
+		});
+	}
+
+	try {
+		const bridgeResponse = await fetch(`${getBridgeBaseUrl()}/extensions/repository`, {
+			headers: buildBridgeInternalHeaders(),
+			signal: AbortSignal.timeout(10_000)
+		});
+		if (!bridgeResponse.ok) {
+			return json({
+				...repository,
+				languages: storedLanguages
+			});
+		}
+		const bridgeRepository = (await bridgeResponse.json()) as RepositoryState;
+		const bridgeLanguages = Array.isArray(bridgeRepository.languages) ? bridgeRepository.languages : [];
+		if (!locals.auth.user || bridgeLanguages.length === 0) {
+			return json({
+				...repository,
+				languages: bridgeLanguages
+			});
+		}
+
+		const userClient = await getUserConvexClient(locals.auth.user);
+		await userClient.mutation(convexApi.extensions.backfillRepositoryLanguages, {
+			url: bridgeRepository.url ?? repository.url ?? '',
+			languages: bridgeLanguages,
+			now: Date.now()
+		});
+
+		return json({
+			url: bridgeRepository.url ?? repository.url ?? '',
+			configured: bridgeRepository.configured ?? repository.configured ?? false,
+			languages: bridgeLanguages,
+			extensionCount: bridgeRepository.extensionCount
+		});
+	} catch {
+		return json({
+			...repository,
+			languages: storedLanguages
+		});
+	}
 };
 
 export const PUT: RequestHandler = async ({ locals, request }) => {

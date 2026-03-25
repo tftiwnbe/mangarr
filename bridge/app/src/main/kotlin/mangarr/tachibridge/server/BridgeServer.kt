@@ -14,6 +14,10 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import mangarr.tachibridge.config.ConfigManager
 import mangarr.tachibridge.extensions.ExtensionManager
 import mangarr.tachibridge.loader.ConfigExtensionsDirectories
@@ -209,6 +213,28 @@ class BridgeServer(
                 try {
                     initializeKCEF()
                     extensionManager.init()
+                    if (convexClient != null && ConfigManager.config.repoUrl.isNotBlank()) {
+                        runCatching {
+                            val repository = bridgeService.repositorySnapshot()
+                            convexClient.setExtensionRepository(
+                                convexClient.payload(
+                                    kotlinx.serialization.json.buildJsonObject {
+                                        put("url", repository["url"] ?: JsonPrimitive(ConfigManager.config.repoUrl))
+                                        put("languages", repository["languages"] ?: JsonArray(emptyList()))
+                                        put("now", System.currentTimeMillis())
+                                    },
+                                ),
+                            )
+                        }.onFailure { error ->
+                            events.error(
+                                "bridge.repository.backfill_failed",
+                                "Failed to persist repository metadata during warmup",
+                                error,
+                                "bridgeId" to config.runtime.bridgeId,
+                                "repoUrl" to ConfigManager.config.repoUrl,
+                            )
+                        }
+                    }
                     bridgeState.setReady()
                     events.info(
                         "bridge.warmup.completed",

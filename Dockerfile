@@ -117,12 +117,8 @@ RUST_LOG="${RUST_LOG:-error,database::search_index_workers::retriable_worker=off
 mkdir -p "${CONVEX_ROOT}" "${CONVEX_STORAGE_DIR}" "${CONVEX_TMP_DIR}" "$(dirname "${CONVEX_SQLITE_PATH}")"
 
 DEFAULT_DOWNLOADS_BACKING_DIR="/app/data/downloads"
-LEGACY_DOWNLOADS_DIR="${MANGARR_BRIDGE_DATA_DIR:-/app/config/bridge}/downloads"
 mkdir -p "${DEFAULT_DOWNLOADS_BACKING_DIR}"
 if [ "${MANGARR_DOWNLOADS_DIR}" = "/app/downloads" ]; then
-  if [ -d "${LEGACY_DOWNLOADS_DIR}" ] && [ -z "$(find "${DEFAULT_DOWNLOADS_BACKING_DIR}" -mindepth 1 -print -quit 2>/dev/null)" ]; then
-    cp -a "${LEGACY_DOWNLOADS_DIR}/." "${DEFAULT_DOWNLOADS_BACKING_DIR}/" 2>/dev/null || true
-  fi
   if [ -e "${MANGARR_DOWNLOADS_DIR}" ] && [ ! -L "${MANGARR_DOWNLOADS_DIR}" ]; then
     rmdir "${MANGARR_DOWNLOADS_DIR}" 2>/dev/null || true
   fi
