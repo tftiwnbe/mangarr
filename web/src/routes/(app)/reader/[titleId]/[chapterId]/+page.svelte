@@ -127,7 +127,7 @@
 	let paintedPageIds = new SvelteSet<string>();
 	let fetchRequested = $state(false);
 	let initializedProgress = $state(false);
-	let progressSaveTimer = $state<ReturnType<typeof setTimeout> | null>(null);
+	let progressSaveTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastChapterId = $state<string | null>(null);
 	let remotePagesCommand = $state<CommandItem | null>(null);
 
@@ -151,7 +151,7 @@
 	const remotePagesResult = $derived(remotePagesCommand);
 
 	const remotePages = $derived.by(() =>
-		((remotePagesResult?.result?.pages as RemotePage[] | undefined) ?? []).sort(
+		[...((remotePagesResult?.result?.pages as RemotePage[] | undefined) ?? [])].sort(
 			(left, right) => left.index - right.index
 		)
 	);

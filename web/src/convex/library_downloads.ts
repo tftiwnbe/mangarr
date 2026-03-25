@@ -65,8 +65,7 @@ export const getDownloadDashboard = query({
 		] = await Promise.all([
 			ctx.db
 				.query('libraryTitles')
-				.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', ownerUserId))
-				.order('desc')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
 				.collect(),
 			ctx.db
 				.query('downloadProfiles')
@@ -110,6 +109,8 @@ export const getDownloadDashboard = query({
 				.order('desc')
 				.take(recentLimit)
 		]);
+
+		titles.sort((left, right) => right.updatedAt - left.updatedAt);
 
 		const sourceNamesById = new Map<string, string>();
 		const sourceNamesByPkg = new Map<string, string>();

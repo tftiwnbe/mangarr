@@ -57,18 +57,6 @@
 			});
 
 			for (let attempt = 0; attempt < 60; attempt += 1) {
-				const imported = await client.query(convexApi.library.findMineBySource, {
-					canonicalKey,
-					sourceId,
-					titleUrl
-				});
-				if (imported?._id) {
-					await goto(buildTitlePath(String(imported._id), imported.title || titleName || titleUrl), {
-						replaceState: true
-					});
-					return;
-				}
-
 				const command = await client.query(convexApi.commands.getMineById, {
 					commandId: commandId as Id<'commands'>
 				});
@@ -76,7 +64,7 @@
 					throw new Error('Import command not found');
 				}
 				if (command.status === 'succeeded') {
-					const titleId = String(command.result?.titleId ?? imported?._id ?? '');
+					const titleId = String(command.result?.titleId ?? '');
 					if (titleId) {
 						await goto(buildTitlePath(titleId, titleName || titleUrl), { replaceState: true });
 						return;
@@ -85,6 +73,18 @@
 				}
 				if (command.status === 'failed' || command.status === 'cancelled' || command.status === 'dead_letter') {
 					throw new Error(command.lastErrorMessage ?? 'Unable to open title');
+				}
+
+				const imported = await client.query(convexApi.library.findMineBySource, {
+					canonicalKey,
+					sourceId,
+					titleUrl
+				});
+				if (imported?._id && command.status !== 'queued' && command.status !== 'running') {
+					await goto(buildTitlePath(String(imported._id), imported.title || titleName || titleUrl), {
+						replaceState: true
+					});
+					return;
 				}
 				await new Promise((resolve) => setTimeout(resolve, 300));
 			}

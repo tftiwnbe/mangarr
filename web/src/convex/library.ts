@@ -59,8 +59,7 @@ export const listMine = query({
 		] = await Promise.all([
 			ctx.db
 				.query('libraryTitles')
-				.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', userId))
-				.order('desc')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
 				.collect(),
 			loadOwnerUserStatusMap(ctx, userId),
 			loadOwnerCollectionMap(ctx, userId),
@@ -69,9 +68,9 @@ export const listMine = query({
 			loadOwnerChaptersByTitleId(ctx, userId)
 		]);
 
-		const visibleTitles = titles.filter((title) => title.userStatusId != null);
-
-		return visibleTitles.map((title) => {
+		return [...titles]
+			.sort((left, right) => right.updatedAt - left.updatedAt)
+			.map((title) => {
 			const chapters = chaptersByTitleId.get(String(title._id)) ?? [];
 			let queued = 0;
 			let downloading = 0;
@@ -96,24 +95,24 @@ export const listMine = query({
 
 			const collectionIds = collectionIdsByTitleId.get(String(title._id)) ?? [];
 
-			return {
-				...title,
-				userStatus: title.userStatusId ? (statusById.get(String(title.userStatusId)) ?? null) : null,
-				userRating: title.userRating ?? null,
-				collections: collectionIds
-					.map((collectionId) => collectionById.get(String(collectionId)) ?? null)
-					.filter((collection): collection is NonNullable<typeof collection> => collection !== null)
-					.sort((left, right) => left.position - right.position),
-				variantsCount: variantCountsByTitleId.get(String(title._id)) ?? 0,
-				chapterStats: {
-					total: chapters.length,
-					queued,
-					downloading,
-					downloaded,
-					failed
-				}
-			};
-		});
+				return {
+					...title,
+					userStatus: title.userStatusId ? (statusById.get(String(title.userStatusId)) ?? null) : null,
+					userRating: title.userRating ?? null,
+					collections: collectionIds
+						.map((collectionId) => collectionById.get(String(collectionId)) ?? null)
+						.filter((collection): collection is NonNullable<typeof collection> => collection !== null)
+						.sort((left, right) => left.position - right.position),
+					variantsCount: variantCountsByTitleId.get(String(title._id)) ?? 0,
+					chapterStats: {
+						total: chapters.length,
+						queued,
+						downloading,
+						downloaded,
+						failed
+					}
+				};
+			});
 	}
 });
 
@@ -476,12 +475,15 @@ export const listAllMineChapters = query({
 		const [titles, { chapters }] = await Promise.all([
 			ctx.db
 				.query('libraryTitles')
-				.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', userId))
-				.order('desc')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
 				.collect(),
 			loadOwnerChaptersByTitleId(ctx, userId)
 		]);
-		const titleById = new Map(titles.map((title) => [String(title._id), title] as const));
+		const titleById = new Map(
+			[...titles]
+				.sort((left, right) => right.updatedAt - left.updatedAt)
+				.map((title) => [String(title._id), title] as const)
+		);
 
 		return chapters
 			.map((chapter) => {
@@ -546,8 +548,7 @@ export const deprecatedGetDownloadDashboard = query({
 		const [titles, profileRows, installedExtensions, { byTitleId: chaptersByTitleId }] = await Promise.all([
 			ctx.db
 				.query('libraryTitles')
-				.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', ownerUserId))
-				.order('desc')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
 				.collect(),
 			ctx.db
 				.query('downloadProfiles')
@@ -556,6 +557,8 @@ export const deprecatedGetDownloadDashboard = query({
 			ctx.db.query('installedExtensions').collect(),
 			loadOwnerChaptersByTitleId(ctx, ownerUserId)
 		]);
+
+		titles.sort((left, right) => right.updatedAt - left.updatedAt);
 
 		const sourceNamesById = new Map<string, string>();
 		const sourceNamesByPkg = new Map<string, string>();

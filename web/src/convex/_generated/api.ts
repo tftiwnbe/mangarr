@@ -15,6 +15,8 @@ import type * as bridge_auth from "../bridge_auth.js";
 import type * as commands from "../commands.js";
 import type * as extensions from "../extensions.js";
 import type * as library from "../library.js";
+import type * as library_downloads from "../library_downloads.js";
+import type * as library_metadata from "../library_metadata.js";
 import type * as settings from "../settings.js";
 
 import type {
@@ -32,6 +34,8 @@ const fullApi: ApiFromModules<{
   commands: typeof commands;
   extensions: typeof extensions;
   library: typeof library;
+  library_downloads: typeof library_downloads;
+  library_metadata: typeof library_metadata;
   settings: typeof settings;
 }> = anyApi as any;
 

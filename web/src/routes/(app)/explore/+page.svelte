@@ -214,6 +214,7 @@
 	);
 	const appliedSearchFilterCount = $derived(Object.keys(selectedSourceAppliedFilters).length);
 	const hasAppliedSearchFilters = $derived(appliedSearchFilterCount > 0);
+	const canRunSearch = $derived(searchQuery.trim().length > 0 || (Boolean(selectedSourceId) && hasAppliedSearchFilters));
 
 	const importedLibraryIds = $derived.by(() => {
 		const bySourceKey: Record<string, string> = {};
@@ -224,7 +225,7 @@
 	});
 
 	const feedCommandType = $derived(activeTab === 'latest' ? 'explore.latest' : 'explore.popular');
-	const showSearchPrompt = $derived(activeTab === 'search' && searchQuery.trim().length === 0);
+	const showSearchPrompt = $derived(activeTab === 'search' && !canRunSearch);
 	const currentLoading = $derived(loading || loadingMore || sourcesQuery.isLoading || libraryQuery.isLoading);
 	const incomingCards = $derived.by(() => {
 		const sourceIds =
@@ -474,8 +475,8 @@
 
 	function searchItemsForSource(sourceId: string): ExploreItem[] {
 		const query = searchQuery.trim();
-		if (!query) return [];
 		const filters = selectedSourceId === sourceId ? selectedSourceAppliedFilters : {};
+		if (!query && Object.keys(filters).length === 0) return [];
 		return latestSearchResult(sourceId, query, filters)?.items ?? [];
 	}
 
@@ -732,7 +733,9 @@
 
 	async function runSearch() {
 		const value = searchQuery.trim();
-		if (!value) {
+		const selectedSourceFilters = selectedSourceId ? selectedSourceAppliedFilters : {};
+		const hasFilterOnlySearch = Boolean(selectedSourceId) && Object.keys(selectedSourceFilters).length > 0;
+		if (!value && !hasFilterOnlySearch) {
 			loading = false;
 			return;
 		}
@@ -822,7 +825,7 @@
 		const next = { ...appliedSearchFiltersBySource };
 		delete next[selectedSourceId];
 		appliedSearchFiltersBySource = next;
-		if (searchQuery.trim()) {
+		if (canRunSearch) {
 			void runSearch();
 		}
 	}
@@ -862,7 +865,7 @@
 			appliedSearchFiltersBySource = next;
 		}
 		closeSearchFilters();
-		if (searchQuery.trim()) {
+		if (canRunSearch || Object.keys(pendingSearchFilterChanges).length > 0) {
 			await runSearch();
 		}
 	}
@@ -1028,7 +1031,11 @@
 						class="absolute top-1/2 right-3 -translate-y-1/2 text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 						onclick={() => {
 							searchQuery = '';
-							loading = false;
+							if (selectedSourceId && Object.keys(selectedSourceAppliedFilters).length > 0) {
+								void runSearch();
+							} else {
+								loading = false;
+							}
 						}}
 					>
 						<XIcon size={14} />
@@ -1065,7 +1072,7 @@
 								: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
 							onclick={() => {
 								selectedSourceId = '';
-								if (searchQuery.trim()) void runSearch();
+								if (canRunSearch) void runSearch();
 							}}
 						>
 							{$_('explore.allSources')}
@@ -1079,7 +1086,7 @@
 									: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
 								onclick={() => {
 									selectedSourceId = source.id;
-									if (searchQuery.trim()) void runSearch();
+									if (searchQuery.trim() || appliedSearchFiltersBySource[source.id]) void runSearch();
 								}}
 							>
 								{source.name}{source.lang ? ` [${source.lang}]` : ''}

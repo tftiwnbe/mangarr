@@ -24,6 +24,9 @@ import kotlin.io.path.readBytes
 import kotlin.io.path.relativeTo
 import kotlin.io.path.writeBytes
 
+private const val LEGACY_DEFAULT_DOWNLOADS_PATH = "/app/config/bridge/downloads"
+private const val CONTAINER_DEFAULT_DOWNLOADS_PATH = "/app/downloads"
+
 data class StoredChapterPayload(
     val storageKind: String,
     val localRelativePath: String,
@@ -316,9 +319,15 @@ class DownloadStorage(
     private fun downloadsRoot(): Path {
         val configured = ConfigManager.config.downloads.downloadPath.trim()
         val envDefault = System.getenv("MANGARR_DOWNLOADS_DIR")?.trim().orEmpty()
+        val normalizedConfigured =
+            when {
+                configured == LEGACY_DEFAULT_DOWNLOADS_PATH && envDefault.isNotEmpty() -> envDefault
+                configured == LEGACY_DEFAULT_DOWNLOADS_PATH -> CONTAINER_DEFAULT_DOWNLOADS_PATH
+                else -> configured
+            }
         val root =
-            if (configured.isNotEmpty()) {
-                Paths.get(configured)
+            if (normalizedConfigured.isNotEmpty()) {
+                Paths.get(normalizedConfigured)
             } else if (envDefault.isNotEmpty()) {
                 Paths.get(envDefault)
             } else {

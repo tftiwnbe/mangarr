@@ -409,7 +409,7 @@ class BridgeCommandRunner(
                 kotlinx.coroutines.runBlocking { service.saveSourcePreferences(sourceId, values) }
             }
             "explore.search" -> {
-                val query = payload.requiredString("query")
+                val query = payload["query"]?.jsonPrimitive?.contentOrNull.orEmpty()
                 val limit = payload.optionalInt("limit") ?: 30
                 val sourceId = payload.optionalString("sourceId")
                 val searchFilters = payload["searchFilters"]?.jsonObject
