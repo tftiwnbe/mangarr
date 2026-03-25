@@ -153,6 +153,8 @@
 	let autoLoadFeedPending = false;
 	let feedSentinel = $state<HTMLDivElement | null>(null);
 	let feedIntersectionObserver: IntersectionObserver | null = null;
+	let feedLoadGeneration = 0;
+	let searchRunGeneration = 0;
 
 	let searchFiltersOpen = $state(false);
 	let searchFiltersLoading = $state(false);
@@ -500,6 +502,8 @@
 	}
 
 	function setTab(value: string) {
+		feedLoadGeneration += 1;
+		searchRunGeneration += 1;
 		activeTab = value as TabValue;
 		error = null;
 		if (activeTab !== 'search') {
@@ -612,7 +616,7 @@
 			visibleSources.some((source) => !activeFeedSourceIds.includes(source.id));
 	}
 
-	async function loadFeedInitial() {
+	async function loadFeedInitial(generation: number) {
 		const sourceIds = activeFeedSourceIds;
 		if (sourceIds.length === 0) {
 			loadedPagesBySource = {};
@@ -622,10 +626,10 @@
 			return;
 		}
 		canLoadMoreFeed = true;
-		await loadFeedPageBatch(sourceIds, false);
+		await loadFeedPageBatch(sourceIds, false, generation);
 	}
 
-	async function loadFeedPageBatch(sourceIds: string[], append: boolean) {
+	async function loadFeedPageBatch(sourceIds: string[], append: boolean, generation: number) {
 		if (sourceIds.length === 0) {
 			if (!append) {
 				loadedPagesBySource = {};
@@ -646,6 +650,7 @@
 		const nextExhausted: Record<string, boolean> = append ? { ...exhaustedFeedSources } : {};
 		const nextLiveFeedResults = { ...liveFeedResults };
 		const failures: string[] = [];
+		const requestCommandType = feedCommandType;
 
 		await runWithConcurrency(sourceIds, COMMAND_CONCURRENCY, async (sourceId) => {
 				try {
@@ -662,6 +667,15 @@
 				}
 			});
 
+		if (generation !== feedLoadGeneration || activeTab === 'search' || requestCommandType !== feedCommandType) {
+			if (append) {
+				loadingMore = false;
+			} else {
+				loading = false;
+			}
+			return;
+		}
+
 		liveFeedResults = nextLiveFeedResults;
 		loadedPagesBySource = nextPages;
 		exhaustedFeedSources = nextExhausted;
@@ -676,6 +690,8 @@
 
 	async function loadMoreFeed() {
 		if (loading || loadingMore || activeTab === 'search') return;
+		const generation = feedLoadGeneration;
+		const requestCommandType = feedCommandType;
 
 		const nextSourcePages = visibleSources
 			.filter((source) => sourceHasMore(feedCommandType, source.id))
@@ -691,7 +707,7 @@
 				.slice(0, FEED_SOURCE_BATCH_SIZE);
 			if (nextSourceIds.length === 0) return;
 			activeFeedSourceIds = [...activeFeedSourceIds, ...nextSourceIds];
-			await loadFeedPageBatch(nextSourceIds, true);
+			await loadFeedPageBatch(nextSourceIds, true, feedLoadGeneration);
 			return;
 		}
 
@@ -721,6 +737,14 @@
 				}
 			});
 
+		if (
+			generation !== feedLoadGeneration ||
+			requestCommandType !== feedCommandType
+		) {
+			loadingMore = false;
+			return;
+		}
+
 		liveFeedResults = nextLiveFeedResults;
 		loadedPagesBySource = nextLoaded;
 		exhaustedFeedSources = nextExhausted;
@@ -732,6 +756,7 @@
 	}
 
 	async function runSearch() {
+		const generation = ++searchRunGeneration;
 		const value = searchQuery.trim();
 		const selectedSourceFilters = selectedSourceId ? selectedSourceAppliedFilters : {};
 		const hasFilterOnlySearch = Boolean(selectedSourceId) && Object.keys(selectedSourceFilters).length > 0;
@@ -779,6 +804,11 @@
 					failures.push(cause instanceof Error ? cause.message : `Search failed for ${sourceNameFor(sourceId)}`);
 				}
 			});
+
+		if (generation !== searchRunGeneration || activeTab !== 'search') {
+			loading = false;
+			return;
+		}
 
 		liveSearchResults = nextLiveSearchResults;
 		error = failures[0] ?? null;
@@ -983,7 +1013,8 @@
 		lastFeedLoadSignature = signature;
 		activeFeedSourceIds = visibleSources.slice(0, FEED_SOURCE_BATCH_SIZE).map((source) => source.id);
 		canLoadMoreFeed = activeFeedSourceIds.length > 0;
-		void loadFeedInitial();
+		const generation = ++feedLoadGeneration;
+		void loadFeedInitial(generation);
 	});
 
 	$effect(() => {

@@ -1,6 +1,7 @@
 package mangarr.tachibridge.runtime
 
 import io.github.oshai.kotlinlogging.KotlinLogging
+import eu.kanade.tachiyomi.network.HttpException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -35,6 +36,7 @@ private val logger = KotlinLogging.logger {}
 private val json = Json { ignoreUnknownKeys = true }
 private const val FEED_CACHE_TTL_MS = 5 * 60 * 1000L
 private const val MANGADEX_PACKAGE = "eu.kanade.tachiyomi.extension.all.mangadex"
+private val DOWNLOAD_PAGE_RETRY_DELAYS_MS = listOf(0L, 2_000L, 5_000L, 15_000L)
 
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 class BridgeService(
@@ -426,7 +428,7 @@ class BridgeService(
         val workspace = downloadStorage.createChapterWorkspace(titleId, chapterUrl)
 
         for ((index, _) in pages.pagesList.withIndex()) {
-            val image = extensionManager.getPageImage(sourceId.toLong(), chapterUrl, index)
+            val image = fetchPageImageWithRetry(sourceId.toLong(), chapterUrl, index)
             downloadStorage.writePage(workspace, index, image)
             onProgress(index + 1, totalPages)
         }
@@ -445,6 +447,49 @@ class BridgeService(
             put("fileSizeBytes", stored.fileSizeBytes)
         }
     }
+
+    private suspend fun fetchPageImageWithRetry(
+        sourceId: Long,
+        chapterUrl: String,
+        index: Int,
+    ): PageImagePayload {
+        var lastError: Exception? = null
+
+        for ((attemptIndex, baseDelayMs) in DOWNLOAD_PAGE_RETRY_DELAYS_MS.withIndex()) {
+            val delayMs =
+                if (lastError is HttpException) {
+                    maxOf(baseDelayMs, ((lastError as HttpException).retryAfterSeconds ?: 0L) * 1_000L)
+                } else {
+                    baseDelayMs
+                }
+            if (delayMs > 0) {
+                kotlinx.coroutines.delay(delayMs)
+            }
+
+            try {
+                return extensionManager.getPageImage(sourceId, chapterUrl, index)
+            } catch (error: Exception) {
+                lastError = error
+                if (!shouldRetryPageFetch(error) || attemptIndex == DOWNLOAD_PAGE_RETRY_DELAYS_MS.lastIndex) {
+                    throw error
+                }
+
+                logger.warn(error) {
+                    "Page fetch failed for chapter $chapterUrl page ${index + 1} " +
+                        "(attempt ${attemptIndex + 1}/${DOWNLOAD_PAGE_RETRY_DELAYS_MS.size}), retrying"
+                }
+            }
+        }
+
+        throw lastError ?: IllegalStateException("Failed to fetch page $index for $chapterUrl")
+    }
+
+    private fun shouldRetryPageFetch(error: Exception): Boolean =
+        when (error) {
+            is HttpException -> error.code == 429 || error.code in 500..599
+            is java.io.IOException -> true
+            else -> false
+        }
 
     fun fetchStoredPage(
         localRelativePath: String,

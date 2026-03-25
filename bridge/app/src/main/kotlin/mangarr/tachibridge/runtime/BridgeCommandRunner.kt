@@ -20,6 +20,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import eu.kanade.tachiyomi.network.HttpException
 import mangarr.tachibridge.config.ConfigManager
 import mangarr.tachibridge.logging.EventLogger
 import mangarr.tachibridge.logging.LogContext
@@ -221,7 +222,10 @@ class BridgeCommandRunner(
             } catch (error: Exception) {
                 val retryDelayMs =
                     if (command.commandType == "downloads.chapter") {
-                        ConfigManager.config.downloads.failedRetryDelaySeconds * 1000L
+                        maxOf(
+                            ConfigManager.config.downloads.failedRetryDelaySeconds * 1000L,
+                            ((error as? HttpException)?.retryAfterSeconds ?: 0L) * 1000L,
+                        )
                     } else {
                         5_000L
                     }

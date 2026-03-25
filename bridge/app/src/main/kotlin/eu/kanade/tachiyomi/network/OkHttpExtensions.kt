@@ -16,6 +16,9 @@ import rx.Observable
 import rx.Producer
 import rx.Subscription
 import java.io.IOException
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import kotlin.concurrent.atomics.AtomicBoolean
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 import kotlin.coroutines.resumeWithException
@@ -64,8 +67,9 @@ fun Call.asObservable(): Observable<Response> {
 fun Call.asObservableSuccess(): Observable<Response> =
     asObservable().doOnNext { response ->
         if (!response.isSuccessful) {
+            val retryAfterSeconds = retryAfterSeconds(response)
             response.close()
-            throw HttpException(response.code)
+            throw HttpException(response.code, retryAfterSeconds)
         }
     }
 
@@ -119,10 +123,23 @@ suspend fun Call.awaitSuccess(): Response {
     val callStack = Exception().stackTrace.run { copyOfRange(1, size) }
     val response = await(callStack)
     if (!response.isSuccessful) {
+        val retryAfterSeconds = retryAfterSeconds(response)
         response.close()
-        throw HttpException(response.code).apply { stackTrace = callStack }
+        throw HttpException(response.code, retryAfterSeconds).apply { stackTrace = callStack }
     }
     return response
+}
+
+private fun retryAfterSeconds(response: Response): Long? {
+    val headerValue = response.header("Retry-After")?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    headerValue.toLongOrNull()?.let { return it.coerceAtLeast(0) }
+
+    val retryAt =
+        runCatching { ZonedDateTime.parse(headerValue, DateTimeFormatter.RFC_1123_DATE_TIME) }
+            .getOrNull()
+            ?: return null
+    val seconds = ChronoUnit.SECONDS.between(ZonedDateTime.now(retryAt.zone), retryAt)
+    return seconds.coerceAtLeast(0)
 }
 
 fun OkHttpClient.newCachelessCallWithProgress(
@@ -166,4 +183,5 @@ fun <T> decodeFromJsonResponse(
  */
 class HttpException(
     val code: Int,
+    val retryAfterSeconds: Long? = null,
 ) : IllegalStateException("HTTP error $code")

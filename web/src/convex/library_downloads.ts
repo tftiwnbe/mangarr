@@ -1,7 +1,7 @@
 import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
 
-import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
+import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
 
 const DOWNLOAD_STATUS = {
@@ -397,97 +397,53 @@ export const runDownloadCycle = mutation({
 	handler: async (ctx, args) => {
 		const userId = await requireViewerUserId(ctx);
 		const limit = Math.max(1, Math.min(Math.floor(args.limit ?? 25), 100));
+		return runDownloadCycleForUser(ctx, {
+			userId,
+			limit,
+			now: Date.now()
+		});
+	}
+});
+
+export const runScheduledDownloadCycles = internalMutation({
+	args: {
+		limitPerUser: v.optional(v.float64()),
+		maxUsers: v.optional(v.float64())
+	},
+	handler: async (ctx, args) => {
+		const limitPerUser = Math.max(1, Math.min(Math.floor(args.limitPerUser ?? 25), 100));
+		const maxUsers = Math.max(1, Math.min(Math.floor(args.maxUsers ?? 50), 500));
 		const now = Date.now();
-		const profiles = (
-			await ctx.db
-				.query('downloadProfiles')
-				.withIndex('by_owner_user_id_enabled_updated_at', (q) =>
-					q.eq('ownerUserId', userId).eq('enabled', true)
-				)
-				.collect()
-		)
-			.sort((left, right) => right.updatedAt - left.updatedAt)
-			.slice(0, limit);
-		const activeProfiles = profiles.filter((profile) => !profile.paused);
-		const titleIds = [...new Set(activeProfiles.map((profile) => String(profile.libraryTitleId)))];
-		const [titles, missingChapters, failedChapters] = await Promise.all([
-			Promise.all(
-				titleIds.map(async (titleId) => {
-					const title = await ctx.db.get(titleId as GenericId<'libraryTitles'>);
-					return title && title.ownerUserId === userId ? title : null;
-				})
-			),
-			ctx.db
-				.query('libraryChapters')
-				.withIndex('by_owner_user_id_download_status', (q) =>
-					q.eq('ownerUserId', userId).eq('downloadStatus', DOWNLOAD_STATUS.MISSING)
-				)
-				.collect(),
-			ctx.db
-				.query('libraryChapters')
-				.withIndex('by_owner_user_id_download_status', (q) =>
-					q.eq('ownerUserId', userId).eq('downloadStatus', DOWNLOAD_STATUS.FAILED)
-				)
-				.collect()
-		]);
-		const titleById = new Map(
-			titles
-				.filter((title): title is NonNullable<typeof title> => title !== null)
-				.map((title) => [String(title._id), title] as const)
-		);
-		const eligibleChaptersByTitleId = new Map<
-			string,
-			Array<(typeof missingChapters)[number] | (typeof failedChapters)[number]>
-		>();
-		for (const chapter of [...missingChapters, ...failedChapters]) {
-			const titleId = String(chapter.libraryTitleId);
-			if (!titleById.has(titleId)) {
-				continue;
-			}
-			const next = eligibleChaptersByTitleId.get(titleId) ?? [];
-			next.push(chapter);
-			eligibleChaptersByTitleId.set(titleId, next);
+		const enabledProfiles = (await ctx.db.query('downloadProfiles').collect())
+			.filter((profile) => profile.enabled)
+			.sort((left, right) => right.updatedAt - left.updatedAt);
+
+		const orderedUserIds: GenericId<'users'>[] = [];
+		const seenUserIds = new Set<string>();
+		for (const profile of enabledProfiles) {
+			const key = String(profile.ownerUserId);
+			if (seenUserIds.has(key)) continue;
+			seenUserIds.add(key);
+			orderedUserIds.push(profile.ownerUserId);
+			if (orderedUserIds.length >= maxUsers) break;
 		}
 
-		let checked = 0;
+		let usersChecked = 0;
+		let profilesChecked = 0;
 		let enqueued = 0;
-		for (const profile of profiles) {
-			if (profile.paused) {
-				continue;
-			}
-			const title = titleById.get(String(profile.libraryTitleId));
-			if (!title) {
-				continue;
-			}
-			const chapters = eligibleChaptersByTitleId.get(String(title._id)) ?? [];
-
-			checked += 1;
-			let localEnqueued = 0;
-			for (const chapter of chapters) {
-				const queued = await queueDownloadAttempt(ctx, {
-					chapter,
-					title,
-					requestedByUserId: userId,
-					trigger: 'watch',
-					priority: 100 + localEnqueued,
-					now
-				});
-				if (queued.alreadyQueued) {
-					continue;
-				}
-				localEnqueued += 1;
-				enqueued += 1;
-			}
-
-			await ctx.db.patch(profile._id, {
-				lastCheckedAt: now,
-				lastSuccessAt: localEnqueued > 0 ? now : profile.lastSuccessAt,
-				lastError: undefined,
-				updatedAt: now
-			});
+		for (const userId of orderedUserIds) {
+			const result = await runDownloadCycleForUser(ctx, { userId, limit: limitPerUser, now });
+			if (result.checked === 0) continue;
+			usersChecked += 1;
+			profilesChecked += result.checked;
+			enqueued += result.enqueued;
 		}
 
-		return { checked, enqueued };
+		return {
+			usersChecked,
+			profilesChecked,
+			enqueued
+		};
 	}
 });
 
@@ -747,6 +703,106 @@ async function findLatestDownloadTaskForChapter(
 			.order('desc')
 			.take(1)
 	)[0] ?? null;
+}
+
+async function runDownloadCycleForUser(
+	ctx: MutationCtx,
+	args: {
+		userId: GenericId<'users'>;
+		limit: number;
+		now: number;
+	}
+) {
+	const profiles = (
+		await ctx.db
+			.query('downloadProfiles')
+			.withIndex('by_owner_user_id_enabled_updated_at', (q) =>
+				q.eq('ownerUserId', args.userId).eq('enabled', true)
+			)
+			.collect()
+	)
+		.sort((left, right) => right.updatedAt - left.updatedAt)
+		.slice(0, args.limit);
+	const activeProfiles = profiles.filter((profile) => !profile.paused);
+	const titleIds = [...new Set(activeProfiles.map((profile) => String(profile.libraryTitleId)))];
+	const [titles, missingChapters, failedChapters] = await Promise.all([
+		Promise.all(
+			titleIds.map(async (titleId) => {
+				const title = await ctx.db.get(titleId as GenericId<'libraryTitles'>);
+				return title && title.ownerUserId === args.userId ? title : null;
+			})
+		),
+		ctx.db
+			.query('libraryChapters')
+			.withIndex('by_owner_user_id_download_status', (q) =>
+				q.eq('ownerUserId', args.userId).eq('downloadStatus', DOWNLOAD_STATUS.MISSING)
+			)
+			.collect(),
+		ctx.db
+			.query('libraryChapters')
+			.withIndex('by_owner_user_id_download_status', (q) =>
+				q.eq('ownerUserId', args.userId).eq('downloadStatus', DOWNLOAD_STATUS.FAILED)
+			)
+			.collect()
+	]);
+	const titleById = new Map(
+		titles
+			.filter((title): title is NonNullable<typeof title> => title !== null)
+			.map((title) => [String(title._id), title] as const)
+	);
+	const eligibleChaptersByTitleId = new Map<
+		string,
+		Array<(typeof missingChapters)[number] | (typeof failedChapters)[number]>
+	>();
+	for (const chapter of [...missingChapters, ...failedChapters]) {
+		const titleId = String(chapter.libraryTitleId);
+		if (!titleById.has(titleId)) {
+			continue;
+		}
+		const next = eligibleChaptersByTitleId.get(titleId) ?? [];
+		next.push(chapter);
+		eligibleChaptersByTitleId.set(titleId, next);
+	}
+
+	let checked = 0;
+	let enqueued = 0;
+	for (const profile of profiles) {
+		if (profile.paused) {
+			continue;
+		}
+		const title = titleById.get(String(profile.libraryTitleId));
+		if (!title) {
+			continue;
+		}
+		const chapters = eligibleChaptersByTitleId.get(String(title._id)) ?? [];
+
+		checked += 1;
+		let localEnqueued = 0;
+		for (const chapter of chapters) {
+			const queued = await queueDownloadAttempt(ctx, {
+				chapter,
+				title,
+				requestedByUserId: args.userId,
+				trigger: 'watch',
+				priority: 100 + localEnqueued,
+				now: args.now
+			});
+			if (queued.alreadyQueued) {
+				continue;
+			}
+			localEnqueued += 1;
+			enqueued += 1;
+		}
+
+		await ctx.db.patch(profile._id, {
+			lastCheckedAt: args.now,
+			lastSuccessAt: localEnqueued > 0 ? args.now : profile.lastSuccessAt,
+			lastError: undefined,
+			updatedAt: args.now
+		});
+	}
+
+	return { checked, enqueued };
 }
 
 async function findActiveDownloadTaskForChapter(
