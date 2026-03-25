@@ -307,7 +307,11 @@
 		"enabled": "Включено",
 		"disabled": "Отключено",
 		"autoDownload": "Авто",
-		"downloaded": "скачано"
+		"downloaded": "скачано",
+		"openFile": "Открыть файл",
+		"deleteFile": "Удалить файл",
+		"on": "вкл",
+		"off": "выкл"
 	},
 
 	"extensions": {

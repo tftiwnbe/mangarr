@@ -36,15 +36,15 @@ export const listMine = query({
 		const userId = identity.subject as GenericId<'users'>;
 		const [titles, statusById, collectionById, collectionIdsByTitleId, variantCountsByTitleId] =
 			await Promise.all([
-			ctx.db
-				.query('libraryTitles')
-				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
-				.collect(),
-			loadOwnerUserStatusMap(ctx, userId),
-			loadOwnerCollectionMap(ctx, userId),
-			loadOwnerCollectionIdsByTitleId(ctx, userId),
-			loadOwnerVariantCountsByTitleId(ctx, userId)
-		]);
+				ctx.db
+					.query('libraryTitles')
+					.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+					.collect(),
+				loadOwnerUserStatusMap(ctx, userId),
+				loadOwnerCollectionMap(ctx, userId),
+				loadOwnerCollectionIdsByTitleId(ctx, userId),
+				loadOwnerVariantCountsByTitleId(ctx, userId)
+			]);
 
 		const visibleTitles = titles.filter((title) => title.userStatusId != null);
 
@@ -80,11 +80,15 @@ export const listMine = query({
 
 				return {
 					...title,
-					userStatus: title.userStatusId ? statusById.get(String(title.userStatusId)) ?? null : null,
+					userStatus: title.userStatusId
+						? (statusById.get(String(title.userStatusId)) ?? null)
+						: null,
 					userRating: title.userRating ?? null,
 					collections: collectionIds
 						.map((collectionId) => collectionById.get(String(collectionId)) ?? null)
-						.filter((collection): collection is NonNullable<typeof collection> => collection !== null)
+						.filter(
+							(collection): collection is NonNullable<typeof collection> => collection !== null
+						)
 						.sort((left, right) => left.position - right.position),
 					variantsCount: variantCountsByTitleId.get(String(title._id)) ?? 0,
 					chapterStats: {
@@ -169,7 +173,8 @@ export const getMineById = query({
 			.collect();
 
 		const chapterById = new Map(chapters.map((chapter) => [chapter._id, chapter]));
-		const latestProgress = [...progressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
+		const latestProgress =
+			[...progressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
 		const downloadProfile = await ctx.db
 			.query('downloadProfiles')
 			.withIndex('by_owner_user_id_library_title_id', (q) =>
@@ -510,7 +515,7 @@ export const getDownloadDashboard = query({
 		const activeLimit = Math.max(1, Math.min(Math.floor(args.activeLimit ?? 20), 100));
 		const recentLimit = Math.max(1, Math.min(Math.floor(args.recentLimit ?? 20), 100));
 
-		const [titles, profileRows, installedExtensions, commandRows] = await Promise.all([
+		const [titles, profileRows, installedExtensions] = await Promise.all([
 			ctx.db
 				.query('libraryTitles')
 				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
@@ -519,11 +524,7 @@ export const getDownloadDashboard = query({
 				.query('downloadProfiles')
 				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
 				.collect(),
-			ctx.db.query('installedExtensions').collect(),
-			ctx.db
-				.query('commands')
-				.withIndex('by_requested_by_user_id_created_at', (q) => q.eq('requestedByUserId', ownerUserId))
-				.collect()
+			ctx.db.query('installedExtensions').collect()
 		]);
 
 		const sourceNamesById = new Map<string, string>();
@@ -551,12 +552,106 @@ export const getDownloadDashboard = query({
 		>();
 		let downloadedChapters = 0;
 		let totalDownloadedBytes = 0;
+		const chapterEntries: Array<{
+			chapterId: string;
+			titleId: string;
+			title: string;
+			chapter: string;
+			chapterUrl: string;
+			status: 'queued' | 'downloading' | 'completed' | 'failed';
+			progressPercent: number;
+			isPaused: boolean;
+			error: string | null;
+			coverUrl: string | null;
+			localCoverPath: string | null;
+			localRelativePath: string | null;
+			storageKind: 'directory' | 'archive' | null;
+			fileSizeBytes: number | null;
+			updatedAt: number;
+		}> = [];
 
 		for (const title of titles) {
 			const chapters = await ctx.db
 				.query('libraryChapters')
 				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
 				.collect();
+			const profile = profileByTitleId.get(String(title._id)) ?? null;
+
+			for (const chapter of chapters) {
+				if (chapter.downloadStatus === DOWNLOAD_STATUS.QUEUED) {
+					chapterEntries.push({
+						chapterId: String(chapter._id),
+						titleId: String(title._id),
+						title: title.title,
+						chapter: chapter.chapterName,
+						chapterUrl: chapter.chapterUrl,
+						status: 'queued',
+						progressPercent: 0,
+						isPaused: profile?.paused ?? false,
+						error: null,
+						coverUrl: title.coverUrl ?? null,
+						localCoverPath: title.localCoverPath ?? null,
+						localRelativePath: chapter.localRelativePath ?? null,
+						storageKind: chapter.storageKind ?? null,
+						fileSizeBytes: chapter.fileSizeBytes ?? null,
+						updatedAt: chapter.updatedAt
+					});
+				} else if (chapter.downloadStatus === DOWNLOAD_STATUS.DOWNLOADING) {
+					chapterEntries.push({
+						chapterId: String(chapter._id),
+						titleId: String(title._id),
+						title: title.title,
+						chapter: chapter.chapterName,
+						chapterUrl: chapter.chapterUrl,
+						status: 'downloading',
+						progressPercent: downloadChapterPercent(chapter),
+						isPaused: profile?.paused ?? false,
+						error: null,
+						coverUrl: title.coverUrl ?? null,
+						localCoverPath: title.localCoverPath ?? null,
+						localRelativePath: chapter.localRelativePath ?? null,
+						storageKind: chapter.storageKind ?? null,
+						fileSizeBytes: chapter.fileSizeBytes ?? null,
+						updatedAt: chapter.updatedAt
+					});
+				} else if (chapter.downloadStatus === DOWNLOAD_STATUS.DOWNLOADED) {
+					chapterEntries.push({
+						chapterId: String(chapter._id),
+						titleId: String(title._id),
+						title: title.title,
+						chapter: chapter.chapterName,
+						chapterUrl: chapter.chapterUrl,
+						status: 'completed',
+						progressPercent: 100,
+						isPaused: profile?.paused ?? false,
+						error: null,
+						coverUrl: title.coverUrl ?? null,
+						localCoverPath: title.localCoverPath ?? null,
+						localRelativePath: chapter.localRelativePath ?? null,
+						storageKind: chapter.storageKind ?? null,
+						fileSizeBytes: chapter.fileSizeBytes ?? null,
+						updatedAt: chapter.updatedAt
+					});
+				} else if (chapter.downloadStatus === DOWNLOAD_STATUS.FAILED) {
+					chapterEntries.push({
+						chapterId: String(chapter._id),
+						titleId: String(title._id),
+						title: title.title,
+						chapter: chapter.chapterName,
+						chapterUrl: chapter.chapterUrl,
+						status: 'failed',
+						progressPercent: downloadChapterPercent(chapter),
+						isPaused: profile?.paused ?? false,
+						error: chapter.lastErrorMessage ?? null,
+						coverUrl: title.coverUrl ?? null,
+						localCoverPath: title.localCoverPath ?? null,
+						localRelativePath: chapter.localRelativePath ?? null,
+						storageKind: chapter.storageKind ?? null,
+						fileSizeBytes: chapter.fileSizeBytes ?? null,
+						updatedAt: chapter.updatedAt
+					});
+				}
+			}
 
 			let downloaded = 0;
 			let downloadedBytes = 0;
@@ -580,120 +675,13 @@ export const getDownloadDashboard = query({
 			});
 		}
 
-		const downloadCommands = commandRows.filter((row) => row.commandType === 'downloads.chapter');
-		const activeTaskMap = new Map<
-			string,
-			{
-				titleId: string;
-				title: string;
-				chapter: string;
-				status: 'queued' | 'downloading';
-				progressPercent: number;
-				chaptersTotal: number;
-				chaptersQueued: number;
-				chaptersFailed: number;
-				isPaused: boolean;
-				error: string | null;
-				coverUrl: string | null;
-				localCoverPath: string | null;
-				updatedAt: number;
-			}
-		>();
-		const recentTaskMap = new Map<
-			string,
-			{
-				titleId: string;
-				title: string;
-				chapter: string;
-				status: 'completed' | 'failed' | 'cancelled';
-				progressPercent: number;
-				chaptersTotal: number;
-				chaptersQueued: number;
-				chaptersFailed: number;
-				isPaused: boolean;
-				error: string | null;
-				coverUrl: string | null;
-				localCoverPath: string | null;
-				updatedAt: number;
-			}
-		>();
-
-		for (const row of downloadCommands) {
-			const payload = (row.payload ?? {}) as Record<string, unknown>;
-			const titleId = String(payload.titleId ?? '').trim();
-			if (!titleId) continue;
-			const title = titles.find((item) => String(item._id) === titleId);
-			if (!title) continue;
-
-			const titleStats = chapterStatsByTitleId.get(titleId) ?? {
-				total: 0,
-				downloaded: 0,
-				downloadedBytes: 0,
-				lastDownloadedAt: null
-			};
-			const profile = profileByTitleId.get(titleId);
-			const chapterName = String(payload.chapterName ?? '').trim() || 'Chapter';
-			const progressPercent = downloadCommandPercent(row.progress ?? null, row.status);
-
-			if (['queued', 'leased', 'running'].includes(row.status)) {
-				const current = activeTaskMap.get(titleId);
-				const nextStatus = row.status === 'running' ? 'downloading' : (current?.status ?? 'queued');
-				const nextFailed = current?.chaptersFailed ?? 0;
-				activeTaskMap.set(titleId, {
-					titleId,
-					title: title.title,
-					chapter:
-						!current || row.updatedAt >= current.updatedAt ? chapterName : current.chapter,
-					status: nextStatus,
-					progressPercent:
-						!current || row.updatedAt >= current.updatedAt
-							? progressPercent
-							: current.progressPercent,
-					chaptersTotal: titleStats.total,
-					chaptersQueued: (current?.chaptersQueued ?? 0) + 1,
-					chaptersFailed: nextFailed,
-					isPaused: profile?.paused ?? false,
-					error: current?.error ?? null,
-					coverUrl: title.coverUrl ?? null,
-					localCoverPath: title.localCoverPath ?? null,
-					updatedAt: Math.max(current?.updatedAt ?? 0, row.updatedAt)
-				});
-				continue;
-			}
-
-			if (!['succeeded', 'failed', 'cancelled'].includes(row.status)) continue;
-			const mappedStatus =
-				row.status === 'succeeded'
-					? 'completed'
-					: row.status === 'failed'
-						? 'failed'
-						: 'cancelled';
-			const current = recentTaskMap.get(titleId);
-			const failedCount =
-				(current?.chaptersFailed ?? 0) + (mappedStatus === 'failed' ? 1 : 0);
-			if (current && current.updatedAt > row.updatedAt) {
-				recentTaskMap.set(titleId, {
-					...current,
-					chaptersFailed: failedCount
-				});
-				continue;
-			}
-
-			recentTaskMap.set(titleId, {
-				titleId,
-				title: title.title,
-				chapter: chapterName,
-				status: mappedStatus,
-				progressPercent: mappedStatus === 'completed' ? 100 : progressPercent,
-				chaptersTotal: titleStats.total,
-				chaptersQueued: 0,
-				chaptersFailed: failedCount,
-				isPaused: profile?.paused ?? false,
-				error: row.lastErrorMessage ?? null,
-				coverUrl: title.coverUrl ?? null,
-				localCoverPath: title.localCoverPath ?? null,
-				updatedAt: row.updatedAt
-			});
+		const queuedTaskCountByTitleId = new Map<string, number>();
+		for (const task of chapterEntries) {
+			if (task.status !== 'queued' && task.status !== 'downloading') continue;
+			queuedTaskCountByTitleId.set(
+				task.titleId,
+				(queuedTaskCountByTitleId.get(task.titleId) ?? 0) + 1
+			);
 		}
 
 		const watchedTitles = titles
@@ -714,11 +702,8 @@ export const getDownloadDashboard = query({
 					sourceNamesById.get(title.sourceId) ??
 					sourceNamesByPkg.get(title.sourcePkg) ??
 					humanizeSourcePkg(title.sourcePkg);
-				const queuedTasks = activeTaskMap.get(titleId)?.chaptersQueued ?? 0;
-				const updatedAt =
-					profile?.updatedAt ??
-					stats.lastDownloadedAt ??
-					title.updatedAt;
+				const queuedTasks = queuedTaskCountByTitleId.get(titleId) ?? 0;
+				const updatedAt = profile?.updatedAt ?? stats.lastDownloadedAt ?? title.updatedAt;
 
 				return {
 					titleId,
@@ -752,13 +737,73 @@ export const getDownloadDashboard = query({
 				avgChapterSizeBytes:
 					downloadedChapters > 0 ? Math.round(totalDownloadedBytes / downloadedChapters) : 0
 			},
-			activeTasks: [...activeTaskMap.values()]
+			activeTasks: chapterEntries
+				.filter((task) => task.status === 'queued' || task.status === 'downloading')
 				.sort((left, right) => right.updatedAt - left.updatedAt)
 				.slice(0, activeLimit),
-			recentTasks: [...recentTaskMap.values()]
+			recentTasks: chapterEntries
+				.filter((task) => task.status === 'completed' || task.status === 'failed')
 				.sort((left, right) => right.updatedAt - left.updatedAt)
 				.slice(0, recentLimit),
 			watchedTitles
+		};
+	}
+});
+
+export const cancelQueuedChapterDownload = mutation({
+	args: {
+		chapterId: v.id('libraryChapters')
+	},
+	handler: async (ctx, args) => {
+		const chapter = await requireOwnedChapter(ctx, args.chapterId);
+		if (chapter.downloadStatus !== DOWNLOAD_STATUS.QUEUED) {
+			throw new Error('Only queued downloads can be cancelled');
+		}
+
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			throw new Error('Not authenticated');
+		}
+
+		const userId = identity.subject as GenericId<'users'>;
+		const now = Date.now();
+		const recentCommands = await ctx.db
+			.query('commands')
+			.withIndex('by_requested_by_user_id_created_at', (q) => q.eq('requestedByUserId', userId))
+			.order('desc')
+			.take(200);
+
+		const matchingQueued = recentCommands.filter((row) => {
+			if (row.commandType !== 'downloads.chapter' || row.status !== 'queued') {
+				return false;
+			}
+			const payload = (row.payload ?? {}) as Record<string, unknown>;
+			return String(payload.chapterId ?? '').trim() === String(chapter._id);
+		});
+
+		if (matchingQueued.length === 0) {
+			throw new Error('Queued download command was already picked up by the bridge');
+		}
+
+		for (const row of matchingQueued) {
+			await ctx.db.patch(row._id, {
+				status: 'cancelled',
+				progress: undefined,
+				completedAt: now,
+				updatedAt: now
+			});
+		}
+
+		await ctx.db.patch(chapter._id, {
+			downloadStatus: DOWNLOAD_STATUS.MISSING,
+			downloadedPages: 0,
+			totalPages: undefined,
+			lastErrorMessage: undefined,
+			updatedAt: now
+		});
+
+		return {
+			cancelledCount: matchingQueued.length
 		};
 	}
 });
@@ -828,7 +873,10 @@ export const createUserStatus = mutation({
 		const nextPosition = rows.reduce((max, row) => Math.max(max, row.position), -1) + 1;
 		const statusId = await ctx.db.insert('libraryUserStatuses', {
 			ownerUserId: userId,
-			key: slugifyStatusKey(args.label, rows.map((row) => row.key)),
+			key: slugifyStatusKey(
+				args.label,
+				rows.map((row) => row.key)
+			),
 			label: args.label.trim(),
 			position: nextPosition,
 			isDefault: false,
@@ -1117,7 +1165,9 @@ export const updateTitlePreferences = mutation({
 		}
 
 		if (args.collectionIds !== undefined) {
-			const nextCollectionIds = [...new Set(args.collectionIds.map((collectionId) => String(collectionId)))];
+			const nextCollectionIds = [
+				...new Set(args.collectionIds.map((collectionId) => String(collectionId)))
+			];
 			const ownedCollections = new Map<string, GenericId<'libraryCollections'>>();
 			for (const rawCollectionId of nextCollectionIds) {
 				const collection = await requireOwnedCollection(
@@ -1191,7 +1241,12 @@ export const listMergeCandidates = query({
 			.filter((candidate) => candidate._id !== title._id)
 			.filter((candidate) => {
 				if (!query) return true;
-				const haystack = [candidate.title, candidate.author ?? '', candidate.artist ?? '', candidate.sourceLang]
+				const haystack = [
+					candidate.title,
+					candidate.author ?? '',
+					candidate.artist ?? '',
+					candidate.sourceLang
+				]
 					.join(' ')
 					.toLowerCase();
 				return haystack.includes(query);
@@ -1209,7 +1264,7 @@ export const listMergeCandidates = query({
 				titleUrl: candidate.titleUrl,
 				variantsCount: variantCountsByTitleId.get(String(candidate._id)) ?? 0,
 				userStatus: candidate.userStatusId
-					? statusById.get(String(candidate.userStatusId)) ?? null
+					? (statusById.get(String(candidate.userStatusId)) ?? null)
 					: null,
 				updatedAt: candidate.updatedAt
 			}));
@@ -1237,7 +1292,10 @@ export const linkVariant = mutation({
 		const existing = await ctx.db
 			.query('titleVariants')
 			.withIndex('by_owner_user_id_source_id_title_url', (q) =>
-				q.eq('ownerUserId', title.ownerUserId).eq('sourceId', args.sourceId).eq('titleUrl', args.titleUrl)
+				q
+					.eq('ownerUserId', title.ownerUserId)
+					.eq('sourceId', args.sourceId)
+					.eq('titleUrl', args.titleUrl)
 			)
 			.unique();
 
@@ -1367,7 +1425,12 @@ export const removeVariant = mutation({
 		await ctx.db.delete(variant._id);
 		const nextPreferredVariantId =
 			title.preferredVariantId === variant._id ? undefined : title.preferredVariantId;
-		const preferredVariantId = await setTitlePreferredVariant(ctx, title._id, nextPreferredVariantId, Date.now());
+		const preferredVariantId = await setTitlePreferredVariant(
+			ctx,
+			title._id,
+			nextPreferredVariantId,
+			Date.now()
+		);
 
 		return {
 			ok: true,
@@ -1418,7 +1481,8 @@ export const normalizeTitleVariants = mutation({
 			const conflictingVariant = await ctx.db
 				.query('titleVariants')
 				.withIndex('by_owner_user_id_source_id_title_url', (q) =>
-					q.eq('ownerUserId', title.ownerUserId)
+					q
+						.eq('ownerUserId', title.ownerUserId)
 						.eq('sourceId', assignment.sourceId)
 						.eq('titleUrl', variant.titleUrl)
 				)
@@ -1707,7 +1771,9 @@ export const runDownloadCycle = mutation({
 
 		let checked = 0;
 		let enqueued = 0;
-		for (const profile of profiles.sort((left, right) => right.updatedAt - left.updatedAt).slice(0, limit)) {
+		for (const profile of profiles
+			.sort((left, right) => right.updatedAt - left.updatedAt)
+			.slice(0, limit)) {
 			if (profile.paused) {
 				continue;
 			}
@@ -2335,7 +2401,9 @@ function pickVariantNormalizationAssignments(
 				.filter((variant) => variantInstalledSourceRecord(catalog, variant) !== null)
 				.map((variant) => variant.sourceId)
 		);
-		const staleVariants = pkgVariants.filter((variant) => variantInstalledSourceRecord(catalog, variant) === null);
+		const staleVariants = pkgVariants.filter(
+			(variant) => variantInstalledSourceRecord(catalog, variant) === null
+		);
 		if (staleVariants.length === 0) continue;
 
 		const remainingSources = installedSources.filter((source) => !activeSourceIds.has(source.id));
@@ -2383,7 +2451,11 @@ async function getPreferredVariantForTitle(
 ) {
 	if (title.preferredVariantId) {
 		const preferred = await ctx.db.get(title.preferredVariantId);
-		if (preferred && preferred.ownerUserId === title.ownerUserId && preferred.libraryTitleId === title._id) {
+		if (
+			preferred &&
+			preferred.ownerUserId === title.ownerUserId &&
+			preferred.libraryTitleId === title._id
+		) {
 			return preferred;
 		}
 	}
@@ -2540,7 +2612,10 @@ async function listCollectionsForTitle(
 		.sort((left, right) => left.position - right.position);
 }
 
-async function loadOwnerUserStatusMap(ctx: QueryCtx | MutationCtx, ownerUserId: GenericId<'users'>) {
+async function loadOwnerUserStatusMap(
+	ctx: QueryCtx | MutationCtx,
+	ownerUserId: GenericId<'users'>
+) {
 	const statuses = await ctx.db
 		.query('libraryUserStatuses')
 		.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
@@ -2560,7 +2635,10 @@ async function loadOwnerUserStatusMap(ctx: QueryCtx | MutationCtx, ownerUserId: 
 	);
 }
 
-async function loadOwnerCollectionMap(ctx: QueryCtx | MutationCtx, ownerUserId: GenericId<'users'>) {
+async function loadOwnerCollectionMap(
+	ctx: QueryCtx | MutationCtx,
+	ownerUserId: GenericId<'users'>
+) {
 	const collections = await ctx.db
 		.query('libraryCollections')
 		.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
@@ -2652,11 +2730,12 @@ async function setTitlePreferredVariant(
 
 	let preferredVariant =
 		preferredVariantId !== undefined
-			? variants.find((variant) => variant._id === preferredVariantId) ?? null
+			? (variants.find((variant) => variant._id === preferredVariantId) ?? null)
 			: null;
 
 	if (!preferredVariant && variants.length > 0) {
-		preferredVariant = [...variants].sort((left, right) => left.createdAt - right.createdAt)[0] ?? null;
+		preferredVariant =
+			[...variants].sort((left, right) => left.createdAt - right.createdAt)[0] ?? null;
 	}
 
 	for (const variant of variants) {
@@ -2717,48 +2796,56 @@ async function mergeOwnedTitles(
 	},
 	now: number
 ) {
-	const [targetVariants, sourceVariants, targetCollections, sourceCollections, targetProfile, sourceProfile] =
-		await Promise.all([
-			ctx.db
-				.query('titleVariants')
-				.withIndex('by_owner_user_id_library_title_id', (q) =>
-					q.eq('ownerUserId', targetTitle.ownerUserId).eq('libraryTitleId', targetTitle._id)
-				)
-				.collect(),
-			ctx.db
-				.query('titleVariants')
-				.withIndex('by_owner_user_id_library_title_id', (q) =>
-					q.eq('ownerUserId', sourceTitle.ownerUserId).eq('libraryTitleId', sourceTitle._id)
-				)
-				.collect(),
-			ctx.db
-				.query('libraryCollectionTitles')
-				.withIndex('by_owner_user_id_library_title_id', (q) =>
-					q.eq('ownerUserId', targetTitle.ownerUserId).eq('libraryTitleId', targetTitle._id)
-				)
-				.collect(),
-			ctx.db
-				.query('libraryCollectionTitles')
-				.withIndex('by_owner_user_id_library_title_id', (q) =>
-					q.eq('ownerUserId', sourceTitle.ownerUserId).eq('libraryTitleId', sourceTitle._id)
-				)
-				.collect(),
-			ctx.db
-				.query('downloadProfiles')
-				.withIndex('by_owner_user_id_library_title_id', (q) =>
-					q.eq('ownerUserId', targetTitle.ownerUserId).eq('libraryTitleId', targetTitle._id)
-				)
-				.unique(),
-			ctx.db
-				.query('downloadProfiles')
-				.withIndex('by_owner_user_id_library_title_id', (q) =>
-					q.eq('ownerUserId', sourceTitle.ownerUserId).eq('libraryTitleId', sourceTitle._id)
-				)
-				.unique()
-		]);
+	const [
+		targetVariants,
+		sourceVariants,
+		targetCollections,
+		sourceCollections,
+		targetProfile,
+		sourceProfile
+	] = await Promise.all([
+		ctx.db
+			.query('titleVariants')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', targetTitle.ownerUserId).eq('libraryTitleId', targetTitle._id)
+			)
+			.collect(),
+		ctx.db
+			.query('titleVariants')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', sourceTitle.ownerUserId).eq('libraryTitleId', sourceTitle._id)
+			)
+			.collect(),
+		ctx.db
+			.query('libraryCollectionTitles')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', targetTitle.ownerUserId).eq('libraryTitleId', targetTitle._id)
+			)
+			.collect(),
+		ctx.db
+			.query('libraryCollectionTitles')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', sourceTitle.ownerUserId).eq('libraryTitleId', sourceTitle._id)
+			)
+			.collect(),
+		ctx.db
+			.query('downloadProfiles')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', targetTitle.ownerUserId).eq('libraryTitleId', targetTitle._id)
+			)
+			.unique(),
+		ctx.db
+			.query('downloadProfiles')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', sourceTitle.ownerUserId).eq('libraryTitleId', sourceTitle._id)
+			)
+			.unique()
+	]);
 
 	const targetVariantsByKey = new Map(
-		targetVariants.map((variant) => [variantIdentityKey(variant.sourceId, variant.titleUrl), variant] as const)
+		targetVariants.map(
+			(variant) => [variantIdentityKey(variant.sourceId, variant.titleUrl), variant] as const
+		)
 	);
 	const variantIdRemap = new Map<string, GenericId<'titleVariants'>>();
 	for (const sourceVariant of sourceVariants) {
@@ -2766,9 +2853,15 @@ async function mergeOwnedTitles(
 		const existingTargetVariant = targetVariantsByKey.get(identityKey) ?? null;
 		if (existingTargetVariant) {
 			await ctx.db.patch(existingTargetVariant._id, {
-				sourcePkg: pickString(existingTargetVariant.sourcePkg, sourceVariant.sourcePkg) ?? existingTargetVariant.sourcePkg,
-				sourceLang: pickString(existingTargetVariant.sourceLang, sourceVariant.sourceLang) ?? existingTargetVariant.sourceLang,
-				title: pickString(existingTargetVariant.title, sourceVariant.title) ?? existingTargetVariant.title,
+				sourcePkg:
+					pickString(existingTargetVariant.sourcePkg, sourceVariant.sourcePkg) ??
+					existingTargetVariant.sourcePkg,
+				sourceLang:
+					pickString(existingTargetVariant.sourceLang, sourceVariant.sourceLang) ??
+					existingTargetVariant.sourceLang,
+				title:
+					pickString(existingTargetVariant.title, sourceVariant.title) ??
+					existingTargetVariant.title,
 				author: pickString(existingTargetVariant.author, sourceVariant.author),
 				artist: pickString(existingTargetVariant.artist, sourceVariant.artist),
 				description: pickString(existingTargetVariant.description, sourceVariant.description),
@@ -2836,8 +2929,9 @@ async function mergeOwnedTitles(
 		const mappedVariantId =
 			(sourceChapter.titleVariantId
 				? variantIdRemap.get(String(sourceChapter.titleVariantId))
-				: targetVariantsByKey.get(variantIdentityKey(sourceChapter.sourceId, sourceChapter.titleUrl))?._id) ??
-			undefined;
+				: targetVariantsByKey.get(
+						variantIdentityKey(sourceChapter.sourceId, sourceChapter.titleUrl)
+					)?._id) ?? undefined;
 		const existingTargetChapter = await ctx.db
 			.query('libraryChapters')
 			.withIndex('by_library_title_id_chapter_url', (q) =>
@@ -2846,7 +2940,10 @@ async function mergeOwnedTitles(
 			.unique();
 
 		if (existingTargetChapter) {
-			await ctx.db.patch(existingTargetChapter._id, buildMergedChapterPatch(existingTargetChapter, sourceChapter, mappedVariantId, now));
+			await ctx.db.patch(
+				existingTargetChapter._id,
+				buildMergedChapterPatch(existingTargetChapter, sourceChapter, mappedVariantId, now)
+			);
 			await moveChapterActivity(
 				ctx,
 				targetTitle.ownerUserId,
@@ -2993,9 +3090,13 @@ function buildMergedChapterPatch(
 	titleVariantId: GenericId<'titleVariants'> | undefined,
 	now: number
 ) {
-	const mergedStatus = preferredDownloadStatus(targetChapter.downloadStatus, sourceChapter.downloadStatus);
+	const mergedStatus = preferredDownloadStatus(
+		targetChapter.downloadStatus,
+		sourceChapter.downloadStatus
+	);
 	return {
-		chapterName: pickString(targetChapter.chapterName, sourceChapter.chapterName) ?? sourceChapter.chapterName,
+		chapterName:
+			pickString(targetChapter.chapterName, sourceChapter.chapterName) ?? sourceChapter.chapterName,
 		chapterNumber: pickNumber(targetChapter.chapterNumber, sourceChapter.chapterNumber),
 		scanlator: pickString(targetChapter.scanlator, sourceChapter.scanlator),
 		dateUpload: maxNumber(targetChapter.dateUpload, sourceChapter.dateUpload),
@@ -3065,16 +3166,12 @@ async function requireViewerUserId(ctx: QueryCtx | MutationCtx) {
 	return identity.subject as GenericId<'users'>;
 }
 
-function downloadCommandPercent(progress: unknown, status: string) {
-	if (status === 'succeeded') return 100;
-	if (!progress || typeof progress !== 'object') return 0;
-
-	const row = progress as Record<string, unknown>;
-	const percent = Number(row.percent ?? NaN);
-	if (Number.isFinite(percent) && percent >= 0) {
-		return Math.max(0, Math.min(100, Math.round(percent)));
-	}
-
+function downloadChapterPercent(row: {
+	downloadStatus: (typeof DOWNLOAD_STATUS)[keyof typeof DOWNLOAD_STATUS];
+	downloadedPages: number;
+	totalPages?: number;
+}) {
+	if (row.downloadStatus === DOWNLOAD_STATUS.DOWNLOADED) return 100;
 	const downloadedPages = Number(row.downloadedPages ?? NaN);
 	const totalPages = Number(row.totalPages ?? NaN);
 	if (Number.isFinite(downloadedPages) && Number.isFinite(totalPages) && totalPages > 0) {
@@ -3137,7 +3234,9 @@ function pickNumber(...values: Array<number | undefined | null>) {
 }
 
 function maxNumber(...values: Array<number | undefined | null>) {
-	const finite = values.filter((value): value is number => value !== undefined && value !== null && Number.isFinite(value));
+	const finite = values.filter(
+		(value): value is number => value !== undefined && value !== null && Number.isFinite(value)
+	);
 	if (finite.length === 0) {
 		return undefined;
 	}

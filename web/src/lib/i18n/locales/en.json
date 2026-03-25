@@ -307,7 +307,11 @@
 		"enabled": "Enabled",
 		"disabled": "Disabled",
 		"autoDownload": "Auto",
-		"downloaded": "downloaded"
+		"downloaded": "downloaded",
+		"openFile": "Open file",
+		"deleteFile": "Delete file",
+		"on": "on",
+		"off": "off"
 	},
 
 	"extensions": {
