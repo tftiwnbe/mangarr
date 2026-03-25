@@ -16,6 +16,7 @@
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import { convexApi } from '$lib/convex/api';
+	import { waitForCommand } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { SlidePanel } from '$lib/elements/slide-panel';
@@ -397,26 +398,6 @@
 		}
 	});
 
-	async function pollCommand(commandId: string, timeoutMs = 15000) {
-		const startedAt = Date.now();
-		while (Date.now() - startedAt < timeoutMs) {
-			const command = await client.query(convexApi.commands.getMineById, {
-				commandId: commandId as Id<'commands'>
-			});
-			if (!command) {
-				throw new Error('Command not found');
-			}
-			if (command.status === 'succeeded') {
-				return command;
-			}
-			if (command.status === 'failed' || command.status === 'cancelled' || command.status === 'dead_letter') {
-				throw new Error(command.lastErrorMessage ?? 'Command failed');
-			}
-			await new Promise((resolve) => setTimeout(resolve, 250));
-		}
-		throw new Error('Command timed out');
-	}
-
 	$effect(() => {
 		const key = title ? `${title.sourceId}::${title.titleUrl}` : '';
 		if (key === lastMetadataKey) return;
@@ -441,7 +422,7 @@
 						titleUrl: title.titleUrl
 					}
 				});
-				const command = await pollCommand(String(commandId));
+				const command = await waitForCommand(client, commandId as Id<'commands'>);
 				if (`${title.sourceId}::${title.titleUrl}` !== metadataKey) {
 					return;
 				}
@@ -750,7 +731,7 @@
 					},
 					idempotencyKey: `title.variant.fetch:${title._id}:${source.id}:${titleUrl}`
 				});
-				const command = await pollCommand(String(commandId));
+				const command = await waitForCommand(client, commandId as Id<'commands'>);
 				const resolved = (command.result?.title as Record<string, unknown> | undefined) ?? {};
 				const resolvedTitle = String(resolved.title ?? '').trim();
 				const resolvedUrl = String(resolved.titleUrl ?? titleUrl).trim();
@@ -778,7 +759,7 @@
 					},
 					idempotencyKey: `title.variant.search:${manual ? 'manual' : 'suggested'}:${title._id}:${source.id}:${searchQuery.toLowerCase()}`
 				});
-				const command = await pollCommand(String(commandId));
+				const command = await waitForCommand(client, commandId as Id<'commands'>);
 				const items = ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[];
 				collected.push(...items);
 			};

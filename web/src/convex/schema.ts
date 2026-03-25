@@ -207,6 +207,7 @@ export default defineSchema({
 		updatedAt: v.float64()
 	})
 		.index('by_library_title_id', ['libraryTitleId'])
+		.index('by_owner_user_id_library_title_id', ['ownerUserId', 'libraryTitleId'])
 		.index('by_owner_user_id_download_status', ['ownerUserId', 'downloadStatus'])
 		.index('by_library_title_id_chapter_url', ['libraryTitleId', 'chapterUrl']),
 

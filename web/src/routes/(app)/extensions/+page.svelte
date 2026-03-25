@@ -18,6 +18,7 @@
 	} from 'phosphor-svelte';
 
 	import { convexApi } from '$lib/convex/api';
+	import { waitForCommand } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { Switch } from '$lib/elements/switch';
@@ -330,26 +331,6 @@
 		return String(commandId);
 	}
 
-	async function pollCommand(commandId: string, timeoutMs = 30_000) {
-		const startedAt = Date.now();
-		while (Date.now() - startedAt < timeoutMs) {
-			const row = await client.query(convexApi.commands.getMineById, {
-				commandId: commandId as Id<'commands'>
-			});
-			if (!row) {
-				throw new Error('Queued command was not found');
-			}
-			if (row.status === 'succeeded') {
-				return row;
-			}
-			if (row.status === 'failed' || row.status === 'dead_letter' || row.status === 'cancelled') {
-				throw new Error(row.lastErrorMessage ?? 'Bridge command failed');
-			}
-			await new Promise((resolve) => setTimeout(resolve, 300));
-		}
-		throw new Error('Command timed out');
-	}
-
 	async function loadAvailableExtensions() {
 		availableLoading = true;
 		try {
@@ -357,7 +338,10 @@
 				query: '',
 				limit: 5000
 			});
-			const command = await pollCommand(commandId);
+			const command = await waitForCommand(client, commandId as Id<'commands'>, {
+				timeoutMs: 30_000,
+				pollIntervalMs: 300
+			});
 			const items = ((command.result?.items ?? []) as RepoItem[]).filter(Boolean);
 			availableExtensions = items
 				.filter((item) => !isInstalled(item.pkg))
@@ -388,7 +372,10 @@
 		error = null;
 		try {
 			const commandId = await enqueueCommand('extensions.install', { pkg });
-			await pollCommand(commandId);
+			await waitForCommand(client, commandId as Id<'commands'>, {
+				timeoutMs: 30_000,
+				pollIntervalMs: 300
+			});
 			await Promise.all([loadInstalledExtensions(), loadAvailableExtensions()]);
 			activeTab = 'installed';
 			expandedPkg = pkg;
@@ -404,7 +391,10 @@
 		error = null;
 		try {
 			const commandId = await enqueueCommand('extensions.uninstall', { pkg });
-			await pollCommand(commandId);
+			await waitForCommand(client, commandId as Id<'commands'>, {
+				timeoutMs: 30_000,
+				pollIntervalMs: 300
+			});
 			if (expandedPkg === pkg) expandedPkg = null;
 			await Promise.all([loadInstalledExtensions(), loadAvailableExtensions()]);
 		} catch (cause) {
@@ -503,7 +493,10 @@
 		advancedOpen = false;
 		try {
 			const commandId = await enqueueCommand('sources.preferences.fetch', { sourceId });
-			const command = await pollCommand(commandId);
+			const command = await waitForCommand(client, commandId as Id<'commands'>, {
+				timeoutMs: 30_000,
+				pollIntervalMs: 300
+			});
 			sourceSettingsData = mapBundle(command.result as PreferenceBundle);
 			syncAuthImportTextFromImportedStorage(sourceSettingsData);
 		} catch (cause) {
@@ -545,7 +538,10 @@
 				sourceId: sourceSettingsData.source_id,
 				values
 			});
-			await pollCommand(commandId);
+			await waitForCommand(client, commandId as Id<'commands'>, {
+				timeoutMs: 30_000,
+				pollIntervalMs: 300
+			});
 			await openSourceSettings(sourceSettingsData.source_id);
 		} catch (cause) {
 			sourceSettingsError =
@@ -738,7 +734,10 @@
 				sourceId: sourceSettingsData.source_id,
 				values: { ...deletes, ...mapped }
 			});
-			await pollCommand(commandId);
+			await waitForCommand(client, commandId as Id<'commands'>, {
+				timeoutMs: 30_000,
+				pollIntervalMs: 300
+			});
 			await openSourceSettings(sourceSettingsData.source_id);
 			authImportSuccess =
 				Object.keys(mapped).length === 0

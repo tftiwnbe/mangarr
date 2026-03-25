@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import type { Id } from '$convex/_generated/dataModel';
 
 import { buildBridgeInternalHeaders, getBridgeBaseUrl } from '$lib/server/bridge';
 import { requireUser } from '$lib/server/auth';
@@ -21,8 +22,13 @@ export const POST: RequestHandler = async (event) => {
 	const titleId = typeof requestJson.titleId === 'string' ? requestJson.titleId : null;
 
 	const client = await getUserConvexClient(user);
-	const chapters = ((await client.query(convexApi.library.listAllMineChapters, {})) ?? []) as LibraryChapter[];
-	const scoped = titleId ? chapters.filter((chapter) => chapter.libraryTitleId === titleId) : chapters;
+	const scoped = (
+		titleId
+			? await client.query(convexApi.library.listTitleChapters, {
+					titleId: titleId as Id<'libraryTitles'>
+				})
+			: await client.query(convexApi.library.listAllMineChapters, {})
+	) as LibraryChapter[];
 
 	const response = await fetch(new URL('downloads/reconcile', `${getBridgeBaseUrl()}/`), {
 		method: 'POST',

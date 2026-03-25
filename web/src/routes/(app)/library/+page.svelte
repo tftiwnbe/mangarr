@@ -15,6 +15,7 @@
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import { convexApi } from '$lib/convex/api';
+	import { waitForCommand } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
 	import { Input } from '$lib/elements/input';
 	import { LazyImage } from '$lib/elements/lazy-image';
@@ -107,26 +108,6 @@
 		panelOverlayOpen.set(filterPanelOpen);
 		return () => panelOverlayOpen.set(false);
 	});
-
-	async function pollCommand(commandId: string, timeoutMs = 15000) {
-		const startedAt = Date.now();
-		while (Date.now() - startedAt < timeoutMs) {
-			const command = await client.query(convexApi.commands.getMineById, {
-				commandId: commandId as Id<'commands'>
-			});
-			if (!command) {
-				throw new Error('Command not found');
-			}
-			if (command.status === 'succeeded') {
-				return command;
-			}
-			if (command.status === 'failed' || command.status === 'cancelled' || command.status === 'dead_letter') {
-				throw new Error(command.lastErrorMessage ?? 'Command failed');
-			}
-			await new Promise((resolve) => setTimeout(resolve, 250));
-		}
-		throw new Error('Command timed out');
-	}
 
 	const SORT_MODES: Array<{ value: SortMode; labelKey: string }> = [
 		{ value: 'updated', labelKey: 'library.sortModes.updated' },
@@ -300,7 +281,7 @@
 						titleUrl: target.titleUrl
 					}
 				});
-				const command = await pollCommand(String(commandId));
+				const command = await waitForCommand(client, commandId as Id<'commands'>);
 				const resultTitle = (command.result?.title as Record<string, unknown> | null) ?? null;
 				fetchedMetadataByTitleKey = {
 					...fetchedMetadataByTitleKey,

@@ -22,6 +22,7 @@
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import { convexApi } from '$lib/convex/api';
+	import { waitForCommand, type CommandState } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
 	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
 	import { SlidePanel } from '$lib/elements/slide-panel';
@@ -78,14 +79,7 @@
 		imageUrl?: string;
 	};
 
-	type CommandItem = {
-		id: string;
-		commandType: string;
-		status: string;
-		payload?: Record<string, unknown> | null;
-		result?: Record<string, unknown> | null;
-		lastErrorMessage?: string | null;
-	};
+	type CommandItem = CommandState<Record<string, unknown>>;
 
 	type CommentItem = {
 		_id: Id<'chapterComments'>;
@@ -377,27 +371,6 @@
 		return () => panelOverlayOpen.set(false);
 	});
 
-	async function pollCommand(commandId: string, timeoutMs = 15000, onUpdate?: (command: CommandItem) => void) {
-		const startedAt = Date.now();
-		while (Date.now() - startedAt < timeoutMs) {
-			const command = (await client.query(convexApi.commands.getMineById, {
-				commandId: commandId as Id<'commands'>
-			})) as CommandItem | null;
-			if (!command) {
-				throw new Error('Command not found');
-			}
-			onUpdate?.(command);
-			if (command.status === 'succeeded') {
-				return command;
-			}
-			if (command.status === 'failed' || command.status === 'cancelled' || command.status === 'dead_letter') {
-				throw new Error(command.lastErrorMessage ?? 'Command failed');
-			}
-			await new Promise((resolve) => setTimeout(resolve, 250));
-		}
-		throw new Error('Command timed out');
-	}
-
 	$effect(() => {
 		if (!chapter || fetchRequested) return;
 		if (chapter.downloadStatus === 'downloaded' && chapter.totalPages) return;
@@ -419,11 +392,19 @@
 						chapterUrl: chapter.chapterUrl
 					}
 				});
-				const command = await pollCommand(String(commandId), 15000, (next) => {
-					if (`${chapter.sourceId}::${chapter.chapterUrl}` === requestKey) {
-						remotePagesCommand = next;
+				const command = await waitForCommand<CommandItem>(
+					client,
+					commandId as Id<'commands'>,
+					{
+						timeoutMs: 15_000,
+						pollIntervalMs: 250,
+						onUpdate: (next) => {
+							if (`${chapter.sourceId}::${chapter.chapterUrl}` === requestKey) {
+								remotePagesCommand = next;
+							}
+						}
 					}
-				});
+				);
 				if (`${chapter.sourceId}::${chapter.chapterUrl}` === requestKey) {
 					remotePagesCommand = command;
 				}

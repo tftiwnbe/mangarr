@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import type { Id } from '$convex/_generated/dataModel';
 
 import { buildBridgeInternalHeaders, getBridgeBaseUrl } from '$lib/server/bridge';
 import { requireUser } from '$lib/server/auth';
@@ -22,8 +23,9 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	const client = await getUserConvexClient(user);
-	const chapters = ((await client.query(convexApi.library.listAllMineChapters, {})) ?? []) as LibraryChapter[];
-	const chapter = chapters.find((item) => item._id === body.chapterId);
+	const chapter = (await client.query(convexApi.library.getMineChapterById, {
+		chapterId: body.chapterId as Id<'libraryChapters'>
+	})) as LibraryChapter | null;
 	if (!chapter) {
 		throw error(404, 'Chapter not found');
 	}

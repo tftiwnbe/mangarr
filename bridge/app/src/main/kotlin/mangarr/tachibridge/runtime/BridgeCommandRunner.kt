@@ -4,6 +4,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -25,6 +28,18 @@ private val events = EventLogger.named(
     "mangarr.tachibridge.runtime.BridgeCommandRunner",
     "component" to "bridge_command_runner",
 )
+
+private val parallelizableCommandTypes =
+    setOf(
+        "extensions.repo.search",
+        "sources.preferences.fetch",
+        "explore.search",
+        "explore.popular",
+        "explore.latest",
+        "explore.title.fetch",
+        "explore.chapters.fetch",
+        "reader.pages.fetch",
+    )
 
 @Serializable
 data class CommandRunnerSnapshot(
@@ -74,7 +89,7 @@ class BridgeCommandRunner(
         snapshot = snapshot.copy(running = false)
     }
 
-    private fun poll() {
+    private suspend fun poll() {
         val client = bridgeClient ?: return
         val now = System.currentTimeMillis()
         snapshot = snapshot.copy(lastPollAt = now)
@@ -116,9 +131,7 @@ class BridgeCommandRunner(
                 )
             }
 
-            for (command in leased) {
-                handleCommand(client, command)
-            }
+            executeLeasedCommands(client, leased)
 
             snapshot = snapshot.copy(lastSuccessAt = now, lastError = null)
         } catch (error: Exception) {
@@ -129,6 +142,30 @@ class BridgeCommandRunner(
                 "bridgeId" to bridgeId,
             )
             snapshot = snapshot.copy(lastError = error.message ?: "Unknown command error")
+        }
+    }
+
+    private suspend fun executeLeasedCommands(
+        client: ConvexBridgeClient,
+        leased: List<LeaseCommand>,
+    ) {
+        if (leased.isEmpty()) {
+            return
+        }
+
+        if (leased.all { it.commandType in parallelizableCommandTypes }) {
+            coroutineScope {
+                leased.map { command ->
+                    async {
+                        handleCommand(client, command)
+                    }
+                }.awaitAll()
+            }
+            return
+        }
+
+        for (command in leased) {
+            handleCommand(client, command)
         }
     }
 

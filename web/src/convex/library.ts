@@ -34,75 +34,71 @@ export const listMine = query({
 			return [];
 		}
 		const userId = identity.subject as GenericId<'users'>;
-		const [titles, statusById, collectionById, collectionIdsByTitleId, variantCountsByTitleId] =
-			await Promise.all([
-				ctx.db
-					.query('libraryTitles')
-					.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
-					.collect(),
-				loadOwnerUserStatusMap(ctx, userId),
-				loadOwnerCollectionMap(ctx, userId),
-				loadOwnerCollectionIdsByTitleId(ctx, userId),
-				loadOwnerVariantCountsByTitleId(ctx, userId)
-			]);
+		const [
+			titles,
+			statusById,
+			collectionById,
+			collectionIdsByTitleId,
+			variantCountsByTitleId,
+			{ byTitleId: chaptersByTitleId }
+		] = await Promise.all([
+			ctx.db
+				.query('libraryTitles')
+				.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', userId))
+				.order('desc')
+				.collect(),
+			loadOwnerUserStatusMap(ctx, userId),
+			loadOwnerCollectionMap(ctx, userId),
+			loadOwnerCollectionIdsByTitleId(ctx, userId),
+			loadOwnerVariantCountsByTitleId(ctx, userId),
+			loadOwnerChaptersByTitleId(ctx, userId)
+		]);
 
 		const visibleTitles = titles.filter((title) => title.userStatusId != null);
 
-		const enriched = await Promise.all(
-			visibleTitles.map(async (title) => {
-				const chapters = await ctx.db
-					.query('libraryChapters')
-					.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
-					.collect();
-
-				let queued = 0;
-				let downloading = 0;
-				let downloaded = 0;
-				let failed = 0;
-				for (const chapter of chapters) {
-					switch (chapter.downloadStatus) {
-						case DOWNLOAD_STATUS.QUEUED:
-							queued += 1;
-							break;
-						case DOWNLOAD_STATUS.DOWNLOADING:
-							downloading += 1;
-							break;
-						case DOWNLOAD_STATUS.DOWNLOADED:
-							downloaded += 1;
-							break;
-						case DOWNLOAD_STATUS.FAILED:
-							failed += 1;
-							break;
-					}
+		return visibleTitles.map((title) => {
+			const chapters = chaptersByTitleId.get(String(title._id)) ?? [];
+			let queued = 0;
+			let downloading = 0;
+			let downloaded = 0;
+			let failed = 0;
+			for (const chapter of chapters) {
+				switch (chapter.downloadStatus) {
+					case DOWNLOAD_STATUS.QUEUED:
+						queued += 1;
+						break;
+					case DOWNLOAD_STATUS.DOWNLOADING:
+						downloading += 1;
+						break;
+					case DOWNLOAD_STATUS.DOWNLOADED:
+						downloaded += 1;
+						break;
+					case DOWNLOAD_STATUS.FAILED:
+						failed += 1;
+						break;
 				}
+			}
 
-				const collectionIds = collectionIdsByTitleId.get(String(title._id)) ?? [];
+			const collectionIds = collectionIdsByTitleId.get(String(title._id)) ?? [];
 
-				return {
-					...title,
-					userStatus: title.userStatusId
-						? (statusById.get(String(title.userStatusId)) ?? null)
-						: null,
-					userRating: title.userRating ?? null,
-					collections: collectionIds
-						.map((collectionId) => collectionById.get(String(collectionId)) ?? null)
-						.filter(
-							(collection): collection is NonNullable<typeof collection> => collection !== null
-						)
-						.sort((left, right) => left.position - right.position),
-					variantsCount: variantCountsByTitleId.get(String(title._id)) ?? 0,
-					chapterStats: {
-						total: chapters.length,
-						queued,
-						downloading,
-						downloaded,
-						failed
-					}
-				};
-			})
-		);
-
-		return enriched.sort((left, right) => right.updatedAt - left.updatedAt);
+			return {
+				...title,
+				userStatus: title.userStatusId ? (statusById.get(String(title.userStatusId)) ?? null) : null,
+				userRating: title.userRating ?? null,
+				collections: collectionIds
+					.map((collectionId) => collectionById.get(String(collectionId)) ?? null)
+					.filter((collection): collection is NonNullable<typeof collection> => collection !== null)
+					.sort((left, right) => left.position - right.position),
+				variantsCount: variantCountsByTitleId.get(String(title._id)) ?? 0,
+				chapterStats: {
+					total: chapters.length,
+					queued,
+					downloading,
+					downloaded,
+					failed
+				}
+			};
+		});
 	}
 });
 
@@ -464,28 +460,47 @@ export const listAllMineChapters = query({
 			return [];
 		}
 		const userId = identity.subject as GenericId<'users'>;
-		const titles = await ctx.db
-			.query('libraryTitles')
-			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
-			.collect();
+		const [titles, { chapters }] = await Promise.all([
+			ctx.db
+				.query('libraryTitles')
+				.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', userId))
+				.order('desc')
+				.collect(),
+			loadOwnerChaptersByTitleId(ctx, userId)
+		]);
+		const titleById = new Map(titles.map((title) => [String(title._id), title] as const));
 
-		const rows = [];
-		for (const title of titles) {
-			const chapters = await ctx.db
-				.query('libraryChapters')
-				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
-				.collect();
-			for (const chapter of chapters) {
-				rows.push({
+		return chapters
+			.map((chapter) => {
+				const title = titleById.get(String(chapter.libraryTitleId));
+				return {
 					...chapter,
-					title: title.title,
-					titleCoverUrl: title.coverUrl ?? null,
-					localCoverPath: title.localCoverPath ?? null
-				});
-			}
+					title: title?.title ?? '',
+					titleCoverUrl: title?.coverUrl ?? null,
+					localCoverPath: title?.localCoverPath ?? null
+				};
+			})
+			.sort((left, right) => right.updatedAt - left.updatedAt);
+	}
+});
+
+export const getMineChapterById = query({
+	args: {
+		chapterId: v.id('libraryChapters')
+	},
+	handler: async (ctx, args) => {
+		const chapter = await requireOwnedChapter(ctx, args.chapterId);
+		const title = await ctx.db.get(chapter.libraryTitleId);
+		if (!title || title.ownerUserId !== chapter.ownerUserId) {
+			return null;
 		}
 
-		return rows.sort((left, right) => right.updatedAt - left.updatedAt);
+		return {
+			...chapter,
+			title: title.title,
+			titleCoverUrl: title.coverUrl ?? null,
+			localCoverPath: title.localCoverPath ?? null
+		};
 	}
 });
 
@@ -515,16 +530,18 @@ export const getDownloadDashboard = query({
 		const activeLimit = Math.max(1, Math.min(Math.floor(args.activeLimit ?? 20), 100));
 		const recentLimit = Math.max(1, Math.min(Math.floor(args.recentLimit ?? 20), 100));
 
-		const [titles, profileRows, installedExtensions] = await Promise.all([
+		const [titles, profileRows, installedExtensions, { byTitleId: chaptersByTitleId }] = await Promise.all([
 			ctx.db
 				.query('libraryTitles')
-				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+				.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', ownerUserId))
+				.order('desc')
 				.collect(),
 			ctx.db
 				.query('downloadProfiles')
 				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
 				.collect(),
-			ctx.db.query('installedExtensions').collect()
+			ctx.db.query('installedExtensions').collect(),
+			loadOwnerChaptersByTitleId(ctx, ownerUserId)
 		]);
 
 		const sourceNamesById = new Map<string, string>();
@@ -571,10 +588,7 @@ export const getDownloadDashboard = query({
 		}> = [];
 
 		for (const title of titles) {
-			const chapters = await ctx.db
-				.query('libraryChapters')
-				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
-				.collect();
+			const chapters = chaptersByTitleId.get(String(title._id)) ?? [];
 			const profile = profileByTitleId.get(String(title._id)) ?? null;
 
 			for (const chapter of chapters) {
@@ -1946,8 +1960,10 @@ export const upsertChaptersForTitle = mutation({
 				.filter((chapter) => chapter.titleVariantId === variant._id)
 				.map((chapter) => [chapter.chapterUrl, chapter])
 		);
+		const seenChapterUrls = new Set<string>();
 
 		for (const [index, chapter] of args.chapters.entries()) {
+			seenChapterUrls.add(chapter.url);
 			const current = byUrl.get(chapter.url);
 			if (current) {
 				await ctx.db.patch(current._id, {
@@ -1985,6 +2001,35 @@ export const upsertChaptersForTitle = mutation({
 				createdAt: args.now,
 				updatedAt: args.now
 			});
+		}
+
+		const staleChapters = existing.filter(
+			(chapter) => chapter.titleVariantId === variant._id && !seenChapterUrls.has(chapter.chapterUrl)
+		);
+
+		for (const staleChapter of staleChapters) {
+			const [progressRows, commentRows] = await Promise.all([
+				ctx.db
+					.query('chapterProgress')
+					.withIndex('by_owner_user_id_chapter_id', (q) =>
+						q.eq('ownerUserId', title.ownerUserId).eq('chapterId', staleChapter._id)
+					)
+					.collect(),
+				ctx.db
+					.query('chapterComments')
+					.withIndex('by_owner_user_id_chapter_id_updated_at', (q) =>
+						q.eq('ownerUserId', title.ownerUserId).eq('chapterId', staleChapter._id)
+					)
+					.collect()
+			]);
+
+			for (const progress of progressRows) {
+				await ctx.db.delete(progress._id);
+			}
+			for (const comment of commentRows) {
+				await ctx.db.delete(comment._id);
+			}
+			await ctx.db.delete(staleChapter._id);
 		}
 
 		await ctx.db.patch(title._id, {
@@ -2675,6 +2720,23 @@ async function loadOwnerCollectionIdsByTitleId(
 	}
 
 	return collectionIdsByTitleId;
+}
+
+async function loadOwnerChaptersByTitleId(ctx: QueryCtx | MutationCtx, ownerUserId: GenericId<'users'>) {
+	const chapters = await ctx.db
+		.query('libraryChapters')
+		.withIndex('by_owner_user_id_library_title_id', (q) => q.eq('ownerUserId', ownerUserId))
+		.collect();
+
+	const byTitleId = new Map<string, (typeof chapters)[number][]>();
+	for (const chapter of chapters) {
+		const key = String(chapter.libraryTitleId);
+		const next = byTitleId.get(key) ?? [];
+		next.push(chapter);
+		byTitleId.set(key, next);
+	}
+
+	return { chapters, byTitleId };
 }
 
 async function loadOwnerVariantCountsByTitleId(

@@ -15,6 +15,7 @@
 
 	import { convexApi } from '$lib/convex/api';
 	import { getCachedCoverUrl } from '$lib/api/covers';
+	import { waitForCommand } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { SlidePanel } from '$lib/elements/slide-panel';
@@ -532,26 +533,6 @@
 		return client.mutation(convexApi.commands.enqueue, { commandType, payload, idempotencyKey });
 	}
 
-	async function pollCommand(commandId: string, timeoutMs = 15000) {
-		const startedAt = Date.now();
-		while (Date.now() - startedAt < timeoutMs) {
-			const command = await client.query(convexApi.commands.getMineById, {
-				commandId: commandId as Id<'commands'>
-			});
-			if (!command) {
-				throw new Error('Command not found');
-			}
-			if (command.status === 'succeeded') {
-				return command;
-			}
-			if (command.status === 'failed' || command.status === 'cancelled' || command.status === 'dead_letter') {
-				throw new Error(command.lastErrorMessage ?? 'Command failed');
-			}
-			await new Promise((resolve) => setTimeout(resolve, 250));
-		}
-		throw new Error('Command timed out');
-	}
-
 	async function runWithConcurrency<T>(
 		items: T[],
 		limit: number,
@@ -581,7 +562,7 @@
 			},
 			feedCommandIdempotencyKey(feedCommandType, sourceId, page, FEED_LIMIT)
 		);
-		const command = await pollCommand(String(commandId));
+		const command = await waitForCommand(client, commandId as Id<'commands'>);
 		return {
 			items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[],
 			page: Number(command.result?.page ?? page),
@@ -787,7 +768,7 @@
 						payload,
 						searchCommandIdempotencyKey(sourceId, value, searchFilters)
 					);
-					const command = await pollCommand(String(commandId));
+					const command = await waitForCommand(client, commandId as Id<'commands'>);
 					nextLiveSearchResults[searchResultKey(sourceId, value, searchFilters)] = {
 						items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[]
 					};
@@ -810,7 +791,7 @@
 
 		try {
 			const { commandId } = await enqueueCommand('sources.preferences.fetch', { sourceId });
-			const command = await pollCommand(String(commandId));
+			const command = await waitForCommand(client, commandId as Id<'commands'>);
 			searchFiltersData = command.result as PreferenceBundle;
 			const applied = appliedSearchFiltersBySource[sourceId];
 			if (applied) {
