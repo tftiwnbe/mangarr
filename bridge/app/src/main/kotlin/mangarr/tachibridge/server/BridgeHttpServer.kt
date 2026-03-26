@@ -26,6 +26,7 @@ import mangarr.tachibridge.runtime.DownloadReconcileChapter
 import java.net.URLDecoder
 import java.net.InetSocketAddress
 import java.nio.file.Files
+import java.io.IOException
 import java.util.concurrent.Executors
 
 private val logger = KotlinLogging.logger {}
@@ -546,8 +547,9 @@ class BridgeHttpServer(
     private fun sendJson(exchange: HttpExchange, status: Int, payload: kotlinx.serialization.json.JsonObject) {
         val body = json.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), payload).toByteArray()
         exchange.responseHeaders.add("content-type", "application/json")
-        exchange.sendResponseHeaders(status, body.size.toLong())
-        exchange.responseBody.use { output -> output.write(body) }
+        sendResponse(exchange, status, body.size.toLong()) {
+            it.write(body)
+        }
     }
 
     private fun sendBytes(
@@ -562,8 +564,9 @@ class BridgeHttpServer(
         for ((name, value) in extraHeaders) {
             exchange.responseHeaders.set(name, value)
         }
-        exchange.sendResponseHeaders(status, body.size.toLong())
-        exchange.responseBody.use { output -> output.write(body) }
+        sendResponse(exchange, status, body.size.toLong()) {
+            it.write(body)
+        }
     }
 
     private fun sendFile(
@@ -579,8 +582,43 @@ class BridgeHttpServer(
         for ((name, value) in extraHeaders) {
             exchange.responseHeaders.set(name, value)
         }
-        exchange.sendResponseHeaders(status, contentLength)
-        exchange.responseBody.use { output -> Files.copy(filePath, output) }
+        sendResponse(exchange, status, contentLength) {
+            Files.copy(filePath, it)
+        }
+    }
+
+    private inline fun sendResponse(
+        exchange: HttpExchange,
+        status: Int,
+        contentLength: Long,
+        write: (java.io.OutputStream) -> Unit,
+    ) {
+        try {
+            exchange.sendResponseHeaders(status, contentLength)
+            exchange.responseBody.use { output -> write(output) }
+        } catch (error: IOException) {
+            if (isClientAbort(error)) {
+                logger.debug(error) { "Client disconnected before bridge response completed" }
+                return
+            }
+            throw error
+        }
+    }
+
+    private fun isClientAbort(error: IOException): Boolean {
+        var current: Throwable? = error
+        while (current != null) {
+            val message = current.message?.lowercase().orEmpty()
+            if (
+                message.contains("broken pipe") ||
+                message.contains("connection reset by peer") ||
+                message.contains("stream closed")
+            ) {
+                return true
+            }
+            current = current.cause
+        }
+        return false
     }
 
     private fun HttpExchange.queryParam(name: String): String? =
