@@ -523,6 +523,19 @@
 		pendingPreferenceChanges.set(key, value);
 	}
 
+	function deletePreferenceValue() {
+		return { __mangarr_delete_preference__: true };
+	}
+
+	function buildPreferenceEntries(
+		entries: Iterable<readonly [string, unknown]>
+	): Array<{ key: string; value: unknown }> {
+		return Array.from(entries, ([key, value]) => ({
+			key,
+			value: value ?? deletePreferenceValue()
+		}));
+	}
+
 	function getCurrentValue(pref: NonNullable<typeof sourceSettingsData>['preferences'][number]) {
 		if (pendingPreferenceChanges.has(pref.key)) return pendingPreferenceChanges.get(pref.key);
 		return pref.current_value ?? pref.default_value;
@@ -533,10 +546,9 @@
 		sourceSettingsSaving = true;
 		sourceSettingsError = null;
 		try {
-			const values = Object.fromEntries(pendingPreferenceChanges.entries());
 			const commandId = await enqueueCommand('sources.preferences.save', {
 				sourceId: sourceSettingsData.source_id,
-				values
+				entries: buildPreferenceEntries(pendingPreferenceChanges.entries())
 			});
 			await waitForCommand(client, commandId as Id<'commands'>, {
 				timeoutMs: 30_000,
@@ -726,14 +738,14 @@
 				mapped = normalizeRawMapPayload(raw);
 			}
 			const existingKeys = getHiddenStorageKeys();
-			if (existingKeys.length === 0 && Object.keys(mapped).length === 0) {
-				throw new Error('No imported keys yet. Paste JSON map to import.');
-			}
-			const deletes = Object.fromEntries(existingKeys.map((key) => [key, null]));
-			const commandId = await enqueueCommand('sources.preferences.save', {
-				sourceId: sourceSettingsData.source_id,
-				values: { ...deletes, ...mapped }
-			});
+				if (existingKeys.length === 0 && Object.keys(mapped).length === 0) {
+					throw new Error('No imported keys yet. Paste JSON map to import.');
+				}
+				const deletes = existingKeys.map((key) => [key, deletePreferenceValue()] as const);
+				const commandId = await enqueueCommand('sources.preferences.save', {
+					sourceId: sourceSettingsData.source_id,
+					entries: buildPreferenceEntries([...deletes, ...Object.entries(mapped)])
+				});
 			await waitForCommand(client, commandId as Id<'commands'>, {
 				timeoutMs: 30_000,
 				pollIntervalMs: 300

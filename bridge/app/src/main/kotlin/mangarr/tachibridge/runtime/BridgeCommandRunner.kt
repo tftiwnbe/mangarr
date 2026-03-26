@@ -12,6 +12,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -434,8 +435,14 @@ class BridgeCommandRunner(
             }
             "sources.preferences.save" -> {
                 val sourceId = payload.requiredString("sourceId")
-                val values = payload["values"]?.jsonObject ?: error("Missing values")
-                kotlinx.coroutines.runBlocking { service.saveSourcePreferences(sourceId, values) }
+                val entries =
+                    payload["entries"]?.jsonArray?.map { entry ->
+                        val obj = entry.jsonObject
+                        obj.requiredString("key") to (obj["value"] ?: JsonNull)
+                    }
+                        ?: payload["values"]?.jsonObject?.entries?.map { it.key to it.value }
+                        ?: error("Missing values")
+                kotlinx.coroutines.runBlocking { service.saveSourcePreferences(sourceId, entries) }
             }
             "explore.search" -> {
                 val query = payload["query"]?.jsonPrimitive?.contentOrNull.orEmpty()
