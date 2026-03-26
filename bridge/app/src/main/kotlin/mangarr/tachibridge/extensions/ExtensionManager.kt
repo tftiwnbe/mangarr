@@ -516,15 +516,19 @@ class ExtensionManager(
             val pages = loadPagesForChapter(source, normalizedUrl)
             val page = pages.getOrNull(index) ?: error("Page index out of bounds: $index")
 
+            val resolvedPageImageUrl = resolvePageImageUrl(source, page)
             val response =
                 if (source is HttpSource) {
-                    source.getImage(page)
+                    if (isLibGroupSource(source) && resolvedPageImageUrl.isNotBlank()) {
+                        networkHelper.client.newCall(GET(resolvedPageImageUrl, source.headers)).awaitSuccess()
+                    } else {
+                        source.getImage(page)
+                    }
                 } else {
-                    val imageUrl = resolvePageImageUrl(source, page)
-                    if (imageUrl.isBlank()) {
+                    if (resolvedPageImageUrl.isBlank()) {
                         error("Page image URL is unavailable for source $sourceId")
                     }
-                    networkHelper.client.newCall(GET(imageUrl)).awaitSuccess()
+                    networkHelper.client.newCall(GET(resolvedPageImageUrl)).awaitSuccess()
                 }
 
             response.use { imageResponse ->
@@ -1481,13 +1485,11 @@ class ExtensionManager(
         return pages.mapIndexedNotNull { index, page ->
             val obj = page.jsonObject
             val path = obj["url"]?.jsonPrimitive?.contentOrNull ?: return@mapIndexedNotNull null
-            val normalizedPath =
-                if (path.startsWith("//")) {
-                    "/" + path.removePrefix("//")
-                } else {
-                    path
-                }
-            SourcePage(index, normalizedPath, "")
+            val normalizedPath = normalizeLibGroupAssetUrl(source, path)
+            if (normalizedPath.isBlank()) {
+                return@mapIndexedNotNull null
+            }
+            SourcePage(index, normalizedPath, normalizedPath)
         }
     }
 
@@ -1712,6 +1714,13 @@ class ExtensionManager(
             }
         }
 
+        if (isLibGroupSource(source)) {
+            val fallback = normalizeLibGroupAssetUrl(source, safeString { page.url })
+            if (fallback.isNotBlank()) {
+                return fallback
+            }
+        }
+
         return ""
     }
 
@@ -1722,6 +1731,9 @@ class ExtensionManager(
         }
         if (trimmedImageUrl.startsWith("http://") || trimmedImageUrl.startsWith("https://")) {
             return trimmedImageUrl
+        }
+        if (trimmedImageUrl.startsWith("//")) {
+            return "https:$trimmedImageUrl"
         }
 
         val baseCandidates =
@@ -1745,6 +1757,36 @@ class ExtensionManager(
         }
 
         return trimmedImageUrl
+    }
+
+    private fun normalizeLibGroupAssetUrl(source: Source, rawPath: String): String {
+        val trimmed = rawPath.trim()
+        if (trimmed.isBlank()) {
+            return ""
+        }
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            return trimmed
+        }
+        if (trimmed.startsWith("//")) {
+            return "https:$trimmed"
+        }
+
+        val baseCandidates =
+            buildList {
+                if (source is HttpSource) {
+                    add(source.baseUrl)
+                }
+                add(libGroupBaseApi(source))
+            }
+
+        for (base in baseCandidates) {
+            val resolved = resolveRelativeUrl(base, trimmed)
+            if (resolved != null) {
+                return resolved
+            }
+        }
+
+        return trimmed
     }
 
     private fun resolveRelativeUrl(base: String, path: String): String? {

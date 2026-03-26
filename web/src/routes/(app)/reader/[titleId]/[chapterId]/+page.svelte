@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
-	import { SvelteSet } from 'svelte/reactivity';
+	import { SvelteSet, SvelteURLSearchParams } from 'svelte/reactivity';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import {
 		ArrowsInIcon,
@@ -30,6 +30,11 @@
 	import { navigateBack } from '$lib/stores/nav-history';
 	import { panelOverlayOpen } from '$lib/stores/ui';
 	import { getReaderProgress, setReaderProgress } from '$lib/utils/reader-progress';
+	import {
+		formatChapterNumberValue,
+		hasDisplayableChapterNumber,
+		parseStructuredChapterName
+	} from '$lib/utils/chapter-display';
 	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
 
 	const { data } = $props<{ data: { titleId: string | null; chapterId: string | null } }>();
@@ -130,6 +135,7 @@
 	let progressSaveTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastChapterId = $state<string | null>(null);
 	let remotePagesCommand = $state<CommandItem | null>(null);
+	let pageRetryCounts = $state<Record<string, number>>({});
 
 	const readerData = $derived((readerQuery.data as ReaderQuery) ?? null);
 	const title = $derived(readerData?.title ?? null);
@@ -212,8 +218,25 @@
 		if (index < 0 || index >= chapters.length - 1) return null;
 		return chapters[index + 1]?._id ?? null;
 	});
+	const prevChapter = $derived.by(() =>
+		prevChapterId ? chapters.find((item) => item._id === prevChapterId) ?? null : null
+	);
+	const nextChapter = $derived.by(() =>
+		nextChapterId ? chapters.find((item) => item._id === nextChapterId) ?? null : null
+	);
 	const canonicalTitlePath = $derived.by(() =>
 		title ? buildTitlePath(title._id, title.title) : '/library'
+	);
+	const canonicalReaderPath = $derived.by(() =>
+		title && chapter
+			? buildReaderPath({
+					titleId: title._id,
+					titleName: title.title,
+					chapterId: chapter._id,
+					chapterName: chapter.chapterName,
+					chapterNumber: chapter.chapterNumber ?? null
+				})
+			: null
 	);
 	const sortedComments = $derived.by(() => {
 		const rows = [...comments];
@@ -230,8 +253,9 @@
 
 	function resolvePageUrl(item: ReaderPage): string {
 		if (!chapter) return '';
+		const retryCount = pageRetryCounts[item.id] ?? 0;
 		if (item.kind === 'local' && chapter.localRelativePath && chapter.storageKind) {
-			const params = new URLSearchParams({
+			const params = new SvelteURLSearchParams({
 				path: chapter.localRelativePath,
 				storage: chapter.storageKind,
 				index: String(item.index)
@@ -239,11 +263,14 @@
 			return `/api/internal/bridge/library/page?${params.toString()}`;
 		}
 
-		const params = new URLSearchParams({
+		const params = new SvelteURLSearchParams({
 			sourceId: chapter.sourceId,
 			chapterUrl: chapter.chapterUrl,
 			index: String(item.index)
 		});
+		if (retryCount > 0) {
+			params.set('retry', String(retryCount));
+		}
 		return `/api/internal/bridge/reader/page?${params.toString()}`;
 	}
 
@@ -253,6 +280,16 @@
 
 	function markPagePainted(id: string) {
 		paintedPageIds.add(id);
+	}
+
+	function handlePageError(item: ReaderPage) {
+		if (item.kind !== 'remote') return;
+		const retries = pageRetryCounts[item.id] ?? 0;
+		if (retries >= 2) return;
+		pageRetryCounts = {
+			...pageRetryCounts,
+			[item.id]: retries + 1
+		};
 	}
 
 	function jumpToPage(pageIndex: number) {
@@ -267,11 +304,49 @@
 		}
 	}
 
-	function openChapter(chapterId: Id<'libraryChapters'> | null) {
-		if (!title || !chapterId) return;
+	function chapterListLabel(item: ChapterItem): string {
+		if (hasDisplayableChapterNumber(item.chapterNumber)) {
+			return $_('chapter.chapterShort', {
+				values: { number: formatChapterNumberValue(item.chapterNumber) }
+			});
+		}
+		const parsed = parseStructuredChapterName(item.chapterName);
+		if (!parsed) return item.chapterName;
+		const parts: string[] = [];
+		if (parsed.volumeNumber) {
+			parts.push($_('chapter.volumeShort', { values: { number: parsed.volumeNumber } }));
+		}
+		if (parsed.chapterNumber) {
+			parts.push($_('chapter.chapterShort', { values: { number: parsed.chapterNumber } }));
+		}
+		return parts.join(' · ') || item.chapterName;
+	}
+
+	function chapterListDetail(item: ChapterItem): string | null {
+		const raw = item.chapterName.trim();
+		if (!raw) return null;
+		if (hasDisplayableChapterNumber(item.chapterNumber)) {
+			const chapterShort = $_('chapter.chapterShort', {
+				values: { number: formatChapterNumberValue(item.chapterNumber) }
+			});
+			return raw === chapterShort ? null : raw;
+		}
+		return parseStructuredChapterName(raw)?.detail ?? null;
+	}
+
+	function openChapter(target: ChapterItem | null) {
+		if (!title || !target) return;
 		showChapterPanel = false;
 		showCommentsPanel = false;
-		void goto(buildReaderPath({ titleId: title._id, chapterId }));
+		void goto(
+			buildReaderPath({
+				titleId: title._id,
+				titleName: title.title,
+				chapterId: target._id,
+				chapterName: target.chapterName,
+				chapterNumber: target.chapterNumber ?? null
+			})
+		);
 	}
 
 	function prevPage() {
@@ -372,6 +447,13 @@
 	});
 
 	$effect(() => {
+		if (!canonicalReaderPath) return;
+		if (page.url.pathname !== canonicalReaderPath) {
+			void goto(canonicalReaderPath, { replaceState: true, noScroll: true });
+		}
+	});
+
+	$effect(() => {
 		if (!chapter || fetchRequested) return;
 		if (chapter.downloadStatus === 'downloaded' && chapter.totalPages) return;
 		if (remotePagesResult?.status === 'running' || remotePagesResult?.status === 'queued') return;
@@ -439,6 +521,7 @@
 			currentPageIndex = 0;
 			loadedPageIds.clear();
 			paintedPageIds.clear();
+			pageRetryCounts = {};
 			return;
 		}
 
@@ -450,6 +533,7 @@
 			currentPageIndex = 0;
 			loadedPageIds.clear();
 			paintedPageIds.clear();
+			pageRetryCounts = {};
 		}
 	});
 
@@ -586,7 +670,7 @@
 
 			{#if pages.length > 0}
 				<div class="mx-2 hidden items-center gap-0.5 md:flex">
-					<Button variant="ghost" size="icon-sm" onclick={() => openChapter(prevChapterId)} disabled={!prevChapterId}>
+					<Button variant="ghost" size="icon-sm" onclick={() => openChapter(prevChapter)} disabled={!prevChapter}>
 						<SkipBackIcon size={16} />
 					</Button>
 					<Button variant="ghost" size="icon-sm" onclick={() => (showChapterPanel = true)}>
@@ -602,7 +686,7 @@
 					>
 						{#if mode === 'vertical'}<ArrowsOutIcon size={16} />{:else}<ArrowsInIcon size={16} />{/if}
 					</Button>
-					<Button variant="ghost" size="icon-sm" onclick={() => openChapter(nextChapterId)} disabled={!nextChapterId}>
+					<Button variant="ghost" size="icon-sm" onclick={() => openChapter(nextChapter)} disabled={!nextChapter}>
 						<SkipForwardIcon size={16} />
 					</Button>
 				</div>
@@ -660,6 +744,7 @@
 						<img
 							src={resolvePageUrl(readerPage)}
 							alt="{$_('reader.page')} {readerPage.pageIndex + 1}"
+							loading={readerPage.pageIndex < 2 ? 'eager' : 'lazy'}
 							decoding="async"
 							class="bg-[var(--void-1)] object-contain {paintedPageIds.has(readerPage.id)
 								? 'w-full'
@@ -668,6 +753,7 @@
 								markPageLoaded(readerPage.id);
 								markPagePainted(readerPage.id);
 							}}
+							onerror={() => handlePageError(readerPage)}
 						/>
 					</div>
 				{/each}
@@ -677,7 +763,9 @@
 				<img
 					src={resolvePageUrl(currentPage)}
 					alt="{$_('reader.page')} {currentPage.pageIndex + 1}"
+					loading="eager"
 					class="max-h-svh w-auto max-w-full bg-[var(--void-1)] object-contain"
+					onerror={() => handlePageError(currentPage)}
 				/>
 				{#if isTouchDevice}
 					<button type="button" class="absolute inset-y-0 left-0 z-20 w-1/3" aria-label={$_('reader.prevPage')} onclick={prevPage}></button>
@@ -691,14 +779,14 @@
 				<p class="text-xs text-[var(--text-ghost)]">{chapter.chapterName}</p>
 			{/if}
 			<div class="flex items-center gap-3">
-				{#if prevChapterId}
-					<Button variant="outline" size="sm" onclick={() => openChapter(prevChapterId)}>
+				{#if prevChapter}
+					<Button variant="outline" size="sm" onclick={() => openChapter(prevChapter)}>
 						<CaretLeftIcon size={14} />
 						{$_('reader.prevChapter')}
 					</Button>
 				{/if}
-				{#if nextChapterId}
-					<Button variant="outline" size="sm" onclick={() => openChapter(nextChapterId)}>
+				{#if nextChapter}
+					<Button variant="outline" size="sm" onclick={() => openChapter(nextChapter)}>
 						{$_('reader.nextChapter')}
 						<CaretRightIcon size={14} />
 					</Button>
@@ -717,7 +805,7 @@
 				: 'pointer-events-none translate-y-full'}"
 		>
 			<div class="flex h-11 items-center justify-between px-2">
-				<Button variant="ghost" size="icon-sm" onclick={() => openChapter(prevChapterId)} disabled={!prevChapterId}>
+				<Button variant="ghost" size="icon-sm" onclick={() => openChapter(prevChapter)} disabled={!prevChapter}>
 					<SkipBackIcon size={16} />
 				</Button>
 				<div class="flex items-center gap-1">
@@ -735,7 +823,7 @@
 						{#if mode === 'vertical'}<ArrowsOutIcon size={16} />{:else}<ArrowsInIcon size={16} />{/if}
 					</Button>
 				</div>
-				<Button variant="ghost" size="icon-sm" onclick={() => openChapter(nextChapterId)} disabled={!nextChapterId}>
+				<Button variant="ghost" size="icon-sm" onclick={() => openChapter(nextChapter)} disabled={!nextChapter}>
 					<SkipForwardIcon size={16} />
 				</Button>
 			</div>
@@ -755,9 +843,16 @@
 					class="flex items-center justify-between gap-3 px-2 py-2.5 text-left text-xs transition-colors {isCurrent
 						? 'bg-[var(--void-3)] text-[var(--text)]'
 						: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
-					onclick={() => openChapter(item._id)}
+					onclick={() => openChapter(item)}
 				>
-					<p class="min-w-0 flex-1 truncate">{item.chapterName}</p>
+					<div class="min-w-0 flex-1">
+						<p class="truncate">{chapterListLabel(item)}</p>
+						{#if chapterListDetail(item)}
+							<p class="mt-0.5 truncate text-[11px] text-[var(--text-dim)]">
+								{chapterListDetail(item)}
+							</p>
+						{/if}
+					</div>
 					{#if item.chapterNumber != null}
 						<span class="shrink-0 text-[10px] text-[var(--text-ghost)] tabular-nums">{item.chapterNumber}</span>
 					{/if}

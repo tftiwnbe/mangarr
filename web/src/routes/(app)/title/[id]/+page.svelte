@@ -23,6 +23,11 @@
 	import { _ } from '$lib/i18n';
 	import { navigateBack, navHistoryRevision, resolveNavBackTarget } from '$lib/stores/nav-history';
 	import { panelOverlayOpen } from '$lib/stores/ui';
+	import {
+		formatChapterNumberValue,
+		hasDisplayableChapterNumber,
+		parseStructuredChapterName
+	} from '$lib/utils/chapter-display';
 	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
 	import { TITLE_STATUS } from '$lib/utils/title-status';
 
@@ -446,11 +451,23 @@
 	}
 
 	function chapterLabel(chapter: ChapterRow): string {
-		if (chapter.chapterNumber && Number.isFinite(chapter.chapterNumber)) {
-			const normalized = Number.isInteger(chapter.chapterNumber)
-				? String(chapter.chapterNumber)
-				: String(chapter.chapterNumber).replace(/\.0+$/, '');
-			return $_('chapter.chapterShort', { values: { number: normalized } });
+		if (hasDisplayableChapterNumber(chapter.chapterNumber)) {
+			return $_('chapter.chapterShort', {
+				values: { number: formatChapterNumberValue(chapter.chapterNumber) }
+			});
+		}
+		const parsed = parseStructuredChapterName(chapter.chapterName);
+		if (parsed) {
+			const parts: string[] = [];
+			if (parsed.volumeNumber) {
+				parts.push($_('chapter.volumeShort', { values: { number: parsed.volumeNumber } }));
+			}
+			if (parsed.chapterNumber) {
+				parts.push($_('chapter.chapterShort', { values: { number: parsed.chapterNumber } }));
+			}
+			if (parts.length > 0) {
+				return parts.join(' · ');
+			}
 		}
 		return chapter.chapterName || $_('title.noChapters');
 	}
@@ -458,8 +475,17 @@
 	function chapterDetail(chapter: ChapterRow): string | null {
 		const raw = chapter.chapterName.trim();
 		if (!raw) return null;
-		const chapterShort = chapterLabel(chapter);
-		if (raw === chapterShort) return null;
+		if (hasDisplayableChapterNumber(chapter.chapterNumber)) {
+			const chapterShort = $_('chapter.chapterShort', {
+				values: { number: formatChapterNumberValue(chapter.chapterNumber) }
+			});
+			if (raw === chapterShort) return null;
+			return raw;
+		}
+		const parsed = parseStructuredChapterName(raw);
+		if (parsed) {
+			return parsed.detail;
+		}
 		return raw;
 	}
 
@@ -480,12 +506,28 @@
 			activeTab = 'chapters';
 			return;
 		}
-		void goto(buildReaderPath({ titleId: title._id, chapterId: startReadingChapter._id }));
+		void goto(
+			buildReaderPath({
+				titleId: title._id,
+				titleName: title.title,
+				chapterId: startReadingChapter._id,
+				chapterName: startReadingChapter.chapterName,
+				chapterNumber: startReadingChapter.chapterNumber ?? null
+			})
+		);
 	}
 
-	function openChapter(chapterId: Id<'libraryChapters'>) {
+	function openChapter(chapter: ChapterRow) {
 		if (!title) return;
-		void goto(buildReaderPath({ titleId: title._id, chapterId }));
+		void goto(
+			buildReaderPath({
+				titleId: title._id,
+				titleName: title.title,
+				chapterId: chapter._id,
+				chapterName: chapter.chapterName,
+				chapterNumber: chapter.chapterNumber ?? null
+			})
+		);
 	}
 
 	async function downloadChapter(chapterId: Id<'libraryChapters'>) {
@@ -1179,7 +1221,7 @@
 											<button
 												type="button"
 												class="flex w-full items-baseline gap-2 text-left"
-												onclick={() => openChapter(chapter._id)}
+									onclick={() => openChapter(chapter)}
 											>
 												<span class="shrink-0 text-sm text-[var(--text)]">
 													{chapterLabel(chapter)}
