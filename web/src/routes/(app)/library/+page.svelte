@@ -87,6 +87,7 @@
 
 	const client = useConvexClient();
 	const library = useQuery(convexApi.library.listMine, () => ({}));
+	const visibilitySummary = useQuery(convexApi.library.getMineVisibilitySummary, () => ({}));
 
 	let searchQuery = $state('');
 	let selectedCollectionId = $state<string | null>(null);
@@ -126,6 +127,7 @@
 	const titles = $derived(((library.data ?? []) as TitleItem[]).map((title) => mapTitleToSummary(title)));
 	const loading = $derived(library.isLoading);
 	const error = $derived(library.error instanceof Error ? library.error.message : null);
+	const hiddenImportsCount = $derived(Number(visibilitySummary.data?.hiddenCount ?? 0));
 
 	const collections = $derived.by(() => {
 		const seen = new SvelteMap<string, LibraryCollectionResource>();
@@ -455,6 +457,11 @@
 			<div>
 				<p class="text-[var(--text)]">{$_('library.empty')}</p>
 				<p class="mt-1 text-sm text-[var(--text-ghost)]">{$_('library.emptyDescription')}</p>
+				{#if hiddenImportsCount > 0}
+					<p class="mt-2 max-w-xl text-sm text-[var(--text-ghost)]">
+						{$_('library.hiddenImports', { values: { count: hiddenImportsCount } })}
+					</p>
+				{/if}
 			</div>
 			<Button variant="outline" onclick={() => goto('/explore')}>
 				{$_('library.addFirst')}

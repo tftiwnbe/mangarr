@@ -79,6 +79,7 @@
 		"title": "My Library",
 		"empty": "Your library is empty",
 		"emptyDescription": "Start by discovering new manga to add to your collection",
+		"hiddenImports": "{count, plural, =1 {1 imported title is hidden until you add a status, rating, collection, source, or downloads.} other {# imported titles are hidden until you add a status, rating, collection, source, or downloads.}}",
 		"addFirst": "Discover Manga",
 		"totalTitles": "Total Titles",
 		"ongoing": "Ongoing",

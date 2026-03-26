@@ -1,4 +1,4 @@
-const FALLBACK_COVER = '/favicon.ico';
+const FALLBACK_COVER = '/favicon.svg';
 const COVER_PROXY_PATH = '/api/covers/proxy';
 
 export function getCachedCoverUrl(url: string | null | undefined): string {

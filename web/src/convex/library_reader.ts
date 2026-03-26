@@ -102,6 +102,39 @@ export const listMine = query({
 	}
 });
 
+export const getMineVisibilitySummary = query({
+	args: {},
+	handler: async (ctx) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return {
+				listedCount: 0,
+				hiddenCount: 0
+			};
+		}
+
+		const titles = await ctx.db
+			.query('libraryTitles')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', identity.subject as GenericId<'users'>))
+			.collect();
+
+		let listedCount = 0;
+		let hiddenCount = 0;
+		for (const title of titles) {
+			if (title.listedInLibrary === false) {
+				hiddenCount += 1;
+			} else {
+				listedCount += 1;
+			}
+		}
+
+		return {
+			listedCount,
+			hiddenCount
+		};
+	}
+});
+
 export const listTitleChapters = query({
 	args: {
 		titleId: v.id('libraryTitles')

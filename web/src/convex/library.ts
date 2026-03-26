@@ -27,6 +27,7 @@ export {
 	deleteChapterComment,
 	findMineBySource,
 	getMineById,
+	getMineVisibilitySummary,
 	getMineChapterById,
 	getReaderByChapterId,
 	listAllMineChapters,
