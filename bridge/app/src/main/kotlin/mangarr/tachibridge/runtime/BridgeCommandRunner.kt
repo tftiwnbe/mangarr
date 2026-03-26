@@ -220,8 +220,9 @@ class BridgeCommandRunner(
                     "durationMs" to (System.currentTimeMillis() - startedAt),
                 )
             } catch (error: Exception) {
+                val retryable = isRetryableFailure(command, error)
                 val retryDelayMs =
-                    if (command.commandType == "downloads.chapter") {
+                    if (retryable && command.commandType == "downloads.chapter") {
                         maxOf(
                             ConfigManager.config.downloads.failedRetryDelaySeconds * 1000L,
                             ((error as? HttpException)?.retryAfterSeconds ?: 0L) * 1000L,
@@ -229,13 +230,25 @@ class BridgeCommandRunner(
                     } else {
                         5_000L
                     }
-                events.error(
-                    "bridge.command.failed",
-                    "Bridge command execution failed",
-                    error,
-                    "durationMs" to (System.currentTimeMillis() - startedAt),
-                    "retryDelayMs" to retryDelayMs,
-                )
+                if (retryable) {
+                    events.error(
+                        "bridge.command.failed",
+                        "Bridge command execution failed",
+                        error,
+                        "durationMs" to (System.currentTimeMillis() - startedAt),
+                        "retryDelayMs" to retryDelayMs,
+                    )
+                } else {
+                    events.warn(
+                        "bridge.command.failed_permanent",
+                        "Bridge command failed permanently",
+                        "durationMs" to (System.currentTimeMillis() - startedAt),
+                        "retryDelayMs" to retryDelayMs,
+                        "throwable_class" to error::class.simpleName,
+                        "throwable_message" to error.message,
+                        "httpCode" to (error as? HttpException)?.code,
+                    )
+                }
                 client.failCommand(
                     client.payload(
                         buildJsonObject {
@@ -244,12 +257,24 @@ class BridgeCommandRunner(
                             put("now", System.currentTimeMillis())
                             put("message", error.message ?: "Unhandled bridge command error")
                             put("retryDelayMs", retryDelayMs)
+                            put("retryable", retryable)
                         },
                     ),
                 )
             }
         }
     }
+
+    private fun isRetryableFailure(command: LeaseCommand, error: Exception): Boolean {
+        val httpError = error as? HttpException ?: return true
+        if (command.commandType == "downloads.chapter") {
+            return httpError.code == 429 || httpError.code in 500..599
+        }
+        return !isPermanentHttpFailure(httpError.code)
+    }
+
+    private fun isPermanentHttpFailure(code: Int): Boolean =
+        code in 400..499 && code != 408 && code != 409 && code != 425 && code != 429
 
     private fun executeCommand(client: ConvexBridgeClient, command: LeaseCommand): JsonObject {
         val payload = command.payload.jsonObject

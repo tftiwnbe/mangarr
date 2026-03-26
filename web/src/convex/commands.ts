@@ -373,7 +373,8 @@ export const fail = mutation({
 		bridgeId: v.string(),
 		now: v.float64(),
 		message: v.string(),
-		retryDelayMs: v.optional(v.float64())
+		retryDelayMs: v.optional(v.float64()),
+		retryable: v.optional(v.boolean())
 	},
 	handler: async (ctx, args) => {
 		await requireBridgeIdentity(ctx);
@@ -382,7 +383,7 @@ export const fail = mutation({
 			return { ok: false };
 		}
 
-		const shouldRetry = command.attemptCount < command.maxAttempts;
+		const shouldRetry = args.retryable !== false && command.attemptCount < command.maxAttempts;
 		const retryDelayMs = Math.max(1_000, Math.floor(args.retryDelayMs ?? 5_000));
 		const nextStatus: CommandStatus = shouldRetry ? STATUS.QUEUED : STATUS.DEAD;
 
