@@ -1,10 +1,48 @@
 import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
 
-import { mutation, type MutationCtx, type QueryCtx } from './_generated/server';
+import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
 
 const REUSABLE_COMMAND_STATUSES = new Set(['queued', 'leased', 'running', 'succeeded']);
+
+export const getExploreTitlePreview = query({
+	args: {
+		sourceId: v.string(),
+		titleUrl: v.string()
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return null;
+		}
+
+		const cached = await ctx.db
+			.query('exploreTitleDetailsCache')
+			.withIndex('by_source_id_title_url', (q) =>
+				q.eq('sourceId', args.sourceId.trim()).eq('titleUrl', args.titleUrl.trim())
+			)
+			.unique();
+		if (!cached) {
+			return null;
+		}
+
+		return {
+			sourceId: cached.sourceId,
+			titleUrl: cached.titleUrl,
+			sourcePkg: cached.sourcePkg ?? null,
+			sourceLang: cached.sourceLang ?? null,
+			title: cached.title,
+			author: cached.author ?? null,
+			artist: cached.artist ?? null,
+			description: cached.description ?? null,
+			coverUrl: cached.coverUrl ?? null,
+			genre: cached.genre ?? null,
+			status: cached.status ?? null,
+			fetchedAt: cached.fetchedAt
+		};
+	}
+});
 
 export const ensureTitleMetadata = mutation({
 	args: {

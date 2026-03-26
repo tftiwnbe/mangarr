@@ -64,6 +64,7 @@ export {
 export {
 	ensureTitleMetadata,
 	ensureTitlesMetadata,
+	getExploreTitlePreview,
 	upsertTitleMetadataFromBridge
 } from './library_metadata';
 

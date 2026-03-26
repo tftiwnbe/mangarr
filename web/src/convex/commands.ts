@@ -300,6 +300,23 @@ export const enqueueExploreTitleFetch = mutation({
 		})
 });
 
+export const enqueueExploreChaptersFetch = mutation({
+	args: {
+		sourceId: v.string(),
+		titleUrl: v.string(),
+		contextKey: v.optional(v.string())
+	},
+	handler: (ctx, args) =>
+		enqueueCommand(ctx, {
+			commandType: 'explore.chapters.fetch',
+			payload: {
+				sourceId: args.sourceId,
+				titleUrl: args.titleUrl
+			},
+			idempotencyKey: `explore.chapters.fetch:${args.contextKey ?? 'default'}:${args.sourceId}:${args.titleUrl}`
+		})
+});
+
 export const enqueueReaderPagesFetch = mutation({
 	args: {
 		sourceId: v.string(),
