@@ -519,10 +519,14 @@ class ExtensionManager(
             val resolvedPageImageUrl = resolvePageImageUrl(source, page)
             val response =
                 if (source is HttpSource) {
-                    if (isLibGroupSource(source) && resolvedPageImageUrl.isNotBlank()) {
+                    runCatching { source.getImage(page) }.getOrElse { error ->
+                        if (resolvedPageImageUrl.isBlank()) {
+                            throw error
+                        }
+                        logger.debug(error) {
+                            "Falling back to resolved page image URL for source=${source.id} chapter=$normalizedUrl index=$index"
+                        }
                         networkHelper.client.newCall(GET(resolvedPageImageUrl, source.headers)).awaitSuccess()
-                    } else {
-                        source.getImage(page)
                     }
                 } else {
                     if (resolvedPageImageUrl.isBlank()) {
