@@ -104,6 +104,15 @@
 		items: ExploreItem[];
 	};
 
+	type SourceFailureScope = 'feed' | 'search';
+	type SourceFailure = {
+		sourceId: string;
+		scope: SourceFailureScope;
+		message: string;
+		retryAfter: number;
+		permanent: boolean;
+	};
+
 	const FEED_LIMIT = 24;
 	const FEED_SOURCE_BATCH_SIZE = 4;
 	const COMMAND_CONCURRENCY = 3;
@@ -163,6 +172,7 @@
 
 	let liveFeedResults = $state<Record<string, FeedResult>>({});
 	let liveSearchResults = $state<Record<string, SearchResult>>({});
+	let sourceFailures = $state<Record<string, SourceFailure>>({});
 	let cards = $state<ExploreCard[]>([]);
 	let stableCardOrder: string[] = [];
 	let stableCardsByKey: Record<string, ExploreCard> = {};
@@ -227,6 +237,18 @@
 	const feedCommandType = $derived(activeTab === 'latest' ? 'explore.latest' : 'explore.popular');
 	const showSearchPrompt = $derived(activeTab === 'search' && !canRunSearch);
 	const currentLoading = $derived(loading || loadingMore || sourcesQuery.isLoading || libraryQuery.isLoading);
+	const activeSourceFailures = $derived.by(() => {
+		const scope: SourceFailureScope = activeTab === 'search' ? 'search' : 'feed';
+		const now = Date.now();
+		return Object.values(sourceFailures)
+			.filter((failure) => failure.scope === scope && failure.retryAfter > now)
+			.map((failure) => ({
+				...failure,
+				sourceName: sourceNameFor(failure.sourceId),
+				retryInMinutes: Math.max(1, Math.ceil((failure.retryAfter - now) / 60_000))
+			}))
+			.sort((left, right) => left.sourceName.localeCompare(right.sourceName));
+	});
 	const incomingCards = $derived.by(() => {
 		const sourceIds =
 			activeTab === 'search'
@@ -322,6 +344,56 @@
 
 	function sourceNameFor(sourceId: string): string {
 		return sources.find((source) => source.id === sourceId)?.name ?? 'Source';
+	}
+
+	function sourceFailureKey(sourceId: string, scope: SourceFailureScope) {
+		return `${scope}:${sourceId}`;
+	}
+
+	function parseSourceFailure(
+		sourceId: string,
+		scope: SourceFailureScope,
+		cause: unknown
+	): SourceFailure {
+		const message =
+			cause instanceof Error ? cause.message : `Unable to load ${sourceNameFor(sourceId)}`;
+		const normalized = message.toLowerCase();
+		const permanent =
+			normalized.includes('http error 403') ||
+			normalized.includes('http error 404') ||
+			normalized.includes('not supported') ||
+			normalized.includes('unsupported');
+		const rateLimited = normalized.includes('http error 429') || normalized.includes('rate limit');
+		const retryAfter = Date.now() + (permanent ? 30 * 60_000 : rateLimited ? 10 * 60_000 : 5 * 60_000);
+		return {
+			sourceId,
+			scope,
+			message,
+			retryAfter,
+			permanent
+		};
+	}
+
+	function recordSourceFailure(sourceId: string, scope: SourceFailureScope, cause: unknown) {
+		const failure = parseSourceFailure(sourceId, scope, cause);
+		sourceFailures = {
+			...sourceFailures,
+			[sourceFailureKey(sourceId, scope)]: failure
+		};
+		return failure;
+	}
+
+	function clearSourceFailure(sourceId: string, scope: SourceFailureScope) {
+		const key = sourceFailureKey(sourceId, scope);
+		if (!(key in sourceFailures)) return;
+		const next = { ...sourceFailures };
+		delete next[key];
+		sourceFailures = next;
+	}
+
+	function sourceIsUnavailable(sourceId: string, scope: SourceFailureScope) {
+		const failure = sourceFailures[sourceFailureKey(sourceId, scope)];
+		return failure ? failure.retryAfter > Date.now() : false;
 	}
 
 	function displayExtensionName(name: string): string {
@@ -584,14 +656,17 @@
 	function refreshCanLoadMoreFeed(nextLoaded: Record<string, number>, nextExhausted: Record<string, boolean>) {
 		canLoadMoreFeed =
 			visibleSources.some((source) => {
+				if (sourceIsUnavailable(source.id, 'feed')) return false;
 				const page = nextLoaded[source.id] ?? 0;
 				return page > 0 && nextExhausted[source.id] !== true;
 			}) ||
-			visibleSources.some((source) => !activeFeedSourceIds.includes(source.id));
+			visibleSources.some(
+				(source) => !sourceIsUnavailable(source.id, 'feed') && !activeFeedSourceIds.includes(source.id)
+			);
 	}
 
 	async function loadFeedInitial(generation: number) {
-		const sourceIds = activeFeedSourceIds;
+		const sourceIds = activeFeedSourceIds.filter((sourceId) => !sourceIsUnavailable(sourceId, 'feed'));
 		if (sourceIds.length === 0) {
 			loadedPagesBySource = {};
 			exhaustedFeedSources = {};
@@ -630,6 +705,7 @@
 		await runWithConcurrency(sourceIds, COMMAND_CONCURRENCY, async (sourceId) => {
 				try {
 					const result = await fetchFeedPage(sourceId, 1);
+					clearSourceFailure(sourceId, 'feed');
 					successfulSources += 1;
 					nextLiveFeedResults[feedResultKey(feedCommandType, sourceId, 1)] = result;
 					nextPages[sourceId] = 1;
@@ -639,6 +715,8 @@
 						nextExhausted[sourceId] = true;
 					}
 				} catch (cause) {
+					recordSourceFailure(sourceId, 'feed', cause);
+					nextExhausted[sourceId] = true;
 					failures.push(cause instanceof Error ? cause.message : `Unable to load ${sourceNameFor(sourceId)}`);
 				}
 			});
@@ -670,6 +748,7 @@
 		const requestCommandType = feedCommandType;
 
 		const nextSourcePages = visibleSources
+			.filter((source) => !sourceIsUnavailable(source.id, 'feed'))
 			.filter((source) => sourceHasMore(feedCommandType, source.id))
 			.map((source) => ({
 				sourceId: source.id,
@@ -679,6 +758,7 @@
 		if (nextSourcePages.length === 0) {
 			const nextSourceIds = visibleSources
 				.map((source) => source.id)
+				.filter((sourceId) => !sourceIsUnavailable(sourceId, 'feed'))
 				.filter((sourceId) => !activeFeedSourceIds.includes(sourceId))
 				.slice(0, FEED_SOURCE_BATCH_SIZE);
 			if (nextSourceIds.length === 0) return;
@@ -702,6 +782,7 @@
 						page,
 						existingItems
 					);
+					clearSourceFailure(sourceId, 'feed');
 					successfulSources += 1;
 					nextLiveFeedResults[feedResultKey(feedCommandType, sourceId, finalPage)] = result;
 					nextLoaded[sourceId] = finalPage;
@@ -711,6 +792,8 @@
 						delete nextExhausted[sourceId];
 					}
 				} catch (cause) {
+					recordSourceFailure(sourceId, 'feed', cause);
+					nextExhausted[sourceId] = true;
 					failures.push(cause instanceof Error ? cause.message : `Unable to load more from ${sourceNameFor(sourceId)}`);
 				}
 			});
@@ -745,12 +828,16 @@
 			return;
 		}
 
-		const sourceIds =
+		const sourceIds = (
 			selectedSourceId && searchSources.some((source) => source.id === selectedSourceId)
 				? [selectedSourceId]
-				: searchSources.map((source) => source.id);
+				: searchSources
+						.map((source) => source.id)
+						.filter((sourceId) => !sourceIsUnavailable(sourceId, 'search'))
+		);
 
 		if (sourceIds.length === 0) {
+			error = activeSourceFailures[0]?.message ?? null;
 			loading = false;
 			return;
 		}
@@ -778,10 +865,12 @@
 						...(Object.keys(searchFilters).length > 0 ? { searchFilters } : {})
 					});
 					const command = await waitForCommand(client, commandId);
+					clearSourceFailure(sourceId, 'search');
 					nextLiveSearchResults[searchResultKey(sourceId, value, searchFilters)] = {
 						items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[]
 					};
 				} catch (cause) {
+					recordSourceFailure(sourceId, 'search', cause);
 					failures.push(cause instanceof Error ? cause.message : `Search failed for ${sourceNameFor(sourceId)}`);
 				}
 			});
@@ -994,7 +1083,10 @@
 			return;
 		}
 		lastFeedLoadSignature = signature;
-		activeFeedSourceIds = visibleSources.slice(0, FEED_SOURCE_BATCH_SIZE).map((source) => source.id);
+		activeFeedSourceIds = visibleSources
+			.filter((source) => !sourceIsUnavailable(source.id, 'feed'))
+			.slice(0, FEED_SOURCE_BATCH_SIZE)
+			.map((source) => source.id);
 		canLoadMoreFeed = activeFeedSourceIds.length > 0;
 		const generation = ++feedLoadGeneration;
 		void loadFeedInitial(generation);
@@ -1173,6 +1265,17 @@
 	{#if error}
 		<div class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]">
 			{error}
+		</div>
+	{/if}
+
+	{#if activeSourceFailures.length > 0}
+		<div class="border border-[var(--line)] bg-[var(--void-2)] px-4 py-3 text-sm text-[var(--text-muted)]">
+			{activeSourceFailures.length} source{activeSourceFailures.length === 1 ? '' : 's'} temporarily skipped:
+			{activeSourceFailures
+				.map((failure) =>
+					`${failure.sourceName}${failure.permanent ? '' : ` (${failure.retryInMinutes}m)`}`
+				)
+				.join(', ')}
 		</div>
 	{/if}
 
