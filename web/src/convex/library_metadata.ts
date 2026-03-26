@@ -58,6 +58,26 @@ export const ensureTitleMetadata = mutation({
 	}
 });
 
+export const ensureTitleReady = mutation({
+	args: {
+		titleId: v.id('libraryTitles')
+	},
+	handler: async (ctx, args) => {
+		const title = await requireOwnedTitle(ctx, args.titleId);
+		const now = Date.now();
+		const [metadataCommandId, chapterSyncCommandId] = await Promise.all([
+			ensureMetadataForTitle(ctx, title, now),
+			ensureChapterSyncForTitle(ctx, title, now)
+		]);
+
+		return {
+			enqueued: Number(metadataCommandId !== null) + Number(chapterSyncCommandId !== null),
+			metadataCommandId,
+			chapterSyncCommandId
+		};
+	}
+});
+
 export const ensureTitlesMetadata = mutation({
 	args: {
 		titleIds: v.array(v.id('libraryTitles')),
@@ -273,6 +293,58 @@ async function ensureMetadataForTitle(
 		idempotencyKey,
 		status: 'queued',
 		priority: 90,
+		runAfter: now,
+		attemptCount: 0,
+		maxAttempts: 3,
+		createdAt: now,
+		updatedAt: now
+	});
+}
+
+async function ensureChapterSyncForTitle(
+	ctx: MutationCtx,
+	title: DocLike<'libraryTitles'>,
+	now: number
+) {
+	const existingChapters = await ctx.db
+		.query('libraryChapters')
+		.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+		.take(1);
+	if (existingChapters.length > 0) {
+		return null;
+	}
+
+	const sourceId = title.sourceId.trim();
+	const titleUrl = title.titleUrl.trim();
+	if (!sourceId || !titleUrl) {
+		return null;
+	}
+
+	const idempotencyKey = `library.chapters.sync:${String(title._id)}:${sourceId}:${titleUrl}`;
+	const reusable = await ctx.db
+		.query('commands')
+		.withIndex('by_idempotency_key', (q) => q.eq('idempotencyKey', idempotencyKey))
+		.collect();
+	const existingCommand = reusable
+		.filter((command) => command.requestedByUserId === title.ownerUserId)
+		.sort((left, right) => right.createdAt - left.createdAt)
+		.find((command) => REUSABLE_COMMAND_STATUSES.has(command.status));
+	if (existingCommand) {
+		return existingCommand._id;
+	}
+
+	return ctx.db.insert('commands', {
+		commandType: 'library.chapters.sync',
+		targetCapability: 'library.chapters.sync',
+		requestedByUserId: title.ownerUserId,
+		payload: {
+			titleId: title._id,
+			sourceId,
+			titleUrl
+		},
+		idempotencyKey,
+		status: 'queued',
+		priority: 95,
 		runAfter: now,
 		attemptCount: 0,
 		maxAttempts: 3,

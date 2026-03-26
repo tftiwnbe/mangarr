@@ -62,6 +62,7 @@ export {
 	updateDownloadProfile
 } from './library_downloads';
 export {
+	ensureTitleReady,
 	ensureTitleMetadata,
 	ensureTitlesMetadata,
 	getExploreTitlePreview,

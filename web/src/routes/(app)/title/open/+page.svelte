@@ -18,6 +18,32 @@
 	let titleName = $state('');
 	let thumbnailUrl = $state('');
 
+	async function findExistingTitle() {
+		const sourceId = page.url.searchParams.get('source_id')?.trim() ?? '';
+		const titleUrl = page.url.searchParams.get('title_url')?.trim() ?? '';
+		const canonicalKey = page.url.searchParams.get('canonical_key')?.trim() ?? '';
+		if (!sourceId || !titleUrl || !canonicalKey) {
+			return null;
+		}
+		return client.query(convexApi.library.findMineBySource, {
+			canonicalKey,
+			sourceId,
+			titleUrl
+		});
+	}
+
+	async function waitForImportedTitle(timeoutMs = 8_000) {
+		const startedAt = Date.now();
+		while (Date.now() - startedAt < timeoutMs) {
+			const existing = await findExistingTitle();
+			if (existing?._id) {
+				return existing;
+			}
+			await new Promise((resolve) => setTimeout(resolve, 400));
+		}
+		return null;
+	}
+
 	async function openTitle(): Promise<void> {
 		const sourceId = page.url.searchParams.get('source_id')?.trim() ?? '';
 		const sourcePkg = page.url.searchParams.get('source_pkg')?.trim() ?? '';
@@ -33,11 +59,7 @@
 		loading = true;
 		error = null;
 		try {
-			const existing = await client.query(convexApi.library.findMineBySource, {
-				canonicalKey,
-				sourceId,
-				titleUrl
-			});
+			const existing = await findExistingTitle();
 			if (existing?._id) {
 				await goto(buildTitlePath(String(existing._id), existing.title || titleName || titleUrl), {
 					replaceState: true
@@ -53,11 +75,30 @@
 				titleUrl
 			});
 			const command = await waitForCommand(client, commandId, {
-				timeoutMs: 18_000,
-				pollIntervalMs: 300
+				timeoutMs: 45_000,
+				pollIntervalMs: 400
+			}).catch(async (cause) => {
+				const imported = await waitForImportedTitle();
+				if (imported?._id) {
+					await goto(buildTitlePath(String(imported._id), imported.title || titleName || titleUrl), {
+						replaceState: true
+					});
+					return null;
+				}
+				throw cause;
 			});
+			if (!command) {
+				return;
+			}
 			const titleId = String(command.result?.titleId ?? '');
 			if (!titleId) {
+				const imported = await waitForImportedTitle(4_000);
+				if (imported?._id) {
+					await goto(buildTitlePath(String(imported._id), imported.title || titleName || titleUrl), {
+						replaceState: true
+					});
+					return;
+				}
 				throw new Error('Import completed without a title id');
 			}
 			await goto(buildTitlePath(titleId, titleName || titleUrl), { replaceState: true });

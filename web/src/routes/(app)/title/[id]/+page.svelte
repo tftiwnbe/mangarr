@@ -189,6 +189,7 @@
 	let preferencesError = $state<string | null>(null);
 	let preferencesSuccess = $state(false);
 	let metadataRequested = $state(false);
+	let readinessRequested = $state(false);
 	let selectedStatusId = $state<string | null>(null);
 	let selectedRating = $state<number>(0);
 	let selectedCollectionIds = $state<string[]>([]);
@@ -402,6 +403,7 @@
 		if (key === lastMetadataKey) return;
 		lastMetadataKey = key;
 		metadataRequested = false;
+		readinessRequested = false;
 	});
 
 	$effect(() => {
@@ -427,6 +429,21 @@
 				}
 			} catch {
 				// Leave fields as-is; key reset on navigation/title change enables a later retry.
+			}
+		})();
+	});
+
+	$effect(() => {
+		if (!title || readinessRequested) return;
+		if (title.chapters.length > 0) return;
+		readinessRequested = true;
+		void (async () => {
+			try {
+				await client.mutation(convexApi.library.ensureTitleReady, {
+					titleId: title._id
+				});
+			} catch {
+				readinessRequested = false;
 			}
 		})();
 	});
