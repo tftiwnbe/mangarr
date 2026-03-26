@@ -81,6 +81,7 @@ export const listMine = query({
 		]);
 
 		return [...titles]
+			.filter((title) => title.userStatusId !== undefined)
 			.sort((left, right) => right.updatedAt - left.updatedAt)
 			.map((title) => {
 				const chapters = chaptersByTitleId.get(String(title._id)) ?? [];
