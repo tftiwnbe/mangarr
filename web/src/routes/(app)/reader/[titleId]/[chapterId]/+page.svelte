@@ -132,7 +132,10 @@
 	let paintedPageIds = new SvelteSet<string>();
 	let fetchRequested = $state(false);
 	let initializedProgress = $state(false);
-	let progressSaveTimer: ReturnType<typeof setTimeout> | null = null;
+	let progressFlushTimer: ReturnType<typeof setTimeout> | null = null;
+	let progressSyncInFlight = $state(false);
+	let pendingServerPageIndex = $state<number | null>(null);
+	let lastSavedServerPageIndex = $state<number | null>(null);
 	let lastChapterId = $state<string | null>(null);
 	let remotePagesCommand = $state<CommandItem | null>(null);
 	let pageRetryCounts = $state<Record<string, number>>({});
@@ -361,6 +364,44 @@
 		return new Date(timestamp).toLocaleString();
 	}
 
+	function scheduleServerProgressFlush(delayMs = 900) {
+		if (progressFlushTimer) {
+			clearTimeout(progressFlushTimer);
+		}
+		progressFlushTimer = setTimeout(() => {
+			void flushServerProgress();
+		}, delayMs);
+	}
+
+	async function flushServerProgress() {
+		if (!chapter || progressSyncInFlight) return;
+		const activeChapterId = chapter._id;
+		const pageIndex = pendingServerPageIndex;
+		if (pageIndex === null || pageIndex === lastSavedServerPageIndex) {
+			return;
+		}
+
+		progressSyncInFlight = true;
+		try {
+			await client.mutation(convexApi.library.upsertChapterProgress, {
+				chapterId: activeChapterId,
+				pageIndex
+			});
+			if (chapter?._id !== activeChapterId) {
+				return;
+			}
+			lastSavedServerPageIndex = pageIndex;
+			if (pendingServerPageIndex === pageIndex) {
+				pendingServerPageIndex = null;
+			}
+		} finally {
+			progressSyncInFlight = false;
+			if (pendingServerPageIndex !== null && pendingServerPageIndex !== lastSavedServerPageIndex) {
+				scheduleServerProgressFlush(500);
+			}
+		}
+	}
+
 	function handleKeydown(event: KeyboardEvent) {
 		if (mode !== 'horizontal') return;
 		if (event.target instanceof HTMLElement) {
@@ -513,12 +554,20 @@
 	});
 
 	$effect(() => {
+		const serverPage = readerData?.progress?.pageIndex ?? null;
+		lastSavedServerPageIndex = serverPage;
+	});
+
+	$effect(() => {
 		if (currentChapterId === null) {
 			lastChapterId = null;
 			fetchRequested = false;
 			remotePagesCommand = null;
 			initializedProgress = false;
 			currentPageIndex = 0;
+			progressSyncInFlight = false;
+			pendingServerPageIndex = null;
+			lastSavedServerPageIndex = null;
 			loadedPageIds.clear();
 			paintedPageIds.clear();
 			pageRetryCounts = {};
@@ -531,6 +580,9 @@
 			remotePagesCommand = null;
 			initializedProgress = false;
 			currentPageIndex = 0;
+			progressSyncInFlight = false;
+			pendingServerPageIndex = null;
+			lastSavedServerPageIndex = readerData?.progress?.pageIndex ?? getReaderProgress(currentChapterId) ?? null;
 			loadedPageIds.clear();
 			paintedPageIds.clear();
 			pageRetryCounts = {};
@@ -539,21 +591,18 @@
 
 	$effect(() => {
 		if (!chapter || !pages[currentPageIndex]) return;
-		if (progressSaveTimer) {
-			clearTimeout(progressSaveTimer);
-		}
 		const pageIndex = pages[currentPageIndex].pageIndex;
 		setReaderProgress(chapter._id, pageIndex);
-		progressSaveTimer = setTimeout(() => {
-			void client.mutation(convexApi.library.upsertChapterProgress, {
-				chapterId: chapter._id,
-				pageIndex
-			});
-		}, 300);
+		if (pageIndex === lastSavedServerPageIndex) {
+			pendingServerPageIndex = null;
+			return;
+		}
+		pendingServerPageIndex = pageIndex;
+		scheduleServerProgressFlush();
 
 		return () => {
-			if (progressSaveTimer) {
-				clearTimeout(progressSaveTimer);
+			if (progressFlushTimer) {
+				clearTimeout(progressFlushTimer);
 			}
 		};
 	});
@@ -599,7 +648,8 @@
 			document.body.classList.remove('reader-mode');
 			media.removeEventListener('change', syncTouch);
 			window.removeEventListener('scroll', syncScroll);
-			if (progressSaveTimer) clearTimeout(progressSaveTimer);
+			if (progressFlushTimer) clearTimeout(progressFlushTimer);
+			void flushServerProgress();
 		};
 	});
 </script>
