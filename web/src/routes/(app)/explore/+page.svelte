@@ -2,7 +2,6 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { useConvexClient, useQuery } from 'convex-svelte';
-	import type { Id } from '$convex/_generated/dataModel';
 	import {
 		CheckIcon,
 		CompassIcon,
@@ -109,7 +108,6 @@
 	const FEED_SOURCE_BATCH_SIZE = 4;
 	const COMMAND_CONCURRENCY = 3;
 	const FEED_DUPLICATE_PAGE_TOLERANCE = 3;
-	const FEED_COMMAND_IDEMPOTENCY_WINDOW_MS = 5 * 60 * 1000;
 	const UUID_SEGMENT_RE =
 		/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 	const LONG_HEX_SEGMENT_RE = /^[0-9a-f]{12,}$/i;
@@ -435,21 +433,8 @@
 		return `${commandType}:${sourceId}:page:${page}`;
 	}
 
-	function feedCommandIdempotencyKey(commandType: string, sourceId: string, page: number, limit: number): string {
-		const bucket = Math.floor(Date.now() / FEED_COMMAND_IDEMPOTENCY_WINDOW_MS);
-		return `feed:v2:${commandType}:${sourceId}:${page}:${limit}:${bucket}`;
-	}
-
 	function searchResultKey(sourceId: string, query: string, searchFilters: Record<string, unknown>): string {
 		return `explore.search:${sourceId}:${query.trim().toLowerCase()}:${JSON.stringify(searchFilters)}`;
-	}
-
-	function searchCommandIdempotencyKey(
-		sourceId: string,
-		query: string,
-		searchFilters: Record<string, unknown>
-	): string {
-		return `search:${sourceId}:${query.trim().toLowerCase()}:${JSON.stringify(searchFilters)}`;
 	}
 
 	function latestFeedResult(commandType: string, sourceId: string, page: number): FeedResult | null {
@@ -530,14 +515,6 @@
 		return value;
 	}
 
-	async function enqueueCommand(
-		commandType: string,
-		payload: Record<string, unknown>,
-		idempotencyKey?: string
-	) {
-		return client.mutation(convexApi.commands.enqueue, { commandType, payload, idempotencyKey });
-	}
-
 	async function runWithConcurrency<T>(
 		items: T[],
 		limit: number,
@@ -558,16 +535,13 @@
 	}
 
 	async function fetchFeedPage(sourceId: string, page: number): Promise<FeedResult> {
-		const { commandId } = await enqueueCommand(
-			feedCommandType,
-			{
-				sourceId,
-				page,
-				limit: FEED_LIMIT
-			},
-			feedCommandIdempotencyKey(feedCommandType, sourceId, page, FEED_LIMIT)
-		);
-		const command = await waitForCommand(client, commandId as Id<'commands'>);
+		const { commandId } = await client.mutation(convexApi.commands.enqueueExploreFeed, {
+			feedType: feedCommandType === 'explore.latest' ? 'latest' : 'popular',
+			sourceId,
+			page,
+			limit: FEED_LIMIT
+		});
+		const command = await waitForCommand(client, commandId);
 		return {
 			items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[],
 			page: Number(command.result?.page ?? page),
@@ -797,12 +771,13 @@
 					if (Object.keys(searchFilters).length > 0) {
 						payload.searchFilters = searchFilters;
 					}
-					const { commandId } = await enqueueCommand(
-						'explore.search',
-						payload,
-						searchCommandIdempotencyKey(sourceId, value, searchFilters)
-					);
-					const command = await waitForCommand(client, commandId as Id<'commands'>);
+					const { commandId } = await client.mutation(convexApi.commands.enqueueExploreSearch, {
+						sourceId,
+						query: value,
+						limit: 42,
+						...(Object.keys(searchFilters).length > 0 ? { searchFilters } : {})
+					});
+					const command = await waitForCommand(client, commandId);
 					nextLiveSearchResults[searchResultKey(sourceId, value, searchFilters)] = {
 						items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[]
 					};
@@ -829,8 +804,10 @@
 		pendingSearchFilterChanges = {};
 
 		try {
-			const { commandId } = await enqueueCommand('sources.preferences.fetch', { sourceId });
-			const command = await waitForCommand(client, commandId as Id<'commands'>);
+			const { commandId } = await client.mutation(convexApi.commands.enqueueSourcePreferencesFetch, {
+				sourceId
+			});
+			const command = await waitForCommand(client, commandId);
 			searchFiltersData = command.result as PreferenceBundle;
 			const applied = appliedSearchFiltersBySource[sourceId];
 			if (applied) {

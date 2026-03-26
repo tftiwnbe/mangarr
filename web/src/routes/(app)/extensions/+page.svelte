@@ -3,7 +3,6 @@
 	import { SvelteMap } from 'svelte/reactivity';
 	import { slide } from 'svelte/transition';
 	import { useConvexClient, useQuery } from 'convex-svelte';
-	import type { Id } from '$convex/_generated/dataModel';
 	import {
 		ArrowsClockwiseIcon,
 		CaretDownIcon,
@@ -319,26 +318,14 @@
 		}));
 	}
 
-	async function enqueueCommand(commandType: string, payload: Record<string, unknown>) {
-		const { commandId } = await client.mutation(convexApi.commands.enqueue, {
-			commandType,
-			payload,
-			idempotencyKey:
-				commandType === 'extensions.repo.search'
-					? `extensions.repo.search:${String(payload.query ?? '').trim().toLowerCase()}:${Number(payload.limit ?? 0)}`
-					: undefined
-		});
-		return String(commandId);
-	}
-
 	async function loadAvailableExtensions() {
 		availableLoading = true;
 		try {
-			const commandId = await enqueueCommand('extensions.repo.search', {
+			const { commandId } = await client.mutation(convexApi.commands.enqueueRepositorySearch, {
 				query: '',
 				limit: 5000
 			});
-			const command = await waitForCommand(client, commandId as Id<'commands'>, {
+			const command = await waitForCommand(client, commandId, {
 				timeoutMs: 30_000,
 				pollIntervalMs: 300
 			});
@@ -371,8 +358,8 @@
 		installingPkg = pkg;
 		error = null;
 		try {
-			const commandId = await enqueueCommand('extensions.install', { pkg });
-			await waitForCommand(client, commandId as Id<'commands'>, {
+			const { commandId } = await client.mutation(convexApi.commands.enqueueExtensionInstall, { pkg });
+			await waitForCommand(client, commandId, {
 				timeoutMs: 30_000,
 				pollIntervalMs: 300
 			});
@@ -390,8 +377,8 @@
 		uninstallingPkg = pkg;
 		error = null;
 		try {
-			const commandId = await enqueueCommand('extensions.uninstall', { pkg });
-			await waitForCommand(client, commandId as Id<'commands'>, {
+			const { commandId } = await client.mutation(convexApi.commands.enqueueExtensionUninstall, { pkg });
+			await waitForCommand(client, commandId, {
 				timeoutMs: 30_000,
 				pollIntervalMs: 300
 			});
@@ -492,8 +479,10 @@
 		pendingPreferenceChanges.clear();
 		advancedOpen = false;
 		try {
-			const commandId = await enqueueCommand('sources.preferences.fetch', { sourceId });
-			const command = await waitForCommand(client, commandId as Id<'commands'>, {
+			const { commandId } = await client.mutation(convexApi.commands.enqueueSourcePreferencesFetch, {
+				sourceId
+			});
+			const command = await waitForCommand(client, commandId, {
 				timeoutMs: 30_000,
 				pollIntervalMs: 300
 			});
@@ -546,11 +535,11 @@
 		sourceSettingsSaving = true;
 		sourceSettingsError = null;
 		try {
-			const commandId = await enqueueCommand('sources.preferences.save', {
+			const { commandId } = await client.mutation(convexApi.commands.enqueueSourcePreferencesSave, {
 				sourceId: sourceSettingsData.source_id,
 				entries: buildPreferenceEntries(pendingPreferenceChanges.entries())
 			});
-			await waitForCommand(client, commandId as Id<'commands'>, {
+			await waitForCommand(client, commandId, {
 				timeoutMs: 30_000,
 				pollIntervalMs: 300
 			});
@@ -742,11 +731,14 @@
 					throw new Error('No imported keys yet. Paste JSON map to import.');
 				}
 				const deletes = existingKeys.map((key) => [key, deletePreferenceValue()] as const);
-				const commandId = await enqueueCommand('sources.preferences.save', {
+				const { commandId } = await client.mutation(
+					convexApi.commands.enqueueSourcePreferencesSave,
+					{
 					sourceId: sourceSettingsData.source_id,
 					entries: buildPreferenceEntries([...deletes, ...Object.entries(mapped)])
-				});
-			await waitForCommand(client, commandId as Id<'commands'>, {
+					}
+				);
+			await waitForCommand(client, commandId, {
 				timeoutMs: 30_000,
 				pollIntervalMs: 300
 			});

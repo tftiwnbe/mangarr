@@ -1,7 +1,7 @@
 import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
 
-import { mutation, query } from './_generated/server';
+import { mutation, query, type MutationCtx } from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
 
 const STATUS = {
@@ -76,6 +76,79 @@ function requiresAdmin(commandType: string) {
 	}
 }
 
+function stableKeySegment(value: unknown): string {
+	if (value === null || value === undefined) return 'null';
+	if (Array.isArray(value)) {
+		return `[${value.map((item) => stableKeySegment(item)).join(',')}]`;
+	}
+	if (typeof value === 'object') {
+		const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) =>
+			left.localeCompare(right)
+		);
+		return `{${entries
+			.map(([key, entryValue]) => `${key}:${stableKeySegment(entryValue)}`)
+			.join(',')}}`;
+	}
+	return String(value);
+}
+
+async function enqueueCommand(
+	ctx: MutationCtx,
+	args: {
+		commandType: string;
+		payload: unknown;
+		idempotencyKey?: string;
+		priority?: number;
+		maxAttempts?: number;
+	}
+) {
+	const identity = await ctx.auth.getUserIdentity();
+	if (!identity) {
+		throw new Error('Not authenticated');
+	}
+	if (requiresAdmin(args.commandType) && identity.isAdmin !== true && identity.role !== 'admin') {
+		throw new Error('Admin privileges are required');
+	}
+	const now = Date.now();
+	const targetCapability = targetCapabilityFor(args.commandType);
+	const idempotencyKey =
+		args.idempotencyKey ??
+		`${args.commandType}:${identity.subject}:${now}:${Math.random().toString(36).slice(2, 10)}`;
+
+	if (args.idempotencyKey) {
+		const existing = await ctx.db
+			.query('commands')
+			.withIndex('by_idempotency_key', (q) => q.eq('idempotencyKey', args.idempotencyKey!))
+			.collect();
+
+		const reusable = existing
+			.filter((row) => row.requestedByUserId === (identity.subject as GenericId<'users'>))
+			.sort((left, right) => right.createdAt - left.createdAt)
+			.find((row) => REUSABLE_STATUSES.has(row.status as CommandStatus));
+
+		if (reusable) {
+			return { commandId: reusable._id };
+		}
+	}
+
+	const commandId = await ctx.db.insert('commands', {
+		commandType: args.commandType,
+		targetCapability,
+		requestedByUserId: identity.subject as GenericId<'users'>,
+		payload: args.payload,
+		idempotencyKey,
+		status: STATUS.QUEUED,
+		priority: args.priority ?? 100,
+		runAfter: now,
+		attemptCount: 0,
+		maxAttempts: Math.max(1, Math.floor(args.maxAttempts ?? 3)),
+		createdAt: now,
+		updatedAt: now
+	});
+
+	return { commandId };
+}
+
 export const enqueue = mutation({
 	args: {
 		commandType: v.string(),
@@ -84,53 +157,179 @@ export const enqueue = mutation({
 		priority: v.optional(v.float64()),
 		maxAttempts: v.optional(v.float64())
 	},
-	handler: async (ctx, args) => {
-		const identity = await ctx.auth.getUserIdentity();
-		if (!identity) {
-			throw new Error('Not authenticated');
-		}
-		if (requiresAdmin(args.commandType) && identity.isAdmin !== true && identity.role !== 'admin') {
-			throw new Error('Admin privileges are required');
-		}
-		const now = Date.now();
-		const targetCapability = targetCapabilityFor(args.commandType);
-		const idempotencyKey =
-			args.idempotencyKey ??
-			`${args.commandType}:${identity.subject}:${now}:${Math.random().toString(36).slice(2, 10)}`;
+	handler: (ctx, args) => enqueueCommand(ctx, args)
+});
 
-		if (args.idempotencyKey) {
-			const existing = await ctx.db
-				.query('commands')
-				.withIndex('by_idempotency_key', (q) => q.eq('idempotencyKey', args.idempotencyKey!))
-				.collect();
+export const enqueueRepositorySync = mutation({
+	args: {
+		url: v.string()
+	},
+	handler: (ctx, args) =>
+		enqueueCommand(ctx, {
+			commandType: 'extensions.repo.sync',
+			payload: { url: args.url.trim() },
+			idempotencyKey: `extensions.repo.sync:${args.url.trim().toLowerCase()}`
+		})
+});
 
-			const reusable = existing
-				.filter((row) => row.requestedByUserId === (identity.subject as GenericId<'users'>))
-				.sort((left, right) => right.createdAt - left.createdAt)
-				.find((row) => REUSABLE_STATUSES.has(row.status as CommandStatus));
+export const enqueueRepositorySearch = mutation({
+	args: {
+		query: v.string(),
+		limit: v.optional(v.float64())
+	},
+	handler: (ctx, args) =>
+		enqueueCommand(ctx, {
+			commandType: 'extensions.repo.search',
+			payload: {
+				query: args.query,
+				limit: args.limit ?? 5000
+			},
+			idempotencyKey: `extensions.repo.search:${args.query.trim().toLowerCase()}:${Number(args.limit ?? 5000)}`
+		})
+});
 
-			if (reusable) {
-				return { commandId: reusable._id };
+export const enqueueExtensionInstall = mutation({
+	args: {
+		pkg: v.string()
+	},
+	handler: (ctx, args) =>
+		enqueueCommand(ctx, {
+			commandType: 'extensions.install',
+			payload: { pkg: args.pkg.trim() },
+			idempotencyKey: `extensions.install:${args.pkg.trim()}`
+		})
+});
+
+export const enqueueExtensionUninstall = mutation({
+	args: {
+		pkg: v.string()
+	},
+	handler: (ctx, args) =>
+		enqueueCommand(ctx, {
+			commandType: 'extensions.uninstall',
+			payload: { pkg: args.pkg.trim() },
+			idempotencyKey: `extensions.uninstall:${args.pkg.trim()}`
+		})
+});
+
+export const enqueueSourcePreferencesFetch = mutation({
+	args: {
+		sourceId: v.string()
+	},
+	handler: (ctx, args) =>
+		enqueueCommand(ctx, {
+			commandType: 'sources.preferences.fetch',
+			payload: { sourceId: args.sourceId.trim() },
+			idempotencyKey: `sources.preferences.fetch:${args.sourceId.trim()}`
+		})
+});
+
+export const enqueueSourcePreferencesSave = mutation({
+	args: {
+		sourceId: v.string(),
+		entries: v.array(
+			v.object({
+				key: v.string(),
+				value: v.any()
+			})
+		)
+	},
+	handler: (ctx, args) =>
+		enqueueCommand(ctx, {
+			commandType: 'sources.preferences.save',
+			payload: {
+				sourceId: args.sourceId.trim(),
+				entries: args.entries
 			}
-		}
+		})
+});
 
-		const commandId = await ctx.db.insert('commands', {
-			commandType: args.commandType,
-			targetCapability,
-			requestedByUserId: identity.subject as GenericId<'users'>,
-			payload: args.payload,
-			idempotencyKey,
-			status: STATUS.QUEUED,
-			priority: args.priority ?? 100,
-			runAfter: now,
-			attemptCount: 0,
-			maxAttempts: Math.max(1, Math.floor(args.maxAttempts ?? 3)),
-			createdAt: now,
-			updatedAt: now
-		});
+export const enqueueExploreFeed = mutation({
+	args: {
+		feedType: v.union(v.literal('popular'), v.literal('latest')),
+		sourceId: v.string(),
+		page: v.float64(),
+		limit: v.float64()
+	},
+	handler: (ctx, args) =>
+		enqueueCommand(ctx, {
+			commandType: args.feedType === 'latest' ? 'explore.latest' : 'explore.popular',
+			payload: {
+				sourceId: args.sourceId,
+				page: args.page,
+				limit: args.limit
+			},
+			idempotencyKey: `explore.${args.feedType}:${args.sourceId}:${args.page}:${args.limit}`
+		})
+});
 
-		return { commandId };
-	}
+export const enqueueExploreSearch = mutation({
+	args: {
+		sourceId: v.string(),
+		query: v.string(),
+		limit: v.float64(),
+		searchFilters: v.optional(v.any())
+	},
+	handler: (ctx, args) =>
+		enqueueCommand(ctx, {
+			commandType: 'explore.search',
+			payload: {
+				sourceId: args.sourceId,
+				query: args.query,
+				limit: args.limit,
+				...(args.searchFilters !== undefined ? { searchFilters: args.searchFilters } : {})
+			},
+			idempotencyKey: `explore.search:${args.sourceId}:${args.query.trim().toLowerCase()}:${args.limit}:${stableKeySegment(args.searchFilters ?? {})}`
+		})
+});
+
+export const enqueueExploreTitleFetch = mutation({
+	args: {
+		sourceId: v.string(),
+		titleUrl: v.string(),
+		contextKey: v.optional(v.string())
+	},
+	handler: (ctx, args) =>
+		enqueueCommand(ctx, {
+			commandType: 'explore.title.fetch',
+			payload: {
+				sourceId: args.sourceId,
+				titleUrl: args.titleUrl
+			},
+			idempotencyKey: `explore.title.fetch:${args.contextKey ?? 'default'}:${args.sourceId}:${args.titleUrl}`
+		})
+});
+
+export const enqueueReaderPagesFetch = mutation({
+	args: {
+		sourceId: v.string(),
+		chapterUrl: v.string()
+	},
+	handler: (ctx, args) =>
+		enqueueCommand(ctx, {
+			commandType: 'reader.pages.fetch',
+			payload: {
+				sourceId: args.sourceId,
+				chapterUrl: args.chapterUrl
+			},
+			idempotencyKey: `reader.pages.fetch:${args.sourceId}:${args.chapterUrl}`
+		})
+});
+
+export const enqueueLibraryImport = mutation({
+	args: {
+		canonicalKey: v.string(),
+		sourceId: v.string(),
+		sourcePkg: v.string(),
+		sourceLang: v.string(),
+		titleUrl: v.string()
+	},
+	handler: (ctx, args) =>
+		enqueueCommand(ctx, {
+			commandType: 'library.import',
+			payload: args,
+			idempotencyKey: `library.import:${args.canonicalKey}:${args.sourceId}:${args.titleUrl}`
+		})
 });
 
 export const listMine = query({

@@ -133,15 +133,12 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 	}
 
 	const client = await getUserConvexClient(user);
-	const sync = await client.mutation(convexApi.commands.enqueue, {
-		commandType: 'extensions.repo.sync',
-		payload: { url }
-	});
+	const sync = await client.mutation(convexApi.commands.enqueueRepositorySync, { url });
 	await waitForCommand(client, sync.commandId);
 
-	const search = await client.mutation(convexApi.commands.enqueue, {
-		commandType: 'extensions.repo.search',
-		payload: { query: '', limit: 100 }
+	const search = await client.mutation(convexApi.commands.enqueueRepositorySearch, {
+		query: '',
+		limit: 100
 	});
 	const searchResult = await waitForCommand(client, search.commandId);
 

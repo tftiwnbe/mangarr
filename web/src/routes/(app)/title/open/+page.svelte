@@ -4,8 +4,8 @@
 	import { onMount } from 'svelte';
 	import { useConvexClient } from 'convex-svelte';
 
-	import type { Id } from '$convex/_generated/dataModel';
 	import { convexApi } from '$lib/convex/api';
+	import { waitForCommand } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
 	import { CaretLeftIcon } from 'phosphor-svelte';
 	import { _ } from '$lib/i18n';
@@ -45,51 +45,22 @@
 				return;
 			}
 
-			const { commandId } = await client.mutation(convexApi.commands.enqueue, {
-				commandType: 'library.import',
-				payload: {
-					canonicalKey,
-					sourceId,
-					sourcePkg,
-					sourceLang,
-					titleUrl
-				}
+			const { commandId } = await client.mutation(convexApi.commands.enqueueLibraryImport, {
+				canonicalKey,
+				sourceId,
+				sourcePkg,
+				sourceLang,
+				titleUrl
 			});
-
-			for (let attempt = 0; attempt < 60; attempt += 1) {
-				const command = await client.query(convexApi.commands.getMineById, {
-					commandId: commandId as Id<'commands'>
-				});
-				if (!command) {
-					throw new Error('Import command not found');
-				}
-				if (command.status === 'succeeded') {
-					const titleId = String(command.result?.titleId ?? '');
-					if (titleId) {
-						await goto(buildTitlePath(titleId, titleName || titleUrl), { replaceState: true });
-						return;
-					}
-					throw new Error('Import completed without a title id');
-				}
-				if (command.status === 'failed' || command.status === 'cancelled' || command.status === 'dead_letter') {
-					throw new Error(command.lastErrorMessage ?? 'Unable to open title');
-				}
-
-				const imported = await client.query(convexApi.library.findMineBySource, {
-					canonicalKey,
-					sourceId,
-					titleUrl
-				});
-				if (imported?._id && command.status !== 'queued' && command.status !== 'running') {
-					await goto(buildTitlePath(String(imported._id), imported.title || titleName || titleUrl), {
-						replaceState: true
-					});
-					return;
-				}
-				await new Promise((resolve) => setTimeout(resolve, 300));
+			const command = await waitForCommand(client, commandId, {
+				timeoutMs: 18_000,
+				pollIntervalMs: 300
+			});
+			const titleId = String(command.result?.titleId ?? '');
+			if (!titleId) {
+				throw new Error('Import completed without a title id');
 			}
-
-			throw new Error('Timed out while opening title');
+			await goto(buildTitlePath(titleId, titleName || titleUrl), { replaceState: true });
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Unable to open title';
 		} finally {

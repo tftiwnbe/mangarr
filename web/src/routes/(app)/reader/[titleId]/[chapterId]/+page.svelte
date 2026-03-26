@@ -385,17 +385,11 @@
 		};
 		void (async () => {
 			try {
-				const { commandId } = await client.mutation(convexApi.commands.enqueue, {
-					commandType: 'reader.pages.fetch',
-					payload: {
-						sourceId: chapter.sourceId,
-						chapterUrl: chapter.chapterUrl
-					}
+				const { commandId } = await client.mutation(convexApi.commands.enqueueReaderPagesFetch, {
+					sourceId: chapter.sourceId,
+					chapterUrl: chapter.chapterUrl
 				});
-				const command = await waitForCommand<CommandItem>(
-					client,
-					commandId as Id<'commands'>,
-					{
+				const command = await waitForCommand<CommandItem>(client, commandId, {
 						timeoutMs: 15_000,
 						pollIntervalMs: 250,
 						onUpdate: (next) => {
@@ -403,8 +397,7 @@
 								remotePagesCommand = next;
 							}
 						}
-					}
-				);
+					});
 				if (`${chapter.sourceId}::${chapter.chapterUrl}` === requestKey) {
 					remotePagesCommand = command;
 				}

@@ -695,15 +695,12 @@
 					.map(({ item }) => item);
 			};
 			const fetchDirectVariant = async (source: SourceItem, titleUrl: string) => {
-				const { commandId } = await client.mutation(convexApi.commands.enqueue, {
-					commandType: 'explore.title.fetch',
-					payload: {
-						sourceId: source.id,
-						titleUrl
-					},
-					idempotencyKey: `title.variant.fetch:${title._id}:${source.id}:${titleUrl}`
+				const { commandId } = await client.mutation(convexApi.commands.enqueueExploreTitleFetch, {
+					sourceId: source.id,
+					titleUrl,
+					contextKey: String(title._id)
 				});
-				const command = await waitForCommand(client, commandId as Id<'commands'>);
+				const command = await waitForCommand(client, commandId);
 				const resolved = (command.result?.title as Record<string, unknown> | undefined) ?? {};
 				const resolvedTitle = String(resolved.title ?? '').trim();
 				const resolvedUrl = String(resolved.titleUrl ?? titleUrl).trim();
@@ -722,16 +719,12 @@
 				});
 			};
 			const searchSource = async (source: SourceItem, searchQuery: string) => {
-				const { commandId } = await client.mutation(convexApi.commands.enqueue, {
-					commandType: 'explore.search',
-					payload: {
-						query: searchQuery,
-						sourceId: source.id,
-						limit: MATCH_SEARCH_PER_SOURCE_LIMIT
-					},
-					idempotencyKey: `title.variant.search:${manual ? 'manual' : 'suggested'}:${title._id}:${source.id}:${searchQuery.toLowerCase()}`
+				const { commandId } = await client.mutation(convexApi.commands.enqueueExploreSearch, {
+					query: searchQuery,
+					sourceId: source.id,
+					limit: MATCH_SEARCH_PER_SOURCE_LIMIT
 				});
-				const command = await waitForCommand(client, commandId as Id<'commands'>);
+				const command = await waitForCommand(client, commandId);
 				const items = ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[];
 				collected.push(...items);
 			};
