@@ -111,6 +111,7 @@ export default defineSchema({
 		genre: v.optional(v.string()),
 		status: v.optional(v.float64()),
 		preferredVariantId: v.optional(v.id('titleVariants')),
+		listedInLibrary: v.optional(v.boolean()),
 		userStatusId: v.optional(v.id('libraryUserStatuses')),
 		userRating: v.optional(v.float64()),
 		localCoverPath: v.optional(v.string()),

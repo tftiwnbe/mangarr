@@ -587,12 +587,33 @@ export async function setTitlePreferredVariant(
 	return undefined;
 }
 
+export async function markTitleListedInLibrary(
+	ctx: MutationCtx,
+	title: {
+		_id: GenericId<'libraryTitles'>;
+		listedInLibrary?: boolean;
+		updatedAt: number;
+	},
+	now: number
+) {
+	if (title.listedInLibrary === true) {
+		return false;
+	}
+
+	await ctx.db.patch(title._id, {
+		listedInLibrary: true,
+		updatedAt: Math.max(now, title.updatedAt)
+	});
+	return true;
+}
+
 export async function mergeOwnedTitles(
 	ctx: MutationCtx,
 	targetTitle: {
 		_id: GenericId<'libraryTitles'>;
 		ownerUserId: GenericId<'users'>;
 		preferredVariantId?: GenericId<'titleVariants'>;
+		listedInLibrary?: boolean;
 		userStatusId?: GenericId<'libraryUserStatuses'>;
 		userRating?: number;
 		localCoverPath?: string;
@@ -602,6 +623,7 @@ export async function mergeOwnedTitles(
 		_id: GenericId<'libraryTitles'>;
 		ownerUserId: GenericId<'users'>;
 		preferredVariantId?: GenericId<'titleVariants'>;
+		listedInLibrary?: boolean;
 		userStatusId?: GenericId<'libraryUserStatuses'>;
 		userRating?: number;
 		localCoverPath?: string;
@@ -787,6 +809,10 @@ export async function mergeOwnedTitles(
 	}
 
 	await ctx.db.patch(targetTitle._id, {
+		listedInLibrary:
+			targetTitle.listedInLibrary === undefined && sourceTitle.listedInLibrary === undefined
+				? undefined
+				: (targetTitle.listedInLibrary ?? false) || (sourceTitle.listedInLibrary ?? false),
 		userStatusId: targetTitle.userStatusId ?? sourceTitle.userStatusId,
 		userRating: targetTitle.userRating ?? sourceTitle.userRating,
 		localCoverPath: targetTitle.localCoverPath ?? sourceTitle.localCoverPath,

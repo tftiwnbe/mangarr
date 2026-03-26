@@ -1507,6 +1507,7 @@ async function importForUserCore(
 		genre: args.genre,
 		status: args.status,
 		preferredVariantId: undefined,
+		listedInLibrary: false,
 		createdAt: args.now,
 		updatedAt: args.now
 	});

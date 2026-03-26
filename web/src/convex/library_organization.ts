@@ -8,6 +8,7 @@ import {
 	DEFAULT_USER_STATUSES,
 	loadOwnerUserStatusMap,
 	loadOwnerVariantCountsByTitleId,
+	markTitleListedInLibrary,
 	mergeOwnedTitles,
 	requireOwnedCollection,
 	requireOwnedTitle,
@@ -371,6 +372,7 @@ export const updateTitlePreferences = mutation({
 		if (Object.keys(patch).length > 0) {
 			patch.updatedAt = now;
 			await ctx.db.patch(title._id, patch);
+			await markTitleListedInLibrary(ctx, { ...title, ...patch }, now);
 		}
 
 		if (args.collectionIds !== undefined) {
@@ -417,10 +419,12 @@ export const updateTitlePreferences = mutation({
 			await ctx.db.patch(title._id, {
 				updatedAt: now
 			});
+			await markTitleListedInLibrary(ctx, title, now);
 		}
 
 		if (shouldUpdatePreferredVariant) {
 			await setTitlePreferredVariant(ctx, title._id, nextPreferredVariantId, now);
+			await markTitleListedInLibrary(ctx, title, now);
 		}
 
 		return { ok: true };

@@ -3,6 +3,7 @@ import { v } from 'convex/values';
 
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
+import { markTitleListedInLibrary } from './library_shared';
 
 const DOWNLOAD_STATUS = {
 	MISSING: 'missing',
@@ -306,13 +307,15 @@ export const requestChapterDownload = mutation({
 		}
 
 		const userId = await requireViewerUserId(ctx);
+		const now = Date.now();
+		await markTitleListedInLibrary(ctx, title, now);
 		const queued = await queueDownloadAttempt(ctx, {
 			chapter,
 			title,
 			requestedByUserId: userId,
 			trigger: 'manual',
 			priority: 100,
-			now: Date.now()
+			now
 		});
 
 		return {
@@ -334,6 +337,7 @@ export const updateDownloadProfile = mutation({
 		const title = await requireOwnedTitle(ctx, args.titleId);
 		const userId = title.ownerUserId;
 		const now = Date.now();
+		await markTitleListedInLibrary(ctx, title, now);
 		const current = await ctx.db
 			.query('downloadProfiles')
 			.withIndex('by_owner_user_id_library_title_id', (q) =>
@@ -454,6 +458,8 @@ export const requestMissingDownloads = mutation({
 	handler: async (ctx, args) => {
 		const title = await requireOwnedTitle(ctx, args.titleId);
 		const userId = await requireViewerUserId(ctx);
+		const now = Date.now();
+		await markTitleListedInLibrary(ctx, title, now);
 
 		const [missingChapters, failedChapters] = await Promise.all([
 			ctx.db
@@ -474,7 +480,6 @@ export const requestMissingDownloads = mutation({
 			(left, right) => left.sequence - right.sequence
 		);
 
-		const now = Date.now();
 		const commandIds: GenericId<'commands'>[] = [];
 		const taskIds: GenericId<'downloadTasks'>[] = [];
 		let priorityOffset = 0;
