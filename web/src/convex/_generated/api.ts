@@ -18,6 +18,9 @@ import type * as extensions from "../extensions.js";
 import type * as library from "../library.js";
 import type * as library_downloads from "../library_downloads.js";
 import type * as library_metadata from "../library_metadata.js";
+import type * as library_organization from "../library_organization.js";
+import type * as library_reader from "../library_reader.js";
+import type * as library_shared from "../library_shared.js";
 import type * as settings from "../settings.js";
 
 import type {
@@ -38,6 +41,9 @@ const fullApi: ApiFromModules<{
   library: typeof library;
   library_downloads: typeof library_downloads;
   library_metadata: typeof library_metadata;
+  library_organization: typeof library_organization;
+  library_reader: typeof library_reader;
+  library_shared: typeof library_shared;
   settings: typeof settings;
 }> = anyApi as any;
 

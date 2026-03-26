@@ -42,6 +42,7 @@ private val parallelizableCommandTypes =
         "explore.chapters.fetch",
         "reader.pages.fetch",
     )
+private const val DOWNLOAD_COMMAND_CONCURRENCY = 2
 
 @Serializable
 data class CommandRunnerSnapshot(
@@ -156,18 +157,34 @@ class BridgeCommandRunner(
         }
 
         if (leased.all { it.commandType in parallelizableCommandTypes }) {
-            coroutineScope {
-                leased.map { command ->
-                    async {
-                        handleCommand(client, command)
-                    }
-                }.awaitAll()
-            }
+            executeWithConcurrency(client, leased, leased.size)
+            return
+        }
+
+        if (leased.all { it.commandType == "downloads.chapter" }) {
+            executeWithConcurrency(client, leased, DOWNLOAD_COMMAND_CONCURRENCY)
             return
         }
 
         for (command in leased) {
             handleCommand(client, command)
+        }
+    }
+
+    private suspend fun executeWithConcurrency(
+        client: ConvexBridgeClient,
+        leased: List<LeaseCommand>,
+        limit: Int,
+    ) {
+        coroutineScope {
+            val chunked = leased.chunked(limit.coerceAtLeast(1))
+            for (batch in chunked) {
+                batch.map { command ->
+                    async {
+                        handleCommand(client, command)
+                    }
+                }.awaitAll()
+            }
         }
     }
 

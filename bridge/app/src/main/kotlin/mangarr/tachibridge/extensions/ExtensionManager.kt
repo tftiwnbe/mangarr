@@ -70,6 +70,7 @@ import kotlin.io.path.exists
 import kotlin.io.path.pathString
 
 private val logger = KotlinLogging.logger {}
+private const val PAGE_LIST_CACHE_TTL_MS = 10 * 60 * 1000L
 
 @kotlinx.serialization.ExperimentalSerializationApi
 class ExtensionManager(
@@ -78,6 +79,7 @@ class ExtensionManager(
     private val repoService: ExtensionRepoService,
     private val networkHelper: NetworkHelper,
 ) {
+    private val chapterPagesCache = ConcurrentHashMap<String, CachedChapterPages>()
     companion object {
         const val DELETE_PREFERENCE_MARKER = "__mangarr_delete_preference__"
     }
@@ -1754,29 +1756,49 @@ class ExtensionManager(
     }
 
     private suspend fun loadPagesForChapter(source: Source, normalizedUrl: String): List<SourcePage> =
-        if (isLibGroupSource(source)) {
-            val fallbackPages = fetchLibGroupPagesFallback(source, normalizedUrl)
-            if (!fallbackPages.isNullOrEmpty()) {
-                fallbackPages
-            } else {
-                val chapter = SChapter.create().apply { url = normalizedUrl }
-                try {
-                    source.getPageList(chapter)
-                } catch (error: Exception) {
-                    fallbackPages ?: throw decorateLibGroupError(source, error)
-                }
+        chapterPagesCache[chapterPagesCacheKey(source.id, normalizedUrl)]
+            ?.takeIf { it.expiresAt > System.currentTimeMillis() }
+            ?.pages
+            ?: run {
+                val pages =
+                    if (isLibGroupSource(source)) {
+                        val fallbackPages = fetchLibGroupPagesFallback(source, normalizedUrl)
+                        if (!fallbackPages.isNullOrEmpty()) {
+                            fallbackPages
+                        } else {
+                            val chapter = SChapter.create().apply { url = normalizedUrl }
+                            try {
+                                source.getPageList(chapter)
+                            } catch (error: Exception) {
+                                fallbackPages ?: throw decorateLibGroupError(source, error)
+                            }
+                        }
+                    } else {
+                        val chapter = SChapter.create().apply { url = normalizedUrl }
+                        try {
+                            source.getPageList(chapter)
+                        } catch (error: Exception) {
+                            fetchLibGroupPagesFallback(source, normalizedUrl) ?: throw decorateLibGroupError(source, error)
+                        }
+                    }
+
+                chapterPagesCache[chapterPagesCacheKey(source.id, normalizedUrl)] =
+                    CachedChapterPages(
+                        pages = pages,
+                        expiresAt = System.currentTimeMillis() + PAGE_LIST_CACHE_TTL_MS,
+                    )
+                pages
             }
-        } else {
-            val chapter = SChapter.create().apply { url = normalizedUrl }
-            try {
-                source.getPageList(chapter)
-            } catch (error: Exception) {
-                fetchLibGroupPagesFallback(source, normalizedUrl) ?: throw decorateLibGroupError(source, error)
-            }
-        }
+
+    private fun chapterPagesCacheKey(sourceId: Long, chapterUrl: String): String = "$sourceId::$chapterUrl"
 }
 
 data class PageImagePayload(
     val contentType: String,
     val bytes: ByteArray,
+)
+
+private data class CachedChapterPages(
+    val pages: List<SourcePage>,
+    val expiresAt: Long,
 )

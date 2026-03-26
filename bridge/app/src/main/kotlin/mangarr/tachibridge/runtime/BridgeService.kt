@@ -4,6 +4,9 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import eu.kanade.tachiyomi.network.HttpException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.Serializable
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonArray
@@ -28,6 +31,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
@@ -37,6 +41,7 @@ private val json = Json { ignoreUnknownKeys = true }
 private const val FEED_CACHE_TTL_MS = 5 * 60 * 1000L
 private const val MANGADEX_PACKAGE = "eu.kanade.tachiyomi.extension.all.mangadex"
 private val DOWNLOAD_PAGE_RETRY_DELAYS_MS = listOf(0L, 2_000L, 5_000L, 15_000L)
+private const val DOWNLOAD_PAGE_CONCURRENCY = 2
 
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 class BridgeService(
@@ -427,10 +432,24 @@ class BridgeService(
         val totalPages = pages.pagesList.size
         val workspace = downloadStorage.createChapterWorkspace(titleId, chapterUrl)
 
-        for ((index, _) in pages.pagesList.withIndex()) {
-            val image = fetchPageImageWithRetry(sourceId.toLong(), chapterUrl, index)
-            downloadStorage.writePage(workspace, index, image)
-            onProgress(index + 1, totalPages)
+        if (totalPages > 0) {
+            val nextIndex = AtomicInteger(0)
+            val completedPages = AtomicInteger(0)
+            coroutineScope {
+                repeat(minOf(DOWNLOAD_PAGE_CONCURRENCY, totalPages)) {
+                    launch(Dispatchers.IO) {
+                        while (true) {
+                            val index = nextIndex.getAndIncrement()
+                            if (index >= totalPages) {
+                                return@launch
+                            }
+                            val image = fetchPageImageWithRetry(sourceId.toLong(), chapterUrl, index)
+                            downloadStorage.writePage(workspace, index, image)
+                            onProgress(completedPages.incrementAndGet(), totalPages)
+                        }
+                    }
+                }
+            }
         }
 
         val stored =
