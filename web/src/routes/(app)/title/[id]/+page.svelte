@@ -1392,10 +1392,16 @@
 								{#each titleChapters as chapter (chapter._id)}
 									{@const detail = chapterDetail(chapter)}
 									{@const downloadState = chapterDownloadState(chapter)}
-									<div class="flex items-center gap-4 py-3">
+									<div
+										class="flex items-center gap-4 py-3"
+										data-testid="chapter-row"
+										data-chapter-id={chapter._id}
+										data-download-status={chapter.downloadStatus}
+									>
 										<div class="min-w-0 flex-1">
 											<button
 												type="button"
+												data-testid="chapter-open"
 												class="flex w-full items-baseline gap-2 text-left"
 									onclick={() => openChapter(chapter)}
 											>
@@ -1430,6 +1436,7 @@
 												<Button
 													variant="ghost"
 													size="sm"
+													data-testid="chapter-download"
 													onclick={() => downloadChapter(chapter._id)}
 													disabled={chapter.downloadStatus === 'queued' ||
 														chapter.downloadStatus === 'downloading' ||
