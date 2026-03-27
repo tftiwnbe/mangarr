@@ -5,6 +5,7 @@
 	import {
 		CheckIcon,
 		CompassIcon,
+		EyeSlashIcon,
 		FunnelIcon,
 		ImageIcon,
 		MagnifyingGlassIcon,
@@ -1053,13 +1054,15 @@
 		if (!item.importedLibraryId) return null;
 		if (item.importedListedInLibrary) {
 			return {
+				variant: 'listed' as const,
 				label: $_('title.inLibrary'),
 				className: 'bg-[var(--success)]/85 text-[var(--void-0)]'
 			};
 		}
 		return {
-			label: $_('title.imported'),
-			className: 'bg-[var(--accent)]/85 text-[var(--void-0)]'
+			variant: 'hidden' as const,
+			label: $_('explore.hiddenImportedBadge'),
+			className: 'bg-[var(--void-1)]/85 text-[var(--text-muted)] ring-1 ring-inset ring-[var(--line)]'
 		};
 	}
 
@@ -1431,10 +1434,20 @@
 						{/if}
 
 						{#if badge}
-							<div class={`absolute top-1 right-1 flex items-center gap-1 px-1.5 py-0.5 text-[10px] ${badge.className}`}>
-								<CheckIcon size={10} />
-								<span>{badge.label}</span>
-							</div>
+							{#if badge.variant === 'listed'}
+								<div class={`absolute top-1 right-1 flex items-center gap-1 px-1.5 py-0.5 text-[10px] ${badge.className}`}>
+									<CheckIcon size={10} />
+									<span>{badge.label}</span>
+								</div>
+							{:else}
+								<div
+									class={`absolute top-1 right-1 flex h-6 w-6 items-center justify-center ${badge.className}`}
+									title={badge.label}
+									aria-label={badge.label}
+								>
+									<EyeSlashIcon size={12} />
+								</div>
+							{/if}
 						{/if}
 
 						<div class="absolute bottom-1 left-1 bg-[var(--void-0)]/80 px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">

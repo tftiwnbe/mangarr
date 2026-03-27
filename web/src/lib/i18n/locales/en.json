@@ -134,6 +134,7 @@
 		"sourceCooldown": "Cooling down",
 		"sourceDegraded": "Unstable",
 		"sourceUnavailable": "Unavailable",
+		"hiddenImportedBadge": "Imported but hidden from Library",
 		"filterByExtension": "Filter by extension",
 		"allExtensions": "All extensions",
 		"filterByCategory": "Filter by category",

@@ -134,6 +134,7 @@
 		"sourceCooldown": "Пауза",
 		"sourceDegraded": "Нестабилен",
 		"sourceUnavailable": "Недоступен",
+		"hiddenImportedBadge": "Импортирован, но скрыт из библиотеки",
 		"filterByExtension": "Фильтр по расширению",
 		"allExtensions": "Все расширения",
 		"filterByCategory": "Фильтр по категориям",
