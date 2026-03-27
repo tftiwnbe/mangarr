@@ -46,6 +46,7 @@ private const val FEED_CACHE_TTL_MS = 5 * 60 * 1000L
 private const val READER_PAGE_CACHE_TTL_MS = 15 * 60 * 1000L
 private const val MANGADEX_PACKAGE = "eu.kanade.tachiyomi.extension.all.mangadex"
 private val DOWNLOAD_PAGE_RETRY_DELAYS_MS = listOf(0L, 2_000L, 5_000L, 15_000L)
+private val SOURCE_REQUEST_RETRY_DELAYS_MS = listOf(0L, 1_500L, 4_000L)
 private const val DOWNLOAD_PAGE_CONCURRENCY = 2
 
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
@@ -311,12 +312,18 @@ class BridgeService(
 
             try {
                 val page =
-                    extensionManager.searchTitle(
-                        source.id,
-                        query,
-                        1,
-                        normalizeFilterInput(searchFilters),
-                    )
+                    withSourceRequestRetry(
+                        sourceId = source.id,
+                        requestKind = "search",
+                        requestKey = currentSourceId,
+                    ) {
+                        extensionManager.searchTitle(
+                            source.id,
+                            query,
+                            1,
+                            normalizeFilterInput(searchFilters),
+                        )
+                    }
                 for (title in page.titlesList) {
                     if (items.size >= cappedLimit) {
                         break
@@ -356,7 +363,15 @@ class BridgeService(
         if (!ConfigManager.isSourceEnabled(sourceId.toLong())) {
             error("Source is disabled: $sourceId")
         }
-        val response = extensionManager.getTitleDetails(sourceId.toLong(), titleUrl)
+        val parsedSourceId = sourceId.toLong()
+        val response =
+            withSourceRequestRetry(
+                sourceId = parsedSourceId,
+                requestKind = "title",
+                requestKey = titleUrl,
+            ) {
+                extensionManager.getTitleDetails(parsedSourceId, titleUrl)
+            }
         val title = response.title
         val source =
             extensionManager
@@ -381,7 +396,15 @@ class BridgeService(
         if (!ConfigManager.isSourceEnabled(sourceId.toLong())) {
             error("Source is disabled: $sourceId")
         }
-        val chapters = extensionManager.getChaptersList(sourceId.toLong(), titleUrl)
+        val parsedSourceId = sourceId.toLong()
+        val chapters =
+            withSourceRequestRetry(
+                sourceId = parsedSourceId,
+                requestKind = "chapters",
+                requestKey = titleUrl,
+            ) {
+                extensionManager.getChaptersList(parsedSourceId, titleUrl)
+            }
         return buildJsonObject {
             put("ok", true)
             put(
@@ -406,7 +429,15 @@ class BridgeService(
         if (!ConfigManager.isSourceEnabled(sourceId.toLong())) {
             error("Source is disabled: $sourceId")
         }
-        val pages = extensionManager.getPagesList(sourceId.toLong(), chapterUrl)
+        val parsedSourceId = sourceId.toLong()
+        val pages =
+            withSourceRequestRetry(
+                sourceId = parsedSourceId,
+                requestKind = "pages",
+                requestKey = chapterUrl,
+            ) {
+                extensionManager.getPagesList(parsedSourceId, chapterUrl)
+            }
         return buildJsonObject {
             put("ok", true)
             put(
@@ -468,7 +499,15 @@ class BridgeService(
         onProgress: (downloadedPages: Int, totalPages: Int) -> Unit,
     ): JsonObject {
         extensionManager.awaitReady()
-        val pages = extensionManager.getPagesList(sourceId.toLong(), chapterUrl)
+        val parsedSourceId = sourceId.toLong()
+        val pages =
+            withSourceRequestRetry(
+                sourceId = parsedSourceId,
+                requestKind = "pages",
+                requestKey = chapterUrl,
+            ) {
+                extensionManager.getPagesList(parsedSourceId, chapterUrl)
+            }
         val totalPages = pages.pagesList.size
         val workspace = downloadStorage.createChapterWorkspace(titleId, chapterUrl)
 
@@ -704,7 +743,15 @@ class BridgeService(
         titleUrl: String,
     ): JsonObject {
         extensionManager.awaitReady()
-        val response = extensionManager.getTitleDetails(sourceId.toLong(), titleUrl)
+        val parsedSourceId = sourceId.toLong()
+        val response =
+            withSourceRequestRetry(
+                sourceId = parsedSourceId,
+                requestKind = "title",
+                requestKey = titleUrl,
+            ) {
+                extensionManager.getTitleDetails(parsedSourceId, titleUrl)
+            }
         return normalizeTitle(sourceId, sourcePkg, sourceLang, response.title)
     }
 
@@ -779,10 +826,16 @@ class BridgeService(
             return payload
         }
         val response =
-            when (feed) {
-                "popular" -> extensionManager.getPopularTitles(parsedSourceId, page)
-                "latest" -> extensionManager.getLatestTitles(parsedSourceId, page)
-                else -> error("Unsupported feed: $feed")
+            withSourceRequestRetry(
+                sourceId = parsedSourceId,
+                requestKind = feed,
+                requestKey = "$sourceId:$page:$normalizedLimit",
+            ) {
+                when (feed) {
+                    "popular" -> extensionManager.getPopularTitles(parsedSourceId, page)
+                    "latest" -> extensionManager.getLatestTitles(parsedSourceId, page)
+                    else -> error("Unsupported feed: $feed")
+                }
             }
         val items =
             response.titlesList
@@ -818,6 +871,50 @@ class BridgeService(
         feedCache[cacheKey] = CachedFeedResult(payload = payload, expiresAt = expiresAt)
         persistFeed(cacheKey, payload, expiresAt)
     }
+
+    private suspend fun <T> withSourceRequestRetry(
+        sourceId: Long,
+        requestKind: String,
+        requestKey: String,
+        block: suspend () -> T,
+    ): T {
+        var lastError: Exception? = null
+
+        for ((attemptIndex, baseDelayMs) in SOURCE_REQUEST_RETRY_DELAYS_MS.withIndex()) {
+            val delayMs =
+                if (lastError is HttpException) {
+                    maxOf(baseDelayMs, ((lastError as HttpException).retryAfterSeconds ?: 0L) * 1_000L)
+                } else {
+                    baseDelayMs
+                }
+            if (delayMs > 0) {
+                delay(delayMs)
+            }
+
+            try {
+                return block()
+            } catch (error: Exception) {
+                lastError = error
+                if (!shouldRetrySourceRequest(error) || attemptIndex == SOURCE_REQUEST_RETRY_DELAYS_MS.lastIndex) {
+                    throw error
+                }
+
+                logger.warn(error) {
+                    "Source $requestKind request failed for $sourceId ($requestKey) " +
+                        "attempt ${attemptIndex + 1}/${SOURCE_REQUEST_RETRY_DELAYS_MS.size}, retrying"
+                }
+            }
+        }
+
+        throw lastError ?: IllegalStateException("Failed source $requestKind request for $sourceId")
+    }
+
+    private fun shouldRetrySourceRequest(error: Exception): Boolean =
+        when (error) {
+            is HttpException -> error.code == 429 || error.code in 500..599
+            is java.io.IOException -> true
+            else -> false
+        }
 
     private fun fetchMangaDexPopularFeed(
         sourceId: String,
