@@ -1433,10 +1433,7 @@
 							</div>
 						{/if}
 
-						<div class="absolute inset-x-1 top-1 flex items-start justify-between gap-2">
-							<div class="max-w-[70%] truncate bg-[var(--void-0)]/82 px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] backdrop-blur-sm">
-								{item.sourceName}
-							</div>
+						<div class="absolute inset-x-1 top-1 flex items-start justify-end gap-2">
 							{#if badge}
 								{#if badge.variant === 'listed'}
 									<div class={`flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[10px] ${badge.className}`}>
@@ -1454,6 +1451,11 @@
 								{/if}
 							{/if}
 						</div>
+						<div class="absolute inset-x-1 bottom-1 flex items-end justify-start">
+							<div class="max-w-[85%] truncate bg-[var(--void-0)]/82 px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] backdrop-blur-sm">
+								{item.sourceName}{item.sourceLang ? ` · ${item.sourceLang.toUpperCase()}` : ''}
+							</div>
+						</div>
 
 						{#if openingTitleKey === item.key}
 							<div class="absolute inset-0 flex items-center justify-center bg-[var(--void-0)]/60 backdrop-blur-[1px]">
@@ -1464,11 +1466,6 @@
 
 					<div class="flex flex-1 flex-col gap-1 p-2">
 						<p class="line-clamp-2 text-xs text-[var(--text)]">{item.title}</p>
-						{#if item.sourceLang}
-							<p class="text-[10px] tracking-[0.16em] text-[var(--text-dim)] uppercase">
-								{item.sourceLang}
-							</p>
-						{/if}
 					</div>
 				</a>
 			{/each}
