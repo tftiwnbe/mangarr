@@ -65,6 +65,12 @@
 		titleUrl: string;
 		canonicalKey: string;
 		importedLibraryId: string | null;
+		importedListedInLibrary: boolean;
+	};
+
+	type ImportedLookupEntry = {
+		libraryId: string;
+		listedInLibrary: boolean;
 	};
 
 	type FilterMeta = {
@@ -235,7 +241,7 @@
 	}));
 
 	const importedLibraryIds = $derived.by(() => {
-		return (importedLookupQuery.data ?? {}) as Record<string, string>;
+		return (importedLookupQuery.data ?? {}) as Record<string, ImportedLookupEntry>;
 	});
 	const persistedSourceFailures = $derived((sourceHealthQuery.data ?? []) as SourceHealthEntry[]);
 
@@ -296,7 +302,7 @@
 					: feedItemsForSource(feedCommandType, sourceId, loadedPagesBySource[sourceId] ?? 0);
 
 			for (const item of resultItems) {
-				const importedLibraryId = importedLibraryIds[`${item.sourceId}::${item.titleUrl}`] ?? null;
+				const importedEntry = importedLibraryIds[`${item.sourceId}::${item.titleUrl}`] ?? null;
 				const nextCard: ExploreCard = {
 					key: cardKeyFor(item),
 					title: item.title,
@@ -307,7 +313,8 @@
 					sourceLang: item.sourceLang,
 					titleUrl: item.titleUrl,
 					canonicalKey: item.canonicalKey,
-					importedLibraryId
+					importedLibraryId: importedEntry?.libraryId ?? null,
+					importedListedInLibrary: importedEntry?.listedInLibrary ?? false
 				};
 
 				const signatures = itemMergeSignatures(item);
@@ -335,7 +342,9 @@
 					title: current.title || nextCard.title,
 					thumbnailUrl: current.thumbnailUrl || nextCard.thumbnailUrl,
 					sourceName: current.sourceName || nextCard.sourceName,
-					importedLibraryId: current.importedLibraryId ?? nextCard.importedLibraryId
+					importedLibraryId: current.importedLibraryId ?? nextCard.importedLibraryId,
+					importedListedInLibrary:
+						current.importedListedInLibrary || nextCard.importedListedInLibrary
 				};
 				items[existingIndex] = merged;
 				for (const signature of itemMergeSignatures({
@@ -1040,6 +1049,20 @@
 		return `/title/open?${query.toString()}`;
 	}
 
+	function exploreBadge(item: ExploreCard) {
+		if (!item.importedLibraryId) return null;
+		if (item.importedListedInLibrary) {
+			return {
+				label: $_('title.inLibrary'),
+				className: 'bg-[var(--success)]/85 text-[var(--void-0)]'
+			};
+		}
+		return {
+			label: $_('title.imported'),
+			className: 'bg-[var(--accent)]/85 text-[var(--void-0)]'
+		};
+	}
+
 	function shouldUseBrowserNavigation(event: MouseEvent): boolean {
 		return (
 			event.defaultPrevented ||
@@ -1386,6 +1409,7 @@
 	{:else if cards.length > 0}
 		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
 			{#each visibleCards as item (item.key)}
+				{@const badge = exploreBadge(item)}
 				<a
 					href={buildPreviewHref(item)}
 					class="group card-glow relative flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)] text-left"
@@ -1406,10 +1430,10 @@
 							</div>
 						{/if}
 
-						{#if item.importedLibraryId}
-							<div class="absolute top-1 right-1 flex items-center gap-1 bg-[var(--success)]/85 px-1.5 py-0.5 text-[10px] text-[var(--void-0)]">
+						{#if badge}
+							<div class={`absolute top-1 right-1 flex items-center gap-1 px-1.5 py-0.5 text-[10px] ${badge.className}`}>
 								<CheckIcon size={10} />
-								<span>{$_('title.inLibrary')}</span>
+								<span>{badge.label}</span>
 							</div>
 						{/if}
 

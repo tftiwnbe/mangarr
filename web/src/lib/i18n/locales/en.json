@@ -185,6 +185,7 @@
 		"addToLibrary": "Add to Library",
 		"removeFromLibrary": "Remove from Library",
 		"inLibrary": "In Library",
+		"imported": "Imported",
 		"download": "Download",
 		"downloadAll": "Download All",
 		"openSource": "Open Source",

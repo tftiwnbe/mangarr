@@ -214,13 +214,27 @@ export const getMineImportedSourceLookup = query({
 		]);
 
 		const visibleTitleIds = new Set(titles.map((title) => String(title._id)));
-		const lookup: Record<string, string> = {};
+		const titleById = new Map(titles.map((title) => [String(title._id), title]));
+		const lookup: Record<
+			string,
+			{
+				libraryId: string;
+				listedInLibrary: boolean;
+			}
+		> = {};
 		for (const title of titles) {
-			lookup[`${title.sourceId}::${title.titleUrl}`] = String(title._id);
+			lookup[`${title.sourceId}::${title.titleUrl}`] = {
+				libraryId: String(title._id),
+				listedInLibrary: title.listedInLibrary !== false
+			};
 		}
 		for (const variant of variants) {
 			if (!visibleTitleIds.has(String(variant.libraryTitleId))) continue;
-			lookup[`${variant.sourceId}::${variant.titleUrl}`] = String(variant.libraryTitleId);
+			const primaryEntry = titleById.get(String(variant.libraryTitleId));
+			lookup[`${variant.sourceId}::${variant.titleUrl}`] = {
+				libraryId: String(variant.libraryTitleId),
+				listedInLibrary: primaryEntry?.listedInLibrary !== false
+			};
 		}
 		return lookup;
 	}
