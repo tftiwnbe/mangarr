@@ -201,6 +201,8 @@
 		"markPreviousRead": "Отметить предыдущие прочитанными",
 		"noChapters": "Глав пока нет",
 		"noChaptersDescription": "Главы появятся здесь, когда будут доступны",
+		"syncingChapters": "Синхронизация глав...",
+		"syncingChaptersDescription": "Первичный импорт глав ещё выполняется.",
 		"noComments": "Комментариев пока нет",
 		"commentsLoadFailed": "Не удалось загрузить комментарии",
 		"libraryControls": "Управление библиотекой",

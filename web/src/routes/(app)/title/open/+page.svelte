@@ -44,6 +44,42 @@
 		return null;
 	}
 
+	async function waitForTitleHydration(
+		titleId: string,
+		expectedChapterCount: number,
+		fallbackTitle: string,
+		timeoutMs = expectedChapterCount > 0 ? 12_000 : 4_000
+	) {
+		const startedAt = Date.now();
+		while (Date.now() - startedAt < timeoutMs) {
+			const [overview, chapters] = await Promise.all([
+				client.query(convexApi.library.getMineOverviewById, {
+					titleId: titleId as never
+				}),
+				client.query(convexApi.library.listTitleChapters, {
+					titleId: titleId as never
+				})
+			]);
+			const chapterCount = chapters.length;
+			const total = Number(overview?.chapterStats?.total ?? chapterCount);
+			if (chapterCount > 0 || total > 0) {
+				return {
+					title: overview?.title ?? fallbackTitle,
+					ready: true
+				};
+			}
+			await new Promise((resolve) => setTimeout(resolve, 500));
+		}
+
+		const overview = await client.query(convexApi.library.getMineOverviewById, {
+			titleId: titleId as never
+		});
+		return {
+			title: overview?.title ?? fallbackTitle,
+			ready: false
+		};
+	}
+
 	async function openTitle(): Promise<void> {
 		const sourceId = page.url.searchParams.get('source_id')?.trim() ?? '';
 		const sourcePkg = page.url.searchParams.get('source_pkg')?.trim() ?? '';
@@ -61,7 +97,13 @@
 		try {
 			const existing = await findExistingTitle();
 			if (existing?._id) {
-				await goto(buildTitlePath(String(existing._id), existing.title || titleName || titleUrl), {
+				const hydrated = await waitForTitleHydration(
+					String(existing._id),
+					1,
+					existing.title || titleName || titleUrl,
+					6_000
+				);
+				await goto(buildTitlePath(String(existing._id), hydrated.title), {
 					replaceState: true
 				});
 				return;
@@ -91,17 +133,25 @@
 				return;
 			}
 			const titleId = String(command.result?.titleId ?? '');
+			const chapterCount = Number(command.result?.chapterCount ?? 0);
 			if (!titleId) {
 				const imported = await waitForImportedTitle(4_000);
 				if (imported?._id) {
-					await goto(buildTitlePath(String(imported._id), imported.title || titleName || titleUrl), {
+					const hydrated = await waitForTitleHydration(
+						String(imported._id),
+						1,
+						imported.title || titleName || titleUrl,
+						6_000
+					);
+					await goto(buildTitlePath(String(imported._id), hydrated.title), {
 						replaceState: true
 					});
 					return;
 				}
 				throw new Error('Import completed without a title id');
 			}
-			await goto(buildTitlePath(titleId, titleName || titleUrl), { replaceState: true });
+			const hydrated = await waitForTitleHydration(titleId, chapterCount, titleName || titleUrl);
+			await goto(buildTitlePath(titleId, hydrated.title), { replaceState: true });
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Unable to open title';
 		} finally {

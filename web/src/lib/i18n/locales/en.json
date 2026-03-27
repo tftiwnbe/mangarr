@@ -201,6 +201,8 @@
 		"markPreviousRead": "Mark previous as read",
 		"noChapters": "No chapters yet",
 		"noChaptersDescription": "Chapters will appear here once they are available",
+		"syncingChapters": "Syncing chapters...",
+		"syncingChaptersDescription": "Initial chapter import is still running.",
 		"noComments": "No comments yet",
 		"commentsLoadFailed": "Unable to load comments",
 		"libraryControls": "Library Controls",

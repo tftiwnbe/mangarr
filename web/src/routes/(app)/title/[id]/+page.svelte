@@ -179,6 +179,7 @@
 	let preferencesSuccess = $state(false);
 	let metadataRequested = $state(false);
 	let readinessRequested = $state(false);
+	let chapterHydrationStatus = $state<'idle' | 'syncing' | 'failed'>('idle');
 	let selectedStatusId = $state<string | null>(null);
 	let selectedRating = $state<number>(0);
 	let selectedCollectionIds = $state<string[]>([]);
@@ -428,6 +429,7 @@
 		lastMetadataKey = key;
 		metadataRequested = false;
 		readinessRequested = false;
+		chapterHydrationStatus = 'idle';
 	});
 
 	$effect(() => {
@@ -461,16 +463,34 @@
 		if (!title || readinessRequested) return;
 		if (titleChapters.length > 0) return;
 		readinessRequested = true;
+		chapterHydrationStatus = 'syncing';
 		void (async () => {
 			try {
-				await client.mutation(convexApi.library.ensureTitleReady, {
-					titleId: title._id
-				});
+				const titleId = title._id;
+				for (let attempt = 0; attempt < 6; attempt += 1) {
+					await client.mutation(convexApi.library.ensureTitleReady, {
+						titleId
+					});
+					const chapters = await client.query(convexApi.library.listTitleChapters, {
+						titleId
+					});
+					if (chapters.length > 0) {
+						chapterHydrationStatus = 'idle';
+						return;
+					}
+					await new Promise((resolve) => setTimeout(resolve, 1_500));
+				}
+				chapterHydrationStatus = 'failed';
 			} catch {
 				readinessRequested = false;
+				chapterHydrationStatus = 'failed';
 			}
 		})();
 	});
+
+	const isChapterHydrating = $derived(
+		Boolean(title) && titleChapters.length === 0 && chapterHydrationStatus === 'syncing'
+	);
 
 	function formatDate(value?: number | null): string {
 		if (!value) return '';
@@ -1017,6 +1037,13 @@
 								<PlayIcon size={14} />
 								<span>{$_('title.startReading')}</span>
 							</button>
+						{:else if isChapterHydrating}
+							<div
+								class="flex h-10 flex-1 items-center justify-center gap-2 text-xs text-[var(--text-ghost)]"
+							>
+								<SpinnerIcon size={14} class="animate-spin" />
+								<span>{$_('title.syncingChapters')}</span>
+							</div>
 						{:else}
 							<div
 								class="flex h-10 flex-1 items-center justify-center text-xs text-[var(--text-ghost)]"
@@ -1092,6 +1119,13 @@
 								<PlayIcon size={16} />
 								<span>{$_('title.startReading')}</span>
 							</button>
+						{:else if isChapterHydrating}
+							<div
+								class="flex h-12 flex-1 items-center justify-center gap-2 text-sm text-[var(--text-ghost)]"
+							>
+								<SpinnerIcon size={16} class="animate-spin" />
+								<span>{$_('title.syncingChapters')}</span>
+							</div>
 						{:else}
 							<div
 								class="flex h-12 flex-1 items-center justify-center text-sm text-[var(--text-ghost)]"
@@ -1263,7 +1297,14 @@
 						{#if titleChapters.length === 0}
 							<div class="flex flex-col items-center gap-3 py-16">
 								<BookIcon size={28} class="text-[var(--void-5)]" />
-								<p class="text-sm text-[var(--text-ghost)]">{$_('title.noChapters')}</p>
+								<p class="text-sm text-[var(--text-ghost)]">
+									{isChapterHydrating ? $_('title.syncingChapters') : $_('title.noChapters')}
+								</p>
+								<p class="text-xs text-[var(--text-dim)]">
+									{isChapterHydrating
+										? $_('title.syncingChaptersDescription')
+										: $_('title.noChaptersDescription')}
+								</p>
 							</div>
 						{:else}
 							<div class="flex flex-col">
