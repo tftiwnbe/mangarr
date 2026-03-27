@@ -43,7 +43,7 @@
 		lastErrorMessage?: string | null;
 	};
 
-	type TitleDetail = {
+	type TitleOverview = {
 		_id: Id<'libraryTitles'>;
 		title: string;
 		sourceId: string;
@@ -109,16 +109,6 @@
 				updatedAt: number;
 			} | null;
 		};
-		titleComments: Array<{
-			_id: Id<'chapterComments'>;
-			chapterId: Id<'libraryChapters'>;
-			chapterName: string;
-			chapterNumber?: number | null;
-			pageIndex: number;
-			message: string;
-			createdAt: number;
-			updatedAt: number;
-		}>;
 		downloadProfile: {
 			enabled: boolean;
 			paused: boolean;
@@ -127,7 +117,17 @@
 			lastSuccessAt?: number | null;
 			lastError?: string | null;
 		} | null;
-		chapters: ChapterRow[];
+	};
+
+	type TitleComment = {
+		_id: Id<'chapterComments'>;
+		chapterId: Id<'libraryChapters'>;
+		chapterName: string;
+		chapterNumber?: number | null;
+		pageIndex: number;
+		message: string;
+		createdAt: number;
+		updatedAt: number;
 	};
 
 	type SourceItem = {
@@ -168,9 +168,16 @@
 	};
 
 	const client = useConvexClient();
-	const titleQuery = useQuery(convexApi.library.getMineById, () => ({
+	const titleQuery = useQuery(convexApi.library.getMineOverviewById, () => ({
 		titleId: data.titleId as Id<'libraryTitles'>
 	}));
+	const titleChaptersQuery = useQuery(convexApi.library.listTitleChapters, () => ({
+		titleId: data.titleId as Id<'libraryTitles'>
+	}));
+	const titleCommentsQuery = useQuery(
+		convexApi.library.listTitleComments,
+		() => (activeTab === 'comments' ? { titleId: data.titleId as Id<'libraryTitles'> } : 'skip')
+	);
 	const sourcesQuery = useQuery(convexApi.extensions.listSources, () => ({}));
 	const statusesQuery = useQuery(convexApi.library.listUserStatuses, () => ({}));
 	const collectionsQuery = useQuery(convexApi.library.listCollections, () => ({}));
@@ -209,7 +216,9 @@
 	let lastSyncedPreferenceSignature = $state('');
 	let lastMetadataKey = $state('');
 
-	const title = $derived((titleQuery.data as TitleDetail | null) ?? null);
+	const title = $derived((titleQuery.data as TitleOverview | null) ?? null);
+	const titleChapters = $derived((titleChaptersQuery.data ?? []) as ChapterRow[]);
+	const titleComments = $derived((titleCommentsQuery.data ?? []) as TitleComment[]);
 	const sources = $derived((sourcesQuery.data ?? []) as SourceItem[]);
 	const availableStatuses = $derived(
 		((statusesQuery.data ?? []) as UserStatusOption[]).sort((left, right) => left.position - right.position)
@@ -219,10 +228,13 @@
 			(left, right) => left.position - right.position
 		)
 	);
-	const loading = $derived(titleQuery.isLoading);
-	const errorMessage = $derived(
-		titleQuery.error instanceof Error ? titleQuery.error.message : null
-	);
+	const loading = $derived(titleQuery.isLoading || titleChaptersQuery.isLoading);
+	const errorMessage = $derived.by(() => {
+		if (titleQuery.error instanceof Error) return titleQuery.error.message;
+		if (titleChaptersQuery.error instanceof Error) return titleChaptersQuery.error.message;
+		if (titleCommentsQuery.error instanceof Error) return titleCommentsQuery.error.message;
+		return null;
+	});
 
 	const titleBackSkipPrefixes = ['/reader/', '/title/'];
 	const titleBackTarget = $derived.by(() => {
@@ -296,10 +308,10 @@
 		if (!title) return null;
 		if (title.readingProgress.latest) {
 			return (
-				title.chapters.find((chapter) => chapter._id === title.readingProgress.latest?.chapterId) ?? null
+				titleChapters.find((chapter) => chapter._id === title.readingProgress.latest?.chapterId) ?? null
 			);
 		}
-		return title.chapters.length ? title.chapters.at(-1) ?? null : null;
+		return titleChapters.length ? titleChapters.at(-1) ?? null : null;
 	});
 	const displayStatus = $derived.by(() => {
 		const status = Number(title?.status ?? 0);
@@ -435,7 +447,7 @@
 
 	$effect(() => {
 		if (!title || readinessRequested) return;
-		if (title.chapters.length > 0) return;
+		if (titleChapters.length > 0) return;
 		readinessRequested = true;
 		void (async () => {
 			try {
@@ -1223,14 +1235,14 @@
 							</div>
 						</div>
 					{:else if activeTab === 'chapters'}
-						{#if title.chapters.length === 0}
+						{#if titleChapters.length === 0}
 							<div class="flex flex-col items-center gap-3 py-16">
 								<BookIcon size={28} class="text-[var(--void-5)]" />
 								<p class="text-sm text-[var(--text-ghost)]">{$_('title.noChapters')}</p>
 							</div>
 						{:else}
 							<div class="flex flex-col">
-								{#each title.chapters as chapter (chapter._id)}
+								{#each titleChapters as chapter (chapter._id)}
 									{@const detail = chapterDetail(chapter)}
 									{@const downloadState = chapterDownloadState(chapter)}
 									<div class="flex items-center gap-4 py-3">
@@ -1290,11 +1302,16 @@
 								{/each}
 							</div>
 						{/if}
-					{:else if title.titleComments.length === 0}
+					{:else if titleCommentsQuery.isLoading}
+						<div class="flex items-center justify-center gap-2 py-6 text-sm text-[var(--text-ghost)]">
+							<SpinnerIcon size={16} class="animate-spin" />
+							<span>{$_('common.loading')}</span>
+						</div>
+					{:else if titleComments.length === 0}
 						<p class="py-6 text-center text-sm text-[var(--text-ghost)]">{$_('title.noComments')}</p>
 					{:else}
 						<div class="flex flex-col gap-4">
-							{#each title.titleComments as comment (comment._id)}
+							{#each titleComments as comment (comment._id)}
 								<div class="flex flex-col gap-1.5 py-2">
 									<div class="flex items-center justify-between gap-4 text-[10px] text-[var(--text-ghost)]">
 										<span class="truncate">

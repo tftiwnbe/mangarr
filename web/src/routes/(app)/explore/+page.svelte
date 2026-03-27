@@ -49,13 +49,6 @@
 		coverUrl?: string | null;
 	};
 
-	type LibraryTitleItem = {
-		_id: string;
-		sourceId: string;
-		titleUrl: string;
-		title: string;
-	};
-
 	type ExploreCard = {
 		key: string;
 		title: string;
@@ -135,7 +128,7 @@
 
 	const client = useConvexClient();
 	const sourcesQuery = useQuery(convexApi.extensions.listSources, () => ({}));
-	const libraryQuery = useQuery(convexApi.library.listMine, () => ({}));
+	const importedLookupQuery = useQuery(convexApi.library.getMineImportedSourceLookup, () => ({}));
 
 	const tabs = [
 		{ value: 'popular', label: 'Popular' },
@@ -178,7 +171,6 @@
 	let stableCardsByKey: Record<string, ExploreCard> = {};
 
 	const sources = $derived((sourcesQuery.data ?? []) as SourceItem[]);
-	const libraryTitles = $derived((libraryQuery.data ?? []) as LibraryTitleItem[]);
 	const preferredContentLanguages = $derived(toMainContentLanguages($contentLanguages));
 
 	const sourceOptions = $derived.by(() => sourcesForContentLanguage());
@@ -227,16 +219,14 @@
 	const canRunSearch = $derived(searchQuery.trim().length > 0 || (Boolean(selectedSourceId) && hasAppliedSearchFilters));
 
 	const importedLibraryIds = $derived.by(() => {
-		const bySourceKey: Record<string, string> = {};
-		for (const title of libraryTitles) {
-			bySourceKey[`${title.sourceId}::${title.titleUrl}`] = title._id;
-		}
-		return bySourceKey;
+		return (importedLookupQuery.data ?? {}) as Record<string, string>;
 	});
 
 	const feedCommandType = $derived(activeTab === 'latest' ? 'explore.latest' : 'explore.popular');
 	const showSearchPrompt = $derived(activeTab === 'search' && !canRunSearch);
-	const currentLoading = $derived(loading || loadingMore || sourcesQuery.isLoading || libraryQuery.isLoading);
+	const currentLoading = $derived(
+		loading || loadingMore || sourcesQuery.isLoading || importedLookupQuery.isLoading
+	);
 	const activeSourceFailures = $derived.by(() => {
 		const scope: SourceFailureScope = activeTab === 'search' ? 'search' : 'feed';
 		const now = Date.now();

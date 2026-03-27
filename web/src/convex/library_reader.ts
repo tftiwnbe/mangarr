@@ -135,6 +135,39 @@ export const getMineVisibilitySummary = query({
 	}
 });
 
+export const getMineImportedSourceLookup = query({
+	args: {},
+	handler: async (ctx) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return {};
+		}
+
+		const ownerUserId = identity.subject as GenericId<'users'>;
+		const [titles, variants] = await Promise.all([
+			ctx.db
+				.query('libraryTitles')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+				.collect(),
+			ctx.db
+				.query('titleVariants')
+				.withIndex('by_owner_user_id_library_title_id', (q) => q.eq('ownerUserId', ownerUserId))
+				.collect()
+		]);
+
+		const visibleTitleIds = new Set(titles.map((title) => String(title._id)));
+		const lookup: Record<string, string> = {};
+		for (const title of titles) {
+			lookup[`${title.sourceId}::${title.titleUrl}`] = String(title._id);
+		}
+		for (const variant of variants) {
+			if (!visibleTitleIds.has(String(variant.libraryTitleId))) continue;
+			lookup[`${variant.sourceId}::${variant.titleUrl}`] = String(variant.libraryTitleId);
+		}
+		return lookup;
+	}
+});
+
 export const listTitleChapters = query({
 	args: {
 		titleId: v.id('libraryTitles')
@@ -234,6 +267,69 @@ export const getMineById = query({
 					}
 				: null,
 			chapters: chapters.sort((left, right) => right.sequence - left.sequence)
+		};
+	}
+});
+
+export const getMineOverviewById = query({
+	args: {
+		titleId: v.id('libraryTitles')
+	},
+	handler: async (ctx, args) => {
+		const title = await requireOwnedTitle(ctx, args.titleId);
+		const [chapters, userStatus, collections, variants, progressRows, downloadProfile] = await Promise.all([
+			ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+				.collect(),
+			resolveOwnedTitleUserStatus(ctx, title),
+			listCollectionsForTitle(ctx, title),
+			listVariantsForTitle(ctx, title),
+			ctx.db
+				.query('chapterProgress')
+				.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.collect(),
+			ctx.db
+				.query('downloadProfiles')
+				.withIndex('by_owner_user_id_library_title_id', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.unique()
+		]);
+
+		const latestProgress =
+			[...progressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
+
+		return {
+			...title,
+			userStatus,
+			userRating: title.userRating ?? null,
+			collections,
+			preferredVariantId: title.preferredVariantId ?? null,
+			variants,
+			chapterStats: summarizeDownloadStats(chapters),
+			readingProgress: {
+				startedChapters: progressRows.length,
+				latest: latestProgress
+					? {
+							chapterId: latestProgress.chapterId,
+							pageIndex: latestProgress.pageIndex,
+							updatedAt: latestProgress.updatedAt
+						}
+					: null
+			},
+			downloadProfile: downloadProfile
+				? {
+						enabled: downloadProfile.enabled,
+						paused: downloadProfile.paused,
+						autoDownload: downloadProfile.autoDownload,
+						lastCheckedAt: downloadProfile.lastCheckedAt ?? null,
+						lastSuccessAt: downloadProfile.lastSuccessAt ?? null,
+						lastError: downloadProfile.lastError ?? null
+					}
+				: null
 		};
 	}
 });
@@ -353,6 +449,44 @@ export const listChapterComments = query({
 				createdAt: item.createdAt,
 				updatedAt: item.updatedAt
 			}));
+	}
+});
+
+export const listTitleComments = query({
+	args: {
+		titleId: v.id('libraryTitles')
+	},
+	handler: async (ctx, args) => {
+		const title = await requireOwnedTitle(ctx, args.titleId);
+		const [comments, chapters] = await Promise.all([
+			ctx.db
+				.query('chapterComments')
+				.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.collect(),
+			ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+				.collect()
+		]);
+
+		const chapterById = new Map(chapters.map((chapter) => [chapter._id, chapter] as const));
+		return comments
+			.sort((left, right) => right.updatedAt - left.updatedAt)
+			.map((comment) => {
+				const chapter = chapterById.get(comment.chapterId);
+				return {
+					_id: comment._id,
+					chapterId: comment.chapterId,
+					chapterName: chapter?.chapterName ?? '',
+					chapterNumber: chapter?.chapterNumber ?? null,
+					pageIndex: comment.pageIndex,
+					message: comment.message,
+					createdAt: comment.createdAt,
+					updatedAt: comment.updatedAt
+				};
+			});
 	}
 });
 
