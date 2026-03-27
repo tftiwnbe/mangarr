@@ -97,6 +97,8 @@
 	};
 
 	type SortMode = 'updated' | 'added' | 'reading' | 'alpha' | 'status';
+	const INITIAL_LIBRARY_RENDER_LIMIT = 60;
+	const LIBRARY_RENDER_PAGE_SIZE = 48;
 
 	const client = useConvexClient();
 	const library = useQuery(convexApi.library.listMine, () => ({}));
@@ -113,6 +115,9 @@
 	let activeGenres = $state<string[]>([]);
 	let requestedMetadataTitleIds = $state<string[]>([]);
 	let revealTitleId = $state<string | null>(null);
+	let libraryRenderLimit = $state(INITIAL_LIBRARY_RENDER_LIMIT);
+	let libraryRenderSentinel = $state<HTMLDivElement | null>(null);
+	let libraryRenderObserver: IntersectionObserver | null = null;
 
 	const debouncedSearch = new DebouncedValue(() => searchQuery, 150);
 
@@ -144,6 +149,17 @@
 	const error = $derived(library.error instanceof Error ? library.error.message : null);
 	const hiddenTitles = $derived(((hiddenLibraryTitles.data ?? []) as HiddenTitleSummary[]).slice());
 	const hiddenImportsCount = $derived(hiddenTitles.length);
+	const renderContextKey = $derived(
+		JSON.stringify({
+			query: debouncedSearch.value?.trim().toLowerCase() ?? '',
+			selectedCollectionId,
+			sortMode,
+			sortDesc,
+			activeReadingStatusIds: [...activeReadingStatusIds].sort(),
+			activeSourceStatusKeys: [...activeSourceStatusKeys].sort(),
+			activeGenres: [...activeGenres].sort()
+		})
+	);
 
 	const collections = $derived.by(() => {
 		const seen = new SvelteMap<string, LibraryCollectionResource>();
@@ -249,6 +265,7 @@
 
 		return result;
 	});
+	const visibleFilteredTitles = $derived(filteredTitles.slice(0, libraryRenderLimit));
 
 	$effect(() => {
 		const nextRequested: string[] = [];
@@ -270,6 +287,49 @@
 				// Keep the key marked as requested for this session to avoid a fetch loop.
 			}
 		})();
+	});
+
+	function resetLibraryRenderObserver() {
+		libraryRenderObserver?.disconnect();
+		libraryRenderObserver = null;
+	}
+
+	function maybeLoadMoreLibraryTitles() {
+		if (visibleFilteredTitles.length >= filteredTitles.length) return;
+		libraryRenderLimit = Math.min(
+			libraryRenderLimit + LIBRARY_RENDER_PAGE_SIZE,
+			filteredTitles.length
+		);
+	}
+
+	$effect(() => {
+		void renderContextKey;
+		libraryRenderLimit = INITIAL_LIBRARY_RENDER_LIMIT;
+	});
+
+	$effect(() => {
+		if (typeof window === 'undefined' || !libraryRenderSentinel) return;
+		if (visibleFilteredTitles.length >= filteredTitles.length) {
+			resetLibraryRenderObserver();
+			return;
+		}
+		resetLibraryRenderObserver();
+		libraryRenderObserver = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((entry) => entry.isIntersecting)) {
+					maybeLoadMoreLibraryTitles();
+				}
+			},
+			{
+				root: null,
+				rootMargin: '960px 0px 960px 0px',
+				threshold: 0
+			}
+		);
+		libraryRenderObserver.observe(libraryRenderSentinel);
+		return () => {
+			resetLibraryRenderObserver();
+		};
 	});
 
 	function mapTitleToSummary(title: TitleItem): LibraryTitleSummary {
@@ -514,7 +574,7 @@
 		</div>
 	{:else}
 		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-			{#each filteredTitles as title (title.id)}
+			{#each visibleFilteredTitles as title (title.id)}
 				{@const displayStatus = getDisplayStatus(title)}
 				<a
 					href={buildTitlePath(title.id, title.title)}
@@ -555,6 +615,9 @@
 				</a>
 			{/each}
 		</div>
+		{#if visibleFilteredTitles.length < filteredTitles.length}
+			<div bind:this={libraryRenderSentinel} class="h-px w-full" aria-hidden="true"></div>
+		{/if}
 
 		{#if filteredTitles.length === 0}
 			<div class="flex flex-col items-center gap-2 py-8 text-center">

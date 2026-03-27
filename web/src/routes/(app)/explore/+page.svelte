@@ -115,6 +115,8 @@
 	const FEED_SOURCE_BATCH_SIZE = 4;
 	const COMMAND_CONCURRENCY = 3;
 	const FEED_DUPLICATE_PAGE_TOLERANCE = 3;
+	const INITIAL_CARD_RENDER_LIMIT = 60;
+	const CARD_RENDER_PAGE_SIZE = 48;
 	const UUID_SEGMENT_RE =
 		/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 	const LONG_HEX_SEGMENT_RE = /^[0-9a-f]{12,}$/i;
@@ -158,6 +160,7 @@
 	let autoLoadFeedPending = false;
 	let feedSentinel = $state<HTMLDivElement | null>(null);
 	let feedIntersectionObserver: IntersectionObserver | null = null;
+	let renderCardLimit = $state(INITIAL_CARD_RENDER_LIMIT);
 	let feedLoadGeneration = 0;
 	let searchRunGeneration = 0;
 
@@ -348,6 +351,20 @@
 
 		return items;
 	});
+	const renderContextKey = $derived.by(() => {
+		return activeTab === 'search'
+			? JSON.stringify({
+					activeTab,
+					selectedSourceId,
+					searchQuery: searchQuery.trim().toLowerCase(),
+					filters: selectedSourceAppliedFilters
+				})
+			: JSON.stringify({
+					activeTab,
+					selectedExtensionPkgs: [...selectedExtensionPkgs].sort()
+				});
+	});
+	const visibleCards = $derived(cards.slice(0, renderCardLimit));
 
 	$effect(() => {
 		const nextCardsByKey: Record<string, ExploreCard> = {};
@@ -1045,6 +1062,10 @@
 	}
 
 	async function maybeAutoLoadFeed() {
+		if (renderCardLimit < cards.length) {
+			renderCardLimit = Math.min(renderCardLimit + CARD_RENDER_PAGE_SIZE, cards.length);
+			return;
+		}
 		if (autoLoadFeedPending || activeTab === 'search' || currentLoading || !canLoadMoreFeed) return;
 
 		autoLoadFeedPending = true;
@@ -1061,7 +1082,7 @@
 	}
 
 	function observeFeedSentinel() {
-		if (typeof window === 'undefined' || !feedSentinel || activeTab === 'search') return;
+		if (typeof window === 'undefined' || !feedSentinel) return;
 		resetFeedObserver();
 		feedIntersectionObserver = new IntersectionObserver(
 			(entries) => {
@@ -1117,6 +1138,11 @@
 		canLoadMoreFeed = activeFeedSourceIds.length > 0;
 		const generation = ++feedLoadGeneration;
 		void loadFeedInitial(generation);
+	});
+
+	$effect(() => {
+		void renderContextKey;
+		renderCardLimit = INITIAL_CARD_RENDER_LIMIT;
 	});
 
 	$effect(() => {
@@ -1359,7 +1385,7 @@
 		</div>
 	{:else if cards.length > 0}
 		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-			{#each cards as item (item.key)}
+			{#each visibleCards as item (item.key)}
 				<a
 					href={buildPreviewHref(item)}
 					class="group card-glow relative flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)] text-left"
@@ -1404,7 +1430,7 @@
 				</a>
 			{/each}
 		</div>
-		{#if activeTab !== 'search'}
+		{#if activeTab !== 'search' || visibleCards.length < cards.length}
 			<div bind:this={feedSentinel} class="h-px w-full" aria-hidden="true"></div>
 		{/if}
 		{#if activeTab !== 'search' && canLoadMoreFeed}

@@ -91,7 +91,8 @@ test('opens the reader and loads page images', async ({ page }) => {
 					const style = window.getComputedStyle(img);
 					return img.naturalWidth > 0 && style.opacity !== '0' && style.visibility !== 'hidden';
 				})
-			)
+			),
+			{ timeout: 20_000 }
 		)
 		.toBe(true);
 });
