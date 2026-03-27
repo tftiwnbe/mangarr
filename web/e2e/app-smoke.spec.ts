@@ -51,6 +51,30 @@ test('shows hidden imports in the library management panel', async ({ page }) =>
 	await expect(panel.getByRole('button', { name: 'Show in Library' })).toHaveCount(expectedCount);
 });
 
+test('shows hidden imported explore results with an icon marker instead of a text badge', async ({
+	page
+}) => {
+	const hiddenImport = await ensureHiddenImportExists(page);
+
+	await page.goto('/explore');
+	await page.getByRole('button', { name: /^Search$/ }).click();
+	await page.getByRole('searchbox').fill(hiddenImport.title);
+	await expect(page.getByText(/Loading/i)).not.toBeVisible({ timeout: 30_000 });
+
+	const matchingCard = page
+		.locator('a')
+		.filter({
+			has: page.locator(`p:has-text("${hiddenImport.title}")`)
+		})
+		.filter({
+			has: page.locator('[aria-label="Imported but hidden from Library"]')
+		})
+		.first();
+
+	await expect(matchingCard).toBeVisible({ timeout: 30_000 });
+	await expect(matchingCard.getByText('Imported')).toHaveCount(0);
+});
+
 test('supports filter-only advanced search from explore', async ({ page }) => {
 	await page.goto('/explore');
 	await page.getByRole('button', { name: /^Search$/ }).click();

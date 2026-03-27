@@ -31,18 +31,32 @@ export async function firstExploreImportCard(page: Page): Promise<Locator> {
 	return card;
 }
 
-export async function ensureHiddenImportExists(page: Page) {
+export async function ensureHiddenImportExists(page: Page): Promise<{
+	title: string;
+	sourceLabel: string;
+}> {
 	await page.goto('/library');
 	const hiddenButton = page.getByRole('button', { name: /Hidden \(\d+\)/ });
-	if ((await hiddenButton.count()) > 0) {
-		return;
+	if ((await hiddenButton.count()) === 0) {
+		const card = await firstExploreImportCard(page);
+		await card.click();
+		await page.waitForURL(/\/title\/.+--/);
+		await page.goto('/library');
+		await expect(hiddenButton).toBeVisible();
 	}
 
-	const card = await firstExploreImportCard(page);
-	await card.click();
-	await page.waitForURL(/\/title\/.+--/);
-	await page.goto('/library');
-	await expect(hiddenButton).toBeVisible();
+	await hiddenButton.click();
+	const panel = page.getByRole('dialog', { name: /Manage Hidden Imports/i });
+	await expect(panel).toBeVisible();
+	const firstShowButton = panel.getByRole('button', { name: 'Show in Library' }).first();
+	const firstRow = firstShowButton.locator(
+		'xpath=ancestor::div[contains(@class, "border") and contains(@class, "p-3")]'
+	);
+	await expect(firstRow).toBeVisible();
+	const title = ((await firstRow.locator('p').nth(0).textContent()) ?? '').trim();
+	const sourceLabel = ((await firstRow.locator('p').nth(1).textContent()) ?? '').trim();
+	expect(title.length).toBeGreaterThan(0);
+	return { title, sourceLabel };
 }
 
 export async function openReaderFromTitle(page: Page, titlePath: string) {
