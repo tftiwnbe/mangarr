@@ -212,7 +212,20 @@ class BridgeServer(
                     "phase" to "warmup",
                 )
                 try {
-                    initializeKCEF()
+                    val warmupWarnings = mutableListOf<String>()
+                    runCatching {
+                        initializeKCEF()
+                    }.onFailure { error ->
+                        val message = error.message ?: "KCEF warmup failed"
+                        warmupWarnings += "KCEF: $message"
+                        events.warn(
+                            "bridge.kcef.degraded",
+                            "KCEF warmup failed, continuing in degraded mode",
+                            "bridgeId" to config.runtime.bridgeId,
+                            "phase" to "warmup",
+                            "warning" to message,
+                        )
+                    }
                     extensionManager.init()
                     if (convexClient != null && ConfigManager.config.repoUrl.isNotBlank()) {
                         runCatching {
@@ -234,15 +247,29 @@ class BridgeServer(
                                 "bridgeId" to config.runtime.bridgeId,
                                 "repoUrl" to ConfigManager.config.repoUrl,
                             )
+                            warmupWarnings +=
+                                "Repository metadata backfill: ${error.message ?: "failed"}"
                         }
                     }
-                    bridgeState.setReady()
+                    val warningMessage =
+                        warmupWarnings
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
+                            .joinToString("; ")
+                            .ifBlank { null }
+                    if (warningMessage == null) {
+                        bridgeState.setReady()
+                    } else {
+                        bridgeState.setDegraded(warningMessage)
+                    }
                     events.info(
                         "bridge.warmup.completed",
                         "Bridge warmup completed",
                         "bridgeId" to config.runtime.bridgeId,
                         "phase" to "warmup",
                         "sourceCount" to extensionManager.listSources().size,
+                        "degraded" to (warningMessage != null),
+                        "warnings" to warningMessage,
                     )
                 } catch (e: Exception) {
                     bridgeState.setError(e.message ?: "Bridge warmup failed")
