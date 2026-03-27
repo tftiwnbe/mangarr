@@ -20,6 +20,9 @@ const DOWNLOAD_TASK_STATUS = {
 	FAILED: 'failed',
 	CANCELLED: 'cancelled'
 } as const;
+const MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER = 16;
+const MAX_ENQUEUED_DOWNLOADS_PER_TITLE_REQUEST = 24;
+const MAX_ENQUEUED_DOWNLOADS_PER_TITLE_CYCLE = 4;
 
 type DownloadTaskStatus = (typeof DOWNLOAD_TASK_STATUS)[keyof typeof DOWNLOAD_TASK_STATUS];
 
@@ -479,11 +482,24 @@ export const requestMissingDownloads = mutation({
 		const eligible = [...missingChapters, ...failedChapters].sort(
 			(left, right) => left.sequence - right.sequence
 		);
+		const remainingSlots = await remainingDownloadCapacityForUser(ctx, userId);
+		if (remainingSlots <= 0) {
+			return {
+				enqueued: 0,
+				commandIds: [],
+				taskIds: [],
+				deferred: eligible.length
+			};
+		}
+		const chaptersToQueue = eligible.slice(
+			0,
+			Math.min(MAX_ENQUEUED_DOWNLOADS_PER_TITLE_REQUEST, remainingSlots)
+		);
 
 		const commandIds: GenericId<'commands'>[] = [];
 		const taskIds: GenericId<'downloadTasks'>[] = [];
 		let priorityOffset = 0;
-		for (const chapter of eligible) {
+		for (const chapter of chaptersToQueue) {
 			const queued = await queueDownloadAttempt(ctx, {
 				chapter,
 				title,
@@ -505,7 +521,8 @@ export const requestMissingDownloads = mutation({
 		return {
 			enqueued: commandIds.length,
 			commandIds,
-			taskIds
+			taskIds,
+			deferred: Math.max(0, eligible.length - chaptersToQueue.length)
 		};
 	}
 });
@@ -771,7 +788,14 @@ async function runDownloadCycleForUser(
 
 	let checked = 0;
 	let enqueued = 0;
+	let remainingCapacity = await remainingDownloadCapacityForUser(ctx, args.userId);
+	if (remainingCapacity <= 0) {
+		return { checked: profiles.length, enqueued: 0 };
+	}
 	for (const profile of profiles) {
+		if (remainingCapacity <= 0) {
+			break;
+		}
 		if (profile.paused) {
 			continue;
 		}
@@ -779,11 +803,16 @@ async function runDownloadCycleForUser(
 		if (!title) {
 			continue;
 		}
-		const chapters = eligibleChaptersByTitleId.get(String(title._id)) ?? [];
+		const chapters = [...(eligibleChaptersByTitleId.get(String(title._id)) ?? [])].sort(
+			(left, right) => left.sequence - right.sequence
+		);
 
 		checked += 1;
 		let localEnqueued = 0;
 		for (const chapter of chapters) {
+			if (remainingCapacity <= 0 || localEnqueued >= MAX_ENQUEUED_DOWNLOADS_PER_TITLE_CYCLE) {
+				break;
+			}
 			const queued = await queueDownloadAttempt(ctx, {
 				chapter,
 				title,
@@ -797,6 +826,7 @@ async function runDownloadCycleForUser(
 			}
 			localEnqueued += 1;
 			enqueued += 1;
+			remainingCapacity -= 1;
 		}
 
 		await ctx.db.patch(profile._id, {
@@ -808,6 +838,28 @@ async function runDownloadCycleForUser(
 	}
 
 	return { checked, enqueued };
+}
+
+async function remainingDownloadCapacityForUser(
+	ctx: QueryCtx | MutationCtx,
+	ownerUserId: GenericId<'users'>
+) {
+	const [queuedTasks, downloadingTasks] = await Promise.all([
+		ctx.db
+			.query('downloadTasks')
+			.withIndex('by_owner_user_id_status_updated_at', (q) =>
+				q.eq('ownerUserId', ownerUserId).eq('status', DOWNLOAD_TASK_STATUS.QUEUED)
+			)
+			.take(MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER + 1),
+		ctx.db
+			.query('downloadTasks')
+			.withIndex('by_owner_user_id_status_updated_at', (q) =>
+				q.eq('ownerUserId', ownerUserId).eq('status', DOWNLOAD_TASK_STATUS.DOWNLOADING)
+			)
+			.take(MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER + 1)
+	]);
+	const activeCount = queuedTasks.length + downloadingTasks.length;
+	return Math.max(0, MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER - activeCount);
 }
 
 async function findActiveDownloadTaskForChapter(
