@@ -7,6 +7,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonArray
@@ -27,6 +29,7 @@ import mangarr.tachibridge.repo.ExtensionRepoService
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import java.security.MessageDigest
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Base64
@@ -39,6 +42,7 @@ import kotlin.io.path.writeText
 private val logger = KotlinLogging.logger {}
 private val json = Json { ignoreUnknownKeys = true }
 private const val FEED_CACHE_TTL_MS = 5 * 60 * 1000L
+private const val READER_PAGE_CACHE_TTL_MS = 15 * 60 * 1000L
 private const val MANGADEX_PACKAGE = "eu.kanade.tachiyomi.extension.all.mangadex"
 private val DOWNLOAD_PAGE_RETRY_DELAYS_MS = listOf(0L, 2_000L, 5_000L, 15_000L)
 private const val DOWNLOAD_PAGE_CONCURRENCY = 2
@@ -49,9 +53,12 @@ class BridgeService(
     private val repoService: ExtensionRepoService,
     private val downloadStorage: DownloadStorage,
     private val feedCacheDir: Path,
+    private val readerPageCacheDir: Path,
 ) {
     private val httpClient = OkHttpClient()
     private val feedCache = ConcurrentHashMap<String, CachedFeedResult>()
+    private val readerPageCache = ConcurrentHashMap<String, CachedReaderPage>()
+    private val readerPageLocks = ConcurrentHashMap<String, Mutex>()
 
     fun repositorySnapshot(forceRefresh: Boolean = false): JsonObject {
         val url = repoService.currentRepoIndexUrl().trim()
@@ -418,7 +425,39 @@ class BridgeService(
 
     suspend fun fetchPageImage(sourceId: String, chapterUrl: String, index: Int): PageImagePayload {
         extensionManager.awaitReady()
-        return extensionManager.getPageImage(sourceId.toLong(), chapterUrl, index)
+        val cacheKey = "$sourceId::$chapterUrl::$index"
+        val now = System.currentTimeMillis()
+
+        readerPageCache[cacheKey]?.takeIf { it.expiresAt > now }?.let { cached ->
+            return PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
+        }
+        loadPersistedReaderPage(cacheKey, now)?.let { cached ->
+            readerPageCache[cacheKey] = cached
+            return PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
+        }
+
+        val lock = readerPageLocks.computeIfAbsent(cacheKey) { Mutex() }
+        return lock.withLock {
+            val currentTime = System.currentTimeMillis()
+            readerPageCache[cacheKey]?.takeIf { it.expiresAt > currentTime }?.let { cached ->
+                return@withLock PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
+            }
+            loadPersistedReaderPage(cacheKey, currentTime)?.let { cached ->
+                readerPageCache[cacheKey] = cached
+                return@withLock PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
+            }
+
+            val payload = extensionManager.getPageImage(sourceId.toLong(), chapterUrl, index)
+            val cached =
+                CachedReaderPage(
+                    contentType = payload.contentType,
+                    bytes = payload.bytes,
+                    expiresAt = System.currentTimeMillis() + READER_PAGE_CACHE_TTL_MS,
+                )
+            readerPageCache[cacheKey] = cached
+            persistReaderPage(cacheKey, cached)
+            PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
+        }
     }
 
     suspend fun downloadChapter(
@@ -958,10 +997,66 @@ class BridgeService(
         }
     }
 
+    private fun loadPersistedReaderPage(cacheKey: String, now: Long): CachedReaderPage? {
+        val metaPath = readerPageMetaPath(cacheKey)
+        val bodyPath = readerPageBodyPath(cacheKey)
+        if (!metaPath.exists() || !bodyPath.exists()) {
+            return null
+        }
+
+        return runCatching {
+            val snapshot =
+                json.decodeFromString(
+                    CachedReaderPageSnapshot.serializer(),
+                    metaPath.readText(),
+                )
+            if (snapshot.expiresAt <= now) {
+                Files.deleteIfExists(metaPath)
+                Files.deleteIfExists(bodyPath)
+                null
+            } else {
+                CachedReaderPage(
+                    contentType = snapshot.contentType,
+                    bytes = Files.readAllBytes(bodyPath),
+                    expiresAt = snapshot.expiresAt,
+                )
+            }
+        }.getOrElse { error ->
+            logger.warn(error) { "Failed to read persisted reader page cache" }
+            Files.deleteIfExists(metaPath)
+            Files.deleteIfExists(bodyPath)
+            null
+        }
+    }
+
+    private fun persistReaderPage(cacheKey: String, payload: CachedReaderPage) {
+        runCatching {
+            Files.createDirectories(readerPageCacheDir)
+            Files.write(readerPageBodyPath(cacheKey), payload.bytes)
+            readerPageMetaPath(cacheKey).writeText(
+                json.encodeToString(
+                    CachedReaderPageSnapshot.serializer(),
+                    CachedReaderPageSnapshot(
+                        contentType = payload.contentType,
+                        expiresAt = payload.expiresAt,
+                    ),
+                ),
+            )
+        }.onFailure { error ->
+            logger.warn(error) { "Failed to persist reader page cache" }
+        }
+    }
+
     private fun feedCachePath(cacheKey: String): Path = feedCacheDir.resolve("${hashCacheKey(cacheKey)}.json")
 
+    private fun readerPageMetaPath(cacheKey: String): Path =
+        readerPageCacheDir.resolve("${hashCacheKey(cacheKey)}.json")
+
+    private fun readerPageBodyPath(cacheKey: String): Path =
+        readerPageCacheDir.resolve("${hashCacheKey(cacheKey)}.bin")
+
     private fun hashCacheKey(value: String): String =
-        java.security.MessageDigest
+        MessageDigest
             .getInstance("SHA-1")
             .digest(value.toByteArray(Charsets.UTF_8))
             .joinToString("") { byte -> "%02x".format(byte) }
@@ -1007,6 +1102,18 @@ data class SourcePayload(
     val lang: String,
     val supportsLatest: Boolean,
     val enabled: Boolean,
+)
+
+private data class CachedReaderPage(
+    val contentType: String,
+    val bytes: ByteArray,
+    val expiresAt: Long,
+)
+
+@Serializable
+private data class CachedReaderPageSnapshot(
+    val contentType: String,
+    val expiresAt: Long,
 )
 
 private fun mangarr.tachibridge.config.BridgeConfig.SourceInfo.toPayload() =

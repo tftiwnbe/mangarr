@@ -160,6 +160,7 @@ class BridgeServer(
                     repoService,
                     DownloadStorage(dataPath),
                     dataPath.resolve("cache/feeds"),
+                    dataPath.resolve("cache/reader-pages"),
                 )
             bridgeState = BridgeState(config.runtime.bridgeId, config.runtime.port, convexClient != null)
             heartbeatReporter =
