@@ -139,6 +139,7 @@
 	let lastChapterId = $state<string | null>(null);
 	let remotePagesCommand = $state<CommandItem | null>(null);
 	let pageRetryCounts = $state<Record<string, number>>({});
+	let scrollFrame = 0;
 
 	const readerData = $derived((readerQuery.data as ReaderQuery) ?? null);
 	const title = $derived(readerData?.title ?? null);
@@ -293,6 +294,20 @@
 			...pageRetryCounts,
 			[item.id]: retries + 1
 		};
+	}
+
+	function pageDistanceFromCurrent(pageIndex: number) {
+		return Math.abs(pageIndex - currentPageIndex);
+	}
+
+	function pageLoadingMode(readerPage: ReaderPage): 'eager' | 'lazy' {
+		return readerPage.pageIndex < 2 || pageDistanceFromCurrent(readerPage.pageIndex) <= 2
+			? 'eager'
+			: 'lazy';
+	}
+
+	function pageFetchPriority(readerPage: ReaderPage): 'high' | 'auto' {
+		return pageDistanceFromCurrent(readerPage.pageIndex) <= 1 ? 'high' : 'auto';
 	}
 
 	function jumpToPage(pageIndex: number) {
@@ -638,16 +653,24 @@
 				currentPageIndex = bestIndex;
 			}
 		};
+		const handleScroll = () => {
+			if (scrollFrame) return;
+			scrollFrame = window.requestAnimationFrame(() => {
+				scrollFrame = 0;
+				syncScroll();
+			});
+		};
 
 		syncTouch();
 		syncScroll();
 		media.addEventListener('change', syncTouch);
-		window.addEventListener('scroll', syncScroll, { passive: true });
+		window.addEventListener('scroll', handleScroll, { passive: true });
 		return () => {
 			document.documentElement.classList.remove('reader-mode');
 			document.body.classList.remove('reader-mode');
 			media.removeEventListener('change', syncTouch);
-			window.removeEventListener('scroll', syncScroll);
+			window.removeEventListener('scroll', handleScroll);
+			if (scrollFrame) window.cancelAnimationFrame(scrollFrame);
 			if (progressFlushTimer) clearTimeout(progressFlushTimer);
 			void flushServerProgress();
 		};
@@ -787,14 +810,19 @@
 		{#if mode === 'vertical'}
 			<div class="flex flex-col pt-10 md:mx-auto md:max-w-3xl">
 				{#each pages as readerPage (readerPage.id)}
-					<div data-reader-page-index={readerPage.pageIndex} class="relative">
+					<div
+						data-reader-page-index={readerPage.pageIndex}
+						class="relative"
+						style="content-visibility: auto; contain-intrinsic-size: 1000px 1500px;"
+					>
 						{#if !paintedPageIds.has(readerPage.id)}
 							<div class="aspect-[2/3] w-full bg-[var(--void-1)]"></div>
 						{/if}
 						<img
 							src={resolvePageUrl(readerPage)}
 							alt="{$_('reader.page')} {readerPage.pageIndex + 1}"
-							loading={readerPage.pageIndex < 2 ? 'eager' : 'lazy'}
+							loading={pageLoadingMode(readerPage)}
+							fetchpriority={pageFetchPriority(readerPage)}
 							decoding="async"
 							class="bg-[var(--void-1)] object-contain {paintedPageIds.has(readerPage.id)
 								? 'w-full'
