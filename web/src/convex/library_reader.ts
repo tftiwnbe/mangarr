@@ -141,7 +141,8 @@ export const getMineVisibilitySummary = query({
 		if (!identity) {
 			return {
 				listedCount: 0,
-				hiddenCount: 0
+				hiddenCount: 0,
+				hiddenTitles: []
 			};
 		}
 
@@ -152,9 +153,33 @@ export const getMineVisibilitySummary = query({
 
 		let listedCount = 0;
 		let hiddenCount = 0;
+		const hiddenTitles: Array<{
+			_id: GenericId<'libraryTitles'>;
+			title: string;
+			sourceId: string;
+			sourcePkg: string;
+			sourceLang: string;
+			titleUrl: string;
+			coverUrl: string | null;
+			localCoverPath: string | null;
+			createdAt: number;
+			updatedAt: number;
+		}> = [];
 		for (const title of titles) {
 			if (title.listedInLibrary === false) {
 				hiddenCount += 1;
+				hiddenTitles.push({
+					_id: title._id,
+					title: title.title,
+					sourceId: title.sourceId,
+					sourcePkg: title.sourcePkg,
+					sourceLang: title.sourceLang,
+					titleUrl: title.titleUrl,
+					coverUrl: title.coverUrl ?? null,
+					localCoverPath: title.localCoverPath ?? null,
+					createdAt: title.createdAt,
+					updatedAt: title.updatedAt
+				});
 			} else {
 				listedCount += 1;
 			}
@@ -162,7 +187,8 @@ export const getMineVisibilitySummary = query({
 
 		return {
 			listedCount,
-			hiddenCount
+			hiddenCount,
+			hiddenTitles: hiddenTitles.sort((left, right) => right.updatedAt - left.updatedAt)
 		};
 	}
 });
