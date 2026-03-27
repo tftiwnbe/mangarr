@@ -21,6 +21,7 @@ import {
 	setTitlePreferredVariant,
 	variantInstalledSourceRecord
 } from './library_shared';
+import { pickBestMergeCandidate } from './title_identity';
 
 export {
 	createChapterComment,
@@ -1397,6 +1398,55 @@ async function importForUserCore(
 		now: number;
 	}
 ) {
+	const attachVariantToTitle = async (
+		existing: {
+			_id: GenericId<'libraryTitles'>;
+			preferredVariantId?: GenericId<'titleVariants'>;
+		}
+	) => {
+		const variantId = await ctx.db.insert('titleVariants', {
+			ownerUserId: args.userId,
+			libraryTitleId: existing._id,
+			sourceId: args.sourceId,
+			sourcePkg: args.sourcePkg,
+			sourceLang: args.sourceLang,
+			titleUrl: args.titleUrl,
+			title: args.title,
+			author: args.author,
+			artist: args.artist,
+			description: args.description,
+			coverUrl: args.coverUrl,
+			genre: args.genre,
+			status: args.status,
+			isPreferred: existing.preferredVariantId === undefined,
+			createdAt: args.now,
+			updatedAt: args.now,
+			lastSyncedAt: args.now
+		});
+		if (!existing.preferredVariantId) {
+			await applyVariantSnapshotToTitle(ctx, existing._id, {
+				sourceId: args.sourceId,
+				sourcePkg: args.sourcePkg,
+				sourceLang: args.sourceLang,
+				titleUrl: args.titleUrl,
+				title: args.title,
+				author: args.author,
+				artist: args.artist,
+				description: args.description,
+				coverUrl: args.coverUrl,
+				genre: args.genre,
+				status: args.status,
+				preferredVariantId: variantId,
+				now: args.now
+			});
+		} else {
+			await ctx.db.patch(existing._id, {
+				updatedAt: args.now
+			});
+		}
+		return { created: false, titleId: existing._id };
+	};
+
 	const existingVariant = await ctx.db
 		.query('titleVariants')
 		.withIndex('by_owner_user_id_source_id_title_url', (q) =>
@@ -1456,47 +1506,65 @@ async function importForUserCore(
 		.unique();
 
 	if (existing) {
-		const variantId = await ctx.db.insert('titleVariants', {
-			ownerUserId: args.userId,
-			libraryTitleId: existing._id,
-			sourceId: args.sourceId,
-			sourcePkg: args.sourcePkg,
-			sourceLang: args.sourceLang,
-			titleUrl: args.titleUrl,
+		return attachVariantToTitle(existing);
+	}
+
+	const [candidateTitles, candidateVariants] = await Promise.all([
+		ctx.db
+			.query('libraryTitles')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', args.userId))
+			.collect(),
+		ctx.db
+			.query('titleVariants')
+			.withIndex('by_owner_user_id_library_title_id', (q) => q.eq('ownerUserId', args.userId))
+			.collect()
+	]);
+
+	const variantsByTitleId = new Map<string, typeof candidateVariants>();
+	for (const variant of candidateVariants) {
+		const key = String(variant.libraryTitleId);
+		const existingEntries = variantsByTitleId.get(key);
+		if (existingEntries) {
+			existingEntries.push(variant);
+		} else {
+			variantsByTitleId.set(key, [variant]);
+		}
+	}
+
+	const inferredTarget = pickBestMergeCandidate(
+		{
 			title: args.title,
 			author: args.author,
 			artist: args.artist,
-			description: args.description,
-			coverUrl: args.coverUrl,
-			genre: args.genre,
-			status: args.status,
-			isPreferred: existing.preferredVariantId === undefined,
-			createdAt: args.now,
-			updatedAt: args.now,
-			lastSyncedAt: args.now
-		});
-		if (!existing.preferredVariantId) {
-			await applyVariantSnapshotToTitle(ctx, existing._id, {
-				sourceId: args.sourceId,
-				sourcePkg: args.sourcePkg,
-				sourceLang: args.sourceLang,
-				titleUrl: args.titleUrl,
-				title: args.title,
-				author: args.author,
-				artist: args.artist,
-				description: args.description,
-				coverUrl: args.coverUrl,
-				genre: args.genre,
-				status: args.status,
-				preferredVariantId: variantId,
-				now: args.now
-			});
-		} else {
-			await ctx.db.patch(existing._id, {
-				updatedAt: args.now
-			});
-		}
-		return { created: false, titleId: existing._id };
+			sourcePkg: args.sourcePkg,
+			sourceLang: args.sourceLang,
+			titleUrl: args.titleUrl
+		},
+		candidateTitles.map((candidate) => ({
+			item: candidate,
+			snapshots: [
+				{
+					title: candidate.title,
+					author: candidate.author,
+					artist: candidate.artist,
+					sourcePkg: candidate.sourcePkg,
+					sourceLang: candidate.sourceLang,
+					titleUrl: candidate.titleUrl
+				},
+				...(variantsByTitleId.get(String(candidate._id)) ?? []).map((variant) => ({
+					title: variant.title,
+					author: variant.author,
+					artist: variant.artist,
+					sourcePkg: variant.sourcePkg,
+					sourceLang: variant.sourceLang,
+					titleUrl: variant.titleUrl
+				}))
+			]
+		}))
+	);
+
+	if (inferredTarget) {
+		return attachVariantToTitle(inferredTarget.item);
 	}
 
 	const titleId = await ctx.db.insert('libraryTitles', {

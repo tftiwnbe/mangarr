@@ -17,6 +17,7 @@ import {
 	requireOwnedTitle,
 	resolveOwnedTitleUserStatus
 } from './library_shared';
+import { titleUrlIdentity } from './title_identity';
 
 function summarizeDownloadStats(
 	chapters: Array<{
@@ -396,6 +397,7 @@ export const findMineBySource = query({
 	args: {
 		canonicalKey: v.optional(v.string()),
 		sourceId: v.optional(v.string()),
+		sourcePkg: v.optional(v.string()),
 		titleUrl: v.optional(v.string())
 	},
 	handler: async (ctx, args) => {
@@ -434,19 +436,49 @@ export const findMineBySource = query({
 				q.eq('ownerUserId', ownerUserId).eq('sourceId', sourceId).eq('titleUrl', titleUrl)
 			)
 			.unique();
-		if (!variant) {
+		if (variant) {
+			const match = await ctx.db.get(variant.libraryTitleId);
+			if (!match || match.ownerUserId !== ownerUserId) {
+				return null;
+			}
+
+			return {
+				_id: match._id,
+				title: match.title,
+				sourceId: variant.sourceId,
+				titleUrl: variant.titleUrl
+			};
+		}
+
+		const sourcePkg = args.sourcePkg?.trim() ?? '';
+		const urlIdentity = titleUrlIdentity(titleUrl);
+		if (!sourcePkg || !urlIdentity) {
 			return null;
 		}
-		const match = await ctx.db.get(variant.libraryTitleId);
-		if (!match || match.ownerUserId !== ownerUserId) {
+
+		const variants = await ctx.db
+			.query('titleVariants')
+			.withIndex('by_owner_user_id_library_title_id', (q) => q.eq('ownerUserId', ownerUserId))
+			.collect();
+		const packageMatch = variants.find((candidate) => {
+			return (
+				candidate.sourcePkg === sourcePkg &&
+				titleUrlIdentity(candidate.titleUrl) === urlIdentity
+			);
+		});
+		if (!packageMatch) {
+			return null;
+		}
+		const packageTitle = await ctx.db.get(packageMatch.libraryTitleId);
+		if (!packageTitle || packageTitle.ownerUserId !== ownerUserId) {
 			return null;
 		}
 
 		return {
-			_id: match._id,
-			title: match.title,
-			sourceId: variant.sourceId,
-			titleUrl: variant.titleUrl
+			_id: packageTitle._id,
+			title: packageTitle.title,
+			sourceId: packageMatch.sourceId,
+			titleUrl: packageMatch.titleUrl
 		};
 	}
 });

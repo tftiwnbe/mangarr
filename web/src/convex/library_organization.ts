@@ -18,6 +18,7 @@ import {
 	setTitlePreferredVariant,
 	slugifyStatusKey
 } from './library_shared';
+import { scoreMergeSnapshot } from './title_identity';
 
 export const listUserStatuses = query({
 	args: {},
@@ -460,14 +461,36 @@ export const listMergeCandidates = query({
 		const title = await requireOwnedTitle(ctx, args.titleId);
 		const limit = Math.max(1, Math.min(Math.floor(args.limit ?? 12), 50));
 		const search = args.query?.trim().toLowerCase() ?? '';
-		const [titles, statusById, variantCountsByTitleId] = await Promise.all([
+		const [titles, variants, statusById, variantCountsByTitleId] = await Promise.all([
 			ctx.db
 				.query('libraryTitles')
 				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', title.ownerUserId))
 				.collect(),
+			ctx.db
+				.query('titleVariants')
+				.withIndex('by_owner_user_id_library_title_id', (q) => q.eq('ownerUserId', title.ownerUserId))
+				.collect(),
 			loadOwnerUserStatusMap(ctx, title.ownerUserId),
 			loadOwnerVariantCountsByTitleId(ctx, title.ownerUserId)
 		]);
+		const variantsByTitleId = new Map<string, typeof variants>();
+		for (const variant of variants) {
+			const key = String(variant.libraryTitleId);
+			const existing = variantsByTitleId.get(key);
+			if (existing) {
+				existing.push(variant);
+			} else {
+				variantsByTitleId.set(key, [variant]);
+			}
+		}
+		const baseSnapshot = {
+			title: title.title,
+			author: title.author,
+			artist: title.artist,
+			sourcePkg: title.sourcePkg,
+			sourceLang: title.sourceLang,
+			titleUrl: title.titleUrl
+		};
 
 		return titles
 			.filter((candidate) => candidate._id !== title._id)
@@ -483,9 +506,34 @@ export const listMergeCandidates = query({
 					.toLowerCase();
 				return haystack.includes(search);
 			})
-			.sort((left, right) => right.updatedAt - left.updatedAt)
+			.map((candidate) => {
+				const variantMatches = (variantsByTitleId.get(String(candidate._id)) ?? []).map((variant) =>
+					scoreMergeSnapshot(baseSnapshot, {
+						title: variant.title,
+						author: variant.author,
+						artist: variant.artist,
+						sourcePkg: variant.sourcePkg,
+						sourceLang: variant.sourceLang,
+						titleUrl: variant.titleUrl
+					})
+				);
+				const score = Math.max(
+					scoreMergeSnapshot(baseSnapshot, {
+						title: candidate.title,
+						author: candidate.author,
+						artist: candidate.artist,
+						sourcePkg: candidate.sourcePkg,
+						sourceLang: candidate.sourceLang,
+						titleUrl: candidate.titleUrl
+					}),
+					...variantMatches,
+					0
+				);
+				return { candidate, score };
+			})
+			.sort((left, right) => right.score - left.score || right.candidate.updatedAt - left.candidate.updatedAt)
 			.slice(0, limit)
-			.map((candidate) => ({
+			.map(({ candidate, score }) => ({
 				id: candidate._id,
 				title: candidate.title,
 				author: candidate.author ?? null,
@@ -498,7 +546,8 @@ export const listMergeCandidates = query({
 				userStatus: candidate.userStatusId
 					? (statusById.get(String(candidate.userStatusId)) ?? null)
 					: null,
-				updatedAt: candidate.updatedAt
+				updatedAt: candidate.updatedAt,
+				score
 			}));
 	}
 });

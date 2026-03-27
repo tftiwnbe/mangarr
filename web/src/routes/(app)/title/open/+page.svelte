@@ -20,6 +20,7 @@
 
 	async function findExistingTitle() {
 		const sourceId = page.url.searchParams.get('source_id')?.trim() ?? '';
+		const sourcePkg = page.url.searchParams.get('source_pkg')?.trim() ?? '';
 		const titleUrl = page.url.searchParams.get('title_url')?.trim() ?? '';
 		const canonicalKey = page.url.searchParams.get('canonical_key')?.trim() ?? '';
 		if (!sourceId || !titleUrl || !canonicalKey) {
@@ -28,6 +29,7 @@
 		return client.query(convexApi.library.findMineBySource, {
 			canonicalKey,
 			sourceId,
+			sourcePkg,
 			titleUrl
 		});
 	}
