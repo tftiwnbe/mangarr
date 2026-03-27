@@ -100,7 +100,7 @@
 
 	const client = useConvexClient();
 	const library = useQuery(convexApi.library.listMine, () => ({}));
-	const visibilitySummary = useQuery(convexApi.library.getMineVisibilitySummary, () => ({}));
+	const hiddenLibraryTitles = useQuery(convexApi.library.listHiddenMine, () => ({}));
 
 	let searchQuery = $state('');
 	let selectedCollectionId = $state<string | null>(null);
@@ -142,10 +142,8 @@
 	const titles = $derived(((library.data ?? []) as TitleItem[]).map((title) => mapTitleToSummary(title)));
 	const loading = $derived(library.isLoading);
 	const error = $derived(library.error instanceof Error ? library.error.message : null);
-	const hiddenImportsCount = $derived(Number(visibilitySummary.data?.hiddenCount ?? 0));
-	const hiddenTitles = $derived(
-		((visibilitySummary.data?.hiddenTitles ?? []) as HiddenTitleSummary[]).slice()
-	);
+	const hiddenTitles = $derived(((hiddenLibraryTitles.data ?? []) as HiddenTitleSummary[]).slice());
+	const hiddenImportsCount = $derived(hiddenTitles.length);
 
 	const collections = $derived.by(() => {
 		const seen = new SvelteMap<string, LibraryCollectionResource>();
@@ -576,7 +574,7 @@
 			{$_('library.hiddenImports', { values: { count: hiddenImportsCount } })}
 		</p>
 
-		{#if visibilitySummary.isLoading}
+		{#if hiddenLibraryTitles.isLoading}
 			<p class="text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
 		{:else if hiddenTitles.length === 0}
 			<p class="text-sm text-[var(--text-ghost)]">{$_('common.empty')}</p>
