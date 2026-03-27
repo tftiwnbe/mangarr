@@ -229,6 +229,40 @@ export const ensureTitlesCoverCache = mutation({
 	}
 });
 
+export const ensureTitlesOfflineReady = mutation({
+	args: {
+		titleIds: v.array(v.id('libraryTitles')),
+		limit: v.optional(v.float64())
+	},
+	handler: async (ctx, args) => {
+		const userId = await requireViewerUserId(ctx);
+		const limit = Math.max(1, Math.min(Math.floor(args.limit ?? 20), 100));
+		const now = Date.now();
+		const commandIds: GenericId<'commands'>[] = [];
+
+		for (const titleId of args.titleIds.slice(0, limit)) {
+			const title = await ctx.db.get(titleId);
+			if (!title || title.ownerUserId !== userId) {
+				continue;
+			}
+			for (const commandId of [
+				await ensureMetadataForTitle(ctx, title, now),
+				await ensureCoverCacheForTitle(ctx, title, now),
+				await ensureChapterSyncForTitle(ctx, title, now)
+			]) {
+				if (commandId) {
+					commandIds.push(commandId);
+				}
+			}
+		}
+
+		return {
+			enqueued: commandIds.length,
+			commandIds
+		};
+	}
+});
+
 export const upsertTitleMetadataFromBridge = mutation({
 	args: {
 		sourceId: v.string(),

@@ -53,6 +53,56 @@ function summarizeDownloadStats(
 	};
 }
 
+function isOfflineMetadataReady(title: {
+	author?: string | null;
+	artist?: string | null;
+	description?: string | null;
+	genre?: string | null;
+	status?: number | null;
+}) {
+	const hasCreator =
+		typeof title.author === 'string' && title.author.trim().length > 0
+			? true
+			: typeof title.artist === 'string' && title.artist.trim().length > 0;
+	return (
+		hasCreator &&
+		typeof title.description === 'string' &&
+		title.description.trim().length > 0 &&
+		typeof title.genre === 'string' &&
+		title.genre.trim().length > 0 &&
+		Number(title.status ?? 0) > 0
+	);
+}
+
+function summarizeOfflineReadiness(
+	title: {
+		coverUrl?: string | null;
+		localCoverPath?: string | null;
+		author?: string | null;
+		artist?: string | null;
+		description?: string | null;
+		genre?: string | null;
+		status?: number | null;
+	},
+	chapters: Array<{
+		downloadStatus: (typeof DOWNLOAD_STATUS)[keyof typeof DOWNLOAD_STATUS];
+	}>
+) {
+	const downloadStats = summarizeDownloadStats(chapters);
+	const metadataReady = isOfflineMetadataReady(title);
+	const cachedCover = typeof title.localCoverPath === 'string' && title.localCoverPath.trim().length > 0;
+	return {
+		titlePageReady: metadataReady && downloadStats.total > 0,
+		metadataReady,
+		cachedCover,
+		downloadedChapters: downloadStats.downloaded,
+		totalChapters: downloadStats.total,
+		fullyDownloaded: downloadStats.total > 0 && downloadStats.downloaded === downloadStats.total,
+		missingCoverCache:
+			!cachedCover && typeof title.coverUrl === 'string' && title.coverUrl.trim().length > 0
+	};
+}
+
 export const listMine = query({
 	args: {},
 	handler: async (ctx) => {
@@ -87,18 +137,19 @@ export const listMine = query({
 				const chapters = chaptersByTitleId.get(String(title._id)) ?? [];
 				const collectionIds = collectionIdsByTitleId.get(String(title._id)) ?? [];
 
-				return {
-					...title,
-					userStatus: title.userStatusId ? (statusById.get(String(title.userStatusId)) ?? null) : null,
-					userRating: title.userRating ?? null,
+					return {
+						...title,
+						userStatus: title.userStatusId ? (statusById.get(String(title.userStatusId)) ?? null) : null,
+						userRating: title.userRating ?? null,
 					collections: collectionIds
-						.map((collectionId) => collectionById.get(String(collectionId)) ?? null)
-						.filter((collection): collection is NonNullable<typeof collection> => collection !== null)
-						.sort((left, right) => left.position - right.position),
-					variantsCount: variantCountsByTitleId.get(String(title._id)) ?? 0,
-					chapterStats: summarizeDownloadStats(chapters)
-				};
-			});
+							.map((collectionId) => collectionById.get(String(collectionId)) ?? null)
+							.filter((collection): collection is NonNullable<typeof collection> => collection !== null)
+							.sort((left, right) => left.position - right.position),
+						variantsCount: variantCountsByTitleId.get(String(title._id)) ?? 0,
+						chapterStats: summarizeDownloadStats(chapters),
+						offlineReadiness: summarizeOfflineReadiness(title, chapters)
+					};
+				});
 	}
 });
 
@@ -328,18 +379,19 @@ export const getMineById = query({
 						updatedAt: comment.updatedAt
 					};
 				}),
-			downloadProfile: downloadProfile
-				? {
-						enabled: downloadProfile.enabled,
-						paused: downloadProfile.paused,
-						autoDownload: downloadProfile.autoDownload,
-						lastCheckedAt: downloadProfile.lastCheckedAt ?? null,
-						lastSuccessAt: downloadProfile.lastSuccessAt ?? null,
-						lastError: downloadProfile.lastError ?? null
-					}
-				: null,
-			chapters: chapters.sort((left, right) => right.sequence - left.sequence)
-		};
+				downloadProfile: downloadProfile
+					? {
+							enabled: downloadProfile.enabled,
+							paused: downloadProfile.paused,
+							autoDownload: downloadProfile.autoDownload,
+							lastCheckedAt: downloadProfile.lastCheckedAt ?? null,
+							lastSuccessAt: downloadProfile.lastSuccessAt ?? null,
+							lastError: downloadProfile.lastError ?? null
+						}
+					: null,
+				chapters: chapters.sort((left, right) => right.sequence - left.sequence),
+				offlineReadiness: summarizeOfflineReadiness(title, chapters)
+			};
 	}
 });
 
@@ -392,17 +444,18 @@ export const getMineOverviewById = query({
 						}
 					: null
 			},
-			downloadProfile: downloadProfile
-				? {
-						enabled: downloadProfile.enabled,
-						paused: downloadProfile.paused,
-						autoDownload: downloadProfile.autoDownload,
-						lastCheckedAt: downloadProfile.lastCheckedAt ?? null,
-						lastSuccessAt: downloadProfile.lastSuccessAt ?? null,
-						lastError: downloadProfile.lastError ?? null
-					}
-				: null
-		};
+				downloadProfile: downloadProfile
+					? {
+							enabled: downloadProfile.enabled,
+							paused: downloadProfile.paused,
+							autoDownload: downloadProfile.autoDownload,
+							lastCheckedAt: downloadProfile.lastCheckedAt ?? null,
+							lastSuccessAt: downloadProfile.lastSuccessAt ?? null,
+							lastError: downloadProfile.lastError ?? null
+						}
+					: null,
+				offlineReadiness: summarizeOfflineReadiness(title, chapters)
+			};
 	}
 });
 

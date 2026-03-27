@@ -52,6 +52,15 @@
 			downloaded: number;
 			failed: number;
 		};
+		offlineReadiness: {
+			titlePageReady: boolean;
+			metadataReady: boolean;
+			cachedCover: boolean;
+			downloadedChapters: number;
+			totalChapters: number;
+			fullyDownloaded: boolean;
+			missingCoverCache: boolean;
+		};
 		createdAt: number;
 		updatedAt: number;
 		lastReadAt?: number;
@@ -82,6 +91,7 @@
 		genre: string | null;
 		collections: LibraryCollectionResource[];
 		user_rating: number | null;
+		offline_readiness: TitleItem['offlineReadiness'];
 	};
 
 	type HiddenTitleSummary = {
@@ -291,47 +301,28 @@
 		$effect(() => {
 			if (!browserOnline) return;
 			const nextRequested: string[] = [];
-			for (const title of (library.data ?? []) as TitleItem[]) {
-				if ((title.status ?? 0) > 0 && (title.genre ?? '').trim()) continue;
-			const key = String(title._id);
-			if (requestedMetadataTitleIds.includes(key)) continue;
-			nextRequested.push(key);
-		}
-		if (nextRequested.length === 0) return;
-		requestedMetadataTitleIds = [...requestedMetadataTitleIds, ...nextRequested];
-		void (async () => {
-			try {
-				await client.mutation(convexApi.library.ensureTitlesMetadata, {
-					titleIds: nextRequested as Id<'libraryTitles'>[],
-					limit: 20
-				});
-			} catch {
-				// Keep the key marked as requested for this session to avoid a fetch loop.
-				}
-			})();
-		});
-
-		$effect(() => {
-			if (!browserOnline) return;
-			const nextRequested: string[] = [];
 			for (const title of visibleFilteredTitles as LibraryTitleSummary[]) {
-				const rawTitle = ((library.data ?? []) as TitleItem[]).find((item) => item._id === title.id);
-				if (!rawTitle) continue;
-				if (rawTitle.localCoverPath || !(rawTitle.coverUrl ?? '').trim()) continue;
-				const key = String(rawTitle._id);
-				if (requestedCoverTitleIds.includes(key)) continue;
+				const key = String(title.id);
+				if (requestedMetadataTitleIds.includes(key) || requestedCoverTitleIds.includes(key)) continue;
+				if (
+					title.offline_readiness.titlePageReady &&
+					(!title.offline_readiness.missingCoverCache || title.offline_readiness.cachedCover)
+				) {
+					continue;
+				}
 				nextRequested.push(key);
 			}
 			if (nextRequested.length === 0) return;
+			requestedMetadataTitleIds = [...requestedMetadataTitleIds, ...nextRequested];
 			requestedCoverTitleIds = [...requestedCoverTitleIds, ...nextRequested];
 			void (async () => {
 				try {
-					await client.mutation(convexApi.library.ensureTitlesCoverCache, {
+					await client.mutation(convexApi.library.ensureTitlesOfflineReady, {
 						titleIds: nextRequested as Id<'libraryTitles'>[],
 						limit: 24
 					});
 				} catch {
-					// Keep the session markers to avoid cover-cache request loops.
+					// Keep the session markers to avoid prewarm loops.
 				}
 			})();
 		});
@@ -396,7 +387,8 @@
 					id: String(collection.id),
 					name: collection.name
 				})) ?? [],
-			user_rating: title.user_rating ?? title.userRating ?? null
+			user_rating: title.user_rating ?? title.userRating ?? null,
+			offline_readiness: title.offlineReadiness
 		};
 	}
 
@@ -444,6 +436,24 @@
 		if (title.user_status) return title.user_status.label;
 		if (!title.status) return null;
 		return getStatusText(title.status);
+	}
+
+	function offlineStatusLabel(title: LibraryTitleSummary): string | null {
+		if (title.offline_readiness.fullyDownloaded) {
+			return $_('library.offlineReady');
+		}
+		if (title.offline_readiness.downloadedChapters > 0) {
+			return $_('library.offlinePartial', {
+				values: {
+					downloaded: title.offline_readiness.downloadedChapters,
+					total: Math.max(title.offline_readiness.totalChapters, title.offline_readiness.downloadedChapters)
+				}
+			});
+		}
+		if (!title.offline_readiness.titlePageReady || title.offline_readiness.missingCoverCache) {
+			return $_('library.offlinePreparing');
+		}
+		return null;
 	}
 
 	function collectionCount(collectionId: string): number {
@@ -622,9 +632,10 @@
 		</div>
 	{:else}
 		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-			{#each visibleFilteredTitles as title (title.id)}
-				{@const displayStatus = getDisplayStatus(title)}
-				<a
+				{#each visibleFilteredTitles as title (title.id)}
+					{@const displayStatus = getDisplayStatus(title)}
+					{@const offlineStatus = offlineStatusLabel(title)}
+					<a
 					href={buildTitlePath(title.id, title.title)}
 					class="group card-glow relative flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)]"
 				>
@@ -651,14 +662,17 @@
 						{/if}
 					</div>
 
-					<div class="flex flex-1 flex-col gap-1 p-2">
-						<p class="line-clamp-2 text-xs leading-tight text-[var(--text)]">{title.title}</p>
-						{#if displayStatus}
-							<p class="text-[10px] text-[var(--text-muted)]">{displayStatus}</p>
-						{/if}
-						{#if title.user_rating != null}
-							<p class="text-[10px] text-[var(--text-muted)]">★ {title.user_rating.toFixed(1)}</p>
-						{/if}
+						<div class="flex flex-1 flex-col gap-1 p-2">
+							<p class="line-clamp-2 text-xs leading-tight text-[var(--text)]">{title.title}</p>
+							{#if displayStatus}
+								<p class="text-[10px] text-[var(--text-muted)]">{displayStatus}</p>
+							{/if}
+							{#if offlineStatus}
+								<p class="text-[10px] text-[var(--text-ghost)]">{offlineStatus}</p>
+							{/if}
+							{#if title.user_rating != null}
+								<p class="text-[10px] text-[var(--text-muted)]">★ {title.user_rating.toFixed(1)}</p>
+							{/if}
 					</div>
 				</a>
 			{/each}

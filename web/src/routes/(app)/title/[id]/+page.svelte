@@ -118,6 +118,15 @@
 			lastSuccessAt?: number | null;
 			lastError?: string | null;
 		} | null;
+		offlineReadiness: {
+			titlePageReady: boolean;
+			metadataReady: boolean;
+			cachedCover: boolean;
+			downloadedChapters: number;
+			totalChapters: number;
+			fullyDownloaded: boolean;
+			missingCoverCache: boolean;
+		};
 	};
 
 	type TitleComment = {
@@ -185,6 +194,7 @@
 	let selectedCollectionIds = $state<string[]>([]);
 	let sourceManagementError = $state<string | null>(null);
 	let sourceStatusRefreshing = $state(false);
+	let offlinePreparing = $state(false);
 	let sourceMatchesOpen = $state(false);
 	let sourceMatchesLoading = $state(false);
 	let sourceMatchesAttempted = $state(false);
@@ -331,6 +341,46 @@
 		return {
 			label: $_('title.sourceHealthy'),
 			detail: $_('title.sourceHealthyDescription')
+		};
+	});
+	const offlineReadinessSummary = $derived.by(() => {
+		if (!title) {
+			return {
+				label: $_('title.offlineUnknown'),
+				detail: $_('title.offlineUnknownDescription')
+			};
+		}
+		if (title.offlineReadiness.fullyDownloaded) {
+			return {
+				label: $_('title.offlineReady'),
+				detail: $_('title.offlineReadyDescription', {
+					values: { count: title.offlineReadiness.downloadedChapters }
+				})
+			};
+		}
+		if (title.offlineReadiness.downloadedChapters > 0) {
+			return {
+				label: $_('title.offlinePartial'),
+				detail: $_('title.offlinePartialDescription', {
+					values: {
+						downloaded: title.offlineReadiness.downloadedChapters,
+						total: Math.max(
+							title.offlineReadiness.totalChapters,
+							title.offlineReadiness.downloadedChapters
+						)
+					}
+				})
+			};
+		}
+		if (!title.offlineReadiness.titlePageReady || title.offlineReadiness.missingCoverCache) {
+			return {
+				label: $_('title.offlinePreparing'),
+				detail: $_('title.offlinePreparingDescription')
+			};
+		}
+		return {
+			label: $_('title.offlineBrowseReady'),
+			detail: $_('title.offlineBrowseReadyDescription')
 		};
 	});
 	const linkedSourceKeys = $derived.by(
@@ -660,6 +710,22 @@
 			actionError = error instanceof Error ? error.message : $_('title.sourceRefreshFailed');
 		} finally {
 			sourceStatusRefreshing = false;
+		}
+	}
+
+	async function prepareOffline() {
+		if (!title || offlinePreparing) return;
+		offlinePreparing = true;
+		actionError = null;
+		try {
+			await client.mutation(convexApi.library.ensureTitlesOfflineReady, {
+				titleIds: [title._id],
+				limit: 1
+			});
+		} catch (error) {
+			actionError = error instanceof Error ? error.message : $_('title.offlinePrepareFailed');
+		} finally {
+			offlinePreparing = false;
 		}
 	}
 
@@ -1206,11 +1272,25 @@
 							<p class="truncate text-sm text-[var(--text)]">
 								{sourceName} [{title.sourceLang}]
 							</p>
-							<p class="mt-1 text-[11px] text-[var(--text-ghost)]">
-								<span class="text-[var(--text-muted)]">{sourceHealthSummary.label}</span>
-								<span> · {sourceHealthSummary.detail}</span>
-							</p>
-						</div>
+						<p class="mt-1 text-[11px] text-[var(--text-ghost)]">
+							<span class="text-[var(--text-muted)]">{sourceHealthSummary.label}</span>
+							<span> · {sourceHealthSummary.detail}</span>
+						</p>
+						<p class="mt-1 text-[11px] text-[var(--text-ghost)]">
+							<span class="text-[var(--text-muted)]">{offlineReadinessSummary.label}</span>
+							<span> · {offlineReadinessSummary.detail}</span>
+						</p>
+					</div>
+					<div class="flex flex-wrap items-center gap-2">
+						<Button
+							variant="ghost"
+							size="sm"
+							onclick={() => void prepareOffline()}
+							disabled={offlinePreparing || !browserOnline}
+							loading={offlinePreparing}
+						>
+							{$_('title.prepareOffline')}
+						</Button>
 						<Button
 							variant="ghost"
 							size="sm"
@@ -1221,6 +1301,7 @@
 							{$_('title.refreshSource')}
 						</Button>
 					</div>
+				</div>
 				</div>
 
 				<div class="mt-8 flex flex-col gap-4 md:hidden">

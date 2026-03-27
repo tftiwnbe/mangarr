@@ -74,6 +74,7 @@ export {
 	beginTitleOpen,
 	ensureTitleCoverCache,
 	ensureTitleMetadata,
+	ensureTitlesOfflineReady,
 	ensureTitlesCoverCache,
 	ensureTitlesMetadata,
 	getExploreTitlePreview,
