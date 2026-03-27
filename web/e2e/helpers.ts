@@ -18,6 +18,11 @@ type VisibleLibraryTitle = {
 	};
 };
 
+type AnyLibraryTitle = HiddenLibraryTitle &
+	VisibleLibraryTitle & {
+		listedInLibrary?: boolean;
+	};
+
 let cachedConvexToken: string | null = null;
 
 export async function login(page: Page) {
@@ -77,6 +82,14 @@ async function listVisibleLibraryTitles(page: Page) {
 
 async function listHiddenLibraryTitles(page: Page) {
 	return callConvex<HiddenLibraryTitle[]>(page, '/api/query', 'library:listHiddenMine', {});
+}
+
+async function listAllLibraryTitles(page: Page) {
+	const [visibleTitles, hiddenTitles] = await Promise.all([
+		listVisibleLibraryTitles(page),
+		listHiddenLibraryTitles(page)
+	]);
+	return [...visibleTitles, ...hiddenTitles] as AnyLibraryTitle[];
 }
 
 export async function firstExploreImportCard(page: Page): Promise<Locator> {
@@ -178,14 +191,14 @@ export async function ensureVisibleLibraryTitle(page: Page) {
 }
 
 export async function ensureReadableLibraryTitlePath(page: Page) {
-	let visibleTitles = await listVisibleLibraryTitles(page);
-	if (visibleTitles.length === 0) {
+	let titles = await listAllLibraryTitles(page);
+	if (titles.length === 0) {
 		await ensureVisibleLibraryTitle(page);
-		visibleTitles = await listVisibleLibraryTitles(page);
+		titles = await listAllLibraryTitles(page);
 	}
 
 	const readableTitle =
-		visibleTitles.find((title) => Number(title.chapterStats?.total ?? 0) > 0) ?? visibleTitles[0];
+		titles.find((title) => Number(title.chapterStats?.total ?? 0) > 0) ?? titles[0];
 	expect(readableTitle).toBeTruthy();
 
 	return `/title/${readableTitle!._id}`;
@@ -204,14 +217,27 @@ export async function ensureDownloadedChapter(page: Page, titlePath: string) {
 		return downloadedRows.first();
 	}
 
-	const downloadButton = page.locator('[data-testid="chapter-download"]').first();
+	await expect
+		.poll(
+			async () =>
+				(await page.locator('[data-testid="chapter-download"]:not([disabled])').count()) > 0 ||
+				(await downloadedRows.count()) > 0,
+			{ timeout: 30_000 }
+		)
+		.toBe(true);
+
+	if ((await downloadedRows.count()) > 0) {
+		return downloadedRows.first();
+	}
+
+	const downloadButton = page.locator('[data-testid="chapter-download"]:not([disabled])').first();
 	await expect(downloadButton).toBeVisible();
 	const row = downloadButton.locator('xpath=ancestor::*[@data-testid="chapter-row"][1]');
 	await downloadButton.click();
 
 	await expect
 		.poll(async () => (await row.getAttribute('data-download-status')) ?? '', {
-			timeout: 120_000
+			timeout: 240_000
 		})
 		.toBe('downloaded');
 

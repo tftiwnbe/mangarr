@@ -1,6 +1,12 @@
 import { expect, test } from '@playwright/test';
 
-import { ensureHiddenImportExists, login, openReaderFromTitle } from './helpers';
+import {
+	ensureHiddenImportExists,
+	ensureReadableLibraryTitlePath,
+	ensureVisibleLibraryTitle,
+	login,
+	openReaderFromTitle
+} from './helpers';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -9,13 +15,15 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('opens a library title page from the library grid', async ({ page }) => {
+	const titlePath = await ensureVisibleLibraryTitle(page);
 	await page.goto('/library');
-	const chainsawCard = page.locator('a[href*="chainsaw-man"]').first();
-	await expect(chainsawCard).toBeVisible();
-	await chainsawCard.click();
+	const libraryCard = page.locator(`a[href="${titlePath}"]`).first();
+	await expect(libraryCard).toBeVisible();
+	const cardTitle = ((await libraryCard.locator('p').first().textContent()) ?? '').trim();
+	await libraryCard.click();
 
-	await expect(page).toHaveURL(/\/title\/.+--chainsaw-man/);
-	await expect(page.getByRole('heading', { name: /chainsaw man/i })).toBeVisible();
+	await expect(page).toHaveURL(/\/title\/.+--/);
+	await expect(page.getByRole('heading', { name: new RegExp(cardTitle, 'i') })).toBeVisible();
 	await expect(page.getByRole('button', { name: /^Chapters/i })).toBeVisible();
 });
 
@@ -107,7 +115,8 @@ test('supports filter-only advanced search from explore', async ({ page }) => {
 });
 
 test('opens the reader and loads page images', async ({ page }) => {
-	await openReaderFromTitle(page, '/title/k17db0h6nk46qccx6bn5gb1vcd83jnym--chainsaw-man');
+	const titlePath = await ensureReadableLibraryTitlePath(page);
+	await openReaderFromTitle(page, titlePath);
 	await expect
 		.poll(async () =>
 			page.evaluate(() =>

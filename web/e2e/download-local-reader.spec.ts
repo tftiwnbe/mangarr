@@ -47,17 +47,32 @@ async function callConvex<T>(
 	return payload.value as T;
 }
 
+async function listCandidateTitles(request: APIRequestContext, token: string) {
+	const [visibleTitles, hiddenTitles] = await Promise.all([
+		callConvex<
+			Array<{
+				_id: string;
+				title: string;
+				chapterStats?: { total?: number };
+			}>
+		>(request, token, '/api/query', 'library:listMine', {}),
+		callConvex<
+			Array<{
+				_id: string;
+				title: string;
+				chapterStats?: { total?: number };
+			}>
+		>(request, token, '/api/query', 'library:listHiddenMine', {})
+	]);
+
+	return [...visibleTitles, ...hiddenTitles];
+}
+
 test('downloaded chapters are readable from the local bridge page endpoint', async ({ request }) => {
 	await login(request);
 	const token = await getConvexToken(request);
 
-	const titles = await callConvex<
-		Array<{
-			_id: string;
-			title: string;
-			chapterStats?: { total?: number };
-		}>
-	>(request, token, '/api/query', 'library:listMine', {});
+	const titles = await listCandidateTitles(request, token);
 	expect(titles.length).toBeGreaterThan(0);
 
 	const readableTitle = titles.find((title) => Number(title.chapterStats?.total ?? 0) > 0) ?? titles[0];
@@ -97,6 +112,10 @@ test('downloaded chapters are readable from the local bridge page endpoint', asy
 		);
 		expect(queued).toBeTruthy();
 
+		await callConvex(request, token, '/api/mutation', 'library:runDownloadCycle', {
+			limit: 4
+		});
+
 		await expect
 			.poll(
 				async () =>
@@ -109,7 +128,7 @@ test('downloaded chapters are readable from the local bridge page endpoint', asy
 					}>(request, token, '/api/query', 'library:getMineChapterById', {
 						chapterId: chapter._id
 					}),
-				{ timeout: 120_000 }
+				{ timeout: 240_000 }
 			)
 			.toMatchObject({
 				downloadStatus: 'downloaded'

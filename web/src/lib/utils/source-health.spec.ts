@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+	effectiveSourceHealthState,
 	isPermanentSourceFailure,
 	sourceHealthLabelKey,
+	sourceHealthRetryInMinutes,
 	sourceHealthScopeForCommandType
 } from './source-health';
 
@@ -30,5 +32,44 @@ describe('source health', () => {
 		expect(sourceHealthLabelKey({ state: 'degraded', permanent: false })).toBe(
 			'explore.sourceDegraded'
 		);
+	});
+
+	it('derives cooldown vs degraded state from retry windows', () => {
+		const now = Date.UTC(2026, 2, 28, 12, 0, 0);
+		expect(
+			effectiveSourceHealthState(
+				{
+					retryAfter: now + 5 * 60_000,
+					permanent: false
+				},
+				now
+			)
+		).toBe('cooldown');
+		expect(
+			effectiveSourceHealthState(
+				{
+					retryAfter: now - 1_000,
+					permanent: false
+				},
+				now
+			)
+		).toBe('degraded');
+		expect(
+			effectiveSourceHealthState(
+				{
+					retryAfter: now + 5 * 60_000,
+					permanent: true
+				},
+				now
+			)
+		).toBe('degraded');
+	});
+
+	it('formats retry windows in whole minutes', () => {
+		const now = Date.UTC(2026, 2, 28, 12, 0, 0);
+		expect(sourceHealthRetryInMinutes(now + 30_000, now)).toBe(1);
+		expect(sourceHealthRetryInMinutes(now + 5 * 60_000, now)).toBe(5);
+		expect(sourceHealthRetryInMinutes(now, now)).toBeNull();
+		expect(sourceHealthRetryInMinutes(null, now)).toBeNull();
 	});
 });
