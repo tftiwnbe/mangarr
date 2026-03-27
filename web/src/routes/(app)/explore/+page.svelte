@@ -1433,25 +1433,26 @@
 							</div>
 						{/if}
 
-						{#if badge}
-							{#if badge.variant === 'listed'}
-								<div class={`absolute top-1 right-1 flex items-center gap-1 px-1.5 py-0.5 text-[10px] ${badge.className}`}>
-									<CheckIcon size={10} />
-									<span>{badge.label}</span>
-								</div>
-							{:else}
-								<div
-									class={`absolute top-1 right-1 flex h-6 w-6 items-center justify-center ${badge.className}`}
-									title={badge.label}
-									aria-label={badge.label}
-								>
-									<EyeSlashIcon size={12} />
-								</div>
+						<div class="absolute inset-x-1 top-1 flex items-start justify-between gap-2">
+							<div class="max-w-[70%] truncate bg-[var(--void-0)]/82 px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] backdrop-blur-sm">
+								{item.sourceName}
+							</div>
+							{#if badge}
+								{#if badge.variant === 'listed'}
+									<div class={`flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[10px] ${badge.className}`}>
+										<CheckIcon size={10} />
+										<span>{badge.label}</span>
+									</div>
+								{:else}
+									<div
+										class={`flex h-6 w-6 shrink-0 items-center justify-center ${badge.className}`}
+										title={badge.label}
+										aria-label={badge.label}
+									>
+										<EyeSlashIcon size={12} />
+									</div>
+								{/if}
 							{/if}
-						{/if}
-
-						<div class="absolute bottom-1 left-1 bg-[var(--void-0)]/80 px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">
-							{item.sourceName}
 						</div>
 
 						{#if openingTitleKey === item.key}
@@ -1463,6 +1464,11 @@
 
 					<div class="flex flex-1 flex-col gap-1 p-2">
 						<p class="line-clamp-2 text-xs text-[var(--text)]">{item.title}</p>
+						{#if item.sourceLang}
+							<p class="text-[10px] tracking-[0.16em] text-[var(--text-dim)] uppercase">
+								{item.sourceLang}
+							</p>
+						{/if}
 					</div>
 				</a>
 			{/each}
