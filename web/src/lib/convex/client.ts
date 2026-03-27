@@ -28,7 +28,7 @@ export function setupConvexClient() {
 export function getConvexUrl() {
 	const configured = env.PUBLIC_CONVEX_URL || import.meta.env.PUBLIC_CONVEX_URL || '';
 	if (!browser || !configured) {
-		return configured;
+		return normalizeConvexUrl(configured);
 	}
 	return resolveBrowserConvexUrl(configured, window.location);
 }
@@ -40,19 +40,23 @@ export function resolveBrowserConvexUrl(
 	try {
 		const url = new URL(configuredUrl);
 		if (!LOOPBACK_HOSTS.has(url.hostname)) {
-			return url.toString();
+			return normalizeConvexUrl(url.toString());
 		}
 
 		const browserHost = locationLike.hostname.trim();
 		if (!browserHost || LOOPBACK_HOSTS.has(browserHost)) {
-			return url.toString();
+			return normalizeConvexUrl(url.toString());
 		}
 
 		url.hostname = browserHost;
-		return url.toString();
+		return normalizeConvexUrl(url.toString());
 	} catch {
-		return configuredUrl;
+		return normalizeConvexUrl(configuredUrl);
 	}
+}
+
+function normalizeConvexUrl(url: string) {
+	return url.replace(/\/+$/, '');
 }
 
 const fetchConvexToken: AuthTokenFetcher = async ({ forceRefreshToken }) => {

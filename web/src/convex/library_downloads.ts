@@ -461,7 +461,7 @@ export const runScheduledDownloadCycles = internalMutation({
 	}
 });
 
-export const recoverActiveDownloads = internalMutation({
+export const recoverActiveDownloads = mutation({
 	args: {
 		now: v.float64(),
 		forceRunningCommands: v.optional(v.boolean())

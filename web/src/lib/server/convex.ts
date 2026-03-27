@@ -8,11 +8,13 @@ import { mintConvexAccessToken } from './convex-auth';
 const LOCAL_CONVEX_URL = 'http://127.0.0.1:3210';
 
 export function getConvexUrl() {
-	return (
+	return normalizeConvexUrl(
+		(
 		privateEnv.CONVEX_URL ||
 		privateEnv.CONVEX_SELF_HOSTED_URL ||
 		publicEnv.PUBLIC_CONVEX_URL ||
 		(import.meta.env.DEV ? LOCAL_CONVEX_URL : '')
+		)
 	);
 }
 
@@ -37,6 +39,10 @@ export function getConvexClient() {
 	}
 
 	return client;
+}
+
+function normalizeConvexUrl(url: string) {
+	return url.replace(/\/+$/, '');
 }
 
 export async function getUserConvexClient(user: { id: string; username: string; isAdmin: boolean }) {

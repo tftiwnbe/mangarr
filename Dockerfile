@@ -187,6 +187,9 @@ if [ "${MANGARR_KCEF_ENABLED}" = "true" ] || [ "${MANGARR_KCEF_ENABLED}" = "1" ]
   if command -v Xvfb >/dev/null 2>&1; then
     mkdir -p /tmp/.X11-unix
     export DISPLAY="${DISPLAY:-${MANGARR_XVFB_DISPLAY}}"
+    DISPLAY_NUMBER="$(printf '%s' "${DISPLAY}" | sed 's/^://')"
+    pkill -f "Xvfb ${DISPLAY}" >/dev/null 2>/dev/null || true
+    rm -f "/tmp/.X${DISPLAY_NUMBER}-lock" "/tmp/.X11-unix/X${DISPLAY_NUMBER}" 2>/dev/null || true
     Xvfb "${DISPLAY}" -screen 0 1920x1080x24 -nolisten tcp -ac &
   fi
 

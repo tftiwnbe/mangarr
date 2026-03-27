@@ -62,6 +62,7 @@ export {
 export {
 	cancelQueuedChapterDownload,
 	getDownloadDashboard,
+	recoverActiveDownloads,
 	requestChapterDownload,
 	requestMissingDownloads,
 	runDownloadCycle,
