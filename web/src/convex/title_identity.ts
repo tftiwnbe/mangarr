@@ -16,6 +16,21 @@ const STABLE_PATH_PREFIXES = new Set([
 	'detail',
 	'details'
 ]);
+const TITLE_NOISE_TOKENS = new Set([
+	'official',
+	'digital',
+	'colored',
+	'colour',
+	'color',
+	'uncensored',
+	'uncut',
+	'webtoon',
+	'comic',
+	'manga',
+	'manhwa',
+	'manhua',
+	'edition'
+]);
 
 export type MergeIdentitySnapshot = {
 	title?: string | null;
@@ -46,6 +61,22 @@ function normalizedTokens(value: string | null | undefined): string[] {
 	return normalized ? normalized.split(' ').filter(Boolean) : [];
 }
 
+function significantTokens(value: string | null | undefined): string[] {
+	return normalizedTokens(value).filter((token) => !TITLE_NOISE_TOKENS.has(token));
+}
+
+function titleFormVariants(value: string | null | undefined): string[] {
+	const normalized = normalizeWhitespace(value ?? '');
+	if (!normalized) return [];
+	const variants = new Set<string>([normalized]);
+	const delimiterMatches = normalized.match(/^(.+?)(?:\s[:|]\s|\s-\s|\s\(|\s\[).+$/);
+	const baseTitle = delimiterMatches?.[1]?.trim() ?? '';
+	if (baseTitle.length >= 6) {
+		variants.add(baseTitle);
+	}
+	return [...variants];
+}
+
 function tokenOverlapScore(left: string | null | undefined, right: string | null | undefined): number {
 	const leftTokens = normalizedTokens(left);
 	const rightTokens = normalizedTokens(right);
@@ -66,19 +97,49 @@ function tokenOverlapScore(left: string | null | undefined, right: string | null
 	return 0;
 }
 
+function significantTokenScore(left: string | null | undefined, right: string | null | undefined): number {
+	const leftTokens = significantTokens(left);
+	const rightTokens = significantTokens(right);
+	if (leftTokens.length < 2 || rightTokens.length < 2) return 0;
+
+	const leftKey = [...new Set(leftTokens)].sort().join(' ');
+	const rightKey = [...new Set(rightTokens)].sort().join(' ');
+	if (!leftKey || !rightKey) return 0;
+	if (leftKey === rightKey) return 105;
+	return tokenOverlapScore(leftKey, rightKey);
+}
+
 function textContainmentScore(left: string | null | undefined, right: string | null | undefined): number {
-	const normalizedLeft = normalizeMergeText(left);
-	const normalizedRight = normalizeMergeText(right);
-	if (!normalizedLeft || !normalizedRight) return 0;
-	if (normalizedLeft === normalizedRight) return 120;
-	if (
-		normalizedLeft.length >= 10 &&
-		normalizedRight.length >= 10 &&
-		(normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft))
-	) {
-		return 55;
+	const leftVariants = titleFormVariants(left);
+	const rightVariants = titleFormVariants(right);
+	let best = 0;
+
+	for (const leftVariant of leftVariants) {
+		for (const rightVariant of rightVariants) {
+			const normalizedLeft = normalizeMergeText(leftVariant);
+			const normalizedRight = normalizeMergeText(rightVariant);
+			if (!normalizedLeft || !normalizedRight) continue;
+			if (normalizedLeft === normalizedRight) {
+				best = Math.max(best, 120);
+				continue;
+			}
+			if (
+				normalizedLeft.length >= 10 &&
+				normalizedRight.length >= 10 &&
+				(normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft))
+			) {
+				best = Math.max(best, 55);
+				continue;
+			}
+			best = Math.max(
+				best,
+				tokenOverlapScore(normalizedLeft, normalizedRight),
+				significantTokenScore(normalizedLeft, normalizedRight)
+			);
+		}
 	}
-	return tokenOverlapScore(normalizedLeft, normalizedRight);
+
+	return best;
 }
 
 function contributorScore(

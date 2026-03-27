@@ -95,4 +95,59 @@ describe('title identity matching', () => {
 
 		expect(best).toBeNull();
 	});
+
+	it('merges same-title edition variants when contributors also match', () => {
+		const best = pickBestMergeCandidate(
+			{
+				title: 'One Piece',
+				author: 'Eiichiro Oda',
+				sourcePkg: 'source.b',
+				sourceLang: 'en',
+				titleUrl: '/titles/one-piece'
+			},
+			[
+				{
+					item: 'match',
+					snapshots: [
+						{
+							title: 'One Piece (Official Colored Edition)',
+							author: 'Eiichiro Oda',
+							sourcePkg: 'source.a',
+							sourceLang: 'en',
+							titleUrl: '/titles/one-piece-colored'
+						}
+					]
+				}
+			]
+		);
+
+		expect(best?.item).toBe('match');
+		expect(best?.score ?? 0).toBeGreaterThanOrEqual(190);
+	});
+
+	it('stays conservative on edition-noise title matches without other signals', () => {
+		const best = pickBestMergeCandidate(
+			{
+				title: 'One Piece',
+				sourcePkg: 'source.b',
+				sourceLang: 'en',
+				titleUrl: '/titles/one-piece'
+			},
+			[
+				{
+					item: 'too-weak',
+					snapshots: [
+						{
+							title: 'One Piece (Official Colored Edition)',
+							sourcePkg: 'source.a',
+							sourceLang: 'en',
+							titleUrl: '/titles/one-piece-colored'
+						}
+					]
+				}
+			]
+		);
+
+		expect(best).toBeNull();
+	});
 });
