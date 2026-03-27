@@ -83,26 +83,45 @@
 		user_rating: number | null;
 	};
 
+	type HiddenTitleSummary = {
+		_id: Id<'libraryTitles'>;
+		title: string;
+		sourceId: string;
+		sourcePkg: string;
+		sourceLang: string;
+		titleUrl: string;
+		coverUrl?: string | null;
+		localCoverPath?: string | null;
+		createdAt: number;
+		updatedAt: number;
+	};
+
 	type SortMode = 'updated' | 'added' | 'reading' | 'alpha' | 'status';
 
 	const client = useConvexClient();
 	const library = useQuery(convexApi.library.listMine, () => ({}));
 	const visibilitySummary = useQuery(convexApi.library.getMineVisibilitySummary, () => ({}));
+	const hiddenTitlesQuery = useQuery(
+		convexApi.library.listHiddenMine,
+		() => (hiddenPanelOpen ? {} : 'skip')
+	);
 
 	let searchQuery = $state('');
 	let selectedCollectionId = $state<string | null>(null);
 	let filterPanelOpen = $state(false);
+	let hiddenPanelOpen = $state(false);
 	let sortMode = $state<SortMode>('updated');
 	let sortDesc = $state(true);
 	let activeReadingStatusIds = $state<string[]>([]);
 	let activeSourceStatusKeys = $state<string[]>([]);
 	let activeGenres = $state<string[]>([]);
 	let requestedMetadataTitleIds = $state<string[]>([]);
+	let revealTitleId = $state<string | null>(null);
 
 	const debouncedSearch = new DebouncedValue(() => searchQuery, 150);
 
 	$effect(() => {
-		panelOverlayOpen.set(filterPanelOpen);
+		panelOverlayOpen.set(filterPanelOpen || hiddenPanelOpen);
 		return () => panelOverlayOpen.set(false);
 	});
 
@@ -128,6 +147,7 @@
 	const loading = $derived(library.isLoading);
 	const error = $derived(library.error instanceof Error ? library.error.message : null);
 	const hiddenImportsCount = $derived(Number(visibilitySummary.data?.hiddenCount ?? 0));
+	const hiddenTitles = $derived((hiddenTitlesQuery.data ?? []) as HiddenTitleSummary[]);
 
 	const collections = $derived.by(() => {
 		const seen = new SvelteMap<string, LibraryCollectionResource>();
@@ -285,6 +305,23 @@
 		return title.coverUrl ?? null;
 	}
 
+	function hiddenSourceLabel(title: HiddenTitleSummary) {
+		return title.sourceLang ? `${title.sourcePkg} [${title.sourceLang}]` : title.sourcePkg;
+	}
+
+	async function revealInLibrary(titleId: string) {
+		if (revealTitleId) return;
+		revealTitleId = titleId;
+		try {
+			await client.mutation(convexApi.library.setTitleListedInLibrary, {
+				titleId: titleId as Id<'libraryTitles'>,
+				listed: true
+			});
+		} finally {
+			revealTitleId = null;
+		}
+	}
+
 	function getStatusText(status: number): string {
 		switch (status) {
 			case TITLE_STATUS.ONGOING:
@@ -349,10 +386,15 @@
 </svelte:head>
 
 <div class="flex flex-col gap-3">
-	<div class="flex items-center gap-3">
+	<div class="flex items-center gap-2">
 		<h1 class="text-display flex-1 text-xl text-[var(--text)]">
 			{$_('nav.library').toLowerCase()}
 		</h1>
+		{#if hiddenImportsCount > 0 && !loading}
+			<Button variant="ghost" size="sm" onclick={() => (hiddenPanelOpen = true)}>
+				{$_('library.hiddenButton', { values: { count: hiddenImportsCount } })}
+			</Button>
+		{/if}
 		{#if !loading}
 			<button
 				type="button"
@@ -463,9 +505,16 @@
 					</p>
 				{/if}
 			</div>
-			<Button variant="outline" onclick={() => goto('/explore')}>
-				{$_('library.addFirst')}
-			</Button>
+			<div class="flex flex-wrap items-center justify-center gap-2">
+				{#if hiddenImportsCount > 0}
+					<Button variant="ghost" onclick={() => (hiddenPanelOpen = true)}>
+						{$_('library.manageHidden')}
+					</Button>
+				{/if}
+				<Button variant="outline" onclick={() => goto('/explore')}>
+					{$_('library.addFirst')}
+				</Button>
+			</div>
 		</div>
 	{:else}
 		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
@@ -518,6 +567,73 @@
 		{/if}
 	{/if}
 </div>
+
+<SlidePanel
+	open={hiddenPanelOpen}
+	title={$_('library.manageHidden')}
+	onclose={() => (hiddenPanelOpen = false)}
+>
+	<div class="flex flex-col gap-4 pt-1">
+		<p class="text-sm text-[var(--text-ghost)]">
+			{$_('library.hiddenImports', { values: { count: hiddenImportsCount } })}
+		</p>
+
+		{#if hiddenTitlesQuery.isLoading}
+			<p class="text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
+		{:else if hiddenTitles.length === 0}
+			<p class="text-sm text-[var(--text-ghost)]">{$_('common.empty')}</p>
+		{:else}
+			<div class="flex flex-col gap-3">
+				{#each hiddenTitles as title (title._id)}
+					<div class="flex items-center gap-3 border border-[var(--line)] bg-[var(--void-2)] p-3">
+						<div class="h-18 w-12 shrink-0 overflow-hidden bg-[var(--void-4)]">
+							{#if coverSrc(title)}
+								<LazyImage
+									src={coverSrc(title) ?? undefined}
+									alt={title.title}
+									class="h-full w-full"
+									imgClass="object-cover"
+								/>
+							{:else}
+								<div class="flex h-full w-full items-center justify-center">
+									<ImageIcon size={16} class="text-[var(--text-ghost)]" />
+								</div>
+							{/if}
+						</div>
+						<div class="min-w-0 flex-1">
+							<p class="truncate text-sm text-[var(--text)]">{title.title}</p>
+							<p class="mt-1 text-[11px] text-[var(--text-ghost)]">{hiddenSourceLabel(title)}</p>
+							<p class="mt-1 text-[11px] text-[var(--text-muted)]">
+								{$_('library.hiddenUpdated', {
+									values: { time: new Date(title.updatedAt).toLocaleString() }
+								})}
+							</p>
+						</div>
+						<div class="flex shrink-0 items-center gap-2">
+							<Button
+								variant="ghost"
+								size="sm"
+								onclick={() => goto(buildTitlePath(String(title._id), title.title))}
+							>
+								{$_('common.open')}
+							</Button>
+							<Button
+								variant="outline"
+								size="sm"
+								onclick={() => void revealInLibrary(String(title._id))}
+								disabled={revealTitleId === String(title._id)}
+							>
+								{revealTitleId === String(title._id)
+									? $_('common.loading')
+									: $_('library.showInLibrary')}
+							</Button>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	</div>
+</SlidePanel>
 
 <SlidePanel
 	open={filterPanelOpen}

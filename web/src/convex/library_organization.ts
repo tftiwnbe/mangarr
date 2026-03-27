@@ -431,6 +431,25 @@ export const updateTitlePreferences = mutation({
 	}
 });
 
+export const setTitleListedInLibrary = mutation({
+	args: {
+		titleId: v.id('libraryTitles'),
+		listed: v.boolean()
+	},
+	handler: async (ctx, args) => {
+		const title = await requireOwnedTitle(ctx, args.titleId);
+		const now = Date.now();
+		await ctx.db.patch(title._id, {
+			listedInLibrary: args.listed,
+			updatedAt: now
+		});
+		return {
+			ok: true,
+			listed: args.listed
+		};
+	}
+});
+
 export const listMergeCandidates = query({
 	args: {
 		titleId: v.id('libraryTitles'),

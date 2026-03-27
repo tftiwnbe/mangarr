@@ -102,6 +102,38 @@ export const listMine = query({
 	}
 });
 
+export const listHiddenMine = query({
+	args: {},
+	handler: async (ctx) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return [];
+		}
+
+		const ownerUserId = identity.subject as GenericId<'users'>;
+		const titles = await ctx.db
+			.query('libraryTitles')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+			.collect();
+
+		return titles
+			.filter((title) => title.listedInLibrary === false)
+			.sort((left, right) => right.updatedAt - left.updatedAt)
+			.map((title) => ({
+				_id: title._id,
+				title: title.title,
+				sourceId: title.sourceId,
+				sourcePkg: title.sourcePkg,
+				sourceLang: title.sourceLang,
+				titleUrl: title.titleUrl,
+				coverUrl: title.coverUrl ?? null,
+				localCoverPath: title.localCoverPath ?? null,
+				createdAt: title.createdAt,
+				updatedAt: title.updatedAt
+			}));
+	}
+});
+
 export const getMineVisibilitySummary = query({
 	args: {},
 	handler: async (ctx) => {
