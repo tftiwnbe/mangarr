@@ -139,6 +139,8 @@
 	let lastChapterId = $state<string | null>(null);
 	let remotePagesCommand = $state<CommandItem | null>(null);
 	let pageRetryCounts = $state<Record<string, number>>({});
+	let localPagesUnavailableForChapterId = $state<string | null>(null);
+	let reconcileRequestedForTitleId = $state<string | null>(null);
 	let scrollFrame = 0;
 
 	const readerData = $derived((readerQuery.data as ReaderQuery) ?? null);
@@ -165,15 +167,20 @@
 			(left, right) => left.index - right.index
 		)
 	);
-	const isPagesLoading = $derived.by(() => {
+	const canUseDownloadedPages = $derived.by(() => {
 		if (!chapter) return false;
-		if (
+		if (localPagesUnavailableForChapterId === chapter._id) return false;
+		return (
 			chapter.downloadStatus === 'downloaded' &&
-			chapter.localRelativePath &&
-			chapter.storageKind &&
+			Boolean(chapter.localRelativePath) &&
+			Boolean(chapter.storageKind) &&
 			typeof chapter.totalPages === 'number' &&
 			chapter.totalPages > 0
-		) {
+		);
+	});
+	const isPagesLoading = $derived.by(() => {
+		if (!chapter) return false;
+		if (canUseDownloadedPages) {
 			return false;
 		}
 		return (
@@ -185,16 +192,11 @@
 		);
 	});
 
-	const pages = $derived.by(() => {
+	const pages = $derived.by((): ReaderPage[] => {
 		if (!chapter) return [] as ReaderPage[];
-		if (
-			chapter.downloadStatus === 'downloaded' &&
-			chapter.localRelativePath &&
-			chapter.storageKind &&
-			typeof chapter.totalPages === 'number' &&
-			chapter.totalPages > 0
-		) {
-			return Array.from({ length: chapter.totalPages }, (_, index) => ({
+		if (canUseDownloadedPages) {
+			const totalPages = chapter.totalPages ?? 0;
+			return Array.from({ length: totalPages }, (_, index) => ({
 				id: `local:${chapter._id}:${index}`,
 				pageIndex: index,
 				kind: 'local' as const,
@@ -209,7 +211,7 @@
 		}));
 	});
 
-	const currentPage = $derived(pages[currentPageIndex] ?? null);
+	const currentPage = $derived((pages[currentPageIndex] ?? null) as ReaderPage | null);
 	const prevChapterId = $derived.by(() => {
 		if (!currentChapterId || chapters.length === 0) return null;
 		const index = chapters.findIndex((item) => item._id === currentChapterId);
@@ -287,7 +289,26 @@
 	}
 
 	function handlePageError(item: ReaderPage) {
-		if (item.kind !== 'remote') return;
+		if (item.kind === 'local') {
+			if (chapter) {
+				localPagesUnavailableForChapterId = chapter._id;
+				if (title && reconcileRequestedForTitleId !== title._id) {
+					reconcileRequestedForTitleId = title._id;
+					void fetch('/api/internal/bridge/downloads/reconcile', {
+						method: 'POST',
+						headers: {
+							'content-type': 'application/json'
+						},
+						body: JSON.stringify({ titleId: title._id })
+					}).finally(() => {
+						if (reconcileRequestedForTitleId === title._id) {
+							reconcileRequestedForTitleId = null;
+						}
+					});
+				}
+			}
+			return;
+		}
 		const retries = pageRetryCounts[item.id] ?? 0;
 		if (retries >= 2) return;
 		pageRetryCounts = {
@@ -511,7 +532,7 @@
 
 	$effect(() => {
 		if (!chapter || fetchRequested) return;
-		if (chapter.downloadStatus === 'downloaded' && chapter.totalPages) return;
+		if (canUseDownloadedPages) return;
 		if (remotePagesResult?.status === 'running' || remotePagesResult?.status === 'queued') return;
 		if (remotePages.length > 0) return;
 		const requestKey = `${chapter.sourceId}::${chapter.chapterUrl}`;
@@ -586,6 +607,7 @@
 			loadedPageIds.clear();
 			paintedPageIds.clear();
 			pageRetryCounts = {};
+			localPagesUnavailableForChapterId = null;
 			return;
 		}
 
@@ -601,6 +623,7 @@
 			loadedPageIds.clear();
 			paintedPageIds.clear();
 			pageRetryCounts = {};
+			localPagesUnavailableForChapterId = null;
 		}
 	});
 
