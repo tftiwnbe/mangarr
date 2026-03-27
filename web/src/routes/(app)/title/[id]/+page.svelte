@@ -184,6 +184,7 @@
 	let selectedRating = $state<number>(0);
 	let selectedCollectionIds = $state<string[]>([]);
 	let sourceManagementError = $state<string | null>(null);
+	let sourceStatusRefreshing = $state(false);
 	let sourceMatchesOpen = $state(false);
 	let sourceMatchesLoading = $state(false);
 	let sourceMatchesAttempted = $state(false);
@@ -294,6 +295,23 @@
 	const author = $derived.by(() => String(title?.author ?? '').trim());
 	const artist = $derived.by(() => String(title?.artist ?? '').trim());
 	const updatesEnabled = $derived(Boolean(title?.downloadProfile?.enabled));
+	const sourceHealthSummary = $derived.by(() => {
+		if (currentSourceHealth) {
+			return {
+				label: $_(
+					sourceHealthLabelKey({
+						state: currentSourceHealth.state,
+						permanent: currentSourceHealth.permanent
+					})
+				),
+				detail: currentSourceHealth.message
+			};
+		}
+		return {
+			label: $_('title.sourceHealthy'),
+			detail: $_('title.sourceHealthyDescription')
+		};
+	});
 	const linkedSourceKeys = $derived.by(
 		() => new Set(title?.variants.map((variant) => sourceVariantKey(variant.sourceId, variant.titleUrl)) ?? [])
 	);
@@ -586,6 +604,26 @@
 		await client.mutation(convexApi.library.ensureTitleReady, {
 			titleId: title._id
 		});
+	}
+
+	async function refreshSourceState() {
+		if (!title || sourceStatusRefreshing) return;
+		sourceStatusRefreshing = true;
+		actionError = null;
+		try {
+			await Promise.all([
+				client.mutation(convexApi.library.ensureTitleMetadata, {
+					titleId: title._id
+				}),
+				client.mutation(convexApi.library.ensureTitleReady, {
+					titleId: title._id
+				})
+			]);
+		} catch (error) {
+			actionError = error instanceof Error ? error.message : $_('title.sourceRefreshFailed');
+		} finally {
+			sourceStatusRefreshing = false;
+		}
 	}
 
 	function handleBack() {
@@ -1123,19 +1161,29 @@
 						{#if title.chapterStats.total > 0} · {chaptersLabel}{/if}
 						{#if sourcesCount > 0} · {sourcesLabel}{/if}
 					</p>
-					{#if currentSourceHealth}
-						<div class="w-fit bg-[var(--void-2)] px-2.5 py-1 text-[11px] text-[var(--text-ghost)]">
-							<span class="text-[var(--text-muted)]">
-								{$_(
-									sourceHealthLabelKey({
-										state: currentSourceHealth.state,
-										permanent: currentSourceHealth.permanent
-									})
-								)}
-							</span>
-							<span> · {currentSourceHealth.message}</span>
+					<div class="mt-3 flex flex-wrap items-center justify-between gap-3 bg-[var(--void-2)] px-3 py-2">
+						<div class="min-w-0">
+							<p class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
+								{$_('title.readingSource')}
+							</p>
+							<p class="truncate text-sm text-[var(--text)]">
+								{sourceName} [{title.sourceLang}]
+							</p>
+							<p class="mt-1 text-[11px] text-[var(--text-ghost)]">
+								<span class="text-[var(--text-muted)]">{sourceHealthSummary.label}</span>
+								<span> · {sourceHealthSummary.detail}</span>
+							</p>
 						</div>
-					{/if}
+						<Button
+							variant="ghost"
+							size="sm"
+							onclick={() => void refreshSourceState()}
+							disabled={sourceStatusRefreshing}
+							loading={sourceStatusRefreshing}
+						>
+							{$_('title.refreshSource')}
+						</Button>
+					</div>
 				</div>
 
 				<div class="mt-8 flex flex-col gap-4 md:hidden">
