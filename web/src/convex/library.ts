@@ -70,6 +70,7 @@ export {
 } from './library_downloads';
 export {
 	ensureTitleReady,
+	beginTitleOpen,
 	ensureTitleMetadata,
 	ensureTitlesMetadata,
 	getExploreTitlePreview,

@@ -78,6 +78,85 @@ export const ensureTitleReady = mutation({
 	}
 });
 
+export const beginTitleOpen = mutation({
+	args: {
+		canonicalKey: v.string(),
+		sourceId: v.string(),
+		sourcePkg: v.string(),
+		sourceLang: v.string(),
+		titleUrl: v.string()
+	},
+	handler: async (ctx, args) => {
+		const ownerUserId = await requireViewerUserId(ctx);
+		const existingTitle = await findOwnedTitleForOpen(ctx, ownerUserId, {
+			canonicalKey: args.canonicalKey,
+			sourceId: args.sourceId,
+			titleUrl: args.titleUrl
+		});
+		if (existingTitle) {
+			const hasChapters = (
+				await ctx.db
+					.query('libraryChapters')
+					.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', existingTitle._id))
+					.take(1)
+			).length > 0;
+			return {
+				state: hasChapters ? ('ready' as const) : ('syncing' as const),
+				titleId: existingTitle._id,
+				title: existingTitle.title,
+				commandId: null
+			};
+		}
+
+		const now = Date.now();
+		const idempotencyKey = `library.import:${args.canonicalKey}:${args.sourceId}:${args.titleUrl}`;
+		const reusable = await ctx.db
+			.query('commands')
+			.withIndex('by_idempotency_key', (q) => q.eq('idempotencyKey', idempotencyKey))
+			.collect();
+		const reusableCommand = reusable
+			.filter((command) => command.requestedByUserId === ownerUserId)
+			.sort((left, right) => right.createdAt - left.createdAt)
+			.find((command) => REUSABLE_COMMAND_STATUSES.has(command.status));
+		if (reusableCommand) {
+			return {
+				state: 'importing' as const,
+				titleId: null,
+				title: null,
+				commandId: reusableCommand._id
+			};
+		}
+
+		const commandId = await ctx.db.insert('commands', {
+			commandType: 'library.import',
+			targetCapability: 'library.import',
+			requestedByUserId: ownerUserId,
+			payload: {
+				canonicalKey: args.canonicalKey,
+				sourceId: args.sourceId,
+				sourcePkg: args.sourcePkg,
+				sourceLang: args.sourceLang,
+				titleUrl: args.titleUrl
+			},
+			idempotencyKey,
+			status: 'queued',
+			priority: 100,
+			runAfter: now,
+			attemptCount: 0,
+			maxAttempts: 3,
+			createdAt: now,
+			updatedAt: now
+		});
+
+		return {
+			state: 'importing' as const,
+			titleId: null,
+			title: null,
+			commandId
+		};
+	}
+});
+
 export const ensureTitlesMetadata = mutation({
 	args: {
 		titleIds: v.array(v.id('libraryTitles')),
@@ -299,6 +378,51 @@ async function ensureMetadataForTitle(
 		createdAt: now,
 		updatedAt: now
 	});
+}
+
+async function findOwnedTitleForOpen(
+	ctx: MutationCtx,
+	ownerUserId: GenericId<'users'>,
+	args: {
+		canonicalKey: string;
+		sourceId: string;
+		titleUrl: string;
+	}
+) {
+	const canonicalKey = args.canonicalKey.trim();
+	if (canonicalKey) {
+		const byCanonical = await ctx.db
+			.query('libraryTitles')
+			.withIndex('by_owner_user_id_canonical_key', (q) =>
+				q.eq('ownerUserId', ownerUserId).eq('canonicalKey', canonicalKey)
+			)
+			.unique();
+		if (byCanonical) {
+			return byCanonical;
+		}
+	}
+
+	const sourceId = args.sourceId.trim();
+	const titleUrl = args.titleUrl.trim();
+	if (!sourceId || !titleUrl) {
+		return null;
+	}
+
+	const variant = await ctx.db
+		.query('titleVariants')
+		.withIndex('by_owner_user_id_source_id_title_url', (q) =>
+			q.eq('ownerUserId', ownerUserId).eq('sourceId', sourceId).eq('titleUrl', titleUrl)
+		)
+		.unique();
+	if (!variant) {
+		return null;
+	}
+
+	const title = await ctx.db.get(variant.libraryTitleId);
+	if (!title || title.ownerUserId !== ownerUserId) {
+		return null;
+	}
+	return title;
 }
 
 async function ensureChapterSyncForTitle(

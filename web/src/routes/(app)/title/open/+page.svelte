@@ -18,32 +18,6 @@
 	let titleName = $state('');
 	let thumbnailUrl = $state('');
 
-	async function findExistingTitle() {
-		const sourceId = page.url.searchParams.get('source_id')?.trim() ?? '';
-		const titleUrl = page.url.searchParams.get('title_url')?.trim() ?? '';
-		const canonicalKey = page.url.searchParams.get('canonical_key')?.trim() ?? '';
-		if (!sourceId || !titleUrl || !canonicalKey) {
-			return null;
-		}
-		return client.query(convexApi.library.findMineBySource, {
-			canonicalKey,
-			sourceId,
-			titleUrl
-		});
-	}
-
-	async function waitForImportedTitle(timeoutMs = 8_000) {
-		const startedAt = Date.now();
-		while (Date.now() - startedAt < timeoutMs) {
-			const existing = await findExistingTitle();
-			if (existing?._id) {
-				return existing;
-			}
-			await new Promise((resolve) => setTimeout(resolve, 400));
-		}
-		return null;
-	}
-
 	async function waitForTitleHydration(
 		titleId: string,
 		expectedChapterCount: number,
@@ -95,62 +69,54 @@
 		loading = true;
 		error = null;
 		try {
-			const existing = await findExistingTitle();
-			if (existing?._id) {
-				const hydrated = await waitForTitleHydration(
-					String(existing._id),
-					1,
-					existing.title || titleName || titleUrl,
-					6_000
-				);
-				await goto(buildTitlePath(String(existing._id), hydrated.title), {
-					replaceState: true
-				});
-				return;
-			}
-
-			const { commandId } = await client.mutation(convexApi.commands.enqueueLibraryImport, {
+			const openRequest = await client.mutation(convexApi.library.beginTitleOpen, {
 				canonicalKey,
 				sourceId,
 				sourcePkg,
 				sourceLang,
 				titleUrl
 			});
-			const command = await waitForCommand(client, commandId, {
-				timeoutMs: 45_000,
-				pollIntervalMs: 400
-			}).catch(async (cause) => {
-				const imported = await waitForImportedTitle();
-				if (imported?._id) {
-					await goto(buildTitlePath(String(imported._id), imported.title || titleName || titleUrl), {
-						replaceState: true
-					});
-					return null;
-				}
-				throw cause;
-			});
-			if (!command) {
+
+			if (openRequest.titleId) {
+				const hydrated = await waitForTitleHydration(
+					String(openRequest.titleId),
+					1,
+					openRequest.title || titleName || titleUrl,
+					6_000
+				);
+				await goto(buildTitlePath(String(openRequest.titleId), hydrated.title), {
+					replaceState: true
+				});
 				return;
 			}
-			const titleId = String(command.result?.titleId ?? '');
-			const chapterCount = Number(command.result?.chapterCount ?? 0);
+
+			if (!openRequest.commandId) {
+				throw new Error('Unable to prepare title import');
+			}
+
+			const command = await waitForCommand(client, openRequest.commandId, {
+				timeoutMs: 45_000,
+				pollIntervalMs: 400
+			});
+
+			let titleId = String(command.result?.titleId ?? '');
+			let resolvedTitle = String(command.result?.title ?? titleName ?? titleUrl);
+			let chapterCount = Number(command.result?.chapterCount ?? 0);
 			if (!titleId) {
-				const imported = await waitForImportedTitle(4_000);
-				if (imported?._id) {
-					const hydrated = await waitForTitleHydration(
-						String(imported._id),
-						1,
-						imported.title || titleName || titleUrl,
-						6_000
-					);
-					await goto(buildTitlePath(String(imported._id), hydrated.title), {
-						replaceState: true
-					});
-					return;
-				}
+				const resolved = await client.mutation(convexApi.library.beginTitleOpen, {
+					canonicalKey,
+					sourceId,
+					sourcePkg,
+					sourceLang,
+					titleUrl
+				});
+				titleId = String(resolved.titleId ?? '');
+				resolvedTitle = String(resolved.title ?? resolvedTitle);
+			}
+			if (!titleId) {
 				throw new Error('Import completed without a title id');
 			}
-			const hydrated = await waitForTitleHydration(titleId, chapterCount, titleName || titleUrl);
+			const hydrated = await waitForTitleHydration(titleId, chapterCount, resolvedTitle);
 			await goto(buildTitlePath(titleId, hydrated.title), { replaceState: true });
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Unable to open title';
