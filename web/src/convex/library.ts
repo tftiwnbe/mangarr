@@ -71,7 +71,9 @@ export {
 export {
 	ensureTitleReady,
 	beginTitleOpen,
+	ensureTitleCoverCache,
 	ensureTitleMetadata,
+	ensureTitlesCoverCache,
 	ensureTitlesMetadata,
 	getExploreTitlePreview,
 	upsertTitleMetadataFromBridge

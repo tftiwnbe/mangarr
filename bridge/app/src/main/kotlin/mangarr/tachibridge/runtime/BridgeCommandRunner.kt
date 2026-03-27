@@ -40,6 +40,7 @@ private val parallelizableCommandTypes =
         "explore.latest",
         "explore.title.fetch",
         "explore.chapters.fetch",
+        "library.cover.cache",
         "reader.pages.fetch",
     )
 private const val DOWNLOAD_COMMAND_CONCURRENCY = 2
@@ -117,6 +118,7 @@ class BridgeCommandRunner(
                                     add(JsonPrimitive("explore.title.fetch"))
                                     add(JsonPrimitive("reader.pages.fetch"))
                                     add(JsonPrimitive("library.chapters.sync"))
+                                    add(JsonPrimitive("library.cover.cache"))
                                     add(JsonPrimitive("library.import"))
                                     add(JsonPrimitive("downloads.chapter"))
                                 },
@@ -571,6 +573,17 @@ class BridgeCommandRunner(
                     put("chapterCount", chapters["chapters"]?.jsonArray?.size ?: 0)
                 }
             }
+            "library.cover.cache" -> {
+                val titleId = payload.requiredString("titleId")
+                val coverUrl = payload.optionalString("coverUrl")
+                val coverPath = cacheLibraryCover(client, titleId, coverUrl)
+                buildJsonObject {
+                    put("ok", true)
+                    put("titleId", titleId)
+                    put("cached", !coverPath.isNullOrBlank())
+                    put("localCoverPath", coverPath)
+                }
+            }
             "library.import" -> {
                 val sourceId = payload.requiredString("sourceId")
                 val sourcePkg = payload.requiredString("sourcePkg")
@@ -624,29 +637,7 @@ class BridgeCommandRunner(
                         ),
                     )
 
-                val coverPath =
-                    runCatching {
-                        service.cacheCover(clientResult.titleId, resolved.optionalString("coverUrl"))
-                    }.onFailure { error ->
-                        events.error(
-                            "bridge.library.cover_cache_failed",
-                            "Failed to cache cover for imported title",
-                            error,
-                            "titleId" to clientResult.titleId,
-                        )
-                    }.getOrNull()
-
-                if (!coverPath.isNullOrBlank()) {
-                    client.setLibraryTitleLocalCover(
-                        client.payload(
-                            buildJsonObject {
-                                put("titleId", clientResult.titleId)
-                                put("localCoverPath", coverPath)
-                                put("now", System.currentTimeMillis())
-                            },
-                        ),
-                    )
-                }
+                val coverPath = cacheLibraryCover(client, clientResult.titleId, resolved.optionalString("coverUrl"))
 
                 val chapters = kotlinx.coroutines.runBlocking { service.fetchChapters(sourceId, titleUrl) }
                 client.upsertLibraryChapters(
@@ -784,6 +775,38 @@ class BridgeCommandRunner(
             }
             else -> throw IllegalStateException("Unsupported command type: ${command.commandType}")
         }
+    }
+
+    private fun cacheLibraryCover(
+        client: ConvexBridgeClient,
+        titleId: String,
+        coverUrl: String?,
+    ): String? {
+        val coverPath =
+            runCatching {
+                service.cacheCover(titleId, coverUrl)
+            }.onFailure { error ->
+                events.error(
+                    "bridge.library.cover_cache_failed",
+                    "Failed to cache cover for library title",
+                    error,
+                    "titleId" to titleId,
+                )
+            }.getOrNull()
+
+        if (!coverPath.isNullOrBlank()) {
+            client.setLibraryTitleLocalCover(
+                client.payload(
+                    buildJsonObject {
+                        put("titleId", titleId)
+                        put("localCoverPath", coverPath)
+                        put("now", System.currentTimeMillis())
+                    },
+                ),
+            )
+        }
+
+        return coverPath
     }
 
     private fun JsonObject.requiredString(key: String): String =

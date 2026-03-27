@@ -186,6 +186,49 @@ export const ensureTitlesMetadata = mutation({
 	}
 });
 
+export const ensureTitleCoverCache = mutation({
+	args: {
+		titleId: v.id('libraryTitles')
+	},
+	handler: async (ctx, args) => {
+		const title = await requireOwnedTitle(ctx, args.titleId);
+		const commandId = await ensureCoverCacheForTitle(ctx, title, Date.now());
+		return {
+			commandId,
+			enqueued: commandId !== null
+		};
+	}
+});
+
+export const ensureTitlesCoverCache = mutation({
+	args: {
+		titleIds: v.array(v.id('libraryTitles')),
+		limit: v.optional(v.float64())
+	},
+	handler: async (ctx, args) => {
+		const userId = await requireViewerUserId(ctx);
+		const limit = Math.max(1, Math.min(Math.floor(args.limit ?? 20), 100));
+		const now = Date.now();
+		const commandIds: GenericId<'commands'>[] = [];
+
+		for (const titleId of args.titleIds.slice(0, limit)) {
+			const title = await ctx.db.get(titleId);
+			if (!title || title.ownerUserId !== userId) {
+				continue;
+			}
+			const commandId = await ensureCoverCacheForTitle(ctx, title, now);
+			if (commandId) {
+				commandIds.push(commandId);
+			}
+		}
+
+		return {
+			enqueued: commandIds.length,
+			commandIds
+		};
+	}
+});
+
 export const upsertTitleMetadataFromBridge = mutation({
 	args: {
 		sourceId: v.string(),
@@ -469,6 +512,52 @@ async function ensureChapterSyncForTitle(
 		idempotencyKey,
 		status: 'queued',
 		priority: 95,
+		runAfter: now,
+		attemptCount: 0,
+		maxAttempts: 3,
+		createdAt: now,
+		updatedAt: now
+	});
+}
+
+async function ensureCoverCacheForTitle(
+	ctx: MutationCtx,
+	title: DocLike<'libraryTitles'>,
+	now: number
+) {
+	if ((title.localCoverPath ?? '').trim()) {
+		return null;
+	}
+
+	const coverUrl = (title.coverUrl ?? '').trim();
+	if (!coverUrl) {
+		return null;
+	}
+
+	const idempotencyKey = `library.cover.cache:${String(title._id)}:${coverUrl}`;
+	const reusable = await ctx.db
+		.query('commands')
+		.withIndex('by_idempotency_key', (q) => q.eq('idempotencyKey', idempotencyKey))
+		.collect();
+	const existingCommand = reusable
+		.filter((command) => command.requestedByUserId === title.ownerUserId)
+		.sort((left, right) => right.createdAt - left.createdAt)
+		.find((command) => REUSABLE_COMMAND_STATUSES.has(command.status));
+	if (existingCommand) {
+		return existingCommand._id;
+	}
+
+	return ctx.db.insert('commands', {
+		commandType: 'library.cover.cache',
+		targetCapability: 'library.cover.cache',
+		requestedByUserId: title.ownerUserId,
+		payload: {
+			titleId: title._id,
+			coverUrl
+		},
+		idempotencyKey,
+		status: 'queued',
+		priority: 80,
 		runAfter: now,
 		attemptCount: 0,
 		maxAttempts: 3,

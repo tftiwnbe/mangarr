@@ -1,6 +1,7 @@
-<script lang="ts">
-	import { goto } from '$app/navigation';
-	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+	<script lang="ts">
+		import { goto } from '$app/navigation';
+		import { onMount } from 'svelte';
+		import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import {
@@ -112,12 +113,32 @@
 	let sortDesc = $state(true);
 	let activeReadingStatusIds = $state<string[]>([]);
 	let activeSourceStatusKeys = $state<string[]>([]);
-	let activeGenres = $state<string[]>([]);
-	let requestedMetadataTitleIds = $state<string[]>([]);
-	let revealTitleId = $state<string | null>(null);
-	let libraryRenderLimit = $state(INITIAL_LIBRARY_RENDER_LIMIT);
-	let libraryRenderSentinel = $state<HTMLDivElement | null>(null);
-	let libraryRenderObserver: IntersectionObserver | null = null;
+		let activeGenres = $state<string[]>([]);
+		let requestedMetadataTitleIds = $state<string[]>([]);
+		let requestedCoverTitleIds = $state<string[]>([]);
+		let revealTitleId = $state<string | null>(null);
+		let libraryRenderLimit = $state(INITIAL_LIBRARY_RENDER_LIMIT);
+		let libraryRenderSentinel = $state<HTMLDivElement | null>(null);
+		let libraryRenderObserver: IntersectionObserver | null = null;
+		let browserOnline = $state(true);
+
+		onMount(() => {
+			if (typeof navigator !== 'undefined') {
+				browserOnline = navigator.onLine;
+			}
+			const handleOnline = () => {
+				browserOnline = true;
+			};
+			const handleOffline = () => {
+				browserOnline = false;
+			};
+			window.addEventListener('online', handleOnline);
+			window.addEventListener('offline', handleOffline);
+			return () => {
+				window.removeEventListener('online', handleOnline);
+				window.removeEventListener('offline', handleOffline);
+			};
+		});
 
 	const debouncedSearch = new DebouncedValue(() => searchQuery, 150);
 
@@ -267,10 +288,11 @@
 	});
 	const visibleFilteredTitles = $derived(filteredTitles.slice(0, libraryRenderLimit));
 
-	$effect(() => {
-		const nextRequested: string[] = [];
-		for (const title of (library.data ?? []) as TitleItem[]) {
-			if ((title.status ?? 0) > 0 && (title.genre ?? '').trim()) continue;
+		$effect(() => {
+			if (!browserOnline) return;
+			const nextRequested: string[] = [];
+			for (const title of (library.data ?? []) as TitleItem[]) {
+				if ((title.status ?? 0) > 0 && (title.genre ?? '').trim()) continue;
 			const key = String(title._id);
 			if (requestedMetadataTitleIds.includes(key)) continue;
 			nextRequested.push(key);
@@ -285,9 +307,34 @@
 				});
 			} catch {
 				// Keep the key marked as requested for this session to avoid a fetch loop.
+				}
+			})();
+		});
+
+		$effect(() => {
+			if (!browserOnline) return;
+			const nextRequested: string[] = [];
+			for (const title of visibleFilteredTitles as LibraryTitleSummary[]) {
+				const rawTitle = ((library.data ?? []) as TitleItem[]).find((item) => item._id === title.id);
+				if (!rawTitle) continue;
+				if (rawTitle.localCoverPath || !(rawTitle.coverUrl ?? '').trim()) continue;
+				const key = String(rawTitle._id);
+				if (requestedCoverTitleIds.includes(key)) continue;
+				nextRequested.push(key);
 			}
-		})();
-	});
+			if (nextRequested.length === 0) return;
+			requestedCoverTitleIds = [...requestedCoverTitleIds, ...nextRequested];
+			void (async () => {
+				try {
+					await client.mutation(convexApi.library.ensureTitlesCoverCache, {
+						titleIds: nextRequested as Id<'libraryTitles'>[],
+						limit: 24
+					});
+				} catch {
+					// Keep the session markers to avoid cover-cache request loops.
+				}
+			})();
+		});
 
 	function resetLibraryRenderObserver() {
 		libraryRenderObserver?.disconnect();
@@ -353,13 +400,14 @@
 		};
 	}
 
-	function coverSrc(title: Pick<TitleItem, 'localCoverPath' | 'coverUrl'>) {
-		if (title.localCoverPath) {
-			const params = new URLSearchParams({ path: title.localCoverPath });
-			return `/api/internal/bridge/library/cover?${params.toString()}`;
+		function coverSrc(title: Pick<TitleItem, 'localCoverPath' | 'coverUrl'>) {
+			if (title.localCoverPath) {
+				const params = new URLSearchParams({ path: title.localCoverPath });
+				return `/api/internal/bridge/library/cover?${params.toString()}`;
+			}
+			if (!browserOnline) return null;
+			return title.coverUrl ?? null;
 		}
-		return title.coverUrl ?? null;
-	}
 
 	function hiddenSourceLabel(title: HiddenTitleSummary) {
 		return title.sourceLang ? `${title.sourcePkg} [${title.sourceLang}]` : title.sourcePkg;

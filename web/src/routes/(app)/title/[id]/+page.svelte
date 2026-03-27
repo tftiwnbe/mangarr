@@ -195,10 +195,30 @@
 	let linkingVariantKey = $state<string | null>(null);
 	let preferredVariantSavingId = $state<string | null>(null);
 	let removingVariantId = $state<string | null>(null);
-	let normalizingSources = $state(false);
-	let lastSourceNormalizationSignature = $state('');
-	let lastSyncedPreferenceSignature = $state('');
-	let lastMetadataKey = $state('');
+		let normalizingSources = $state(false);
+		let lastSourceNormalizationSignature = $state('');
+		let lastSyncedPreferenceSignature = $state('');
+		let lastMetadataKey = $state('');
+		let browserOnline = $state(true);
+		let coverCacheRequested = $state(false);
+
+		onMount(() => {
+			if (typeof navigator !== 'undefined') {
+				browserOnline = navigator.onLine;
+			}
+			const handleOnline = () => {
+				browserOnline = true;
+			};
+			const handleOffline = () => {
+				browserOnline = false;
+			};
+			window.addEventListener('online', handleOnline);
+			window.addEventListener('offline', handleOffline);
+			return () => {
+				window.removeEventListener('online', handleOnline);
+				window.removeEventListener('offline', handleOffline);
+			};
+		});
 
 	const client = useConvexClient();
 	const titleQuery = useQuery(convexApi.library.getMineOverviewById, () => ({
@@ -263,14 +283,15 @@
 		titleBackTarget?.startsWith('/explore') ? $_('nav.explore') : $_('nav.library')
 	);
 
-	const coverSrc = $derived.by(() => {
-		if (!title) return null;
-		if (title.localCoverPath) {
-			const params = new URLSearchParams({ path: title.localCoverPath });
-			return `/api/internal/bridge/library/cover?${params.toString()}`;
-		}
-		return title.coverUrl ?? null;
-	});
+		const coverSrc = $derived.by(() => {
+			if (!title) return null;
+			if (title.localCoverPath) {
+				const params = new URLSearchParams({ path: title.localCoverPath });
+				return `/api/internal/bridge/library/cover?${params.toString()}`;
+			}
+			if (!browserOnline) return null;
+			return title.coverUrl ?? null;
+		});
 
 	const genres = $derived.by(() =>
 		String(title?.genre ?? '')
@@ -441,20 +462,21 @@
 		}
 	});
 
-	$effect(() => {
-		const key = title ? `${title.sourceId}::${title.titleUrl}` : '';
-		if (key === lastMetadataKey) return;
-		lastMetadataKey = key;
-		metadataRequested = false;
-		readinessRequested = false;
-		chapterHydrationStatus = 'idle';
-	});
+		$effect(() => {
+			const key = title ? `${title.sourceId}::${title.titleUrl}` : '';
+			if (key === lastMetadataKey) return;
+			lastMetadataKey = key;
+			metadataRequested = false;
+			readinessRequested = false;
+			coverCacheRequested = false;
+			chapterHydrationStatus = 'idle';
+		});
 
-	$effect(() => {
-		if (!title || metadataRequested) return;
-		if (
-			(title.author ?? '').trim() &&
-			(title.artist ?? '').trim() &&
+		$effect(() => {
+			if (!browserOnline || !title || metadataRequested) return;
+			if (
+				(title.author ?? '').trim() &&
+				(title.artist ?? '').trim() &&
 			(title.genre ?? '').trim() &&
 			Number(title.status ?? 0) > 0 &&
 			(title.description ?? '').trim()
@@ -475,13 +497,13 @@
 				// Leave fields as-is; key reset on navigation/title change enables a later retry.
 			}
 		})();
-	});
+		});
 
-	$effect(() => {
-		if (!title || readinessRequested) return;
-		if (titleChapters.length > 0) return;
-		readinessRequested = true;
-		chapterHydrationStatus = 'syncing';
+		$effect(() => {
+			if (!browserOnline || !title || readinessRequested) return;
+			if (titleChapters.length > 0) return;
+			readinessRequested = true;
+			chapterHydrationStatus = 'syncing';
 		void (async () => {
 			try {
 				const titleId = title._id;
@@ -503,9 +525,24 @@
 			} catch {
 				readinessRequested = false;
 				chapterHydrationStatus = 'failed';
-			}
-		})();
-	});
+				}
+			})();
+		});
+
+		$effect(() => {
+			if (!browserOnline || !title || coverCacheRequested) return;
+			if (title.localCoverPath || !(title.coverUrl ?? '').trim()) return;
+			coverCacheRequested = true;
+			void (async () => {
+				try {
+					await client.mutation(convexApi.library.ensureTitleCoverCache, {
+						titleId: title._id
+					});
+				} catch {
+					// Leave the current cover state as-is until a later online retry.
+				}
+			})();
+		});
 
 	const isChapterHydrating = $derived(
 		Boolean(title) &&
