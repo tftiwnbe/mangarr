@@ -81,6 +81,7 @@ class BridgeCommandRunner(
         snapshot = snapshot.copy(running = true)
         job =
             scope.launch {
+                recoverDownloadStateOnStartup()
                 while (isActive) {
                     poll()
                     delay(pollIntervalMs)
@@ -147,6 +148,37 @@ class BridgeCommandRunner(
                 "bridgeId" to bridgeId,
             )
             snapshot = snapshot.copy(lastError = error.message ?: "Unknown command error")
+        }
+    }
+
+    private suspend fun recoverDownloadStateOnStartup() {
+        val client = bridgeClient ?: return
+        runCatching {
+            val recovered =
+                client.recoverActiveDownloads(
+                    client.payload(
+                        buildJsonObject {
+                            put("now", System.currentTimeMillis())
+                            put("forceRunningCommands", true)
+                        },
+                    ),
+                )
+            if (recovered.recoveredTasks > 0) {
+                events.info(
+                    "bridge.downloads.recovered",
+                    "Recovered active download state after bridge startup",
+                    "recoveredTasks" to recovered.recoveredTasks.toInt(),
+                    "requeuedTasks" to recovered.requeuedTasks.toInt(),
+                    "failedTasks" to recovered.failedTasks.toInt(),
+                )
+            }
+        }.onFailure { error ->
+            events.error(
+                "bridge.downloads.recovery_failed",
+                "Failed to recover active download state on startup",
+                error,
+                "bridgeId" to bridgeId,
+            )
         }
     }
 

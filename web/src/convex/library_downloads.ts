@@ -418,6 +418,10 @@ export const runScheduledDownloadCycles = internalMutation({
 		maxUsers: v.optional(v.float64())
 	},
 	handler: async (ctx, args) => {
+		const recovery = await recoverActiveDownloadsInternal(ctx, {
+			now: Date.now(),
+			forceRunningCommands: false
+		});
 		const limitPerUser = Math.max(1, Math.min(Math.floor(args.limitPerUser ?? 25), 100));
 		const maxUsers = Math.max(1, Math.min(Math.floor(args.maxUsers ?? 50), 500));
 		const now = Date.now();
@@ -447,10 +451,27 @@ export const runScheduledDownloadCycles = internalMutation({
 		}
 
 		return {
+			recoveredTasks: recovery.recoveredTasks,
+			requeuedTasks: recovery.requeuedTasks,
+			failedTasks: recovery.failedTasks,
 			usersChecked,
 			profilesChecked,
 			enqueued
 		};
+	}
+});
+
+export const recoverActiveDownloads = internalMutation({
+	args: {
+		now: v.float64(),
+		forceRunningCommands: v.optional(v.boolean())
+	},
+	handler: async (ctx, args) => {
+		await requireBridgeIdentity(ctx);
+		return recoverActiveDownloadsInternal(ctx, {
+			now: args.now,
+			forceRunningCommands: args.forceRunningCommands ?? false
+		});
 	}
 });
 
@@ -711,6 +732,117 @@ async function queueDownloadAttempt(
 		taskId,
 		commandId,
 		alreadyQueued: false
+	};
+}
+
+async function recoverActiveDownloadsInternal(
+	ctx: MutationCtx,
+	args: {
+		now: number;
+		forceRunningCommands: boolean;
+	}
+) {
+	const activeTasks = (await ctx.db.query('downloadTasks').collect()).filter((task) =>
+		isActiveDownloadTaskStatus(task.status as DownloadTaskStatus)
+	);
+	let requeuedTasks = 0;
+	let failedTasks = 0;
+
+	for (const task of activeTasks) {
+		const chapter = await ctx.db.get(task.libraryChapterId);
+		if (!chapter || chapter.ownerUserId !== task.ownerUserId) {
+			continue;
+		}
+
+		const command = task.commandId ? await ctx.db.get(task.commandId) : null;
+		const commandStatus = command?.status ?? null;
+		const commandExpired =
+			command && (commandStatus === 'leased' || commandStatus === 'running')
+				? (command.leaseExpiresAt ?? 0) <= args.now
+				: false;
+		const shouldForceRequeueRunningCommand =
+			args.forceRunningCommands &&
+			command &&
+			command.commandType === 'downloads.chapter' &&
+			(commandStatus === 'leased' || commandStatus === 'running');
+		const shouldRequeue =
+			commandStatus === 'queued' ||
+			commandExpired ||
+			shouldForceRequeueRunningCommand ||
+			command === null;
+		const hasDownloadedStorage =
+			chapter.downloadStatus === DOWNLOAD_STATUS.DOWNLOADED &&
+			typeof chapter.localRelativePath === 'string' &&
+			chapter.localRelativePath.length > 0 &&
+			typeof chapter.storageKind === 'string';
+
+		if (hasDownloadedStorage) {
+			if (task.status !== DOWNLOAD_TASK_STATUS.COMPLETED) {
+				await ctx.db.patch(task._id, {
+					status: DOWNLOAD_TASK_STATUS.COMPLETED,
+					progressPercent: 100,
+					completedAt: args.now,
+					updatedAt: args.now,
+					localRelativePath: chapter.localRelativePath,
+					storageKind: chapter.storageKind,
+					fileSizeBytes: chapter.fileSizeBytes
+				});
+			}
+			continue;
+		}
+
+		if (shouldRequeue) {
+			if (command && commandStatus !== 'queued') {
+				await ctx.db.patch(command._id, {
+					status: 'queued',
+					runAfter: args.now,
+					leaseOwnerBridgeId: undefined,
+					leaseExpiresAt: undefined,
+					lastErrorMessage: undefined,
+					completedAt: undefined,
+					updatedAt: args.now
+				});
+			}
+			await ctx.db.patch(task._id, {
+				status: DOWNLOAD_TASK_STATUS.QUEUED,
+				startedAt: undefined,
+				completedAt: undefined,
+				errorMessage: undefined,
+				updatedAt: args.now
+			});
+			await ctx.db.patch(chapter._id, {
+				downloadStatus: DOWNLOAD_STATUS.QUEUED,
+				lastErrorMessage: undefined,
+				updatedAt: args.now
+			});
+			requeuedTasks += 1;
+			continue;
+		}
+
+		if (commandStatus === 'dead_letter' || commandStatus === 'cancelled') {
+			const errorMessage = command?.lastErrorMessage ?? task.errorMessage ?? 'Download failed';
+			await ctx.db.patch(task._id, {
+				status:
+					commandStatus === 'cancelled'
+						? DOWNLOAD_TASK_STATUS.CANCELLED
+						: DOWNLOAD_TASK_STATUS.FAILED,
+				errorMessage,
+				completedAt: args.now,
+				updatedAt: args.now
+			});
+			await ctx.db.patch(chapter._id, {
+				downloadStatus: DOWNLOAD_STATUS.FAILED,
+				lastErrorMessage: errorMessage,
+				updatedAt: args.now
+			});
+			failedTasks += 1;
+		}
+	}
+
+	return {
+		recoveredTasks: requeuedTasks + failedTasks,
+		requeuedTasks,
+		failedTasks
 	};
 }
 

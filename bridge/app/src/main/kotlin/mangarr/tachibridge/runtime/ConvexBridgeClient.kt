@@ -58,6 +58,13 @@ data class HeartbeatResponse(
     val created: Boolean,
 )
 
+@Serializable
+data class RecoverDownloadsResponse(
+    val recoveredTasks: Double,
+    val requeuedTasks: Double,
+    val failedTasks: Double,
+)
+
 data class ConvexBridgeClientConfig(
     val baseUrl: String,
     val authTokenProvider: () -> String,
@@ -115,6 +122,9 @@ class ConvexBridgeClient(
 
     fun setLibraryChapterDownloadState(args: JsonObject): OkResponse =
         mutation("library:setChapterDownloadState", args)
+
+    fun recoverActiveDownloads(args: JsonObject): RecoverDownloadsResponse =
+        mutation("library:recoverActiveDownloads", args)
 
     private inline fun <reified T> mutation(path: String, args: JsonObject): T =
         call("/api/mutation", path, args)
