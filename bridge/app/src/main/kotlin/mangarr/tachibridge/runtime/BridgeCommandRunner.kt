@@ -43,6 +43,8 @@ private val parallelizableCommandTypes =
         "reader.pages.fetch",
     )
 private const val DOWNLOAD_COMMAND_CONCURRENCY = 2
+private const val DOWNLOAD_PROGRESS_UPDATE_INTERVAL_MS = 1_250L
+private const val DOWNLOAD_LEASE_RENEW_INTERVAL_MS = 5_000L
 
 @Serializable
 data class CommandRunnerSnapshot(
@@ -659,56 +661,72 @@ class BridgeCommandRunner(
                 )
 
                 try {
+                    var lastDownloadProgressUpdateAt = System.currentTimeMillis()
+                    var lastDownloadLeaseRenewAt = lastDownloadProgressUpdateAt
                     val result =
                         kotlinx.coroutines.runBlocking {
                             service.downloadChapter(titleId, sourceId, chapterUrl) { downloadedPages, totalPages ->
                                 val now = System.currentTimeMillis()
-                                client.renewCommandLease(
-                                    client.payload(
-                                        buildJsonObject {
-                                            put("commandId", command.id)
-                                            put("bridgeId", bridgeId)
-                                            put("now", now)
-                                            put("leaseDurationMs", leaseDurationMs)
-                                        },
-                                    ),
-                                )
-                                client.updateCommandProgress(
-                                    client.payload(
-                                        buildJsonObject {
-                                            put("commandId", command.id)
-                                            put("bridgeId", bridgeId)
-                                            put("now", now)
-                                            put(
-                                                "progress",
-                                                buildJsonObject {
-                                                    put("downloadedPages", downloadedPages)
-                                                    put("totalPages", totalPages)
-                                                    put(
-                                                        "percent",
-                                                        if (totalPages > 0) {
-                                                            (downloadedPages * 100) / totalPages
-                                                        } else {
-                                                            0
-                                                        },
-                                                    )
-                                                },
-                                            )
-                                        },
-                                    ),
-                                )
-                                client.setLibraryChapterDownloadState(
-                                    client.payload(
-                                        buildJsonObject {
-                                            put("chapterId", chapterId)
-                                            downloadTaskId?.let { put("downloadTaskId", it) }
-                                            put("status", "downloading")
-                                            put("downloadedPages", downloadedPages)
-                                            put("totalPages", totalPages)
-                                            put("now", now)
-                                        },
-                                    ),
-                                )
+                                val shouldRenewLease =
+                                    downloadedPages >= totalPages ||
+                                        now - lastDownloadLeaseRenewAt >= DOWNLOAD_LEASE_RENEW_INTERVAL_MS
+                                if (shouldRenewLease) {
+                                    client.renewCommandLease(
+                                        client.payload(
+                                            buildJsonObject {
+                                                put("commandId", command.id)
+                                                put("bridgeId", bridgeId)
+                                                put("now", now)
+                                                put("leaseDurationMs", leaseDurationMs)
+                                            },
+                                        ),
+                                    )
+                                    lastDownloadLeaseRenewAt = now
+                                }
+
+                                val shouldPushProgress =
+                                    downloadedPages >= totalPages ||
+                                        downloadedPages <= 1 ||
+                                        now - lastDownloadProgressUpdateAt >= DOWNLOAD_PROGRESS_UPDATE_INTERVAL_MS
+                                if (shouldPushProgress) {
+                                    client.updateCommandProgress(
+                                        client.payload(
+                                            buildJsonObject {
+                                                put("commandId", command.id)
+                                                put("bridgeId", bridgeId)
+                                                put("now", now)
+                                                put(
+                                                    "progress",
+                                                    buildJsonObject {
+                                                        put("downloadedPages", downloadedPages)
+                                                        put("totalPages", totalPages)
+                                                        put(
+                                                            "percent",
+                                                            if (totalPages > 0) {
+                                                                (downloadedPages * 100) / totalPages
+                                                            } else {
+                                                                0
+                                                            },
+                                                        )
+                                                    },
+                                                )
+                                            },
+                                        ),
+                                    )
+                                    client.setLibraryChapterDownloadState(
+                                        client.payload(
+                                            buildJsonObject {
+                                                put("chapterId", chapterId)
+                                                downloadTaskId?.let { put("downloadTaskId", it) }
+                                                put("status", "downloading")
+                                                put("downloadedPages", downloadedPages)
+                                                put("totalPages", totalPages)
+                                                put("now", now)
+                                            },
+                                        ),
+                                    )
+                                    lastDownloadProgressUpdateAt = now
+                                }
                             }
                         }
 
