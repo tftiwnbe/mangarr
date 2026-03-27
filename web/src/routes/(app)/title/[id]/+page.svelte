@@ -179,7 +179,7 @@
 	let preferencesSuccess = $state(false);
 	let metadataRequested = $state(false);
 	let readinessRequested = $state(false);
-	let chapterHydrationStatus = $state<'idle' | 'syncing' | 'failed'>('idle');
+	let chapterHydrationStatus = $state<'idle' | 'syncing' | 'refreshing' | 'failed'>('idle');
 	let selectedStatusId = $state<string | null>(null);
 	let selectedRating = $state<number>(0);
 	let selectedCollectionIds = $state<string[]>([]);
@@ -468,9 +468,10 @@
 			try {
 				const titleId = title._id;
 				for (let attempt = 0; attempt < 6; attempt += 1) {
-					await client.mutation(convexApi.library.ensureTitleReady, {
+					const readiness = await client.mutation(convexApi.library.ensureTitleReady, {
 						titleId
 					});
+					chapterHydrationStatus = readiness.metadataCommandId ? 'refreshing' : 'syncing';
 					const chapters = await client.query(convexApi.library.listTitleChapters, {
 						titleId
 					});
@@ -489,8 +490,28 @@
 	});
 
 	const isChapterHydrating = $derived(
-		Boolean(title) && titleChapters.length === 0 && chapterHydrationStatus === 'syncing'
+		Boolean(title) &&
+			titleChapters.length === 0 &&
+			(chapterHydrationStatus === 'syncing' || chapterHydrationStatus === 'refreshing')
 	);
+	const chapterHydrationHeadline = $derived.by(() => {
+		if (chapterHydrationStatus === 'refreshing') return $_('title.refreshingTitle');
+		if (chapterHydrationStatus === 'failed') return $_('title.syncFailed');
+		if (chapterHydrationStatus === 'syncing') return $_('title.syncingChapters');
+		return $_('title.noChapters');
+	});
+	const chapterHydrationDescription = $derived.by(() => {
+		if (chapterHydrationStatus === 'refreshing') {
+			return $_('title.refreshingTitleDescription');
+		}
+		if (chapterHydrationStatus === 'failed') {
+			return $_('title.syncFailedDescription');
+		}
+		if (chapterHydrationStatus === 'syncing') {
+			return $_('title.syncingChaptersDescription');
+		}
+		return $_('title.noChaptersDescription');
+	});
 
 	function formatDate(value?: number | null): string {
 		if (!value) return '';
@@ -556,6 +577,15 @@
 		if (chapter.downloadStatus === 'queued') return $_('downloads.queued');
 		if (chapter.downloadStatus === 'failed') return $_('downloads.failed');
 		return null;
+	}
+
+	async function retryTitleHydration() {
+		if (!title) return;
+		readinessRequested = false;
+		chapterHydrationStatus = 'idle';
+		await client.mutation(convexApi.library.ensureTitleReady, {
+			titleId: title._id
+		});
 	}
 
 	function handleBack() {
@@ -1042,7 +1072,7 @@
 								class="flex h-10 flex-1 items-center justify-center gap-2 text-xs text-[var(--text-ghost)]"
 							>
 								<SpinnerIcon size={14} class="animate-spin" />
-								<span>{$_('title.syncingChapters')}</span>
+								<span>{chapterHydrationHeadline}</span>
 							</div>
 						{:else}
 							<div
@@ -1124,7 +1154,7 @@
 								class="flex h-12 flex-1 items-center justify-center gap-2 text-sm text-[var(--text-ghost)]"
 							>
 								<SpinnerIcon size={16} class="animate-spin" />
-								<span>{$_('title.syncingChapters')}</span>
+								<span>{chapterHydrationHeadline}</span>
 							</div>
 						{:else}
 							<div
@@ -1298,13 +1328,16 @@
 							<div class="flex flex-col items-center gap-3 py-16">
 								<BookIcon size={28} class="text-[var(--void-5)]" />
 								<p class="text-sm text-[var(--text-ghost)]">
-									{isChapterHydrating ? $_('title.syncingChapters') : $_('title.noChapters')}
+									{chapterHydrationHeadline}
 								</p>
 								<p class="text-xs text-[var(--text-dim)]">
-									{isChapterHydrating
-										? $_('title.syncingChaptersDescription')
-										: $_('title.noChaptersDescription')}
+									{chapterHydrationDescription}
 								</p>
+								{#if chapterHydrationStatus === 'failed'}
+									<Button variant="outline" size="sm" onclick={() => void retryTitleHydration()}>
+										{$_('common.retry')}
+									</Button>
+								{/if}
 							</div>
 						{:else}
 							<div class="flex flex-col">

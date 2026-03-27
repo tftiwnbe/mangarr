@@ -17,6 +17,7 @@
 	let error = $state<string | null>(null);
 	let titleName = $state('');
 	let thumbnailUrl = $state('');
+	let openPhase = $state<'checking' | 'importing' | 'syncing'>('checking');
 
 	async function waitForTitleHydration(
 		titleId: string,
@@ -68,6 +69,7 @@
 
 		loading = true;
 		error = null;
+		openPhase = 'checking';
 		try {
 			const openRequest = await client.mutation(convexApi.library.beginTitleOpen, {
 				canonicalKey,
@@ -78,6 +80,7 @@
 			});
 
 			if (openRequest.titleId) {
+				openPhase = openRequest.state === 'syncing' ? 'syncing' : 'checking';
 				const hydrated = await waitForTitleHydration(
 					String(openRequest.titleId),
 					1,
@@ -94,6 +97,7 @@
 				throw new Error('Unable to prepare title import');
 			}
 
+			openPhase = 'importing';
 			const command = await waitForCommand(client, openRequest.commandId, {
 				timeoutMs: 45_000,
 				pollIntervalMs: 400
@@ -116,6 +120,7 @@
 			if (!titleId) {
 				throw new Error('Import completed without a title id');
 			}
+			openPhase = 'syncing';
 			const hydrated = await waitForTitleHydration(titleId, chapterCount, resolvedTitle);
 			await goto(buildTitlePath(titleId, hydrated.title), { replaceState: true });
 		} catch (cause) {
@@ -129,6 +134,25 @@
 		titleName = page.url.searchParams.get('title')?.trim() ?? '';
 		thumbnailUrl = page.url.searchParams.get('thumbnail_url')?.trim() ?? '';
 		void openTitle();
+	});
+
+	const openPhaseCopy = $derived.by(() => {
+		if (openPhase === 'importing') {
+			return {
+				title: $_('title.importingTitle'),
+				description: $_('title.importingTitleDescription')
+			};
+		}
+		if (openPhase === 'syncing') {
+			return {
+				title: $_('title.syncingChapters'),
+				description: $_('title.syncingChaptersDescription')
+			};
+		}
+		return {
+			title: $_('title.openingTitle'),
+			description: $_('title.openingTitleDescription')
+		};
 	});
 </script>
 
@@ -156,8 +180,11 @@
 				{/if}
 			</div>
 			<div class="relative -mt-24 flex flex-col gap-3 md:mt-0">
+				<p class="text-xs tracking-[0.18em] text-[var(--text-ghost)] uppercase">
+					{openPhaseCopy.title}
+				</p>
 				<div class="h-7 w-3/4 animate-pulse bg-[var(--void-4)]"></div>
-				<div class="h-4 w-1/3 animate-pulse bg-[var(--void-4)]"></div>
+				<div class="text-sm text-[var(--text-ghost)]">{openPhaseCopy.description}</div>
 				<div class="mt-6 h-3 w-full animate-pulse bg-[var(--void-3)]"></div>
 				<div class="h-3 w-5/6 animate-pulse bg-[var(--void-3)]"></div>
 				<div class="h-3 w-4/6 animate-pulse bg-[var(--void-3)]"></div>
