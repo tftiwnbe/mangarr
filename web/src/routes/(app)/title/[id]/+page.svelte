@@ -168,25 +168,6 @@
 		titlesCount?: number;
 	};
 
-	const client = useConvexClient();
-	const titleQuery = useQuery(convexApi.library.getMineOverviewById, () => ({
-		titleId: data.titleId as Id<'libraryTitles'>
-	}));
-	const titleChaptersQuery = useQuery(convexApi.library.listTitleChapters, () => ({
-		titleId: data.titleId as Id<'libraryTitles'>
-	}));
-	const titleCommentsQuery = useQuery(
-		convexApi.library.listTitleComments,
-		() => (activeTab === 'comments' ? { titleId: data.titleId as Id<'libraryTitles'> } : 'skip')
-	);
-	const sourcesQuery = useQuery(convexApi.extensions.listSources, () => ({}));
-	const statusesQuery = useQuery(convexApi.library.listUserStatuses, () => ({}));
-	const collectionsQuery = useQuery(convexApi.library.listCollections, () => ({}));
-
-	const MATCH_SEARCH_CONCURRENCY = 3;
-	const MATCH_SEARCH_LIMIT = 12;
-	const MATCH_SEARCH_PER_SOURCE_LIMIT = 6;
-
 	let activeTab = $state<'info' | 'chapters' | 'comments'>('info');
 	let showFullDescription = $state(false);
 	let showManagementPanel = $state(false);
@@ -216,6 +197,25 @@
 	let lastSourceNormalizationSignature = $state('');
 	let lastSyncedPreferenceSignature = $state('');
 	let lastMetadataKey = $state('');
+
+	const client = useConvexClient();
+	const titleQuery = useQuery(convexApi.library.getMineOverviewById, () => ({
+		titleId: data.titleId as Id<'libraryTitles'>
+	}));
+	const titleChaptersQuery = useQuery(convexApi.library.listTitleChapters, () => ({
+		titleId: data.titleId as Id<'libraryTitles'>
+	}));
+	const titleCommentsQuery = useQuery(
+		convexApi.library.listTitleComments,
+		() => (activeTab === 'comments' ? { titleId: data.titleId as Id<'libraryTitles'> } : 'skip')
+	);
+	const sourcesQuery = useQuery(convexApi.extensions.listSources, () => ({}));
+	const statusesQuery = useQuery(convexApi.library.listUserStatuses, () => ({}));
+	const collectionsQuery = useQuery(convexApi.library.listCollections, () => ({}));
+
+	const MATCH_SEARCH_CONCURRENCY = 3;
+	const MATCH_SEARCH_LIMIT = 12;
+	const MATCH_SEARCH_PER_SOURCE_LIMIT = 6;
 
 	const title = $derived((titleQuery.data as TitleOverview | null) ?? null);
 	const titleChapters = $derived((titleChaptersQuery.data ?? []) as ChapterRow[]);
