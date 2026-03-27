@@ -419,10 +419,6 @@ export const runScheduledDownloadCycles = internalMutation({
 		maxUsers: v.optional(v.float64())
 	},
 	handler: async (ctx, args) => {
-		const recovery = await recoverActiveDownloadsInternal(ctx, {
-			now: Date.now(),
-			forceRunningCommands: false
-		});
 		const limitPerUser = Math.max(1, Math.min(Math.floor(args.limitPerUser ?? 25), 100));
 		const maxUsers = Math.max(1, Math.min(Math.floor(args.maxUsers ?? 50), 500));
 		const now = Date.now();
@@ -452,9 +448,9 @@ export const runScheduledDownloadCycles = internalMutation({
 		}
 
 		return {
-			recoveredTasks: recovery.recoveredTasks,
-			requeuedTasks: recovery.requeuedTasks,
-			failedTasks: recovery.failedTasks,
+			recoveredTasks: 0,
+			requeuedTasks: 0,
+			failedTasks: 0,
 			usersChecked,
 			profilesChecked,
 			enqueued
@@ -829,7 +825,7 @@ async function runDownloadCycleForUser(
 	}
 ) {
 	const cyclePlan = await selectDownloadCycleCandidatesForUser(ctx, args);
-	let remainingCapacity = await remainingDownloadCapacityForUser(ctx, args.userId);
+	let remainingCapacity = await remainingQueuedDownloadCapacityForUser(ctx, args.userId);
 	if (remainingCapacity <= 0) {
 		return { checked: cyclePlan.checkedProfiles, enqueued: 0 };
 	}
@@ -905,6 +901,19 @@ async function remainingDownloadCapacityForUser(
 	);
 }
 
+async function remainingQueuedDownloadCapacityForUser(
+	ctx: QueryCtx | MutationCtx,
+	ownerUserId: GenericId<'users'>
+) {
+	const queuedTasks = await loadDownloadTasksForUserStatus(
+		ctx,
+		ownerUserId,
+		DOWNLOAD_TASK_STATUS.QUEUED,
+		MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER + 1
+	);
+	return Math.max(0, MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER - queuedTasks.length);
+}
+
 async function findActiveDownloadTaskForChapter(
 	ctx: QueryCtx | MutationCtx,
 	ownerUserId: GenericId<'users'>,
@@ -951,7 +960,7 @@ async function selectDownloadCycleCandidatesForUser(
 		.slice(0, args.limit);
 	const activeProfiles = profiles.filter((profile) => !profile.paused);
 	const titleIds = [...new Set(activeProfiles.map((profile) => String(profile.libraryTitleId)))];
-	const [titles, missingChapters, failedChapters, activeTasks] = await Promise.all([
+	const [titles, missingChapters, failedChapters, queuedTasks] = await Promise.all([
 		Promise.all(
 			titleIds.map(async (titleId) => {
 				const title = await ctx.db.get(titleId as GenericId<'libraryTitles'>);
@@ -970,14 +979,19 @@ async function selectDownloadCycleCandidatesForUser(
 				q.eq('ownerUserId', args.userId).eq('downloadStatus', DOWNLOAD_STATUS.FAILED)
 			)
 			.collect(),
-		loadActiveDownloadTasksForUser(ctx, args.userId)
+		loadDownloadTasksForUserStatus(
+			ctx,
+			args.userId,
+			DOWNLOAD_TASK_STATUS.QUEUED,
+			MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER + 64
+		)
 	]);
 	const titleById = new Map(
 		titles
 			.filter((title): title is NonNullable<typeof title> => title !== null)
 			.map((title) => [String(title._id), title] as const)
 	);
-	const activeChapterIds = new Set(activeTasks.map((task) => String(task.libraryChapterId)));
+	const activeChapterIds = new Set(queuedTasks.map((task) => String(task.libraryChapterId)));
 	const eligibleChaptersByTitleId = new Map<
 		string,
 		Array<(typeof missingChapters)[number] | (typeof failedChapters)[number]>
@@ -1027,27 +1041,6 @@ async function loadDownloadTasksForUserStatus(
 			q.eq('ownerUserId', ownerUserId).eq('status', status)
 		)
 		.take(limit);
-}
-
-async function loadActiveDownloadTasksForUser(
-	ctx: QueryCtx | MutationCtx,
-	ownerUserId: GenericId<'users'>
-) {
-	const [queued, downloading] = await Promise.all([
-		loadDownloadTasksForUserStatus(
-			ctx,
-			ownerUserId,
-			DOWNLOAD_TASK_STATUS.QUEUED,
-			MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER + 32
-		),
-		loadDownloadTasksForUserStatus(
-			ctx,
-			ownerUserId,
-			DOWNLOAD_TASK_STATUS.DOWNLOADING,
-			MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER + 32
-		)
-	]);
-	return [...queued, ...downloading];
 }
 
 async function loadActiveDownloadTasks(ctx: QueryCtx | MutationCtx, limit: number) {
