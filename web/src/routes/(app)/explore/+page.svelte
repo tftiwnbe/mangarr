@@ -26,7 +26,9 @@
 	import { normalizeContentLanguageCode, toMainContentLanguages } from '$lib/utils/content-languages';
 	import { buildTitlePath } from '$lib/utils/routes';
 	import {
+		effectiveSourceHealthState,
 		isPermanentSourceFailure,
+		sourceHealthRetryInMinutes,
 		sourceHealthLabelKey,
 		type SourceHealthEntry
 	} from '$lib/utils/source-health';
@@ -281,7 +283,7 @@
 			.map((failure) => ({
 				...failure,
 				sourceName: sourceNameFor(failure.sourceId),
-				retryInMinutes: Math.max(1, Math.ceil((failure.retryAfter - now) / 60_000))
+				retryInMinutes: sourceHealthRetryInMinutes(failure.retryAfter, now) ?? 1
 			}))
 			.sort((left, right) => left.sourceName.localeCompare(right.sourceName));
 	});
@@ -448,6 +450,20 @@
 	function sourceFailureFor(sourceId: string, scope: SourceFailureScope) {
 		const failure = combinedSourceFailures[sourceFailureKey(sourceId, scope)];
 		return failure && failure.retryAfter > Date.now() ? failure : null;
+	}
+
+	function sourceFailureLabel(failure: SourceFailure) {
+		return $_(
+			sourceHealthLabelKey({
+				state: effectiveSourceHealthState(failure),
+				permanent: failure.permanent
+			})
+		);
+	}
+
+	function sourceFailureRetrySuffix(failure: SourceFailure) {
+		const retryInMinutes = sourceHealthRetryInMinutes(failure.retryAfter);
+		return retryInMinutes === null ? null : `${retryInMinutes}m`;
 	}
 
 	function displayExtensionName(name: string): string {
@@ -1270,29 +1286,24 @@
 								source.id
 									? 'bg-[var(--void-4)] text-[var(--text)]'
 									: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
-								onclick={() => {
-									selectedSourceId = source.id;
-									if (searchQuery.trim() || appliedSearchFiltersBySource[source.id]) void runSearch();
-								}}
-								title={searchFailure
-									? `${$_(sourceHealthLabelKey({
-											state: searchFailure.permanent ? 'degraded' : searchFailure.retryAfter > Date.now() ? 'cooldown' : 'degraded',
-											permanent: searchFailure.permanent
-										}))}: ${searchFailure.message}`
-									: undefined}
-							>
-								{source.name}{source.lang ? ` [${source.lang}]` : ''}
-								{#if searchFailure}
-									<span class="ml-1 text-[9px] text-[var(--text-dim)]">
-										{$_(
-											sourceHealthLabelKey({
-												state: searchFailure.permanent ? 'degraded' : 'cooldown',
-												permanent: searchFailure.permanent
-											})
-										)}
-									</span>
-								{/if}
-							</button>
+							onclick={() => {
+								selectedSourceId = source.id;
+								if (searchQuery.trim() || appliedSearchFiltersBySource[source.id]) void runSearch();
+							}}
+							title={searchFailure
+								? `${sourceFailureLabel(searchFailure)}: ${searchFailure.message}`
+								: undefined}
+						>
+							{source.name}{source.lang ? ` [${source.lang}]` : ''}
+							{#if searchFailure}
+								<span class="ml-1 text-[9px] text-[var(--text-dim)]">
+									{sourceFailureLabel(searchFailure)}
+									{#if sourceFailureRetrySuffix(searchFailure)}
+										· {sourceFailureRetrySuffix(searchFailure)}
+									{/if}
+								</span>
+							{/if}
+						</button>
 						{/each}
 					</div>
 

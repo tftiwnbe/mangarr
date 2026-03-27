@@ -16,6 +16,7 @@
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import { convexApi } from '$lib/convex/api';
+	import TitleSourcePanel from '$lib/components/title-source-panel.svelte';
 	import { waitForCommand } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
 	import { LazyImage } from '$lib/elements/lazy-image';
@@ -29,7 +30,11 @@
 		parseStructuredChapterName
 	} from '$lib/utils/chapter-display';
 	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
-	import { sourceHealthLabelKey, type SourceHealthEntry } from '$lib/utils/source-health';
+	import {
+		effectiveSourceHealthState,
+		sourceHealthLabelKey,
+		type SourceHealthEntry
+	} from '$lib/utils/source-health';
 	import { TITLE_STATUS } from '$lib/utils/title-status';
 
 	const { data } = $props<{ data: { titleId: string } }>();
@@ -331,7 +336,7 @@
 			return {
 				label: $_(
 					sourceHealthLabelKey({
-						state: currentSourceHealth.state,
+						state: effectiveSourceHealthState(currentSourceHealth),
 						permanent: currentSourceHealth.permanent
 					})
 				),
@@ -1264,45 +1269,23 @@
 						{#if title.chapterStats.total > 0} · {chaptersLabel}{/if}
 						{#if sourcesCount > 0} · {sourcesLabel}{/if}
 					</p>
-					<div class="mt-3 flex flex-wrap items-center justify-between gap-3 bg-[var(--void-2)] px-3 py-2">
-						<div class="min-w-0">
-							<p class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
-								{$_('title.readingSource')}
-							</p>
-							<p class="truncate text-sm text-[var(--text)]">
-								{sourceName} [{title.sourceLang}]
-							</p>
-						<p class="mt-1 text-[11px] text-[var(--text-ghost)]">
-							<span class="text-[var(--text-muted)]">{sourceHealthSummary.label}</span>
-							<span> · {sourceHealthSummary.detail}</span>
-						</p>
-						<p class="mt-1 text-[11px] text-[var(--text-ghost)]">
-							<span class="text-[var(--text-muted)]">{offlineReadinessSummary.label}</span>
-							<span> · {offlineReadinessSummary.detail}</span>
-						</p>
+						<TitleSourcePanel
+							sourceName={sourceName}
+							sourceLang={title.sourceLang}
+							sourceHealthLabel={sourceHealthSummary.label}
+							sourceHealthDetail={sourceHealthSummary.detail}
+							offlineLabel={offlineReadinessSummary.label}
+							offlineDetail={offlineReadinessSummary.detail}
+							headingLabel={$_('title.readingSource')}
+							prepareOfflineLabel={$_('title.prepareOffline')}
+							refreshSourceLabel={$_('title.refreshSource')}
+							browserOnline={browserOnline}
+							offlinePreparing={offlinePreparing}
+							sourceStatusRefreshing={sourceStatusRefreshing}
+							onPrepareOffline={prepareOffline}
+							onRefreshSource={refreshSourceState}
+						/>
 					</div>
-					<div class="flex flex-wrap items-center gap-2">
-						<Button
-							variant="ghost"
-							size="sm"
-							onclick={() => void prepareOffline()}
-							disabled={offlinePreparing || !browserOnline}
-							loading={offlinePreparing}
-						>
-							{$_('title.prepareOffline')}
-						</Button>
-						<Button
-							variant="ghost"
-							size="sm"
-							onclick={() => void refreshSourceState()}
-							disabled={sourceStatusRefreshing}
-							loading={sourceStatusRefreshing}
-						>
-							{$_('title.refreshSource')}
-						</Button>
-					</div>
-				</div>
-				</div>
 
 				<div class="mt-8 flex flex-col gap-4 md:hidden">
 					<div class="flex items-center gap-3">

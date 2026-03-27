@@ -11,6 +11,8 @@ export type SourceHealthEntry = {
 	updatedAt: number;
 };
 
+export type SourceHealthLike = Pick<SourceHealthEntry, 'retryAfter' | 'permanent'>;
+
 export function sourceHealthScopeForCommandType(commandType: string): SourceHealthScope | null {
 	switch (commandType) {
 		case 'explore.popular':
@@ -41,4 +43,18 @@ export function sourceHealthLabelKey(entry: Pick<SourceHealthEntry, 'state' | 'p
 		return 'explore.sourceCooldown';
 	}
 	return entry.permanent ? 'explore.sourceUnavailable' : 'explore.sourceDegraded';
+}
+
+export function effectiveSourceHealthState(entry: SourceHealthLike, now: number = Date.now()): SourceHealthState {
+	if (!entry.permanent && entry.retryAfter !== null && entry.retryAfter > now) {
+		return 'cooldown';
+	}
+	return 'degraded';
+}
+
+export function sourceHealthRetryInMinutes(retryAfter: number | null, now: number = Date.now()): number | null {
+	if (retryAfter === null || retryAfter <= now) {
+		return null;
+	}
+	return Math.max(1, Math.ceil((retryAfter - now) / 60_000));
 }
