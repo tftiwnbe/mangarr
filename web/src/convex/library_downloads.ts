@@ -23,6 +23,7 @@ const DOWNLOAD_TASK_STATUS = {
 const MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER = 16;
 const RESERVED_RUNNING_DOWNLOAD_SLOTS = 2;
 const MAX_ENQUEUED_DOWNLOADS_PER_TITLE_REQUEST = 24;
+const ACTIVE_DOWNLOAD_RECOVERY_SCAN_LIMIT = 2_000;
 
 type DownloadTaskStatus = (typeof DOWNLOAD_TASK_STATUS)[keyof typeof DOWNLOAD_TASK_STATUS];
 
@@ -742,9 +743,7 @@ async function recoverActiveDownloadsInternal(
 		forceRunningCommands: boolean;
 	}
 ) {
-	const activeTasks = (await ctx.db.query('downloadTasks').collect()).filter((task) =>
-		isActiveDownloadTaskStatus(task.status as DownloadTaskStatus)
-	);
+	const activeTasks = await loadActiveDownloadTasks(ctx, ACTIVE_DOWNLOAD_RECOVERY_SCAN_LIMIT);
 	let requeuedTasks = 0;
 	let failedTasks = 0;
 
@@ -776,68 +775,30 @@ async function recoverActiveDownloadsInternal(
 			chapter.localRelativePath.length > 0 &&
 			typeof chapter.storageKind === 'string';
 
-		if (hasDownloadedStorage) {
-			if (task.status !== DOWNLOAD_TASK_STATUS.COMPLETED) {
-				await ctx.db.patch(task._id, {
-					status: DOWNLOAD_TASK_STATUS.COMPLETED,
-					progressPercent: 100,
-					completedAt: args.now,
-					updatedAt: args.now,
-					localRelativePath: chapter.localRelativePath,
-					storageKind: chapter.storageKind,
-					fileSizeBytes: chapter.fileSizeBytes
-				});
+			if (hasDownloadedStorage) {
+				await finalizeRecoveredCompletedTask(ctx, task, chapter, args.now);
+				continue;
 			}
-			continue;
-		}
 
-		if (shouldRequeue) {
-			if (command && commandStatus !== 'queued') {
-				await ctx.db.patch(command._id, {
-					status: 'queued',
-					runAfter: args.now,
-					leaseOwnerBridgeId: undefined,
-					leaseExpiresAt: undefined,
-					lastErrorMessage: undefined,
-					completedAt: undefined,
-					updatedAt: args.now
-				});
+			if (shouldRequeue) {
+				await requeueRecoveredTask(ctx, task, chapter, command, args.now);
+				requeuedTasks += 1;
+				continue;
 			}
-			await ctx.db.patch(task._id, {
-				status: DOWNLOAD_TASK_STATUS.QUEUED,
-				startedAt: undefined,
-				completedAt: undefined,
-				errorMessage: undefined,
-				updatedAt: args.now
-			});
-			await ctx.db.patch(chapter._id, {
-				downloadStatus: DOWNLOAD_STATUS.QUEUED,
-				lastErrorMessage: undefined,
-				updatedAt: args.now
-			});
-			requeuedTasks += 1;
-			continue;
-		}
 
-		if (commandStatus === 'dead_letter' || commandStatus === 'cancelled') {
-			const errorMessage = command?.lastErrorMessage ?? task.errorMessage ?? 'Download failed';
-			await ctx.db.patch(task._id, {
-				status:
-					commandStatus === 'cancelled'
-						? DOWNLOAD_TASK_STATUS.CANCELLED
-						: DOWNLOAD_TASK_STATUS.FAILED,
-				errorMessage,
-				completedAt: args.now,
-				updatedAt: args.now
-			});
-			await ctx.db.patch(chapter._id, {
-				downloadStatus: DOWNLOAD_STATUS.FAILED,
-				lastErrorMessage: errorMessage,
-				updatedAt: args.now
-			});
-			failedTasks += 1;
+			if (commandStatus === 'dead_letter' || commandStatus === 'cancelled') {
+				const errorMessage = command?.lastErrorMessage ?? task.errorMessage ?? 'Download failed';
+				await failRecoveredTask(
+					ctx,
+					task,
+					chapter,
+					commandStatus === 'cancelled' ? DOWNLOAD_TASK_STATUS.CANCELLED : DOWNLOAD_TASK_STATUS.FAILED,
+					errorMessage,
+					args.now
+				);
+				failedTasks += 1;
+			}
 		}
-	}
 
 	return {
 		recoveredTasks: requeuedTasks + failedTasks,
@@ -867,85 +828,16 @@ async function runDownloadCycleForUser(
 		now: number;
 	}
 ) {
-	const profiles = (
-		await ctx.db
-			.query('downloadProfiles')
-			.withIndex('by_owner_user_id_enabled_updated_at', (q) =>
-				q.eq('ownerUserId', args.userId).eq('enabled', true)
-			)
-			.collect()
-	)
-		.sort((left, right) => right.updatedAt - left.updatedAt)
-		.slice(0, args.limit);
-	const activeProfiles = profiles.filter((profile) => !profile.paused);
-	const titleIds = [...new Set(activeProfiles.map((profile) => String(profile.libraryTitleId)))];
-	const [titles, missingChapters, failedChapters] = await Promise.all([
-		Promise.all(
-			titleIds.map(async (titleId) => {
-				const title = await ctx.db.get(titleId as GenericId<'libraryTitles'>);
-				return title && title.ownerUserId === args.userId ? title : null;
-			})
-		),
-		ctx.db
-			.query('libraryChapters')
-			.withIndex('by_owner_user_id_download_status', (q) =>
-				q.eq('ownerUserId', args.userId).eq('downloadStatus', DOWNLOAD_STATUS.MISSING)
-			)
-			.collect(),
-		ctx.db
-			.query('libraryChapters')
-			.withIndex('by_owner_user_id_download_status', (q) =>
-				q.eq('ownerUserId', args.userId).eq('downloadStatus', DOWNLOAD_STATUS.FAILED)
-			)
-			.collect()
-	]);
-	const titleById = new Map(
-		titles
-			.filter((title): title is NonNullable<typeof title> => title !== null)
-			.map((title) => [String(title._id), title] as const)
-	);
-	const eligibleChaptersByTitleId = new Map<
-		string,
-		Array<(typeof missingChapters)[number] | (typeof failedChapters)[number]>
-	>();
-	for (const chapter of [...missingChapters, ...failedChapters]) {
-		const titleId = String(chapter.libraryTitleId);
-		if (!titleById.has(titleId)) {
-			continue;
-		}
-		const next = eligibleChaptersByTitleId.get(titleId) ?? [];
-		next.push(chapter);
-		eligibleChaptersByTitleId.set(titleId, next);
-	}
-
+	const cyclePlan = await selectDownloadCycleCandidatesForUser(ctx, args);
 	let remainingCapacity = await remainingDownloadCapacityForUser(ctx, args.userId);
 	if (remainingCapacity <= 0) {
-		return { checked: activeProfiles.length, enqueued: 0 };
+		return { checked: cyclePlan.checkedProfiles, enqueued: 0 };
 	}
-
-	const cycleEntries = activeProfiles
-		.map((profile) => {
-			const title = titleById.get(String(profile.libraryTitleId));
-			if (!title) {
-				return null;
-			}
-			const chapters = [...(eligibleChaptersByTitleId.get(String(title._id)) ?? [])].sort(
-				(left, right) => left.sequence - right.sequence
-			);
-			return {
-				profile,
-				title,
-				chapters,
-				nextIndex: 0,
-				enqueued: 0
-			};
-		})
-		.filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 
 	let enqueued = 0;
 	while (remainingCapacity > 0) {
 		let progressed = false;
-		for (const entry of cycleEntries) {
+		for (const entry of cyclePlan.entries) {
 			if (remainingCapacity <= 0) {
 				break;
 			}
@@ -976,7 +868,7 @@ async function runDownloadCycleForUser(
 		}
 	}
 
-	for (const entry of cycleEntries) {
+	for (const entry of cyclePlan.entries) {
 		await ctx.db.patch(entry.profile._id, {
 			lastCheckedAt: args.now,
 			lastSuccessAt: entry.enqueued > 0 ? args.now : entry.profile.lastSuccessAt,
@@ -985,22 +877,31 @@ async function runDownloadCycleForUser(
 		});
 	}
 
-	return { checked: cycleEntries.length, enqueued };
+	return { checked: cyclePlan.checkedProfiles, enqueued };
 }
 
 async function remainingDownloadCapacityForUser(
 	ctx: QueryCtx | MutationCtx,
 	ownerUserId: GenericId<'users'>
 ) {
-	const queuedTasks = await ctx.db
-		.query('downloadTasks')
-		.withIndex('by_owner_user_id_status_updated_at', (q) =>
-			q.eq('ownerUserId', ownerUserId).eq('status', DOWNLOAD_TASK_STATUS.QUEUED)
+	const [queuedTasks, downloadingTasks] = await Promise.all([
+		loadDownloadTasksForUserStatus(
+			ctx,
+			ownerUserId,
+			DOWNLOAD_TASK_STATUS.QUEUED,
+			MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER + 1
+		),
+		loadDownloadTasksForUserStatus(
+			ctx,
+			ownerUserId,
+			DOWNLOAD_TASK_STATUS.DOWNLOADING,
+			RESERVED_RUNNING_DOWNLOAD_SLOTS + 1
 		)
-		.take(MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER + 1);
+	]);
+	const reservedSlots = queuedTasks.length + Math.min(RESERVED_RUNNING_DOWNLOAD_SLOTS, downloadingTasks.length);
 	return Math.max(
 		0,
-		MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER - RESERVED_RUNNING_DOWNLOAD_SLOTS - queuedTasks.length
+		MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER - reservedSlots
 	);
 }
 
@@ -1028,6 +929,214 @@ async function nextDownloadAttemptNumber(
 ) {
 	const latest = await findLatestDownloadTaskForChapter(ctx, chapterId);
 	return Math.max(1, Math.floor((latest?.attemptNumber ?? 0) + 1));
+}
+
+async function selectDownloadCycleCandidatesForUser(
+	ctx: MutationCtx,
+	args: {
+		userId: GenericId<'users'>;
+		limit: number;
+		now: number;
+	}
+) {
+	const profiles = (
+		await ctx.db
+			.query('downloadProfiles')
+			.withIndex('by_owner_user_id_enabled_updated_at', (q) =>
+				q.eq('ownerUserId', args.userId).eq('enabled', true)
+			)
+			.collect()
+	)
+		.sort((left, right) => right.updatedAt - left.updatedAt)
+		.slice(0, args.limit);
+	const activeProfiles = profiles.filter((profile) => !profile.paused);
+	const titleIds = [...new Set(activeProfiles.map((profile) => String(profile.libraryTitleId)))];
+	const [titles, missingChapters, failedChapters, activeTasks] = await Promise.all([
+		Promise.all(
+			titleIds.map(async (titleId) => {
+				const title = await ctx.db.get(titleId as GenericId<'libraryTitles'>);
+				return title && title.ownerUserId === args.userId ? title : null;
+			})
+		),
+		ctx.db
+			.query('libraryChapters')
+			.withIndex('by_owner_user_id_download_status', (q) =>
+				q.eq('ownerUserId', args.userId).eq('downloadStatus', DOWNLOAD_STATUS.MISSING)
+			)
+			.collect(),
+		ctx.db
+			.query('libraryChapters')
+			.withIndex('by_owner_user_id_download_status', (q) =>
+				q.eq('ownerUserId', args.userId).eq('downloadStatus', DOWNLOAD_STATUS.FAILED)
+			)
+			.collect(),
+		loadActiveDownloadTasksForUser(ctx, args.userId)
+	]);
+	const titleById = new Map(
+		titles
+			.filter((title): title is NonNullable<typeof title> => title !== null)
+			.map((title) => [String(title._id), title] as const)
+	);
+	const activeChapterIds = new Set(activeTasks.map((task) => String(task.libraryChapterId)));
+	const eligibleChaptersByTitleId = new Map<
+		string,
+		Array<(typeof missingChapters)[number] | (typeof failedChapters)[number]>
+	>();
+	for (const chapter of [...missingChapters, ...failedChapters]) {
+		const titleId = String(chapter.libraryTitleId);
+		if (!titleById.has(titleId) || activeChapterIds.has(String(chapter._id))) {
+			continue;
+		}
+		const next = eligibleChaptersByTitleId.get(titleId) ?? [];
+		next.push(chapter);
+		eligibleChaptersByTitleId.set(titleId, next);
+	}
+
+	return {
+		checkedProfiles: activeProfiles.length,
+		entries: activeProfiles
+			.map((profile) => {
+				const title = titleById.get(String(profile.libraryTitleId));
+				if (!title) {
+					return null;
+				}
+				const chapters = [...(eligibleChaptersByTitleId.get(String(title._id)) ?? [])].sort(
+					(left, right) => left.sequence - right.sequence
+				);
+				return {
+					profile,
+					title,
+					chapters,
+					nextIndex: 0,
+					enqueued: 0
+				};
+			})
+			.filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+	};
+}
+
+async function loadDownloadTasksForUserStatus(
+	ctx: QueryCtx | MutationCtx,
+	ownerUserId: GenericId<'users'>,
+	status: DownloadTaskStatus,
+	limit: number
+) {
+	return ctx.db
+		.query('downloadTasks')
+		.withIndex('by_owner_user_id_status_updated_at', (q) =>
+			q.eq('ownerUserId', ownerUserId).eq('status', status)
+		)
+		.take(limit);
+}
+
+async function loadActiveDownloadTasksForUser(
+	ctx: QueryCtx | MutationCtx,
+	ownerUserId: GenericId<'users'>
+) {
+	const [queued, downloading] = await Promise.all([
+		loadDownloadTasksForUserStatus(
+			ctx,
+			ownerUserId,
+			DOWNLOAD_TASK_STATUS.QUEUED,
+			MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER + 32
+		),
+		loadDownloadTasksForUserStatus(
+			ctx,
+			ownerUserId,
+			DOWNLOAD_TASK_STATUS.DOWNLOADING,
+			MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER + 32
+		)
+	]);
+	return [...queued, ...downloading];
+}
+
+async function loadActiveDownloadTasks(ctx: QueryCtx | MutationCtx, limit: number) {
+	const [queued, downloading] = await Promise.all([
+		ctx.db
+			.query('downloadTasks')
+			.withIndex('by_status_updated_at', (q) => q.eq('status', DOWNLOAD_TASK_STATUS.QUEUED))
+			.order('desc')
+			.take(limit),
+		ctx.db
+			.query('downloadTasks')
+			.withIndex('by_status_updated_at', (q) => q.eq('status', DOWNLOAD_TASK_STATUS.DOWNLOADING))
+			.order('desc')
+			.take(limit)
+	]);
+	return [...queued, ...downloading].sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
+async function finalizeRecoveredCompletedTask(
+	ctx: MutationCtx,
+	task: DocLike<'downloadTasks'>,
+	chapter: DocLike<'libraryChapters'>,
+	now: number
+) {
+	if (task.status === DOWNLOAD_TASK_STATUS.COMPLETED) {
+		return;
+	}
+	await ctx.db.patch(task._id, {
+		status: DOWNLOAD_TASK_STATUS.COMPLETED,
+		progressPercent: 100,
+		completedAt: now,
+		updatedAt: now,
+		localRelativePath: chapter.localRelativePath,
+		storageKind: chapter.storageKind,
+		fileSizeBytes: chapter.fileSizeBytes
+	});
+}
+
+async function requeueRecoveredTask(
+	ctx: MutationCtx,
+	task: DocLike<'downloadTasks'>,
+	chapter: DocLike<'libraryChapters'>,
+	command: DocLike<'commands'> | null,
+	now: number
+) {
+	if (command && command.status !== 'queued') {
+		await ctx.db.patch(command._id, {
+			status: 'queued',
+			runAfter: now,
+			leaseOwnerBridgeId: undefined,
+			leaseExpiresAt: undefined,
+			lastErrorMessage: undefined,
+			completedAt: undefined,
+			updatedAt: now
+		});
+	}
+	await ctx.db.patch(task._id, {
+		status: DOWNLOAD_TASK_STATUS.QUEUED,
+		startedAt: undefined,
+		completedAt: undefined,
+		errorMessage: undefined,
+		updatedAt: now
+	});
+	await ctx.db.patch(chapter._id, {
+		downloadStatus: DOWNLOAD_STATUS.QUEUED,
+		lastErrorMessage: undefined,
+		updatedAt: now
+	});
+}
+
+async function failRecoveredTask(
+	ctx: MutationCtx,
+	task: DocLike<'downloadTasks'>,
+	chapter: DocLike<'libraryChapters'>,
+	status: 'failed' | 'cancelled',
+	errorMessage: string,
+	now: number
+) {
+	await ctx.db.patch(task._id, {
+		status,
+		errorMessage,
+		completedAt: now,
+		updatedAt: now
+	});
+	await ctx.db.patch(chapter._id, {
+		downloadStatus: DOWNLOAD_STATUS.FAILED,
+		lastErrorMessage: errorMessage,
+		updatedAt: now
+	});
 }
 
 function mapDownloadTaskRow(task: DocLike<'downloadTasks'>) {
