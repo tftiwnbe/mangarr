@@ -6,7 +6,7 @@ const crons = cronJobs();
 
 crons.interval(
 	'download watch cycle',
-	{ minutes: 10 },
+	{ minutes: 1 },
 	internal.library_downloads.runScheduledDownloadCycles,
 	{
 		limitPerUser: 25,

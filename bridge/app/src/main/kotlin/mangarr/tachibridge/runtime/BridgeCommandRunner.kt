@@ -663,13 +663,30 @@ class BridgeCommandRunner(
                 try {
                     var lastDownloadProgressUpdateAt = System.currentTimeMillis()
                     var lastDownloadLeaseRenewAt = lastDownloadProgressUpdateAt
+                    val downloadProgressLock = Any()
                     val result =
                         kotlinx.coroutines.runBlocking {
                             service.downloadChapter(titleId, sourceId, chapterUrl) { downloadedPages, totalPages ->
                                 val now = System.currentTimeMillis()
-                                val shouldRenewLease =
-                                    downloadedPages >= totalPages ||
-                                        now - lastDownloadLeaseRenewAt >= DOWNLOAD_LEASE_RENEW_INTERVAL_MS
+                                val (shouldRenewLease, shouldPushProgress) =
+                                    synchronized(downloadProgressLock) {
+                                        val renewLease =
+                                            downloadedPages >= totalPages ||
+                                                now - lastDownloadLeaseRenewAt >= DOWNLOAD_LEASE_RENEW_INTERVAL_MS
+                                        if (renewLease) {
+                                            lastDownloadLeaseRenewAt = now
+                                        }
+
+                                        val pushProgress =
+                                            downloadedPages >= totalPages ||
+                                                downloadedPages <= 1 ||
+                                                now - lastDownloadProgressUpdateAt >= DOWNLOAD_PROGRESS_UPDATE_INTERVAL_MS
+                                        if (pushProgress) {
+                                            lastDownloadProgressUpdateAt = now
+                                        }
+
+                                        renewLease to pushProgress
+                                    }
                                 if (shouldRenewLease) {
                                     client.renewCommandLease(
                                         client.payload(
@@ -681,38 +698,9 @@ class BridgeCommandRunner(
                                             },
                                         ),
                                     )
-                                    lastDownloadLeaseRenewAt = now
                                 }
 
-                                val shouldPushProgress =
-                                    downloadedPages >= totalPages ||
-                                        downloadedPages <= 1 ||
-                                        now - lastDownloadProgressUpdateAt >= DOWNLOAD_PROGRESS_UPDATE_INTERVAL_MS
                                 if (shouldPushProgress) {
-                                    client.updateCommandProgress(
-                                        client.payload(
-                                            buildJsonObject {
-                                                put("commandId", command.id)
-                                                put("bridgeId", bridgeId)
-                                                put("now", now)
-                                                put(
-                                                    "progress",
-                                                    buildJsonObject {
-                                                        put("downloadedPages", downloadedPages)
-                                                        put("totalPages", totalPages)
-                                                        put(
-                                                            "percent",
-                                                            if (totalPages > 0) {
-                                                                (downloadedPages * 100) / totalPages
-                                                            } else {
-                                                                0
-                                                            },
-                                                        )
-                                                    },
-                                                )
-                                            },
-                                        ),
-                                    )
                                     client.setLibraryChapterDownloadState(
                                         client.payload(
                                             buildJsonObject {
@@ -725,7 +713,6 @@ class BridgeCommandRunner(
                                             },
                                         ),
                                     )
-                                    lastDownloadProgressUpdateAt = now
                                 }
                             }
                         }
