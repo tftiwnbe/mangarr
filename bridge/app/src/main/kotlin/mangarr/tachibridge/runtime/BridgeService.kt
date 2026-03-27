@@ -2,6 +2,7 @@ package mangarr.tachibridge.runtime
 
 import io.github.oshai.kotlinlogging.KotlinLogging
 import eu.kanade.tachiyomi.network.HttpException
+import kotlinx.coroutines.delay
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.Serializable
 import kotlinx.coroutines.Dispatchers
@@ -447,7 +448,7 @@ class BridgeService(
                 return@withLock PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
             }
 
-            val payload = extensionManager.getPageImage(sourceId.toLong(), chapterUrl, index)
+            val payload = fetchPageImageWithRetry(sourceId.toLong(), chapterUrl, index)
             val cached =
                 CachedReaderPage(
                     contentType = payload.contentType,
