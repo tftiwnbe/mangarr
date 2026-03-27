@@ -1,6 +1,10 @@
 import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
 
+import {
+	isPermanentSourceFailure,
+	sourceHealthScopeForCommandType
+} from '../lib/utils/source-health';
 import { mutation, query, type MutationCtx } from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
 
@@ -640,5 +644,98 @@ export const updateProgress = mutation({
 			updatedAt: args.now
 		});
 		return { ok: true };
+	}
+});
+
+export const listSourceHealth = query({
+	args: {
+		sourceIds: v.array(v.string())
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return [];
+		}
+
+		const requestedSourceIds = Array.from(new Set(args.sourceIds.map((sourceId) => sourceId.trim()))).filter(
+			Boolean
+		);
+		if (requestedSourceIds.length === 0) {
+			return [];
+		}
+
+		const now = Date.now();
+		const sourceIdSet = new Set(requestedSourceIds);
+		const rows = await ctx.db
+			.query('commands')
+			.withIndex('by_requested_by_user_id_created_at', (q) =>
+				q.eq('requestedByUserId', identity.subject as GenericId<'users'>)
+			)
+			.order('desc')
+			.take(200);
+
+		const handledKeys = new Set<string>();
+		const entries: Array<{
+			sourceId: string;
+			scope: 'feed' | 'search' | 'title';
+			state: 'cooldown' | 'degraded';
+			message: string;
+			retryAfter: number | null;
+			permanent: boolean;
+			updatedAt: number;
+		}> = [];
+
+		for (const row of rows) {
+			const scope = sourceHealthScopeForCommandType(row.commandType);
+			if (!scope) continue;
+
+			const sourceId =
+				typeof (row.payload as { sourceId?: unknown } | null)?.sourceId === 'string'
+					? ((row.payload as { sourceId: string }).sourceId ?? '').trim()
+					: '';
+			if (!sourceId || !sourceIdSet.has(sourceId)) continue;
+
+			const handledKey = `${scope}:${sourceId}`;
+			if (handledKeys.has(handledKey)) continue;
+
+			if (
+				row.status === STATUS.SUCCEEDED ||
+				row.status === STATUS.RUNNING ||
+				row.status === STATUS.LEASED ||
+				(row.status === STATUS.QUEUED && !row.lastErrorMessage)
+			) {
+				handledKeys.add(handledKey);
+				continue;
+			}
+
+			if (row.status === STATUS.QUEUED && row.lastErrorMessage && row.runAfter > now) {
+				entries.push({
+					sourceId,
+					scope,
+					state: 'cooldown',
+					message: row.lastErrorMessage,
+					retryAfter: row.runAfter,
+					permanent: false,
+					updatedAt: row.updatedAt
+				});
+				handledKeys.add(handledKey);
+				continue;
+			}
+
+			if (row.status === STATUS.DEAD && row.lastErrorMessage) {
+				entries.push({
+					sourceId,
+					scope,
+					state: 'degraded',
+					message: row.lastErrorMessage,
+					retryAfter: null,
+					permanent: isPermanentSourceFailure(row.lastErrorMessage),
+					updatedAt: row.updatedAt
+				});
+				handledKeys.add(handledKey);
+			}
+		}
+
+		return entries;
 	}
 });

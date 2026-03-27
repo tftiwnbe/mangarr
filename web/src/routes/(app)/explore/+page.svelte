@@ -24,6 +24,11 @@
 	import { panelOverlayOpen } from '$lib/stores/ui';
 	import { normalizeContentLanguageCode, toMainContentLanguages } from '$lib/utils/content-languages';
 	import { buildTitlePath } from '$lib/utils/routes';
+	import {
+		isPermanentSourceFailure,
+		sourceHealthLabelKey,
+		type SourceHealthEntry
+	} from '$lib/utils/source-health';
 
 	type TabValue = 'popular' | 'latest' | 'search';
 
@@ -217,20 +222,51 @@
 	const appliedSearchFilterCount = $derived(Object.keys(selectedSourceAppliedFilters).length);
 	const hasAppliedSearchFilters = $derived(appliedSearchFilterCount > 0);
 	const canRunSearch = $derived(searchQuery.trim().length > 0 || (Boolean(selectedSourceId) && hasAppliedSearchFilters));
+	const sourceHealthQuery = useQuery(convexApi.commands.listSourceHealth, () => ({
+		sourceIds:
+			activeTab === 'search'
+				? selectedSourceId
+					? [selectedSourceId]
+					: searchSources.map((source) => source.id)
+				: visibleSources.map((source) => source.id)
+	}));
 
 	const importedLibraryIds = $derived.by(() => {
 		return (importedLookupQuery.data ?? {}) as Record<string, string>;
 	});
+	const persistedSourceFailures = $derived((sourceHealthQuery.data ?? []) as SourceHealthEntry[]);
 
 	const feedCommandType = $derived(activeTab === 'latest' ? 'explore.latest' : 'explore.popular');
 	const showSearchPrompt = $derived(activeTab === 'search' && !canRunSearch);
 	const currentLoading = $derived(
 		loading || loadingMore || sourcesQuery.isLoading || importedLookupQuery.isLoading
 	);
+	const combinedSourceFailures = $derived.by(() => {
+		const merged: Record<string, SourceFailure> = { ...sourceFailures };
+		for (const failure of persistedSourceFailures) {
+			if (failure.scope === 'title') continue;
+			const key = sourceFailureKey(failure.sourceId, failure.scope);
+			const current = merged[key];
+			if (
+				!current ||
+				(failure.retryAfter ?? 0) >= current.retryAfter ||
+				(failure.permanent && !current.permanent)
+			) {
+				merged[key] = {
+					sourceId: failure.sourceId,
+					scope: failure.scope,
+					message: failure.message,
+					retryAfter: failure.retryAfter ?? failure.updatedAt + 30 * 60_000,
+					permanent: failure.permanent
+				};
+			}
+		}
+		return merged;
+	});
 	const activeSourceFailures = $derived.by(() => {
 		const scope: SourceFailureScope = activeTab === 'search' ? 'search' : 'feed';
 		const now = Date.now();
-		return Object.values(sourceFailures)
+		return Object.values(combinedSourceFailures)
 			.filter((failure) => failure.scope === scope && failure.retryAfter > now)
 			.map((failure) => ({
 				...failure,
@@ -348,11 +384,7 @@
 		const message =
 			cause instanceof Error ? cause.message : `Unable to load ${sourceNameFor(sourceId)}`;
 		const normalized = message.toLowerCase();
-		const permanent =
-			normalized.includes('http error 403') ||
-			normalized.includes('http error 404') ||
-			normalized.includes('not supported') ||
-			normalized.includes('unsupported');
+		const permanent = isPermanentSourceFailure(normalized);
 		const rateLimited = normalized.includes('http error 429') || normalized.includes('rate limit');
 		const retryAfter = Date.now() + (permanent ? 30 * 60_000 : rateLimited ? 10 * 60_000 : 5 * 60_000);
 		return {
@@ -382,8 +414,13 @@
 	}
 
 	function sourceIsUnavailable(sourceId: string, scope: SourceFailureScope) {
-		const failure = sourceFailures[sourceFailureKey(sourceId, scope)];
+		const failure = combinedSourceFailures[sourceFailureKey(sourceId, scope)];
 		return failure ? failure.retryAfter > Date.now() : false;
+	}
+
+	function sourceFailureFor(sourceId: string, scope: SourceFailureScope) {
+		const failure = combinedSourceFailures[sourceFailureKey(sourceId, scope)];
+		return failure && failure.retryAfter > Date.now() ? failure : null;
 	}
 
 	function displayExtensionName(name: string): string {
@@ -1174,6 +1211,7 @@
 							{$_('explore.allSources')}
 						</button>
 						{#each searchSources as source (source.id)}
+							{@const searchFailure = sourceFailureFor(source.id, 'search')}
 							<button
 								type="button"
 								class="h-7 shrink-0 px-3 text-[10px] tracking-wider uppercase transition-colors {selectedSourceId ===
@@ -1184,8 +1222,24 @@
 									selectedSourceId = source.id;
 									if (searchQuery.trim() || appliedSearchFiltersBySource[source.id]) void runSearch();
 								}}
+								title={searchFailure
+									? `${$_(sourceHealthLabelKey({
+											state: searchFailure.permanent ? 'degraded' : searchFailure.retryAfter > Date.now() ? 'cooldown' : 'degraded',
+											permanent: searchFailure.permanent
+										}))}: ${searchFailure.message}`
+									: undefined}
 							>
 								{source.name}{source.lang ? ` [${source.lang}]` : ''}
+								{#if searchFailure}
+									<span class="ml-1 text-[9px] text-[var(--text-dim)]">
+										{$_(
+											sourceHealthLabelKey({
+												state: searchFailure.permanent ? 'degraded' : 'cooldown',
+												permanent: searchFailure.permanent
+											})
+										)}
+									</span>
+								{/if}
 							</button>
 						{/each}
 					</div>

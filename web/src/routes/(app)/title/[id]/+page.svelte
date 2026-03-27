@@ -29,6 +29,7 @@
 		parseStructuredChapterName
 	} from '$lib/utils/chapter-display';
 	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
+	import { sourceHealthLabelKey, type SourceHealthEntry } from '$lib/utils/source-health';
 	import { TITLE_STATUS } from '$lib/utils/title-status';
 
 	const { data } = $props<{ data: { titleId: string } }>();
@@ -219,6 +220,17 @@
 	const title = $derived((titleQuery.data as TitleOverview | null) ?? null);
 	const titleChapters = $derived((titleChaptersQuery.data ?? []) as ChapterRow[]);
 	const titleComments = $derived((titleCommentsQuery.data ?? []) as TitleComment[]);
+	const sourceHealthQuery = useQuery(
+		convexApi.commands.listSourceHealth,
+		() => (title ? { sourceIds: [title.sourceId] } : 'skip')
+	);
+	const sourceHealthEntries = $derived((sourceHealthQuery.data ?? []) as SourceHealthEntry[]);
+	const currentSourceHealth = $derived.by(
+		() =>
+			sourceHealthEntries.find((entry) => entry.scope === 'title') ??
+			sourceHealthEntries.find((entry) => entry.scope === 'search') ??
+			null
+	);
 	const sources = $derived((sourcesQuery.data ?? []) as SourceItem[]);
 	const availableStatuses = $derived(
 		((statusesQuery.data ?? []) as UserStatusOption[]).sort((left, right) => left.position - right.position)
@@ -1054,6 +1066,19 @@
 						{#if title.chapterStats.total > 0} · {chaptersLabel}{/if}
 						{#if sourcesCount > 0} · {sourcesLabel}{/if}
 					</p>
+					{#if currentSourceHealth}
+						<div class="w-fit bg-[var(--void-2)] px-2.5 py-1 text-[11px] text-[var(--text-ghost)]">
+							<span class="text-[var(--text-muted)]">
+								{$_(
+									sourceHealthLabelKey({
+										state: currentSourceHealth.state,
+										permanent: currentSourceHealth.permanent
+									})
+								)}
+							</span>
+							<span> · {currentSourceHealth.message}</span>
+						</div>
+					{/if}
 				</div>
 
 				<div class="mt-8 flex flex-col gap-4 md:hidden">
