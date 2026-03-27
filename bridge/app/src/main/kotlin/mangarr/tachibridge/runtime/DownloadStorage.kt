@@ -13,6 +13,7 @@ import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
+import kotlin.io.path.getLastModifiedTime
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
 import kotlin.io.path.inputStream
@@ -265,6 +266,56 @@ class DownloadStorage(
         return PageImagePayload(contentType = contentType, bytes = bytes)
     }
 
+    fun pruneCachedArtifacts(
+        now: Long = System.currentTimeMillis(),
+        coverMaxAgeMs: Long = 30L * 24 * 60 * 60 * 1000,
+        tempWorkspaceMaxAgeMs: Long = 6L * 60 * 60 * 1000,
+        generatedArchiveMaxAgeMs: Long = 7L * 24 * 60 * 60 * 1000,
+    ): DownloadStoragePruneSummary {
+        var deletedCoverFiles = 0
+        var deletedTempWorkspaces = 0
+        var deletedGeneratedArchives = 0
+
+        coversRoot.toFile().listFiles()?.forEach { file ->
+            val ageMs = now - file.toPath().getLastModifiedTime().toMillis()
+            if (ageMs > coverMaxAgeMs && file.delete()) {
+                deletedCoverFiles += 1
+            }
+        }
+
+        val downloadsRoot = downloadsRoot()
+        Files.list(downloadsRoot).use { titleDirs ->
+            titleDirs.filter { candidate -> Files.isDirectory(candidate) }.forEach { titleDir ->
+                Files.list(titleDir).use { entries ->
+                    entries.forEach { entry ->
+                        val ageMs = now - entry.getLastModifiedTime().toMillis()
+                        val fileName = entry.fileName.toString()
+                        when {
+                            fileName.endsWith(".tmp") && Files.isDirectory(entry) && ageMs > tempWorkspaceMaxAgeMs -> {
+                                if (entry.toFile().deleteRecursively()) {
+                                    deletedTempWorkspaces += 1
+                                }
+                            }
+
+                            fileName.endsWith(".cbz") && Files.isRegularFile(entry) && ageMs > generatedArchiveMaxAgeMs -> {
+                                val siblingDirectory = titleDir.resolve(fileName.removeSuffix(".cbz"))
+                                if (Files.isDirectory(siblingDirectory) && entry.deleteIfExists()) {
+                                    deletedGeneratedArchives += 1
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return DownloadStoragePruneSummary(
+            deletedCoverFiles = deletedCoverFiles,
+            deletedTempWorkspaces = deletedTempWorkspaces,
+            deletedGeneratedArchives = deletedGeneratedArchives,
+        )
+    }
+
     private fun readDirectoryPage(
         directory: Path,
         index: Int,
@@ -459,4 +510,10 @@ data class ChapterWorkspace(
     val tempDir: Path,
     val finalDir: Path,
     val archiveFile: Path,
+)
+
+data class DownloadStoragePruneSummary(
+    val deletedCoverFiles: Int,
+    val deletedTempWorkspaces: Int,
+    val deletedGeneratedArchives: Int,
 )

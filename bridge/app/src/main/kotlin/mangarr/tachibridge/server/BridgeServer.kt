@@ -214,6 +214,37 @@ class BridgeServer(
                 try {
                     val warmupWarnings = mutableListOf<String>()
                     runCatching {
+                        bridgeService.pruneCaches()
+                    }.onSuccess { summary ->
+                        val deletedEntries =
+                            summary.deletedFeedFiles +
+                                summary.deletedReaderPageFiles +
+                                summary.deletedCoverFiles +
+                                summary.deletedTempWorkspaces +
+                                summary.deletedGeneratedArchives
+                        if (deletedEntries > 0) {
+                            events.info(
+                                "bridge.cache.pruned",
+                                "Pruned bridge caches during warmup",
+                                "bridgeId" to config.runtime.bridgeId,
+                                "phase" to "warmup",
+                                "deletedFeedFiles" to summary.deletedFeedFiles,
+                                "deletedReaderPageFiles" to summary.deletedReaderPageFiles,
+                                "deletedCoverFiles" to summary.deletedCoverFiles,
+                                "deletedTempWorkspaces" to summary.deletedTempWorkspaces,
+                                "deletedGeneratedArchives" to summary.deletedGeneratedArchives,
+                            )
+                        }
+                    }.onFailure { error ->
+                        events.warn(
+                            "bridge.cache.prune_failed",
+                            "Failed to prune bridge caches during warmup",
+                            "bridgeId" to config.runtime.bridgeId,
+                            "phase" to "warmup",
+                            "warning" to (error.message ?: "cache prune failed"),
+                        )
+                    }
+                    runCatching {
                         initializeKCEF()
                     }.onFailure { error ->
                         val message = error.message ?: "KCEF warmup failed"

@@ -62,6 +62,23 @@ class BridgeService(
     private val readerPageCache = ConcurrentHashMap<String, CachedReaderPage>()
     private val readerPageLocks = ConcurrentHashMap<String, Mutex>()
 
+    fun pruneCaches(now: Long = System.currentTimeMillis()): CachePruneSummary {
+        feedCache.entries.removeIf { (_, cached) -> cached.expiresAt <= now }
+        readerPageCache.entries.removeIf { (_, cached) -> cached.expiresAt <= now }
+
+        val deletedFeedFiles = pruneFeedCacheFiles(now)
+        val deletedReaderPageFiles = pruneReaderPageCacheFiles(now)
+        val storage = downloadStorage.pruneCachedArtifacts(now = now)
+
+        return CachePruneSummary(
+            deletedFeedFiles = deletedFeedFiles,
+            deletedReaderPageFiles = deletedReaderPageFiles,
+            deletedCoverFiles = storage.deletedCoverFiles,
+            deletedTempWorkspaces = storage.deletedTempWorkspaces,
+            deletedGeneratedArchives = storage.deletedGeneratedArchives,
+        )
+    }
+
     fun repositorySnapshot(forceRefresh: Boolean = false): JsonObject {
         val url = repoService.currentRepoIndexUrl().trim()
         if (url.isBlank()) {
@@ -1145,6 +1162,59 @@ class BridgeService(
         }
     }
 
+    private fun pruneFeedCacheFiles(now: Long): Int {
+        if (!feedCacheDir.exists()) {
+            return 0
+        }
+        var deleted = 0
+        Files.list(feedCacheDir).use { entries ->
+            entries.filter { path -> Files.isRegularFile(path) && path.fileName.toString().endsWith(".json") }.forEach { path ->
+                val remove =
+                    runCatching {
+                        val snapshot =
+                            json.decodeFromString(
+                                CachedFeedSnapshot.serializer(),
+                                path.readText(),
+                            )
+                        snapshot.expiresAt <= now
+                    }.getOrElse { true }
+                if (remove && Files.deleteIfExists(path)) {
+                    deleted += 1
+                }
+            }
+        }
+        return deleted
+    }
+
+    private fun pruneReaderPageCacheFiles(now: Long): Int {
+        if (!readerPageCacheDir.exists()) {
+            return 0
+        }
+        var deleted = 0
+        Files.list(readerPageCacheDir).use { entries ->
+            entries.filter { path -> Files.isRegularFile(path) && path.fileName.toString().endsWith(".json") }.forEach { metaPath ->
+                val cacheKey = metaPath.fileName.toString().removeSuffix(".json")
+                val bodyPath = readerPageCacheDir.resolve("$cacheKey.bin")
+                val remove =
+                    runCatching {
+                        val snapshot =
+                            json.decodeFromString(
+                                CachedReaderPageSnapshot.serializer(),
+                                metaPath.readText(),
+                            )
+                        snapshot.expiresAt <= now || !bodyPath.exists()
+                    }.getOrElse { true }
+                if (remove) {
+                    if (Files.deleteIfExists(metaPath)) {
+                        deleted += 1
+                    }
+                    Files.deleteIfExists(bodyPath)
+                }
+            }
+        }
+        return deleted
+    }
+
     private fun feedCachePath(cacheKey: String): Path = feedCacheDir.resolve("${hashCacheKey(cacheKey)}.json")
 
     private fun readerPageMetaPath(cacheKey: String): Path =
@@ -1200,6 +1270,14 @@ data class SourcePayload(
     val lang: String,
     val supportsLatest: Boolean,
     val enabled: Boolean,
+)
+
+data class CachePruneSummary(
+    val deletedFeedFiles: Int,
+    val deletedReaderPageFiles: Int,
+    val deletedCoverFiles: Int,
+    val deletedTempWorkspaces: Int,
+    val deletedGeneratedArchives: Int,
 )
 
 private data class CachedReaderPage(
