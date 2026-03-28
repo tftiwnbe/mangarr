@@ -13,6 +13,7 @@ import androidx.preference.TwoStatePreference
 import eu.kanade.tachiyomi.network.BridgeProxyContext
 import eu.kanade.tachiyomi.network.BridgeProxySettings
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.HttpException
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.source.CatalogueSource
@@ -513,34 +514,17 @@ class ExtensionManager(
     ): PageImagePayload =
         withSource<Source, PageImagePayload>(sourceId) { source ->
             val normalizedUrl = normalizeSourceUrl(source, chapterUrl)
-            val pages = loadPagesForChapter(source, normalizedUrl)
-            val page = pages.getOrNull(index) ?: error("Page index out of bounds: $index")
-
-            val resolvedPageImageUrl = resolvePageImageUrl(source, page)
-            val response =
-                if (source is HttpSource) {
-                    runCatching { source.getImage(page) }.getOrElse { error ->
-                        if (resolvedPageImageUrl.isBlank()) {
-                            throw error
-                        }
-                        logger.debug(error) {
-                            "Falling back to resolved page image URL for source=${source.id} chapter=$normalizedUrl index=$index"
-                        }
-                        networkHelper.client.newCall(GET(resolvedPageImageUrl, source.headers)).awaitSuccess()
-                    }
-                } else {
-                    if (resolvedPageImageUrl.isBlank()) {
-                        error("Page image URL is unavailable for source $sourceId")
-                    }
-                    networkHelper.client.newCall(GET(resolvedPageImageUrl)).awaitSuccess()
+            try {
+                fetchPageImagePayload(source, normalizedUrl, index, bypassPageCache = false)
+            } catch (error: Exception) {
+                if (!shouldRefreshChapterPagesCache(error)) {
+                    throw error
                 }
-
-            response.use { imageResponse ->
-                val body = imageResponse.body ?: error("Image response body is empty")
-                PageImagePayload(
-                    contentType = body.contentType()?.toString() ?: "application/octet-stream",
-                    bytes = body.bytes(),
-                )
+                logger.debug(error) {
+                    "Refreshing cached chapter pages for source=${source.id} chapter=$normalizedUrl index=$index"
+                }
+                invalidateChapterPagesCache(source.id, normalizedUrl)
+                fetchPageImagePayload(source, normalizedUrl, index, bypassPageCache = true)
             }
         }
 
@@ -1802,8 +1786,16 @@ class ExtensionManager(
     }
 
     private suspend fun loadPagesForChapter(source: Source, normalizedUrl: String): List<SourcePage> =
+        loadPagesForChapter(source, normalizedUrl, bypassCache = false)
+
+    private suspend fun loadPagesForChapter(
+        source: Source,
+        normalizedUrl: String,
+        bypassCache: Boolean,
+    ): List<SourcePage> =
         chapterPagesCache[chapterPagesCacheKey(source.id, normalizedUrl)]
             ?.takeIf { it.expiresAt > System.currentTimeMillis() }
+            ?.takeUnless { bypassCache }
             ?.pages
             ?: run {
                 val pages =
@@ -1837,6 +1829,54 @@ class ExtensionManager(
             }
 
     private fun chapterPagesCacheKey(sourceId: Long, chapterUrl: String): String = "$sourceId::$chapterUrl"
+
+    private fun invalidateChapterPagesCache(sourceId: Long, chapterUrl: String) {
+        chapterPagesCache.remove(chapterPagesCacheKey(sourceId, chapterUrl))
+    }
+
+    private suspend fun fetchPageImagePayload(
+        source: Source,
+        normalizedUrl: String,
+        index: Int,
+        bypassPageCache: Boolean,
+    ): PageImagePayload {
+        val pages = loadPagesForChapter(source, normalizedUrl, bypassPageCache)
+        val page = pages.getOrNull(index) ?: error("Page index out of bounds: $index")
+
+        val resolvedPageImageUrl = resolvePageImageUrl(source, page)
+        val response =
+            if (source is HttpSource) {
+                runCatching { source.getImage(page) }.getOrElse { error ->
+                    if (resolvedPageImageUrl.isBlank()) {
+                        throw error
+                    }
+                    logger.debug(error) {
+                        "Falling back to resolved page image URL for source=${source.id} chapter=$normalizedUrl index=$index"
+                    }
+                    networkHelper.client.newCall(GET(resolvedPageImageUrl, source.headers)).awaitSuccess()
+                }
+            } else {
+                if (resolvedPageImageUrl.isBlank()) {
+                    error("Page image URL is unavailable for source ${source.id}")
+                }
+                networkHelper.client.newCall(GET(resolvedPageImageUrl)).awaitSuccess()
+            }
+
+        response.use { imageResponse ->
+            val body = imageResponse.body ?: error("Image response body is empty")
+            return PageImagePayload(
+                contentType = body.contentType()?.toString() ?: "application/octet-stream",
+                bytes = body.bytes(),
+            )
+        }
+    }
+
+    private fun shouldRefreshChapterPagesCache(error: Exception): Boolean =
+        when (error) {
+            is HttpException -> error.code == 403 || error.code == 404 || error.code == 410
+            is IOException -> true
+            else -> false
+        }
 }
 
 data class PageImagePayload(
