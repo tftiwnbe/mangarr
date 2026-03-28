@@ -1,6 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <property name="BRIDGE_LOG_DIR" value="${MANGARR_BRIDGE_LOG_DIR:-./logs}" />
+    <property name="BRIDGE_LOG_FILE_BASENAME" value="${MANGARR_BRIDGE_LOG_FILE_BASENAME:-bridge-events}" />
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg %mdc%n%ex</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${BRIDGE_LOG_DIR}/${BRIDGE_LOG_FILE_BASENAME}.jsonl</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${BRIDGE_LOG_DIR}/archive/${BRIDGE_LOG_FILE_BASENAME}.%d{yyyy-MM-dd}.%i.jsonl.gz</fileNamePattern>
+            <maxHistory>14</maxHistory>
+            <totalSizeCap>512MB</totalSizeCap>
+            <maxFileSize>20MB</maxFileSize>
+        </rollingPolicy>
         <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
             <providers>
                 <timestamp>
@@ -45,6 +61,7 @@
     <logger name="mangarr.tachibridge.runtime.BridgeCommandRunner" level="INFO"/>
 
     <root level="INFO">
-        <appender-ref ref="STDOUT" />
+        <appender-ref ref="CONSOLE" />
+        <appender-ref ref="JSON_FILE" />
     </root>
 </configuration>

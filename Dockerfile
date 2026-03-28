@@ -107,6 +107,9 @@ MANGARR_BRIDGE_INTERNAL_URL="${MANGARR_BRIDGE_INTERNAL_URL:-http://127.0.0.1:${M
 MANGARR_DOWNLOADS_DIR="${MANGARR_DOWNLOADS_DIR:-/app/downloads}"
 MANGARR_PUBLIC_HOST="${MANGARR_PUBLIC_HOST:-127.0.0.1}"
 MANGARR_PUBLIC_SCHEME="${MANGARR_PUBLIC_SCHEME:-http}"
+MANGARR_LOG_ROOT="${MANGARR_LOG_ROOT:-/app/data/logs}"
+MANGARR_SYSTEM_LOG_DIR="${MANGARR_SYSTEM_LOG_DIR:-${MANGARR_LOG_ROOT}/system}"
+MANGARR_BRIDGE_LOG_DIR="${MANGARR_BRIDGE_LOG_DIR:-${MANGARR_LOG_ROOT}/bridge}"
 MANGARR_CONVEX_AUTH_ISSUER="${MANGARR_CONVEX_AUTH_ISSUER:-https://auth.mangarr.local/convex}"
 MANGARR_CONVEX_AUTH_APPLICATION_ID="${MANGARR_CONVEX_AUTH_APPLICATION_ID:-mangarr-web}"
 MANGARR_CONVEX_AUTH_TOKEN_TTL_SECONDS="${MANGARR_CONVEX_AUTH_TOKEN_TTL_SECONDS:-3600}"
@@ -116,7 +119,18 @@ MANGARR_KCEF_ENABLED="${MANGARR_KCEF_ENABLED:-true}"
 MANGARR_XVFB_DISPLAY="${MANGARR_XVFB_DISPLAY:-:99}"
 RUST_LOG="${RUST_LOG:-error,database::search_index_workers::retriable_worker=off}"
 
-mkdir -p "${CONVEX_ROOT}" "${CONVEX_STORAGE_DIR}" "${CONVEX_TMP_DIR}" "$(dirname "${CONVEX_SQLITE_PATH}")"
+mkdir -p "${CONVEX_ROOT}" "${CONVEX_STORAGE_DIR}" "${CONVEX_TMP_DIR}" "$(dirname "${CONVEX_SQLITE_PATH}")" "${MANGARR_SYSTEM_LOG_DIR}" "${MANGARR_BRIDGE_LOG_DIR}"
+STARTUP_LOG_STAMP="$(date -u +%Y%m%d-%H%M%S)"
+CONVEX_LOG_FILE="${MANGARR_SYSTEM_LOG_DIR}/convex-${STARTUP_LOG_STAMP}.log"
+SETUP_LOG_FILE="${MANGARR_SYSTEM_LOG_DIR}/setup-${STARTUP_LOG_STAMP}.log"
+WEB_LOG_FILE="${MANGARR_SYSTEM_LOG_DIR}/web-${STARTUP_LOG_STAMP}.log"
+BRIDGE_CONSOLE_LOG_FILE="${MANGARR_SYSTEM_LOG_DIR}/bridge-console-${STARTUP_LOG_STAMP}.log"
+BRIDGE_NOISE_LOG_FILE="${MANGARR_SYSTEM_LOG_DIR}/bridge-native-noise-${STARTUP_LOG_STAMP}.log"
+ln -sfn "$(basename "${CONVEX_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/convex.log"
+ln -sfn "$(basename "${SETUP_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/setup.log"
+ln -sfn "$(basename "${WEB_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/web.log"
+ln -sfn "$(basename "${BRIDGE_CONSOLE_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/bridge-console.log"
+ln -sfn "$(basename "${BRIDGE_NOISE_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/bridge-native-noise.log"
 
 DEFAULT_DOWNLOADS_BACKING_DIR="/app/data/downloads"
 mkdir -p "${DEFAULT_DOWNLOADS_BACKING_DIR}"
@@ -148,13 +162,66 @@ MANGARR_SERVICE_SECRET="${MANGARR_SERVICE_SECRET:-$(cat "${SERVICE_SECRET_FILE}"
 
 ADMIN_KEY="$("/app/convex/generate_key" "${INSTANCE_NAME}" "${INSTANCE_SECRET}" 2> >(grep -v '^Admin key:$' >&2) | tail -n1)"
 if [ "${MANGARR_APP_MODE:-prod}" = "dev" ]; then
-  echo "Convex dev admin key: ${ADMIN_KEY}"
+  echo "[startup] Convex dev admin key: ${ADMIN_KEY}"
 fi
 PUBLIC_CONVEX_URL="${PUBLIC_CONVEX_URL:-${MANGARR_PUBLIC_SCHEME}://${MANGARR_PUBLIC_HOST}:${CONVEX_PORT:-3210}}"
 CONVEX_SITE_ORIGIN="${CONVEX_SITE_ORIGIN:-${MANGARR_PUBLIC_SCHEME}://${MANGARR_PUBLIC_HOST}:${PORT:-3737}}"
-export HOST="${HOST:-0.0.0.0}" PORT="${PORT:-3737}" PUBLIC_CONVEX_URL="${PUBLIC_CONVEX_URL}" CONVEX_URL="${CONVEX_INTERNAL_URL}" CONVEX_SELF_HOSTED_URL="${CONVEX_INTERNAL_URL}" CONVEX_ADMIN_KEY="${ADMIN_KEY}" CONVEX_SELF_HOSTED_ADMIN_KEY="${ADMIN_KEY}" MANGARR_SERVICE_SECRET="${MANGARR_SERVICE_SECRET}" MANGARR_BRIDGE_HOST="${MANGARR_BRIDGE_HOST}" MANGARR_BRIDGE_PORT="${MANGARR_BRIDGE_PORT}" MANGARR_BRIDGE_INTERNAL_URL="${MANGARR_BRIDGE_INTERNAL_URL}" MANGARR_BRIDGE_ID="${MANGARR_BRIDGE_ID:-main}" MANGARR_BRIDGE_HEARTBEAT_INTERVAL_MS="${MANGARR_BRIDGE_HEARTBEAT_INTERVAL_MS:-15000}" MANGARR_BRIDGE_COMMAND_POLL_INTERVAL_MS="${MANGARR_BRIDGE_COMMAND_POLL_INTERVAL_MS:-350}" MANGARR_BRIDGE_COMMAND_LEASE_DURATION_MS="${MANGARR_BRIDGE_COMMAND_LEASE_DURATION_MS:-30000}" MANGARR_DOWNLOADS_DIR="${MANGARR_DOWNLOADS_DIR}" MANGARR_PUBLIC_HOST="${MANGARR_PUBLIC_HOST}" MANGARR_PUBLIC_SCHEME="${MANGARR_PUBLIC_SCHEME}" MANGARR_CONVEX_AUTH_ISSUER="${MANGARR_CONVEX_AUTH_ISSUER}" MANGARR_CONVEX_AUTH_APPLICATION_ID="${MANGARR_CONVEX_AUTH_APPLICATION_ID}" MANGARR_CONVEX_AUTH_TOKEN_TTL_SECONDS="${MANGARR_CONVEX_AUTH_TOKEN_TTL_SECONDS}" MANGARR_CONVEX_AUTH_KEY_ID="${MANGARR_CONVEX_AUTH_KEY_ID}" MANGARR_CONVEX_AUTH_PRIVATE_JWK="${MANGARR_CONVEX_AUTH_PRIVATE_JWK}" MANGARR_KCEF_ENABLED="${MANGARR_KCEF_ENABLED}" TACHIBRIDGE_JAR_PATH="${TACHIBRIDGE_JAR_PATH:-/app/bin/tachibridge.jar}" LD_LIBRARY_PATH="/opt/java/openjdk/lib/server:/opt/java/openjdk/lib:${LD_LIBRARY_PATH:-}" RUST_LOG="${RUST_LOG}"
+export HOST="${HOST:-0.0.0.0}" PORT="${PORT:-3737}" PUBLIC_CONVEX_URL="${PUBLIC_CONVEX_URL}" CONVEX_URL="${CONVEX_INTERNAL_URL}" CONVEX_SELF_HOSTED_URL="${CONVEX_INTERNAL_URL}" CONVEX_ADMIN_KEY="${ADMIN_KEY}" CONVEX_SELF_HOSTED_ADMIN_KEY="${ADMIN_KEY}" MANGARR_SERVICE_SECRET="${MANGARR_SERVICE_SECRET}" MANGARR_BRIDGE_HOST="${MANGARR_BRIDGE_HOST}" MANGARR_BRIDGE_PORT="${MANGARR_BRIDGE_PORT}" MANGARR_BRIDGE_INTERNAL_URL="${MANGARR_BRIDGE_INTERNAL_URL}" MANGARR_BRIDGE_ID="${MANGARR_BRIDGE_ID:-main}" MANGARR_BRIDGE_HEARTBEAT_INTERVAL_MS="${MANGARR_BRIDGE_HEARTBEAT_INTERVAL_MS:-15000}" MANGARR_BRIDGE_COMMAND_POLL_INTERVAL_MS="${MANGARR_BRIDGE_COMMAND_POLL_INTERVAL_MS:-350}" MANGARR_BRIDGE_COMMAND_LEASE_DURATION_MS="${MANGARR_BRIDGE_COMMAND_LEASE_DURATION_MS:-30000}" MANGARR_DOWNLOADS_DIR="${MANGARR_DOWNLOADS_DIR}" MANGARR_PUBLIC_HOST="${MANGARR_PUBLIC_HOST}" MANGARR_PUBLIC_SCHEME="${MANGARR_PUBLIC_SCHEME}" MANGARR_CONVEX_AUTH_ISSUER="${MANGARR_CONVEX_AUTH_ISSUER}" MANGARR_CONVEX_AUTH_APPLICATION_ID="${MANGARR_CONVEX_AUTH_APPLICATION_ID}" MANGARR_CONVEX_AUTH_TOKEN_TTL_SECONDS="${MANGARR_CONVEX_AUTH_TOKEN_TTL_SECONDS}" MANGARR_CONVEX_AUTH_KEY_ID="${MANGARR_CONVEX_AUTH_KEY_ID}" MANGARR_CONVEX_AUTH_PRIVATE_JWK="${MANGARR_CONVEX_AUTH_PRIVATE_JWK}" MANGARR_KCEF_ENABLED="${MANGARR_KCEF_ENABLED}" MANGARR_LOG_ROOT="${MANGARR_LOG_ROOT}" MANGARR_SYSTEM_LOG_DIR="${MANGARR_SYSTEM_LOG_DIR}" MANGARR_BRIDGE_LOG_DIR="${MANGARR_BRIDGE_LOG_DIR}" TACHIBRIDGE_JAR_PATH="${TACHIBRIDGE_JAR_PATH:-/app/bin/tachibridge.jar}" LD_LIBRARY_PATH="/opt/java/openjdk/lib/server:/opt/java/openjdk/lib:${LD_LIBRARY_PATH:-}" RUST_LOG="${RUST_LOG}"
 
-/app/convex/convex-local-backend --instance-name "${INSTANCE_NAME}" --instance-secret "${INSTANCE_SECRET}" --port "${CONVEX_PORT:-3210}" --site-proxy-port "${CONVEX_SITE_PROXY_PORT:-3211}" --convex-origin "${PUBLIC_CONVEX_URL}" --convex-site "${CONVEX_SITE_ORIGIN:-http://127.0.0.1:3211}" --beacon-tag mangarr --disable-beacon --local-storage "${CONVEX_STORAGE_DIR}" "${CONVEX_SQLITE_PATH}" &
+pipe_component_output() {
+  local component="$1"
+  local logfile="$2"
+  local stream="$3"
+  local target="$4"
+  while IFS= read -r line || [ -n "$line" ]; do
+    local prefix="[${component}]"
+    if [ -n "$stream" ]; then
+      prefix="${prefix}[${stream}]"
+    fi
+    if [ "$target" = "stderr" ]; then
+      printf '%s %s\n' "$prefix" "$line" | tee -a "$logfile" >&2
+    else
+      printf '%s %s\n' "$prefix" "$line" | tee -a "$logfile"
+    fi
+  done
+}
+
+filter_bridge_stderr() {
+  local logfile="$1"
+  local noisefile="$2"
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      *"dbus/object_proxy.cc:590"*UPower*)
+        printf '%s\n' "$line" >> "$noisefile"
+        ;;
+      JCEF_*|JCEF\(*|CEF\ Version\ =*|Chromium\ Version\ =*)
+        printf '%s\n' "$line" >> "$noisefile"
+        ;;
+      *)
+        printf '[bridge][stderr] %s\n' "$line" | tee -a "$logfile" >&2
+        ;;
+    esac
+  done
+}
+
+filter_bridge_stdout() {
+  local logfile="$1"
+  local noisefile="$2"
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      JCEF\(*|JCEF_*|CEF\ Version\ =*|Chromium\ Version\ =*)
+        printf '%s\n' "$line" >> "$noisefile"
+        ;;
+      *)
+        printf '[bridge] %s\n' "$line" | tee -a "$logfile"
+        ;;
+    esac
+  done
+}
+
+/app/convex/convex-local-backend --instance-name "${INSTANCE_NAME}" --instance-secret "${INSTANCE_SECRET}" --port "${CONVEX_PORT:-3210}" --site-proxy-port "${CONVEX_SITE_PROXY_PORT:-3211}" --convex-origin "${PUBLIC_CONVEX_URL}" --convex-site "${CONVEX_SITE_ORIGIN:-http://127.0.0.1:3211}" --beacon-tag mangarr --disable-beacon --local-storage "${CONVEX_STORAGE_DIR}" "${CONVEX_SQLITE_PATH}" \
+  > >(pipe_component_output "convex" "${CONVEX_LOG_FILE}" "" "stdout") \
+  2> >(pipe_component_output "convex" "${CONVEX_LOG_FILE}" "stderr" "stderr") &
 
 cleanup() {
   jobs -p | xargs -r kill 2>/dev/null || true
@@ -169,7 +236,9 @@ if [ "${MANGARR_APP_MODE:-prod}" = "dev" ]; then
   [ -d /app/web/node_modules/.pnpm ] || (cd /app/web && pnpm install --frozen-lockfile --force)
 fi
 
-(cd /app/web && pnpm exec convex dev --once --typecheck disable --codegen disable)
+(cd /app/web && pnpm exec convex dev --once --typecheck disable --codegen disable) \
+  > >(pipe_component_output "setup" "${SETUP_LOG_FILE}" "" "stdout") \
+  2> >(pipe_component_output "setup" "${SETUP_LOG_FILE}" "stderr" "stderr")
 
 KCEF_LIBRARY_DIR="${KCEF_INSTALL_DIR:-${MANGARR_BRIDGE_DATA_DIR:-/app/config/bridge}/bin/kcef}"
 KCEF_CACHE_DIR="${MANGARR_BRIDGE_DATA_DIR:-/app/config/bridge}/cache/kcef"
@@ -197,16 +266,22 @@ if [ "${MANGARR_KCEF_ENABLED}" = "true" ] || [ "${MANGARR_KCEF_ENABLED}" = "1" ]
   find "${KCEF_CACHE_DIR}" -maxdepth 1 -name 'Singleton*' -delete 2>/dev/null || true
 fi
 
-(java -jar "${TACHIBRIDGE_JAR_PATH}" --port "${MANGARR_BRIDGE_PORT}" --data-dir "${MANGARR_BRIDGE_DATA_DIR:-/app/config/bridge}") &
+(java -jar "${TACHIBRIDGE_JAR_PATH}" --port "${MANGARR_BRIDGE_PORT}" --data-dir "${MANGARR_BRIDGE_DATA_DIR:-/app/config/bridge}") \
+  > >(filter_bridge_stdout "${BRIDGE_CONSOLE_LOG_FILE}" "${BRIDGE_NOISE_LOG_FILE}") \
+  2> >(filter_bridge_stderr "${BRIDGE_CONSOLE_LOG_FILE}" "${BRIDGE_NOISE_LOG_FILE}") &
 
 until curl -fs "http://127.0.0.1:${MANGARR_BRIDGE_PORT}/health" >/dev/null 2>/dev/null; do
   sleep 1
 done
 
 if [ "${MANGARR_APP_MODE:-prod}" = "dev" ]; then
-  (cd /app/web && pnpm run dev) &
+  (cd /app/web && pnpm run dev) \
+    > >(pipe_component_output "web" "${WEB_LOG_FILE}" "" "stdout") \
+    2> >(pipe_component_output "web" "${WEB_LOG_FILE}" "stderr" "stderr") &
 else
-  (cd /app/web && node build) &
+  (cd /app/web && node build) \
+    > >(pipe_component_output "web" "${WEB_LOG_FILE}" "" "stdout") \
+    2> >(pipe_component_output "web" "${WEB_LOG_FILE}" "stderr" "stderr") &
 fi
 
 wait -n
