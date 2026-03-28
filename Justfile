@@ -227,6 +227,33 @@ smoke:
     docker compose -f compose.dev.yaml exec -T mangarr curl -fsS "http://127.0.0.1:{{ bridge_port }}/health" >/dev/null
     echo "Smoke checks passed."
 
+# Run web unit tests explicitly instead of on container startup
+[group('quality')]
+test-web-unit args="--run":
+    @echo "Running web unit tests..."
+    cd web && pnpm run test:unit -- {{ args }}
+
+# Run web browser tests against a running local runtime
+[group('quality')]
+test-web-e2e specs="e2e/app-smoke.spec.ts":
+    @echo "Running web end-to-end tests..."
+    cd web && PLAYWRIGHT_BASE_URL="http://127.0.0.1:{{ web_port }}" pnpm run test:e2e -- {{ specs }}
+
+# Rebuild the local runtime and then verify it explicitly
+[group('quality')]
+verify-runtime wait="15" specs="e2e/app-smoke.spec.ts":
+    @echo "Rebuilding local runtime and running verification checks..."
+    docker compose -f compose.dev.yaml up -d --build --force-recreate mangarr
+    sleep {{ wait }}
+    curl -fsS "http://127.0.0.1:{{ web_port }}" >/dev/null
+    docker compose -f compose.dev.yaml exec -T mangarr curl -fsS "http://127.0.0.1:{{ bridge_port }}/health" >/dev/null
+    cd web && PLAYWRIGHT_BASE_URL="http://127.0.0.1:{{ web_port }}" pnpm run test:e2e -- {{ specs }}
+
+# Tail current runtime logs from the dev container
+[group('runtime')]
+logs-runtime lines="200":
+    docker compose -f compose.dev.yaml logs --tail {{ lines }} -f mangarr
+
 # Audit dependencies
 [group('quality')]
 audit target="all":
