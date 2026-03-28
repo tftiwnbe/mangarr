@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto, replaceState } from '$app/navigation';
 	import { page } from '$app/state';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { SvelteSet, SvelteURLSearchParams } from 'svelte/reactivity';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import {
@@ -614,6 +614,27 @@
 		const preferredIndex = pages.findIndex((item) => item.pageIndex === preferredPage);
 		currentPageIndex = preferredIndex >= 0 ? preferredIndex : 0;
 		initializedProgress = true;
+		if (mode === 'vertical' && preferredIndex > 0) {
+			void tick().then(() => {
+				window.requestAnimationFrame(() => {
+					const node = document.querySelector(
+						`[data-reader-page-index="${preferredPage}"]`
+					) as HTMLElement | null;
+					node?.scrollIntoView({ behavior: 'auto', block: 'start' });
+				});
+			});
+		}
+	});
+
+	$effect(() => {
+		if (!initializedProgress || !chapter || !pages[currentPageIndex]) return;
+		if (typeof window === 'undefined') return;
+		const pageIndex = pages[currentPageIndex].pageIndex;
+		const currentParam = page.url.searchParams.get('page');
+		if (currentParam === String(pageIndex)) return;
+		const nextUrl = new URL(page.url);
+		nextUrl.searchParams.set('page', String(pageIndex));
+		replaceState(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`, page.state);
 	});
 
 	$effect(() => {

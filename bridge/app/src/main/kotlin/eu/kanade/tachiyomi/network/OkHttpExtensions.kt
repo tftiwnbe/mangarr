@@ -90,7 +90,15 @@ private suspend fun Call.await(callStack: Array<StackTraceElement>): Response {
                     call: Call,
                     response: Response,
                 ) {
-                    continuation.resume(response) {
+                    if (continuation.isCancelled) {
+                        response.close()
+                        return
+                    }
+                    try {
+                        continuation.resume(response) {
+                            response.close()
+                        }
+                    } catch (_: IllegalStateException) {
                         response.close()
                     }
                 }

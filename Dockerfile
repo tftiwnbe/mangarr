@@ -122,11 +122,13 @@ RUST_LOG="${RUST_LOG:-error,database::search_index_workers::retriable_worker=off
 mkdir -p "${CONVEX_ROOT}" "${CONVEX_STORAGE_DIR}" "${CONVEX_TMP_DIR}" "$(dirname "${CONVEX_SQLITE_PATH}")" "${MANGARR_SYSTEM_LOG_DIR}" "${MANGARR_BRIDGE_LOG_DIR}"
 STARTUP_LOG_STAMP="$(date -u +%Y%m%d-%H%M%S)"
 CONVEX_LOG_FILE="${MANGARR_SYSTEM_LOG_DIR}/convex-${STARTUP_LOG_STAMP}.log"
+CONVEX_NOISE_LOG_FILE="${MANGARR_SYSTEM_LOG_DIR}/convex-noise-${STARTUP_LOG_STAMP}.log"
 SETUP_LOG_FILE="${MANGARR_SYSTEM_LOG_DIR}/setup-${STARTUP_LOG_STAMP}.log"
 WEB_LOG_FILE="${MANGARR_SYSTEM_LOG_DIR}/web-${STARTUP_LOG_STAMP}.log"
 BRIDGE_CONSOLE_LOG_FILE="${MANGARR_SYSTEM_LOG_DIR}/bridge-console-${STARTUP_LOG_STAMP}.log"
 BRIDGE_NOISE_LOG_FILE="${MANGARR_SYSTEM_LOG_DIR}/bridge-native-noise-${STARTUP_LOG_STAMP}.log"
 ln -sfn "$(basename "${CONVEX_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/convex.log"
+ln -sfn "$(basename "${CONVEX_NOISE_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/convex-noise.log"
 ln -sfn "$(basename "${SETUP_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/setup.log"
 ln -sfn "$(basename "${WEB_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/web.log"
 ln -sfn "$(basename "${BRIDGE_CONSOLE_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/bridge-console.log"
@@ -186,6 +188,21 @@ pipe_component_output() {
   done
 }
 
+filter_convex_stderr() {
+  local logfile="$1"
+  local noisefile="$2"
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      *"cron_commit_mutation"*"_modules.by_path"*|*"finish_push"*"_modules.by_path"*)
+        printf '[convex][noise] %s\n' "$line" >> "$noisefile"
+        ;;
+      *)
+        printf '[convex][stderr] %s\n' "$line" | tee -a "$logfile" >&2
+        ;;
+    esac
+  done
+}
+
 startup_note() {
   printf '[startup] %s\n' "$1" | tee -a "${SETUP_LOG_FILE}"
 }
@@ -242,7 +259,7 @@ filter_bridge_stdout() {
 
 /app/convex/convex-local-backend --instance-name "${INSTANCE_NAME}" --instance-secret "${INSTANCE_SECRET}" --port "${CONVEX_PORT:-3210}" --site-proxy-port "${CONVEX_SITE_PROXY_PORT:-3211}" --convex-origin "${PUBLIC_CONVEX_URL}" --convex-site "${CONVEX_SITE_ORIGIN:-http://127.0.0.1:3211}" --beacon-tag mangarr --disable-beacon --local-storage "${CONVEX_STORAGE_DIR}" "${CONVEX_SQLITE_PATH}" \
   > >(pipe_component_output "convex" "${CONVEX_LOG_FILE}" "" "stdout") \
-  2> >(pipe_component_output "convex" "${CONVEX_LOG_FILE}" "stderr" "stderr") &
+  2> >(filter_convex_stderr "${CONVEX_LOG_FILE}" "${CONVEX_NOISE_LOG_FILE}") &
 
 cleanup() {
   jobs -p | xargs -r kill 2>/dev/null || true
