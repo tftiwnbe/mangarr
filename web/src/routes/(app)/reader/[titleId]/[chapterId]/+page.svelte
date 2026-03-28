@@ -152,6 +152,7 @@
 	let localPagesUnavailableForChapterId = $state<string | null>(null);
 	let reconcileRequestedForTitleId = $state<string | null>(null);
 	let scrollFrame = 0;
+	let sequentialPageCeiling = $state(0);
 
 	const readerData = $derived(rawReaderData);
 	const title = $derived(readerData?.title ?? null);
@@ -292,8 +293,11 @@
 		return `/api/internal/bridge/reader/page?${params.toString()}`;
 	}
 
-	function markPageLoaded(id: string) {
+	function markPageLoaded(id: string, pageIndex: number) {
 		loadedPageIds.add(id);
+		if (mode === 'vertical') {
+			sequentialPageCeiling = Math.max(sequentialPageCeiling, pageIndex + 1);
+		}
 	}
 
 	function markPagePainted(id: string) {
@@ -333,14 +337,23 @@
 		return Math.abs(pageIndex - currentPageIndex);
 	}
 
+	function pageRequestUnlocked(readerPage: ReaderPage): boolean {
+		if (mode !== 'vertical') return true;
+		return readerPage.pageIndex <= sequentialPageCeiling;
+	}
+
 	function pageLoadingMode(readerPage: ReaderPage): 'eager' | 'lazy' {
-		return readerPage.pageIndex < 2 || pageDistanceFromCurrent(readerPage.pageIndex) <= 2
-			? 'eager'
-			: 'lazy';
+		if (mode !== 'vertical') {
+			return pageDistanceFromCurrent(readerPage.pageIndex) <= 1 ? 'eager' : 'lazy';
+		}
+		return readerPage.pageIndex <= sequentialPageCeiling ? 'eager' : 'lazy';
 	}
 
 	function pageFetchPriority(readerPage: ReaderPage): 'high' | 'auto' {
-		return pageDistanceFromCurrent(readerPage.pageIndex) <= 1 ? 'high' : 'auto';
+		if (mode !== 'vertical') {
+			return pageDistanceFromCurrent(readerPage.pageIndex) <= 1 ? 'high' : 'auto';
+		}
+		return readerPage.pageIndex <= sequentialPageCeiling ? 'high' : 'auto';
 	}
 
 	function jumpToPage(pageIndex: number) {
@@ -615,6 +628,7 @@
 			remotePagesCommand = null;
 			initializedProgress = false;
 			currentPageIndex = 0;
+			sequentialPageCeiling = 0;
 			progressSyncInFlight = false;
 			pendingServerPageIndex = null;
 			lastSavedServerPageIndex = null;
@@ -631,6 +645,7 @@
 			remotePagesCommand = null;
 			initializedProgress = false;
 			currentPageIndex = 0;
+			sequentialPageCeiling = 0;
 			progressSyncInFlight = false;
 			pendingServerPageIndex = null;
 			lastSavedServerPageIndex = readerData?.progress?.pageIndex ?? getReaderProgress(currentChapterId) ?? null;
@@ -638,6 +653,17 @@
 			paintedPageIds.clear();
 			pageRetryCounts = {};
 			localPagesUnavailableForChapterId = null;
+		}
+	});
+
+	$effect(() => {
+		if (mode !== 'vertical' || pages.length === 0) return;
+		const targetCeiling = Math.min(
+			Math.max(currentPageIndex + 1, 0),
+			Math.max(pages.length - 1, 0)
+		);
+		if (targetCeiling > sequentialPageCeiling) {
+			sequentialPageCeiling = targetCeiling;
 		}
 	});
 
@@ -856,7 +882,7 @@
 							<div class="aspect-[2/3] w-full bg-[var(--void-1)]"></div>
 						{/if}
 						<img
-							src={resolvePageUrl(readerPage)}
+							src={pageRequestUnlocked(readerPage) ? resolvePageUrl(readerPage) : undefined}
 							alt="{$_('reader.page')} {readerPage.pageIndex + 1}"
 							loading={pageLoadingMode(readerPage)}
 							fetchpriority={pageFetchPriority(readerPage)}
@@ -865,7 +891,7 @@
 								? 'w-full'
 								: 'absolute inset-0 opacity-0'}"
 							onload={() => {
-								markPageLoaded(readerPage.id);
+								markPageLoaded(readerPage.id, readerPage.pageIndex);
 								markPagePainted(readerPage.id);
 							}}
 							onerror={() => handlePageError(readerPage)}

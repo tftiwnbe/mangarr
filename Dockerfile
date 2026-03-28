@@ -186,6 +186,27 @@ pipe_component_output() {
   done
 }
 
+startup_note() {
+  printf '[startup] %s\n' "$1" | tee -a "${SETUP_LOG_FILE}"
+}
+
+wait_for_http() {
+  local name="$1"
+  local url="$2"
+  local attempts="${3:-120}"
+  local delay_seconds="${4:-1}"
+  local count=0
+  until curl -fs "${url}" >/dev/null 2>/dev/null; do
+    count=$((count + 1))
+    if [ "$count" -ge "$attempts" ]; then
+      startup_note "${name} failed to become ready: ${url}"
+      return 1
+    fi
+    sleep "${delay_seconds}"
+  done
+  startup_note "${name} ready: ${url}"
+}
+
 filter_bridge_stderr() {
   local logfile="$1"
   local noisefile="$2"
@@ -228,9 +249,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-until curl -fs "http://127.0.0.1:${CONVEX_PORT:-3210}/version" >/dev/null 2>/dev/null; do
-  sleep 1
-done
+wait_for_http "Convex backend" "http://127.0.0.1:${CONVEX_PORT:-3210}/version"
 
 if [ "${MANGARR_APP_MODE:-prod}" = "dev" ]; then
   [ -d /app/web/node_modules/.pnpm ] || (cd /app/web && pnpm install --frozen-lockfile --force)
@@ -270,9 +289,7 @@ fi
   > >(filter_bridge_stdout "${BRIDGE_CONSOLE_LOG_FILE}" "${BRIDGE_NOISE_LOG_FILE}") \
   2> >(filter_bridge_stderr "${BRIDGE_CONSOLE_LOG_FILE}" "${BRIDGE_NOISE_LOG_FILE}") &
 
-until curl -fs "http://127.0.0.1:${MANGARR_BRIDGE_PORT}/health" >/dev/null 2>/dev/null; do
-  sleep 1
-done
+wait_for_http "Bridge runtime" "http://127.0.0.1:${MANGARR_BRIDGE_PORT}/health"
 
 if [ "${MANGARR_APP_MODE:-prod}" = "dev" ]; then
   (cd /app/web && pnpm run dev) \
@@ -283,6 +300,10 @@ else
     > >(pipe_component_output "web" "${WEB_LOG_FILE}" "" "stdout") \
     2> >(pipe_component_output "web" "${WEB_LOG_FILE}" "stderr" "stderr") &
 fi
+
+wait_for_http "Web app" "http://127.0.0.1:${PORT:-3737}"
+startup_note "Mangarr ready: web=${MANGARR_PUBLIC_SCHEME}://${MANGARR_PUBLIC_HOST}:${PORT:-3737} convex=${PUBLIC_CONVEX_URL} bridge=${MANGARR_BRIDGE_INTERNAL_URL}"
+startup_note "Logs: setup=${SETUP_LOG_FILE} web=${WEB_LOG_FILE} bridge=${BRIDGE_CONSOLE_LOG_FILE} convex=${CONVEX_LOG_FILE}"
 
 wait -n
 EOF

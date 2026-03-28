@@ -262,8 +262,7 @@ export const enqueueExploreFeed = mutation({
 				sourceId: args.sourceId,
 				page: args.page,
 				limit: args.limit
-			},
-			idempotencyKey: `explore.${args.feedType}:${args.sourceId}:${args.page}:${args.limit}`
+			}
 		})
 });
 

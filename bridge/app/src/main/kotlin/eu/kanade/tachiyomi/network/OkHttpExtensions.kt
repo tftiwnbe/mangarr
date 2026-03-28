@@ -91,7 +91,7 @@ private suspend fun Call.await(callStack: Array<StackTraceElement>): Response {
                     response: Response,
                 ) {
                     continuation.resume(response) {
-                        response.body!!.close()
+                        response.close()
                     }
                 }
 

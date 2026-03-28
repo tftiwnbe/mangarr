@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import {
 		CheckIcon,
@@ -124,6 +125,7 @@
 
 	const FEED_LIMIT = 24;
 	const FEED_SOURCE_BATCH_SIZE = 4;
+	const FEED_COMMAND_CONCURRENCY = 1;
 	const COMMAND_CONCURRENCY = 3;
 	const FEED_DUPLICATE_PAGE_TOLERANCE = 3;
 	const INITIAL_CARD_RENDER_LIMIT = 60;
@@ -174,6 +176,7 @@
 	let renderCardLimit = $state(INITIAL_CARD_RENDER_LIMIT);
 	let feedLoadGeneration = 0;
 	let searchRunGeneration = 0;
+	const inflightFeedRequests = new SvelteMap<string, Promise<FeedResult>>();
 
 	let searchFiltersOpen = $state(false);
 	let searchFiltersLoading = $state(false);
@@ -682,18 +685,31 @@
 	}
 
 	async function fetchFeedPage(sourceId: string, page: number): Promise<FeedResult> {
-		const { commandId } = await client.mutation(convexApi.commands.enqueueExploreFeed, {
-			feedType: feedCommandType === 'explore.latest' ? 'latest' : 'popular',
-			sourceId,
-			page,
-			limit: FEED_LIMIT
+		const requestKey = `${feedCommandType}:${sourceId}:${page}:${FEED_LIMIT}`;
+		const existingRequest = inflightFeedRequests.get(requestKey);
+		if (existingRequest) {
+			return existingRequest;
+		}
+
+		const request = (async () => {
+			const { commandId } = await client.mutation(convexApi.commands.enqueueExploreFeed, {
+				feedType: feedCommandType === 'explore.latest' ? 'latest' : 'popular',
+				sourceId,
+				page,
+				limit: FEED_LIMIT
+			});
+			const command = await waitForCommand(client, commandId);
+			return {
+				items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[],
+				page: Number(command.result?.page ?? page),
+				hasNextPage: Boolean(command.result?.hasNextPage ?? false)
+			};
+		})().finally(() => {
+			inflightFeedRequests.delete(requestKey);
 		});
-		const command = await waitForCommand(client, commandId);
-		return {
-			items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[],
-			page: Number(command.result?.page ?? page),
-			hasNextPage: Boolean(command.result?.hasNextPage ?? false)
-		};
+
+		inflightFeedRequests.set(requestKey, request);
+		return request;
 	}
 
 	async function fetchNextUniqueFeedPage(
@@ -777,7 +793,7 @@
 		let successfulSources = 0;
 		const requestCommandType = feedCommandType;
 
-		await runWithConcurrency(sourceIds, COMMAND_CONCURRENCY, async (sourceId) => {
+		await runWithConcurrency(sourceIds, FEED_COMMAND_CONCURRENCY, async (sourceId) => {
 				try {
 					const result = await fetchFeedPage(sourceId, 1);
 					clearSourceFailure(sourceId, 'feed');
@@ -849,7 +865,7 @@
 		const failures: string[] = [];
 		let successfulSources = 0;
 
-		await runWithConcurrency(nextSourcePages, COMMAND_CONCURRENCY, async ({ sourceId, page }) => {
+		await runWithConcurrency(nextSourcePages, FEED_COMMAND_CONCURRENCY, async ({ sourceId, page }) => {
 				try {
 					const existingItems = feedItemsForSource(feedCommandType, sourceId, loadedPagesBySource[sourceId] ?? 0);
 					const { result, finalPage, exhausted } = await fetchNextUniqueFeedPage(
