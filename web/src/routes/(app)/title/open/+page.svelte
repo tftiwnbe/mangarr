@@ -40,6 +40,7 @@
 			if (chapterCount > 0 || total > 0) {
 				return {
 					title: overview?.title ?? fallbackTitle,
+					routeSegment: overview?.routeSegment ?? null,
 					ready: true
 				};
 			}
@@ -51,6 +52,7 @@
 		});
 		return {
 			title: overview?.title ?? fallbackTitle,
+			routeSegment: overview?.routeSegment ?? null,
 			ready: false
 		};
 	}
@@ -87,7 +89,7 @@
 					openRequest.title || titleName || titleUrl,
 					6_000
 				);
-				await goto(buildTitlePath(String(openRequest.titleId), hydrated.title), {
+				await goto(buildTitlePath(String(openRequest.titleId), hydrated.title, hydrated.routeSegment), {
 					replaceState: true
 				});
 				return;
@@ -122,7 +124,9 @@
 			}
 			openPhase = 'syncing';
 			const hydrated = await waitForTitleHydration(titleId, chapterCount, resolvedTitle);
-			await goto(buildTitlePath(titleId, hydrated.title), { replaceState: true });
+			await goto(buildTitlePath(titleId, hydrated.title, hydrated.routeSegment), {
+				replaceState: true
+			});
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Unable to open title';
 		} finally {

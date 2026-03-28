@@ -1,7 +1,8 @@
 import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
 
-import { mutation, query } from './_generated/server';
+import { mutation, query, type QueryCtx } from './_generated/server';
+import { buildChapterRouteBase, buildTitleRouteBase, buildUniqueRouteSegmentMap } from '../lib/utils/route-segments';
 import {
 	DOWNLOAD_STATUS,
 	getOwnedChapterProgressRow,
@@ -17,6 +18,44 @@ import {
 	requireOwnedTitle,
 	resolveOwnedTitleUserStatus
 } from './library_shared';
+
+function buildTitleRouteSegments<T extends { _id: GenericId<'libraryTitles'>; title: string }>(titles: readonly T[]) {
+	return buildUniqueRouteSegmentMap({
+		items: titles,
+		getId: (title) => String(title._id),
+		getBase: (title) => buildTitleRouteBase(title.title)
+	});
+}
+
+function buildChapterRouteSegments<
+	T extends {
+		_id: GenericId<'libraryChapters'>;
+		chapterName: string;
+		chapterNumber?: number | null;
+	}
+>(chapters: readonly T[]) {
+	return buildUniqueRouteSegmentMap({
+		items: chapters,
+		getId: (chapter) => String(chapter._id),
+		getBase: (chapter) => buildChapterRouteBase(chapter.chapterName, chapter.chapterNumber ?? null)
+	});
+}
+
+async function findOwnedTitleByRouteSegment(
+	ctx: QueryCtx,
+	ownerUserId: GenericId<'users'>,
+	routeSegment: string
+) {
+	const titles = await ctx.db
+		.query('libraryTitles')
+		.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+		.collect();
+	const routeSegments = buildTitleRouteSegments(titles);
+	return (
+		titles.find((title: (typeof titles)[number]) => routeSegments.get(String(title._id)) === routeSegment) ??
+		null
+	);
+}
 
 function summarizeDownloadStats(
 	chapters: Array<{
@@ -129,6 +168,7 @@ export const listMine = query({
 			loadOwnerVariantCountsByTitleId(ctx, userId),
 			loadOwnerChaptersByTitleId(ctx, userId)
 		]);
+		const titleRouteSegments = buildTitleRouteSegments(titles);
 
 		return [...titles]
 			.filter((title) => title.listedInLibrary !== false)
@@ -139,6 +179,7 @@ export const listMine = query({
 
 					return {
 						...title,
+						routeSegment: titleRouteSegments.get(String(title._id)) ?? buildTitleRouteBase(title.title),
 						userStatus: title.userStatusId ? (statusById.get(String(title.userStatusId)) ?? null) : null,
 						userRating: title.userRating ?? null,
 					collections: collectionIds
@@ -166,6 +207,7 @@ export const listHiddenMine = query({
 			.query('libraryTitles')
 			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
 			.collect();
+		const titleRouteSegments = buildTitleRouteSegments(titles);
 
 		return titles
 			.filter((title) => title.listedInLibrary === false)
@@ -177,6 +219,7 @@ export const listHiddenMine = query({
 				sourcePkg: title.sourcePkg,
 				sourceLang: title.sourceLang,
 				titleUrl: title.titleUrl,
+				routeSegment: titleRouteSegments.get(String(title._id)) ?? buildTitleRouteBase(title.title),
 				coverUrl: title.coverUrl ?? null,
 				localCoverPath: title.localCoverPath ?? null,
 				createdAt: title.createdAt,
@@ -261,8 +304,9 @@ export const getMineImportedSourceLookup = query({
 			ctx.db
 				.query('titleVariants')
 				.withIndex('by_owner_user_id_library_title_id', (q) => q.eq('ownerUserId', ownerUserId))
-				.collect()
+			.collect()
 		]);
+		const titleRouteSegments = buildTitleRouteSegments(titles);
 
 		const visibleTitleIds = new Set(titles.map((title) => String(title._id)));
 		const titleById = new Map(titles.map((title) => [String(title._id), title]));
@@ -271,12 +315,14 @@ export const getMineImportedSourceLookup = query({
 			{
 				libraryId: string;
 				listedInLibrary: boolean;
+				routeSegment: string;
 			}
 		> = {};
 		for (const title of titles) {
 			lookup[`${title.sourceId}::${title.titleUrl}`] = {
 				libraryId: String(title._id),
-				listedInLibrary: title.listedInLibrary !== false
+				listedInLibrary: title.listedInLibrary !== false,
+				routeSegment: titleRouteSegments.get(String(title._id)) ?? buildTitleRouteBase(title.title)
 			};
 		}
 		for (const variant of variants) {
@@ -284,7 +330,10 @@ export const getMineImportedSourceLookup = query({
 			const primaryEntry = titleById.get(String(variant.libraryTitleId));
 			lookup[`${variant.sourceId}::${variant.titleUrl}`] = {
 				libraryId: String(variant.libraryTitleId),
-				listedInLibrary: primaryEntry?.listedInLibrary !== false
+				listedInLibrary: primaryEntry?.listedInLibrary !== false,
+				routeSegment:
+					titleRouteSegments.get(String(variant.libraryTitleId)) ??
+					buildTitleRouteBase(primaryEntry?.title ?? '')
 			};
 		}
 		return lookup;
@@ -301,8 +350,100 @@ export const listTitleChapters = query({
 			.query('libraryChapters')
 			.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
 			.collect();
+		const chapterRouteSegments = buildChapterRouteSegments(chapters);
 
-		return chapters.sort((left, right) => left.sequence - right.sequence);
+		return chapters
+			.sort((left, right) => left.sequence - right.sequence)
+			.map((chapter) => ({
+				...chapter,
+				routeSegment:
+					chapterRouteSegments.get(String(chapter._id)) ??
+					buildChapterRouteBase(chapter.chapterName, chapter.chapterNumber ?? null)
+			}));
+	}
+});
+
+export const getMineOverviewByRouteSegment = query({
+	args: {
+		routeSegment: v.string()
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return null;
+		}
+
+		const title = await findOwnedTitleByRouteSegment(
+			ctx,
+			identity.subject as GenericId<'users'>,
+			args.routeSegment.trim()
+		);
+		if (!title) {
+			return null;
+		}
+
+		const [overviewTitles, chapters, userStatus, collections, variants, progressRows, downloadProfile] =
+			await Promise.all([
+				ctx.db
+					.query('libraryTitles')
+					.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', title.ownerUserId))
+					.collect(),
+				ctx.db
+					.query('libraryChapters')
+					.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+					.collect(),
+				resolveOwnedTitleUserStatus(ctx, title),
+				listCollectionsForTitle(ctx, title),
+				listVariantsForTitle(ctx, title),
+				ctx.db
+					.query('chapterProgress')
+					.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+						q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+					)
+					.collect(),
+				ctx.db
+					.query('downloadProfiles')
+					.withIndex('by_owner_user_id_library_title_id', (q) =>
+						q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+					)
+					.unique()
+			]);
+
+		const latestProgress =
+			[...progressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
+		const titleRouteSegments = buildTitleRouteSegments(overviewTitles);
+
+		return {
+			...title,
+			routeSegment: titleRouteSegments.get(String(title._id)) ?? buildTitleRouteBase(title.title),
+			userStatus,
+			userRating: title.userRating ?? null,
+			collections,
+			preferredVariantId: title.preferredVariantId ?? null,
+			variants,
+			chapterStats: summarizeDownloadStats(chapters),
+			readingProgress: {
+				startedChapters: progressRows.length,
+				latest: latestProgress
+					? {
+							chapterId: latestProgress.chapterId,
+							pageIndex: latestProgress.pageIndex,
+							updatedAt: latestProgress.updatedAt
+						}
+					: null
+			},
+			downloadProfile: downloadProfile
+				? {
+						enabled: downloadProfile.enabled,
+						paused: downloadProfile.paused,
+						autoDownload: downloadProfile.autoDownload,
+						lastCheckedAt: downloadProfile.lastCheckedAt ?? null,
+						lastSuccessAt: downloadProfile.lastSuccessAt ?? null,
+						lastError: downloadProfile.lastError ?? null
+					}
+				: null,
+			offlineReadiness: summarizeOfflineReadiness(title, chapters)
+		};
 	}
 });
 
@@ -312,8 +453,12 @@ export const getMineById = query({
 	},
 	handler: async (ctx, args) => {
 		const title = await requireOwnedTitle(ctx, args.titleId);
-		const [chapters, userStatus, collections, variants, progressRows, titleComments, downloadProfile] =
+		const [titles, chapters, userStatus, collections, variants, progressRows, titleComments, downloadProfile] =
 			await Promise.all([
+				ctx.db
+					.query('libraryTitles')
+					.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', title.ownerUserId))
+					.collect(),
 				ctx.db
 					.query('libraryChapters')
 					.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
@@ -344,9 +489,11 @@ export const getMineById = query({
 		const chapterById = new Map(chapters.map((chapter) => [chapter._id, chapter]));
 		const latestProgress =
 			[...progressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
+		const titleRouteSegments = buildTitleRouteSegments(titles);
 
 		return {
 			...title,
+			routeSegment: titleRouteSegments.get(String(title._id)) ?? buildTitleRouteBase(title.title),
 			userStatus,
 			userRating: title.userRating ?? null,
 			collections,
@@ -401,7 +548,11 @@ export const getMineOverviewById = query({
 	},
 	handler: async (ctx, args) => {
 		const title = await requireOwnedTitle(ctx, args.titleId);
-		const [chapters, userStatus, collections, variants, progressRows, downloadProfile] = await Promise.all([
+		const [titles, chapters, userStatus, collections, variants, progressRows, downloadProfile] = await Promise.all([
+			ctx.db
+				.query('libraryTitles')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', title.ownerUserId))
+				.collect(),
 			ctx.db
 				.query('libraryChapters')
 				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
@@ -425,9 +576,11 @@ export const getMineOverviewById = query({
 
 		const latestProgress =
 			[...progressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
+		const titleRouteSegments = buildTitleRouteSegments(titles);
 
 		return {
 			...title,
+			routeSegment: titleRouteSegments.get(String(title._id)) ?? buildTitleRouteBase(title.title),
 			userStatus,
 			userRating: title.userRating ?? null,
 			collections,
@@ -530,17 +683,108 @@ export const getReaderByChapterId = query({
 			throw new Error('Library title not found');
 		}
 
-		const chapters = await ctx.db
-			.query('libraryChapters')
-			.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
-			.collect();
+		const [titles, chapters] = await Promise.all([
+			ctx.db
+				.query('libraryTitles')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', title.ownerUserId))
+				.collect(),
+			ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+				.collect()
+		]);
+		const chapterRouteSegments = buildChapterRouteSegments(chapters);
+		const titleRouteSegments = buildTitleRouteSegments(titles);
 
 		const progress = await getOwnedChapterProgressRow(ctx, chapter._id);
 
 		return {
-			title,
-			chapter,
-			chapters: chapters.sort((left, right) => left.sequence - right.sequence),
+			title: {
+				...title,
+				routeSegment: titleRouteSegments.get(String(title._id)) ?? buildTitleRouteBase(title.title)
+			},
+			chapter: {
+				...chapter,
+				routeSegment:
+					chapterRouteSegments.get(String(chapter._id)) ??
+					buildChapterRouteBase(chapter.chapterName, chapter.chapterNumber ?? null)
+			},
+			chapters: chapters
+				.sort((left, right) => left.sequence - right.sequence)
+				.map((item) => ({
+					...item,
+					routeSegment:
+						chapterRouteSegments.get(String(item._id)) ??
+						buildChapterRouteBase(item.chapterName, item.chapterNumber ?? null)
+				})),
+			progress: progress
+				? {
+						id: progress._id,
+						pageIndex: progress.pageIndex,
+						updatedAt: progress.updatedAt
+					}
+				: null
+		};
+	}
+});
+
+export const getReaderByRouteSegments = query({
+	args: {
+		titleRouteSegment: v.string(),
+		chapterRouteSegment: v.string()
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return null;
+		}
+
+		const title = await findOwnedTitleByRouteSegment(
+			ctx,
+			identity.subject as GenericId<'users'>,
+			args.titleRouteSegment.trim()
+		);
+		if (!title) {
+			return null;
+		}
+
+		const chapters = await ctx.db
+			.query('libraryChapters')
+			.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+			.collect();
+		const chapterRouteSegments = buildChapterRouteSegments(chapters);
+		const chapter =
+			chapters.find(
+				(item) =>
+					(chapterRouteSegments.get(String(item._id)) ??
+						buildChapterRouteBase(item.chapterName, item.chapterNumber ?? null)) ===
+					args.chapterRouteSegment.trim()
+			) ?? null;
+		if (!chapter) {
+			return null;
+		}
+
+		const progress = await getOwnedChapterProgressRow(ctx, chapter._id);
+
+		return {
+			title: {
+				...title,
+				routeSegment: args.titleRouteSegment.trim()
+			},
+			chapter: {
+				...chapter,
+				routeSegment:
+					chapterRouteSegments.get(String(chapter._id)) ??
+					buildChapterRouteBase(chapter.chapterName, chapter.chapterNumber ?? null)
+			},
+			chapters: chapters
+				.sort((left, right) => left.sequence - right.sequence)
+				.map((item) => ({
+					...item,
+					routeSegment:
+						chapterRouteSegments.get(String(item._id)) ??
+						buildChapterRouteBase(item.chapterName, item.chapterNumber ?? null)
+				})),
 			progress: progress
 				? {
 						id: progress._id,

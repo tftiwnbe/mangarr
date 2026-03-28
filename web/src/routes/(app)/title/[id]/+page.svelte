@@ -37,10 +37,11 @@
 	} from '$lib/utils/source-health';
 	import { TITLE_STATUS } from '$lib/utils/title-status';
 
-	const { data } = $props<{ data: { titleId: string } }>();
+	const { data } = $props<{ data: { titleSegment: string | null } }>();
 
 	type ChapterRow = {
 		_id: Id<'libraryChapters'>;
+		routeSegment?: string | null;
 		chapterName: string;
 		chapterNumber?: number | null;
 		scanlator?: string | null;
@@ -51,6 +52,7 @@
 
 	type TitleOverview = {
 		_id: Id<'libraryTitles'>;
+		routeSegment?: string | null;
 		title: string;
 		sourceId: string;
 		sourcePkg: string;
@@ -236,15 +238,17 @@
 		});
 
 	const client = useConvexClient();
-	const titleQuery = useQuery(convexApi.library.getMineOverviewById, () => ({
-		titleId: data.titleId as Id<'libraryTitles'>
-	}));
-	const titleChaptersQuery = useQuery(convexApi.library.listTitleChapters, () => ({
-		titleId: data.titleId as Id<'libraryTitles'>
-	}));
+	const titleQuery = useQuery(convexApi.library.getMineOverviewByRouteSegment, () =>
+		data.titleSegment ? { routeSegment: data.titleSegment } : 'skip'
+	);
+	const rawTitleQueryData = $derived((titleQuery.data as TitleOverview | null) ?? null);
+	const resolvedTitleId = $derived(rawTitleQueryData?._id ?? null);
+	const titleChaptersQuery = useQuery(convexApi.library.listTitleChapters, () =>
+		resolvedTitleId ? { titleId: resolvedTitleId } : 'skip'
+	);
 	const titleCommentsQuery = useQuery(
 		convexApi.library.listTitleComments,
-		() => (activeTab === 'comments' ? { titleId: data.titleId as Id<'libraryTitles'> } : 'skip')
+		() => (activeTab === 'comments' && resolvedTitleId ? { titleId: resolvedTitleId } : 'skip')
 	);
 	const sourcesQuery = useQuery(convexApi.extensions.listSources, () => ({}));
 	const statusesQuery = useQuery(convexApi.library.listUserStatuses, () => ({}));
@@ -254,7 +258,7 @@
 	const MATCH_SEARCH_LIMIT = 12;
 	const MATCH_SEARCH_PER_SOURCE_LIMIT = 6;
 
-	const title = $derived((titleQuery.data as TitleOverview | null) ?? null);
+	const title = $derived(rawTitleQueryData);
 	const titleChapters = $derived((titleChaptersQuery.data ?? []) as ChapterRow[]);
 	const titleComments = $derived((titleCommentsQuery.data ?? []) as TitleComment[]);
 	const sourceHealthQuery = useQuery(
@@ -460,7 +464,7 @@
 
 	$effect(() => {
 		if (!title) return;
-		const canonicalPath = buildTitlePath(title._id, title.title);
+		const canonicalPath = buildTitlePath(String(title._id), title.title, title.routeSegment ?? null);
 		if (page.url.pathname !== canonicalPath) {
 			void goto(canonicalPath, { replaceState: true, noScroll: true });
 		}
@@ -747,9 +751,11 @@
 			buildReaderPath({
 				titleId: title._id,
 				titleName: title.title,
+				titleRouteSegment: title.routeSegment ?? null,
 				chapterId: startReadingChapter._id,
 				chapterName: startReadingChapter.chapterName,
-				chapterNumber: startReadingChapter.chapterNumber ?? null
+				chapterNumber: startReadingChapter.chapterNumber ?? null,
+				chapterRouteSegment: startReadingChapter.routeSegment ?? null
 			})
 		);
 	}
@@ -760,9 +766,11 @@
 			buildReaderPath({
 				titleId: title._id,
 				titleName: title.title,
+				titleRouteSegment: title.routeSegment ?? null,
 				chapterId: chapter._id,
 				chapterName: chapter.chapterName,
-				chapterNumber: chapter.chapterNumber ?? null
+				chapterNumber: chapter.chapterNumber ?? null,
+				chapterRouteSegment: chapter.routeSegment ?? null
 			})
 		);
 	}

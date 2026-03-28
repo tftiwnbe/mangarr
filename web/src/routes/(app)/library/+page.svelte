@@ -38,6 +38,7 @@
 
 	type TitleItem = {
 		_id: Id<'libraryTitles'>;
+		routeSegment?: string | null;
 		title: string;
 		sourceId: string;
 		sourcePkg: string;
@@ -80,6 +81,7 @@
 
 	type LibraryTitleSummary = {
 		id: string;
+		route_segment?: string | null;
 		title: string;
 		thumbnail_url: string | null;
 		chapters_count: number;
@@ -96,6 +98,7 @@
 
 	type HiddenTitleSummary = {
 		_id: Id<'libraryTitles'>;
+		routeSegment?: string | null;
 		title: string;
 		sourceId: string;
 		sourcePkg: string;
@@ -373,6 +376,7 @@
 	function mapTitleToSummary(title: TitleItem): LibraryTitleSummary {
 		return {
 			id: title._id,
+			route_segment: title.routeSegment ?? null,
 			title: title.title,
 			thumbnail_url: coverSrc(title),
 			chapters_count: title.chapterStats.total,
@@ -636,7 +640,7 @@
 					{@const displayStatus = getDisplayStatus(title)}
 					{@const offlineStatus = offlineStatusLabel(title)}
 					<a
-					href={buildTitlePath(title.id, title.title)}
+					href={buildTitlePath(title.id, title.title, title.route_segment ?? null)}
 					class="group card-glow relative flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)]"
 				>
 					<div class="relative aspect-[2/3] overflow-hidden bg-[var(--void-3)]">
@@ -734,7 +738,8 @@
 							<Button
 								variant="ghost"
 								size="sm"
-								onclick={() => goto(buildTitlePath(String(title._id), title.title))}
+								onclick={() =>
+									goto(buildTitlePath(String(title._id), title.title, title.routeSegment ?? null))}
 							>
 								{$_('common.open')}
 							</Button>

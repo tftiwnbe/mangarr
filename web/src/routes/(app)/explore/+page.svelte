@@ -69,11 +69,13 @@
 		canonicalKey: string;
 		importedLibraryId: string | null;
 		importedListedInLibrary: boolean;
+		importedRouteSegment?: string | null;
 	};
 
 	type ImportedLookupEntry = {
 		libraryId: string;
 		listedInLibrary: boolean;
+		routeSegment?: string | null;
 	};
 
 	type FilterMeta = {
@@ -317,7 +319,8 @@
 					titleUrl: item.titleUrl,
 					canonicalKey: item.canonicalKey,
 					importedLibraryId: importedEntry?.libraryId ?? null,
-					importedListedInLibrary: importedEntry?.listedInLibrary ?? false
+					importedListedInLibrary: importedEntry?.listedInLibrary ?? false,
+					importedRouteSegment: importedEntry?.routeSegment ?? null
 				};
 
 				const signatures = itemMergeSignatures(item);
@@ -347,7 +350,9 @@
 					sourceName: current.sourceName || nextCard.sourceName,
 					importedLibraryId: current.importedLibraryId ?? nextCard.importedLibraryId,
 					importedListedInLibrary:
-						current.importedListedInLibrary || nextCard.importedListedInLibrary
+						current.importedListedInLibrary || nextCard.importedListedInLibrary,
+					importedRouteSegment:
+						current.importedRouteSegment ?? nextCard.importedRouteSegment ?? null
 				};
 				items[existingIndex] = merged;
 				for (const signature of itemMergeSignatures({
@@ -1052,7 +1057,7 @@
 
 	function buildPreviewHref(item: ExploreCard): string {
 		if (item.importedLibraryId) {
-			return buildTitlePath(item.importedLibraryId, item.title);
+			return buildTitlePath(item.importedLibraryId, item.title, item.importedRouteSegment ?? null);
 		}
 		const query = new URLSearchParams({
 			source_id: item.sourceId,

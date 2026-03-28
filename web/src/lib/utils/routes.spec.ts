@@ -4,9 +4,9 @@ import {
 	buildReaderPath,
 	buildTitlePath,
 	parseReaderChapterParam,
-	parseTitleRouteParam,
-	slugifySegment
+	parseTitleRouteParam
 } from './routes';
+import { slugifySegment } from './route-segments';
 
 describe('routes', () => {
 	it('slugifies readable title segments', () => {
@@ -15,33 +15,33 @@ describe('routes', () => {
 	});
 
 	it('builds and parses title routes with slugs', () => {
-		const path = buildTitlePath('k171kyync164t0ajv300caekj583nm1y', 'Chainsaw Man');
-		expect(path).toBe('/title/chainsaw-man~k171kyync164t0ajv300caekj583nm1y');
-		expect(parseTitleRouteParam('chainsaw-man~k171kyync164t0ajv300caekj583nm1y')).toBe(
-			'k171kyync164t0ajv300caekj583nm1y'
-		);
-	});
-
-	it('keeps parsing legacy title routes', () => {
-		expect(parseTitleRouteParam('k171kyync164t0ajv300caekj583nm1y--chainsaw-man')).toBe(
-			'k171kyync164t0ajv300caekj583nm1y'
-		);
+		const path = buildTitlePath('ignored', 'Chainsaw Man');
+		expect(path).toBe('/title/chainsaw-man');
+		expect(parseTitleRouteParam('chainsaw-man')).toBe('chainsaw-man');
 	});
 
 	it('builds reader routes with chapter number and name context', () => {
 		const path = buildReaderPath({
-			titleId: 'title123',
 			titleName: 'Sophisticated Senpai',
-			chapterId: 'chapter456',
 			chapterName: 'Chapter 1 - Meet Cute',
 			chapterNumber: 1
-		});
+		} as never);
 
-		expect(path).toBe('/reader/sophisticated-senpai~title123/ch-1~chapter456');
-		expect(parseReaderChapterParam('ch-1~chapter456')).toBe('chapter456');
+		expect(path).toBe('/reader/sophisticated-senpai/ch-1');
+		expect(parseReaderChapterParam('ch-1')).toBe('ch-1');
 	});
 
-	it('keeps parsing legacy reader chapter routes', () => {
-		expect(parseReaderChapterParam('chapter456--chapter-1-chapter-1-meet-cute')).toBe('chapter456');
+	it('uses explicit disambiguated route segments when supplied', () => {
+		const path = buildReaderPath({
+			titleId: 'ignored',
+			titleName: 'One Piece',
+			titleRouteSegment: 'one-piece~krce',
+			chapterId: 'ignored',
+			chapterName: 'Chapter 1',
+			chapterNumber: 1,
+			chapterRouteSegment: 'ch-1~abcd12'
+		});
+
+		expect(path).toBe('/reader/one-piece~krce/ch-1~abcd12');
 	});
 });

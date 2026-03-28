@@ -37,12 +37,13 @@
 	} from '$lib/utils/chapter-display';
 	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
 
-	const { data } = $props<{ data: { titleId: string | null; chapterId: string | null } }>();
+	const { data } = $props<{ data: { titleSegment: string | null; chapterSegment: string | null } }>();
 
 	type ReaderMode = 'vertical' | 'horizontal';
 
 	type ChapterItem = {
 		_id: Id<'libraryChapters'>;
+		routeSegment?: string | null;
 		libraryTitleId: Id<'libraryTitles'>;
 		chapterName: string;
 		chapterNumber?: number | null;
@@ -60,6 +61,7 @@
 
 	type ReaderTitle = {
 		_id: Id<'libraryTitles'>;
+		routeSegment?: string | null;
 		title: string;
 		sourceId: string;
 		sourceLang: string;
@@ -103,12 +105,20 @@
 
 	const client = useConvexClient();
 	const readerQuery = useQuery(
-		convexApi.library.getReaderByChapterId,
-		() => (data.chapterId ? { chapterId: data.chapterId as Id<'libraryChapters'> } : 'skip')
+		convexApi.library.getReaderByRouteSegments,
+		() =>
+			data.titleSegment && data.chapterSegment
+				? {
+						titleRouteSegment: data.titleSegment,
+						chapterRouteSegment: data.chapterSegment
+					}
+				: 'skip'
 	);
+	const rawReaderData = $derived((readerQuery.data as ReaderQuery) ?? null);
+	const resolvedCommentChapterId = $derived(rawReaderData?.chapter?._id ?? null);
 	const commentsQuery = useQuery(
 		convexApi.library.listChapterComments,
-		() => (data.chapterId ? { chapterId: data.chapterId as Id<'libraryChapters'> } : 'skip')
+		() => (resolvedCommentChapterId ? { chapterId: resolvedCommentChapterId } : 'skip')
 	);
 
 	let mode = $state<ReaderMode>('vertical');
@@ -143,7 +153,7 @@
 	let reconcileRequestedForTitleId = $state<string | null>(null);
 	let scrollFrame = 0;
 
-	const readerData = $derived((readerQuery.data as ReaderQuery) ?? null);
+	const readerData = $derived(rawReaderData);
 	const title = $derived(readerData?.title ?? null);
 	const chapter = $derived(readerData?.chapter ?? null);
 	const currentChapterId = $derived(chapter?._id ?? null);
@@ -231,16 +241,18 @@
 		nextChapterId ? chapters.find((item) => item._id === nextChapterId) ?? null : null
 	);
 	const canonicalTitlePath = $derived.by(() =>
-		title ? buildTitlePath(title._id, title.title) : '/library'
+		title ? buildTitlePath(String(title._id), title.title, title.routeSegment ?? null) : '/library'
 	);
 	const canonicalReaderPath = $derived.by(() =>
 		title && chapter
 			? buildReaderPath({
 					titleId: title._id,
 					titleName: title.title,
+					titleRouteSegment: title.routeSegment ?? null,
 					chapterId: chapter._id,
 					chapterName: chapter.chapterName,
-					chapterNumber: chapter.chapterNumber ?? null
+					chapterNumber: chapter.chapterNumber ?? null,
+					chapterRouteSegment: chapter.routeSegment ?? null
 				})
 			: null
 	);
@@ -381,9 +393,11 @@
 			buildReaderPath({
 				titleId: title._id,
 				titleName: title.title,
+				titleRouteSegment: title.routeSegment ?? null,
 				chapterId: target._id,
 				chapterName: target.chapterName,
-				chapterNumber: target.chapterNumber ?? null
+				chapterNumber: target.chapterNumber ?? null,
+				chapterRouteSegment: target.routeSegment ?? null
 			})
 		);
 	}
