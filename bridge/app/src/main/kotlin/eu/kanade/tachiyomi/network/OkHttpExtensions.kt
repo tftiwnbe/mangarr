@@ -41,9 +41,16 @@ fun Call.asObservable(): Observable<Response> {
 
                     try {
                         val response = call.execute()
-                        if (!subscriber.isUnsubscribed) {
+                        if (subscriber.isUnsubscribed) {
+                            response.close()
+                            return
+                        }
+                        try {
                             subscriber.onNext(response)
                             subscriber.onCompleted()
+                        } catch (e: Exception) {
+                            response.close()
+                            throw e
                         }
                     } catch (e: Exception) {
                         if (!subscriber.isUnsubscribed) {
