@@ -3,8 +3,6 @@ package mangarr.tachibridge.runtime
 import io.github.oshai.kotlinlogging.KotlinLogging
 import eu.kanade.tachiyomi.network.HttpException
 import kotlinx.coroutines.delay
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.Serializable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -30,15 +28,12 @@ import mangarr.tachibridge.repo.ExtensionRepoService
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import java.security.MessageDigest
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.exists
-import kotlin.io.path.readText
-import kotlin.io.path.writeText
 
 private val logger = KotlinLogging.logger {}
 private val json = Json { ignoreUnknownKeys = true }
@@ -66,8 +61,8 @@ class BridgeService(
         feedCache.entries.removeIf { (_, cached) -> cached.expiresAt <= now }
         readerPageCache.entries.removeIf { (_, cached) -> cached.expiresAt <= now }
 
-        val deletedFeedFiles = pruneFeedCacheFiles(now)
-        val deletedReaderPageFiles = pruneReaderPageCacheFiles(now)
+        val deletedFeedFiles = pruneFeedCacheFiles(json, feedCacheDir, now)
+        val deletedReaderPageFiles = pruneReaderPageCacheFiles(json, readerPageCacheDir, now)
         val storage = downloadStorage.pruneCachedArtifacts(now = now)
 
         return CachePruneSummary(
@@ -130,7 +125,7 @@ class BridgeService(
                                 source.lang.lowercase().contains(normalizedQuery)
                         }
                 }.take(cappedLimit)
-                .map { normalizeRepoEntry(it) }
+                .map { normalizeRepoEntry(it, repoService.currentRepoIndexUrl()) }
                 .toList()
 
         return buildJsonObject {
@@ -480,7 +475,7 @@ class BridgeService(
         readerPageCache[cacheKey]?.takeIf { it.expiresAt > now }?.let { cached ->
             return PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
         }
-        loadPersistedReaderPage(cacheKey, now)?.let { cached ->
+        loadPersistedReaderPage(json, readerPageCacheDir, cacheKey, now)?.let { cached ->
             readerPageCache[cacheKey] = cached
             return PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
         }
@@ -491,7 +486,7 @@ class BridgeService(
             readerPageCache[cacheKey]?.takeIf { it.expiresAt > currentTime }?.let { cached ->
                 return@withLock PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
             }
-            loadPersistedReaderPage(cacheKey, currentTime)?.let { cached ->
+            loadPersistedReaderPage(json, readerPageCacheDir, cacheKey, currentTime)?.let { cached ->
                 readerPageCache[cacheKey] = cached
                 return@withLock PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
             }
@@ -504,7 +499,7 @@ class BridgeService(
                     expiresAt = System.currentTimeMillis() + READER_PAGE_CACHE_TTL_MS,
                 )
             readerPageCache[cacheKey] = cached
-            persistReaderPage(cacheKey, cached)
+            persistReaderPage(json, readerPageCacheDir, cacheKey, cached)
             PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
         }
     }
@@ -823,7 +818,7 @@ class BridgeService(
         val cacheKey = "$feed:$sourceId:$page:$normalizedLimit"
         val now = System.currentTimeMillis()
         feedCache[cacheKey]?.takeIf { it.expiresAt > now }?.let { return it.payload }
-        loadPersistedFeed(cacheKey, now)?.let { payload ->
+        loadPersistedFeed(json, feedCacheDir, cacheKey, now)?.let { payload ->
             feedCache[cacheKey] = CachedFeedResult(payload = payload, expiresAt = now + FEED_CACHE_TTL_MS)
             return payload
         }
@@ -886,7 +881,7 @@ class BridgeService(
 
     private fun storeFeedCache(cacheKey: String, payload: JsonObject, expiresAt: Long) {
         feedCache[cacheKey] = CachedFeedResult(payload = payload, expiresAt = expiresAt)
-        persistFeed(cacheKey, payload, expiresAt)
+        persistFeed(json, feedCacheDir, cacheKey, payload, expiresAt)
     }
 
     private suspend fun <T> withSourceRequestRetry(
@@ -1020,215 +1015,6 @@ class BridgeService(
         }
     }
 
-    private fun firstLocalizedValue(element: JsonElement?): String? {
-        val values =
-            element
-                ?.jsonObject
-                ?.values
-                ?.mapNotNull { value -> value.jsonPrimitive.contentOrNull?.trim()?.takeIf { it.isNotEmpty() } }
-                ?: return null
-        return values.firstOrNull()
-    }
-
-    private fun normalizeRepoEntry(entry: mangarr.tachibridge.repo.ExtensionRepoEntry): JsonObject =
-        buildJsonObject {
-            put("pkg", entry.pkg)
-            put("name", normalizeExtensionName(entry.name))
-            put("version", entry.version)
-            put("lang", normalizeLangCode(entry.lang))
-            put("nsfw", (entry.nsfw ?: 0) == 1)
-            iconUrl(repoService.currentRepoIndexUrl(), entry.pkg)?.let { put("icon", it) }
-            put(
-                "sources",
-                JsonArray(
-                    entry.sources.map { source ->
-                        buildJsonObject {
-                            put("id", source.id.toString())
-                            put("name", source.name)
-                            put("lang", normalizeLangCode(source.lang))
-                            put("supportsLatest", source.supportsLatest ?: true)
-                        }
-                    },
-                ),
-            )
-        }
-
-    private fun normalizeExtensionName(name: String): String = name.removePrefix("Tachiyomi: ").trim()
-
-    private fun repositoryLanguages(entries: List<mangarr.tachibridge.repo.ExtensionRepoEntry>): List<JsonPrimitive> =
-        entries
-            .asSequence()
-            .flatMap { entry -> sequenceOf(entry.lang) + entry.sources.asSequence().map { source -> source.lang } }
-            .map { normalizeLangCode(it) }
-            .filter { it.isNotBlank() }
-            .distinct()
-            .sorted()
-            .map(::JsonPrimitive)
-            .toList()
-
-    private fun normalizeLangCode(lang: String): String {
-        val normalized = lang.trim().ifBlank { "all" }
-        return if (normalized == "all") "multi" else normalized
-    }
-
-    private fun iconUrl(repoIndexUrl: String, pkg: String): String? {
-        val normalizedRepoUrl = repoIndexUrl.trim()
-        if (normalizedRepoUrl.isBlank()) return null
-        return "${normalizedRepoUrl.substringBeforeLast("/")}/icon/$pkg.png"
-    }
-
-    private fun loadPersistedFeed(cacheKey: String, now: Long): JsonObject? {
-        val cachePath = feedCachePath(cacheKey)
-        if (!cachePath.exists()) {
-            return null
-        }
-
-        return runCatching {
-            val snapshot =
-                json.decodeFromString(
-                    CachedFeedSnapshot.serializer(),
-                    cachePath.readText(),
-                )
-            if (snapshot.expiresAt <= now) {
-                Files.deleteIfExists(cachePath)
-                null
-            } else {
-                snapshot.payload
-            }
-        }.getOrNull()
-    }
-
-    private fun persistFeed(cacheKey: String, payload: JsonObject, expiresAt: Long) {
-        runCatching {
-            Files.createDirectories(feedCacheDir)
-            feedCachePath(cacheKey).writeText(
-                json.encodeToString(
-                    CachedFeedSnapshot.serializer(),
-                    CachedFeedSnapshot(expiresAt = expiresAt, payload = payload),
-                ),
-            )
-        }.onFailure { error ->
-            logger.warn(error) { "Failed to persist explore feed cache" }
-        }
-    }
-
-    private fun loadPersistedReaderPage(cacheKey: String, now: Long): CachedReaderPage? {
-        val metaPath = readerPageMetaPath(cacheKey)
-        val bodyPath = readerPageBodyPath(cacheKey)
-        if (!metaPath.exists() || !bodyPath.exists()) {
-            return null
-        }
-
-        return runCatching {
-            val snapshot =
-                json.decodeFromString(
-                    CachedReaderPageSnapshot.serializer(),
-                    metaPath.readText(),
-                )
-            if (snapshot.expiresAt <= now) {
-                Files.deleteIfExists(metaPath)
-                Files.deleteIfExists(bodyPath)
-                null
-            } else {
-                CachedReaderPage(
-                    contentType = snapshot.contentType,
-                    bytes = Files.readAllBytes(bodyPath),
-                    expiresAt = snapshot.expiresAt,
-                )
-            }
-        }.getOrElse { error ->
-            logger.warn(error) { "Failed to read persisted reader page cache" }
-            Files.deleteIfExists(metaPath)
-            Files.deleteIfExists(bodyPath)
-            null
-        }
-    }
-
-    private fun persistReaderPage(cacheKey: String, payload: CachedReaderPage) {
-        runCatching {
-            Files.createDirectories(readerPageCacheDir)
-            Files.write(readerPageBodyPath(cacheKey), payload.bytes)
-            readerPageMetaPath(cacheKey).writeText(
-                json.encodeToString(
-                    CachedReaderPageSnapshot.serializer(),
-                    CachedReaderPageSnapshot(
-                        contentType = payload.contentType,
-                        expiresAt = payload.expiresAt,
-                    ),
-                ),
-            )
-        }.onFailure { error ->
-            logger.warn(error) { "Failed to persist reader page cache" }
-        }
-    }
-
-    private fun pruneFeedCacheFiles(now: Long): Int {
-        if (!feedCacheDir.exists()) {
-            return 0
-        }
-        var deleted = 0
-        Files.list(feedCacheDir).use { entries ->
-            entries.filter { path -> Files.isRegularFile(path) && path.fileName.toString().endsWith(".json") }.forEach { path ->
-                val remove =
-                    runCatching {
-                        val snapshot =
-                            json.decodeFromString(
-                                CachedFeedSnapshot.serializer(),
-                                path.readText(),
-                            )
-                        snapshot.expiresAt <= now
-                    }.getOrElse { true }
-                if (remove && Files.deleteIfExists(path)) {
-                    deleted += 1
-                }
-            }
-        }
-        return deleted
-    }
-
-    private fun pruneReaderPageCacheFiles(now: Long): Int {
-        if (!readerPageCacheDir.exists()) {
-            return 0
-        }
-        var deleted = 0
-        Files.list(readerPageCacheDir).use { entries ->
-            entries.filter { path -> Files.isRegularFile(path) && path.fileName.toString().endsWith(".json") }.forEach { metaPath ->
-                val cacheKey = metaPath.fileName.toString().removeSuffix(".json")
-                val bodyPath = readerPageCacheDir.resolve("$cacheKey.bin")
-                val remove =
-                    runCatching {
-                        val snapshot =
-                            json.decodeFromString(
-                                CachedReaderPageSnapshot.serializer(),
-                                metaPath.readText(),
-                            )
-                        snapshot.expiresAt <= now || !bodyPath.exists()
-                    }.getOrElse { true }
-                if (remove) {
-                    if (Files.deleteIfExists(metaPath)) {
-                        deleted += 1
-                    }
-                    Files.deleteIfExists(bodyPath)
-                }
-            }
-        }
-        return deleted
-    }
-
-    private fun feedCachePath(cacheKey: String): Path = feedCacheDir.resolve("${hashCacheKey(cacheKey)}.json")
-
-    private fun readerPageMetaPath(cacheKey: String): Path =
-        readerPageCacheDir.resolve("${hashCacheKey(cacheKey)}.json")
-
-    private fun readerPageBodyPath(cacheKey: String): Path =
-        readerPageCacheDir.resolve("${hashCacheKey(cacheKey)}.bin")
-
-    private fun hashCacheKey(value: String): String =
-        MessageDigest
-            .getInstance("SHA-1")
-            .digest(value.toByteArray(Charsets.UTF_8))
-            .joinToString("") { byte -> "%02x".format(byte) }
-
     private fun normalizeFilter(filter: mangarr.tachibridge.extensions.Filter): JsonObject {
         val parsedData =
             runCatching { json.parseToJsonElement(filter.data) }
@@ -1280,18 +1066,6 @@ data class CachePruneSummary(
     val deletedGeneratedArchives: Int,
 )
 
-private data class CachedReaderPage(
-    val contentType: String,
-    val bytes: ByteArray,
-    val expiresAt: Long,
-)
-
-@Serializable
-private data class CachedReaderPageSnapshot(
-    val contentType: String,
-    val expiresAt: Long,
-)
-
 private fun mangarr.tachibridge.config.BridgeConfig.SourceInfo.toPayload() =
     SourcePayload(
         id = id.toString(),
@@ -1300,14 +1074,3 @@ private fun mangarr.tachibridge.config.BridgeConfig.SourceInfo.toPayload() =
         supportsLatest = supportsLatest,
         enabled = enabled,
     )
-
-private data class CachedFeedResult(
-    val payload: JsonObject,
-    val expiresAt: Long,
-)
-
-@Serializable
-private data class CachedFeedSnapshot(
-    val expiresAt: Long,
-    val payload: JsonObject,
-)
