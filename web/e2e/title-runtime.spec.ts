@@ -11,7 +11,7 @@ test.beforeEach(async ({ page }) => {
 test('title page exposes source status and offline preparation controls', async ({ page }) => {
 	const titlePath = await ensureReadableLibraryTitlePath(page);
 	await page.goto(titlePath);
-	await expect(page).toHaveURL(/\/title\/.+--/);
+	await expect(page).toHaveURL(/\/title\/[^/?#]+$/);
 	await expect(page.getByRole('button', { name: /Prepare offline/i })).toBeVisible();
 	await expect(page.getByRole('button', { name: /Refresh source/i })).toBeVisible();
 	await expect(

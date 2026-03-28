@@ -3,6 +3,8 @@ import { v } from 'convex/values';
 
 import { mutation, query } from './_generated/server';
 
+const SESSION_TOUCH_DEBOUNCE_MS = 60 * 1000;
+
 const publicUser = v.object({
 	_id: v.id('users'),
 	username: v.string(),
@@ -246,6 +248,13 @@ export const touchBrowserSession = mutation({
 			.unique();
 
 		if (!session || session.revokedAt) {
+			return { touched: false };
+		}
+		const previousLastUsedAt = session.lastUsedAt ?? session.createdAt;
+		if (args.lastUsedAt <= previousLastUsedAt) {
+			return { touched: false };
+		}
+		if (args.lastUsedAt - previousLastUsedAt < SESSION_TOUCH_DEBOUNCE_MS) {
 			return { touched: false };
 		}
 

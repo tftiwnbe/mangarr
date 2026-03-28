@@ -110,10 +110,14 @@ export async function resolveAuthState(event: RequestEvent): Promise<AuthState> 
 	const lastUsedAt = lookup.session.lastUsedAt ?? lookup.session.createdAt;
 	if (now - lastUsedAt >= SESSION_REFRESH_WINDOW_MS) {
 		const client = getConvexClient();
-		await client.mutation(convexApi.auth.touchBrowserSession, {
-			sessionTokenHash: hashToken(sessionToken),
-			lastUsedAt: now
-		});
+		try {
+			await client.mutation(convexApi.auth.touchBrowserSession, {
+				sessionTokenHash: hashToken(sessionToken),
+				lastUsedAt: now
+			});
+		} catch {
+			// Session refresh is best-effort; do not fail the request on a touch race.
+		}
 	}
 
 	return {

@@ -123,11 +123,11 @@ async function enqueueCommand(
 		const existing = await ctx.db
 			.query('commands')
 			.withIndex('by_idempotency_key', (q) => q.eq('idempotencyKey', args.idempotencyKey!))
-			.collect();
+			.order('desc')
+			.take(5);
 
 		const reusable = existing
 			.filter((row) => row.requestedByUserId === (identity.subject as GenericId<'users'>))
-			.sort((left, right) => right.createdAt - left.createdAt)
 			.find((row) => REUSABLE_STATUSES.has(row.status as CommandStatus));
 
 		if (reusable) {
@@ -262,7 +262,8 @@ export const enqueueExploreFeed = mutation({
 				sourceId: args.sourceId,
 				page: args.page,
 				limit: args.limit
-			}
+			},
+			idempotencyKey: `explore.feed:${args.feedType}:${args.sourceId}:${args.page}:${args.limit}`
 		})
 });
 

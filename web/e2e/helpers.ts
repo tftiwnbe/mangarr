@@ -18,11 +18,6 @@ type VisibleLibraryTitle = {
 	};
 };
 
-type AnyLibraryTitle = HiddenLibraryTitle &
-	VisibleLibraryTitle & {
-		listedInLibrary?: boolean;
-	};
-
 let cachedConvexToken: string | null = null;
 
 export async function login(page: Page) {
@@ -84,14 +79,6 @@ async function listHiddenLibraryTitles(page: Page) {
 	return callConvex<HiddenLibraryTitle[]>(page, '/api/query', 'library:listHiddenMine', {});
 }
 
-async function listAllLibraryTitles(page: Page) {
-	const [visibleTitles, hiddenTitles] = await Promise.all([
-		listVisibleLibraryTitles(page),
-		listHiddenLibraryTitles(page)
-	]);
-	return [...visibleTitles, ...hiddenTitles] as AnyLibraryTitle[];
-}
-
 export async function firstExploreImportCard(page: Page): Promise<Locator> {
 	await page.goto('/explore');
 	const mangadexCard = page.locator(
@@ -135,7 +122,7 @@ export async function ensureHiddenImportExists(page: Page): Promise<{
 	if (hiddenTitles.length === 0) {
 		const card = await firstExploreImportCard(page);
 		await card.click();
-		await page.waitForURL(/\/title\/.+--/);
+		await page.waitForURL(/\/title\/[^/?#]+$/);
 		hiddenTitles = await listHiddenLibraryTitles(page);
 	}
 
@@ -191,17 +178,27 @@ export async function ensureVisibleLibraryTitle(page: Page) {
 }
 
 export async function ensureReadableLibraryTitlePath(page: Page) {
-	let titles = await listAllLibraryTitles(page);
+	let titles = await listVisibleLibraryTitles(page);
 	if (titles.length === 0) {
 		await ensureVisibleLibraryTitle(page);
-		titles = await listAllLibraryTitles(page);
+		titles = await listVisibleLibraryTitles(page);
 	}
 
 	const readableTitle =
 		titles.find((title) => Number(title.chapterStats?.total ?? 0) > 0) ?? titles[0];
 	expect(readableTitle).toBeTruthy();
 
-	return `/title/${readableTitle!._id}`;
+	await page.goto('/library');
+	const card = page
+		.locator(`a[href^="/title/"]`)
+		.filter({
+			has: page.locator(`p:has-text("${readableTitle!.title}")`)
+		})
+		.first();
+	await expect(card).toBeVisible();
+	const href = await card.getAttribute('href');
+	expect(href).toBeTruthy();
+	return href!;
 }
 
 export async function ensureDownloadedChapter(page: Page, titlePath: string) {

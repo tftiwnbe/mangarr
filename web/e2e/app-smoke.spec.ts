@@ -4,6 +4,7 @@ import {
 	ensureHiddenImportExists,
 	ensureReadableLibraryTitlePath,
 	ensureVisibleLibraryTitle,
+	firstExploreImportCard,
 	login,
 	openReaderFromTitle
 } from './helpers';
@@ -22,7 +23,7 @@ test('opens a library title page from the library grid', async ({ page }) => {
 	const cardTitle = ((await libraryCard.locator('p').first().textContent()) ?? '').trim();
 	await libraryCard.click();
 
-	await expect(page).toHaveURL(/\/title\/.+--/);
+	await expect(page).toHaveURL(/\/title\/[^/?#]+$/);
 	await expect(page.getByRole('heading', { name: new RegExp(cardTitle, 'i') })).toBeVisible();
 	await expect(page.getByRole('button', { name: /^Chapters/i })).toBeVisible();
 });
@@ -30,13 +31,9 @@ test('opens a library title page from the library grid', async ({ page }) => {
 test('opens an explore title and redirects into the real title page', async ({ page }) => {
 	await expect(async () => {
 		await page.goto('/explore');
-		await page.getByRole('button', { name: /^MangaDex /i }).click();
-		const card = page
-			.locator('a[href^="/title/open"][href*="source_pkg=eu.kanade.tachiyomi.extension.all.mangadex"]')
-			.first();
-		await expect(card).toBeVisible();
+		const card = await firstExploreImportCard(page);
 		await card.click();
-		await page.waitForURL(/\/title\/.+--/);
+		await page.waitForURL(/\/title\/[^/?#]+$/);
 		await expect(page.getByRole('heading').first()).toBeVisible();
 	}).toPass();
 });
@@ -120,7 +117,9 @@ test('opens the reader and loads page images', async ({ page }) => {
 	await expect
 		.poll(async () =>
 			page.evaluate(() =>
-				Array.from(document.querySelectorAll<HTMLImageElement>('img[alt^="Page "]')).some((img) => {
+				Array.from(
+					document.querySelectorAll<HTMLImageElement>('img[src*="/api/internal/bridge/"][src*="page"]')
+				).some((img) => {
 					const style = window.getComputedStyle(img);
 					return img.naturalWidth > 0 && style.opacity !== '0' && style.visibility !== 'hidden';
 				})
