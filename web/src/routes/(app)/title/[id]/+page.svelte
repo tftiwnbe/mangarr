@@ -418,7 +418,7 @@
 				titleChapters.find((chapter) => chapter._id === title.readingProgress.latest?.chapterId) ?? null
 			);
 		}
-		return titleChapters.length ? titleChapters.at(-1) ?? null : null;
+		return titleChapters[0] ?? null;
 	});
 	const displayStatus = $derived.by(() => {
 		const status = Number(title?.status ?? 0);

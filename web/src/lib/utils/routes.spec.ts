@@ -16,7 +16,13 @@ describe('routes', () => {
 
 	it('builds and parses title routes with slugs', () => {
 		const path = buildTitlePath('k171kyync164t0ajv300caekj583nm1y', 'Chainsaw Man');
-		expect(path).toBe('/title/k171kyync164t0ajv300caekj583nm1y--chainsaw-man');
+		expect(path).toBe('/title/chainsaw-man~k171kyync164t0ajv300caekj583nm1y');
+		expect(parseTitleRouteParam('chainsaw-man~k171kyync164t0ajv300caekj583nm1y')).toBe(
+			'k171kyync164t0ajv300caekj583nm1y'
+		);
+	});
+
+	it('keeps parsing legacy title routes', () => {
 		expect(parseTitleRouteParam('k171kyync164t0ajv300caekj583nm1y--chainsaw-man')).toBe(
 			'k171kyync164t0ajv300caekj583nm1y'
 		);
@@ -31,9 +37,11 @@ describe('routes', () => {
 			chapterNumber: 1
 		});
 
-		expect(path).toBe(
-			'/reader/title123--sophisticated-senpai/chapter456--chapter-1-chapter-1-meet-cute'
-		);
+		expect(path).toBe('/reader/sophisticated-senpai~title123/ch-1~chapter456');
+		expect(parseReaderChapterParam('ch-1~chapter456')).toBe('chapter456');
+	});
+
+	it('keeps parsing legacy reader chapter routes', () => {
 		expect(parseReaderChapterParam('chapter456--chapter-1-chapter-1-meet-cute')).toBe('chapter456');
 	});
 });
