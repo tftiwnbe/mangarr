@@ -6,7 +6,6 @@
 	import {
 		BookIcon,
 		CaretLeftIcon,
-		CheckIcon,
 		DownloadIcon,
 		GearIcon,
 		PlayIcon,
@@ -15,6 +14,9 @@
 	} from 'phosphor-svelte';
 
 	import type { Id } from '$convex/_generated/dataModel';
+	import TitleChaptersTab from '$lib/components/title-chapters-tab.svelte';
+	import TitleCommentsTab from '$lib/components/title-comments-tab.svelte';
+	import TitleInfoTab from '$lib/components/title-info-tab.svelte';
 	import { convexApi } from '$lib/convex/api';
 	import TitleSourcePanel from '$lib/components/title-source-panel.svelte';
 	import { waitForCommand } from '$lib/client/commands';
@@ -24,11 +26,6 @@
 	import { _ } from '$lib/i18n';
 	import { navigateBack, navHistoryRevision, resolveNavBackTarget } from '$lib/stores/nav-history';
 	import { panelOverlayOpen } from '$lib/stores/ui';
-	import {
-		formatChapterNumberValue,
-		hasDisplayableChapterNumber,
-		parseStructuredChapterName
-	} from '$lib/utils/chapter-display';
 	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
 	import {
 		effectiveSourceHealthState,
@@ -627,70 +624,12 @@
 		return $_('title.noChaptersDescription');
 	});
 
-	function formatDate(value?: number | null): string {
-		if (!value) return '';
-		const date = new Date(value);
-		if (Number.isNaN(date.getTime())) return '';
-		return date.toLocaleDateString();
-	}
-
-	function formatTimestamp(value: number): string {
-		return new Date(value).toLocaleString();
-	}
-
 	function sourceDisplayName(sourceId: string, fallback: string, sourceName?: string | null): string {
 		return sourceName?.trim() || sources.find((source) => source.id === sourceId)?.name || fallback;
 	}
 
 	function sourceVariantKey(sourceId: string, titleUrl: string): string {
 		return `${sourceId}::${titleUrl}`;
-	}
-
-	function chapterLabel(chapter: ChapterRow): string {
-		if (hasDisplayableChapterNumber(chapter.chapterNumber)) {
-			return $_('chapter.chapterShort', {
-				values: { number: formatChapterNumberValue(chapter.chapterNumber) }
-			});
-		}
-		const parsed = parseStructuredChapterName(chapter.chapterName);
-		if (parsed) {
-			const parts: string[] = [];
-			if (parsed.volumeNumber) {
-				parts.push($_('chapter.volumeShort', { values: { number: parsed.volumeNumber } }));
-			}
-			if (parsed.chapterNumber) {
-				parts.push($_('chapter.chapterShort', { values: { number: parsed.chapterNumber } }));
-			}
-			if (parts.length > 0) {
-				return parts.join(' · ');
-			}
-		}
-		return chapter.chapterName || $_('title.noChapters');
-	}
-
-	function chapterDetail(chapter: ChapterRow): string | null {
-		const raw = chapter.chapterName.trim();
-		if (!raw) return null;
-		if (hasDisplayableChapterNumber(chapter.chapterNumber)) {
-			const chapterShort = $_('chapter.chapterShort', {
-				values: { number: formatChapterNumberValue(chapter.chapterNumber) }
-			});
-			if (raw === chapterShort) return null;
-			return raw;
-		}
-		const parsed = parseStructuredChapterName(raw);
-		if (parsed) {
-			return parsed.detail;
-		}
-		return raw;
-	}
-
-	function chapterDownloadState(chapter: ChapterRow): string | null {
-		if (chapter.downloadStatus === 'downloaded') return $_('chapter.downloaded');
-		if (chapter.downloadStatus === 'downloading') return $_('chapter.downloading');
-		if (chapter.downloadStatus === 'queued') return $_('downloads.queued');
-		if (chapter.downloadStatus === 'failed') return $_('downloads.failed');
-		return null;
 	}
 
 	async function retryTitleHydration() {
@@ -1386,209 +1325,37 @@
 
 				<div class="mt-4">
 					{#if activeTab === 'info'}
-						<div class="flex flex-col gap-8">
-							{#if title.description}
-								<div>
-									<p
-										class="text-sm leading-relaxed text-[var(--text-soft)] {!showFullDescription
-											? 'line-clamp-6'
-											: ''}"
-									>
-										{title.description}
-									</p>
-									{#if title.description.length > 300}
-										<button
-											type="button"
-											class="mt-2 text-xs text-[var(--void-7)] transition-colors hover:text-[var(--text-muted)]"
-											onclick={() => (showFullDescription = !showFullDescription)}
-										>
-											{showFullDescription ? $_('common.less') : $_('common.more')}
-										</button>
-									{/if}
-								</div>
-							{:else}
-								<p class="text-sm text-[var(--text-ghost)]">{$_('title.noDescription')}</p>
-							{/if}
-
-							{#if genres.length > 0}
-								<div class="flex flex-wrap gap-2">
-									{#each genres as genre (genre)}
-										<span class="bg-[var(--void-2)] px-2.5 py-1 text-[11px] text-[var(--text-ghost)]">
-											{genre}
-										</span>
-									{/each}
-								</div>
-							{/if}
-
-							<div class="flex flex-col gap-8">
-								<div class="flex flex-col gap-3">
-									{#if author}
-										<div class="flex items-baseline justify-between gap-4">
-											<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
-												{$_('title.author')}
-											</span>
-											<span class="text-xs text-[var(--text-muted)]">{author}</span>
-										</div>
-									{/if}
-									{#if artist && artist !== author}
-										<div class="flex items-baseline justify-between gap-4">
-											<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
-												{$_('title.artist')}
-											</span>
-											<span class="text-xs text-[var(--text-muted)]">{artist}</span>
-										</div>
-									{/if}
-								</div>
-
-								<div class="flex flex-col gap-3">
-									{#if displayStatus}
-										<div class="flex items-baseline justify-between gap-4">
-											<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
-												{$_('title.status')}
-											</span>
-											<span class="text-xs text-[var(--text-muted)]">{displayStatus}</span>
-										</div>
-									{/if}
-									<div class="flex items-baseline justify-between gap-4">
-										<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
-											{$_('title.readingSource')}
-										</span>
-										<span class="text-right text-xs text-[var(--text-muted)]">
-											{sourceName} [{title.sourceLang}]
-										</span>
-									</div>
-									<div class="flex items-baseline justify-between gap-4">
-										<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
-											{$_('title.chapters')}
-										</span>
-										<span class="text-xs text-[var(--text-muted)]">{chaptersLabel}</span>
-									</div>
-									<div class="flex items-baseline justify-between gap-4">
-										<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
-											{$_('title.sources')}
-										</span>
-										<span class="text-xs text-[var(--text-muted)]">{sourcesLabel}</span>
-									</div>
-									<div class="flex items-baseline justify-between gap-4">
-										<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
-											{$_('title.downloadMonitoring')}
-										</span>
-										<span class="text-xs text-[var(--text-muted)]">
-											{updatesEnabled ? $_('downloads.enabled') : $_('downloads.disabled')}
-										</span>
-									</div>
-								</div>
-							</div>
-						</div>
+						<TitleInfoTab
+							description={title.description ?? null}
+							showFullDescription={showFullDescription}
+							onToggleDescription={() => (showFullDescription = !showFullDescription)}
+							genres={genres}
+							author={author}
+							artist={artist}
+							displayStatus={displayStatus}
+							sourceName={sourceName}
+							sourceLang={title.sourceLang}
+							chaptersLabel={chaptersLabel}
+							sourcesLabel={sourcesLabel}
+							updatesEnabled={updatesEnabled}
+						/>
 					{:else if activeTab === 'chapters'}
-						{#if titleChapters.length === 0}
-							<div class="flex flex-col items-center gap-3 py-16">
-								<BookIcon size={28} class="text-[var(--void-5)]" />
-								<p class="text-sm text-[var(--text-ghost)]">
-									{chapterHydrationHeadline}
-								</p>
-								<p class="text-xs text-[var(--text-dim)]">
-									{chapterHydrationDescription}
-								</p>
-								{#if chapterHydrationStatus === 'failed'}
-									<Button variant="outline" size="sm" onclick={() => void retryTitleHydration()}>
-										{$_('common.retry')}
-									</Button>
-								{/if}
-							</div>
-						{:else}
-							<div class="flex flex-col">
-								{#each titleChapters as chapter (chapter._id)}
-									{@const detail = chapterDetail(chapter)}
-									{@const downloadState = chapterDownloadState(chapter)}
-									<div
-										class="flex items-center gap-4 py-3"
-										data-testid="chapter-row"
-										data-chapter-id={chapter._id}
-										data-download-status={chapter.downloadStatus}
-									>
-										<div class="min-w-0 flex-1">
-											<button
-												type="button"
-												data-testid="chapter-open"
-												class="flex w-full items-baseline gap-2 text-left"
-									onclick={() => openChapter(chapter)}
-											>
-												<span class="shrink-0 text-sm text-[var(--text)]">
-													{chapterLabel(chapter)}
-												</span>
-												{#if detail}
-													<span class="truncate text-sm text-[var(--text-muted)]">{detail}</span>
-												{/if}
-											</button>
-											<div class="mt-1 flex items-center gap-2 text-[11px] text-[var(--text-ghost)]">
-												{#if chapter.dateUpload}
-													<span>{formatDate(chapter.dateUpload)}</span>
-												{/if}
-												{#if chapter.scanlator}
-													<span class="text-[var(--void-5)]">·</span>
-													<span class="truncate">{chapter.scanlator}</span>
-												{/if}
-												{#if downloadState}
-													<span class="text-[var(--void-5)]">·</span>
-													<span>{downloadState}</span>
-												{/if}
-											</div>
-											{#if chapter.lastErrorMessage}
-												<p class="mt-1 text-[11px] text-[var(--error)]">{chapter.lastErrorMessage}</p>
-											{/if}
-										</div>
-										<div class="flex shrink-0 items-center gap-2">
-											{#if chapter.downloadStatus === 'downloaded'}
-												<CheckIcon size={13} class="text-[var(--void-7)]" />
-											{:else}
-												<Button
-													variant="ghost"
-													size="sm"
-													data-testid="chapter-download"
-													onclick={() => downloadChapter(chapter._id)}
-													disabled={chapter.downloadStatus === 'queued' ||
-														chapter.downloadStatus === 'downloading' ||
-														downloadingChapterIds.includes(chapter._id)}
-												>
-													{#if chapter.downloadStatus === 'queued' ||
-														chapter.downloadStatus === 'downloading' ||
-														downloadingChapterIds.includes(chapter._id)}
-														<SpinnerIcon size={12} class="animate-spin" />
-													{:else}
-														<DownloadIcon size={12} />
-													{/if}
-												</Button>
-											{/if}
-										</div>
-									</div>
-								{/each}
-							</div>
-						{/if}
-					{:else if titleCommentsQuery.isLoading}
-						<div class="flex items-center justify-center gap-2 py-6 text-sm text-[var(--text-ghost)]">
-							<SpinnerIcon size={16} class="animate-spin" />
-							<span>{$_('common.loading')}</span>
-						</div>
-					{:else if titleComments.length === 0}
-						<p class="py-6 text-center text-sm text-[var(--text-ghost)]">{$_('title.noComments')}</p>
+						<TitleChaptersTab
+							titleChapters={titleChapters}
+							chapterHydrationStatus={chapterHydrationStatus}
+							chapterHydrationHeadline={chapterHydrationHeadline}
+							chapterHydrationDescription={chapterHydrationDescription}
+							downloadingChapterIds={downloadingChapterIds}
+							onRetryHydration={() => void retryTitleHydration()}
+							onOpenChapter={(chapter) => openChapter(chapter as ChapterRow)}
+							onDownloadChapter={(chapterId) =>
+								void downloadChapter(chapterId as Id<'libraryChapters'>)}
+						/>
 					{:else}
-						<div class="flex flex-col gap-4">
-							{#each titleComments as comment (comment._id)}
-								<div class="flex flex-col gap-1.5 py-2">
-									<div class="flex items-center justify-between gap-4 text-[10px] text-[var(--text-ghost)]">
-										<span class="truncate">
-											{comment.chapterName}
-											{#if comment.chapterNumber != null}
-												· {$_('reader.page')} {comment.pageIndex + 1}
-											{/if}
-										</span>
-										<span class="shrink-0">{formatTimestamp(comment.createdAt)}</span>
-									</div>
-									<p class="text-sm whitespace-pre-wrap text-[var(--text-soft)]">{comment.message}</p>
-								</div>
-							{/each}
-						</div>
+						<TitleCommentsTab
+							loading={titleCommentsQuery.isLoading}
+							titleComments={titleComments}
+						/>
 					{/if}
 				</div>
 			</div>
