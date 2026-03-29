@@ -17,14 +17,18 @@ JVM_OPTS=(
 )
 
 # Logging
-LOG_DIR="./logs"
-mkdir -p "$LOG_DIR"
-LOG_FILE="$LOG_DIR/bridge-$(date +%Y%m%d-%H%M%S).log"
+LOG_ROOT="${MANGARR_LOG_ROOT:-./config/logs}"
+LOG_DIR="${MANGARR_SYSTEM_LOG_DIR:-${LOG_ROOT}/system}"
+BRIDGE_LOG_DIR="${MANGARR_BRIDGE_LOG_DIR:-${LOG_ROOT}/bridge}"
+mkdir -p "$LOG_DIR" "$BRIDGE_LOG_DIR"
+LOG_FILE="$LOG_DIR/bridge-console-$(date +%Y%m%d-%H%M%S).log"
+export MANGARR_BRIDGE_LOG_DIR="$BRIDGE_LOG_DIR"
 
 echo "Starting bridge runtime..."
 echo "Port: $PORT"
 echo "Max Heap: $MAX_HEAP"
-echo "Log: $LOG_FILE"
+echo "Console Log: $LOG_FILE"
+echo "Structured Log Dir: $BRIDGE_LOG_DIR"
 
 # Check if JAR exists
 if [ ! -f "$JAR_FILE" ]; then

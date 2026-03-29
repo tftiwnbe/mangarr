@@ -1,40 +1,32 @@
-import anyAscii from 'any-ascii';
+import { buildChapterRouteBase, buildTitleRouteBase, decodeRouteSegment } from './route-segments';
 
-const NON_ALNUM_RE = /[^a-z0-9]+/g;
-
-function normalizeWhitespace(value: string): string {
-	return value.trim().replace(/\s+/g, ' ');
-}
-
-export function slugifySegment(value: string, fallback = 'item'): string {
-	const ascii = anyAscii(normalizeWhitespace(value)).toLowerCase();
-	const slug = ascii.replace(NON_ALNUM_RE, '-').replace(/^-+|-+$/g, '');
-	return slug || fallback;
-}
-
-export function buildTitlePath(titleId: string, _titleName: string): string {
-	const encoded = encodeURIComponent(titleId);
-	return `/title/${encoded}`;
+export function buildTitlePath(
+	_titleId: string,
+	titleName: string,
+	routeSegment?: string | null
+): string {
+	return `/title/${encodeURIComponent(routeSegment ?? buildTitleRouteBase(titleName))}`;
 }
 
 export function parseTitleRouteParam(value: string | null | undefined): string | null {
-	if (!value) return null;
-	try {
-		return decodeURIComponent(value);
-	} catch {
-		return null;
-	}
+	return decodeRouteSegment(value);
 }
 
-export function buildReaderPath(params: { titleId: string; chapterId: string }): string {
-	return `/reader/${encodeURIComponent(params.titleId)}/${encodeURIComponent(params.chapterId)}`;
+export function buildReaderPath(params: {
+	titleId: string;
+	titleName?: string | null;
+	titleRouteSegment?: string | null;
+	chapterId: string;
+	chapterName?: string | null;
+	chapterNumber?: number | null;
+	chapterRouteSegment?: string | null;
+}): string {
+	const titleSegment = params.titleRouteSegment ?? buildTitleRouteBase(params.titleName ?? '');
+	const chapterSegment =
+		params.chapterRouteSegment ?? buildChapterRouteBase(params.chapterName, params.chapterNumber);
+	return `/reader/${encodeURIComponent(titleSegment)}/${encodeURIComponent(chapterSegment)}`;
 }
 
 export function parseReaderChapterParam(value: string | null | undefined): string | null {
-	if (!value) return null;
-	try {
-		return decodeURIComponent(value);
-	} catch {
-		return null;
-	}
+	return decodeRouteSegment(value);
 }

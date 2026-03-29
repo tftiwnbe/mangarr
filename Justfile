@@ -227,6 +227,49 @@ smoke:
     docker compose -f compose.dev.yaml exec -T mangarr curl -fsS "http://127.0.0.1:{{ bridge_port }}/health" >/dev/null
     echo "Smoke checks passed."
 
+# Run web unit tests explicitly instead of on container startup
+[group('quality')]
+test-web-unit args="--run":
+    @echo "Running web unit tests..."
+    cd web && pnpm run test:unit -- {{ args }}
+
+# Run web browser tests against a running local runtime
+[group('quality')]
+test-web-e2e specs="e2e/app-smoke.spec.ts":
+    @echo "Running web end-to-end tests..."
+    cd web && PLAYWRIGHT_BASE_URL="http://127.0.0.1:{{ web_port }}" pnpm run test:e2e -- {{ specs }}
+
+# Rebuild the local runtime and then verify it explicitly
+[group('quality')]
+verify-runtime wait="15" specs="e2e/app-smoke.spec.ts":
+    @echo "Rebuilding local runtime and running verification checks..."
+    docker compose -f compose.dev.yaml up -d --build --force-recreate mangarr
+    sleep {{ wait }}
+    curl -fsS "http://127.0.0.1:{{ web_port }}" >/dev/null
+    docker compose -f compose.dev.yaml exec -T mangarr curl -fsS "http://127.0.0.1:{{ bridge_port }}/health" >/dev/null
+    cd web && PLAYWRIGHT_BASE_URL="http://127.0.0.1:{{ web_port }}" pnpm run test:e2e -- {{ specs }}
+
+# Start a fresh production-like stack with temporary host directories and smoke it
+[group('quality')]
+verify-prod tmp_root="/tmp/mangarr-predeploy" port="3837":
+    @echo "Running production-like verification with fresh host volumes..."
+    rm -rf "{{ tmp_root }}"
+    mkdir -p "{{ tmp_root }}/config" "{{ tmp_root }}/downloads"
+    MANGARR_CONFIG_DIR="{{ tmp_root }}/config" MANGARR_DOWNLOADS_HOST_DIR="{{ tmp_root }}/downloads" MANGARR_WEB_PORT="{{ port }}" docker compose -p mangarr-predeploy down --remove-orphans >/dev/null 2>&1 || true
+    MANGARR_CONFIG_DIR="{{ tmp_root }}/config" MANGARR_DOWNLOADS_HOST_DIR="{{ tmp_root }}/downloads" MANGARR_WEB_PORT="{{ port }}" docker compose -p mangarr-predeploy up -d --build
+    for i in $(seq 1 24); do \
+      if curl -fsS "http://127.0.0.1:{{ port }}/login" >/dev/null; then break; fi; \
+      sleep 5; \
+      if [ "$i" -eq 24 ]; then echo "Production-like smoke check timed out waiting for web startup" >&2; exit 1; fi; \
+    done
+    MANGARR_CONFIG_DIR="{{ tmp_root }}/config" MANGARR_DOWNLOADS_HOST_DIR="{{ tmp_root }}/downloads" MANGARR_WEB_PORT="{{ port }}" docker compose -p mangarr-predeploy ps
+    MANGARR_CONFIG_DIR="{{ tmp_root }}/config" MANGARR_DOWNLOADS_HOST_DIR="{{ tmp_root }}/downloads" MANGARR_WEB_PORT="{{ port }}" docker compose -p mangarr-predeploy down --remove-orphans
+
+# Tail current runtime logs from the dev container
+[group('runtime')]
+logs-runtime lines="200":
+    docker compose -f compose.dev.yaml logs --tail {{ lines }} -f mangarr
+
 # Audit dependencies
 [group('quality')]
 audit target="all":

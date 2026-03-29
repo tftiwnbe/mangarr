@@ -4,9 +4,22 @@ services:
       context: .
       dockerfile: Dockerfile
       target: mangarr-runtime
+    environment:
+      - MANGARR_PUBLIC_HOST=${MANGARR_PUBLIC_HOST:-127.0.0.1}
+      - MANGARR_PUBLIC_SCHEME=${MANGARR_PUBLIC_SCHEME:-http}
     ports:
-      - "3737:3737"
+      - "${MANGARR_WEB_PORT:-3737}:3737"
     volumes:
-      - ./config:/app/config
-      - ./data:/app/data
+      - ${MANGARR_CONFIG_DIR:-./config}:/app/config
+      - ${MANGARR_DOWNLOADS_HOST_DIR:-./data}:/app/downloads
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1:3737/login >/dev/null && curl -fsS http://127.0.0.1:3212/health >/dev/null"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
     restart: unless-stopped

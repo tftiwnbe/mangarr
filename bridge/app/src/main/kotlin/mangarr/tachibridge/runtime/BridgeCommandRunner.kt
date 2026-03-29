@@ -1,15 +1,18 @@
 package mangarr.tachibridge.runtime
 
-import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -18,9 +21,31 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import eu.kanade.tachiyomi.network.HttpException
 import mangarr.tachibridge.config.ConfigManager
+import mangarr.tachibridge.logging.EventLogger
+import mangarr.tachibridge.logging.LogContext
 
-private val logger = KotlinLogging.logger {}
+private val events = EventLogger.named(
+    "mangarr.tachibridge.runtime.BridgeCommandRunner",
+    "component" to "bridge_command_runner",
+)
+
+private val parallelizableCommandTypes =
+    setOf(
+        "extensions.repo.search",
+        "sources.preferences.fetch",
+        "explore.search",
+        "explore.popular",
+        "explore.latest",
+        "explore.title.fetch",
+        "explore.chapters.fetch",
+        "library.cover.cache",
+        "reader.pages.fetch",
+    )
+private const val DOWNLOAD_COMMAND_CONCURRENCY = 2
+private const val DOWNLOAD_PROGRESS_UPDATE_INTERVAL_MS = 1_250L
+private const val DOWNLOAD_LEASE_RENEW_INTERVAL_MS = 5_000L
 
 @Serializable
 data class CommandRunnerSnapshot(
@@ -57,6 +82,7 @@ class BridgeCommandRunner(
         snapshot = snapshot.copy(running = true)
         job =
             scope.launch {
+                recoverDownloadStateOnStartup()
                 while (isActive) {
                     poll()
                     delay(pollIntervalMs)
@@ -70,7 +96,7 @@ class BridgeCommandRunner(
         snapshot = snapshot.copy(running = false)
     }
 
-    private fun poll() {
+    private suspend fun poll() {
         val client = bridgeClient ?: return
         val now = System.currentTimeMillis()
         snapshot = snapshot.copy(lastPollAt = now)
@@ -92,85 +118,217 @@ class BridgeCommandRunner(
                                     add(JsonPrimitive("explore.title.fetch"))
                                     add(JsonPrimitive("reader.pages.fetch"))
                                     add(JsonPrimitive("library.chapters.sync"))
+                                    add(JsonPrimitive("library.cover.cache"))
                                     add(JsonPrimitive("library.import"))
                                     add(JsonPrimitive("downloads.chapter"))
                                 },
                             )
                             put("now", now)
-                            put("limit", 10)
+                            put("limit", 4)
                             put("leaseDurationMs", leaseDurationMs)
                         },
                     ),
                 )
 
-            for (command in leased) {
-                handleCommand(client, command)
+            if (leased.isNotEmpty()) {
+                events.debug(
+                    "bridge.commands.leased",
+                    "Leased bridge commands",
+                    "bridgeId" to bridgeId,
+                    "count" to leased.size,
+                )
             }
+
+            executeLeasedCommands(client, leased)
 
             snapshot = snapshot.copy(lastSuccessAt = now, lastError = null)
         } catch (error: Exception) {
-            logger.error(error) { "Bridge command poll failed" }
+            events.error(
+                "bridge.commands.poll_failed",
+                "Bridge command poll failed",
+                error,
+                "bridgeId" to bridgeId,
+            )
             snapshot = snapshot.copy(lastError = error.message ?: "Unknown command error")
         }
     }
 
-    private fun handleCommand(client: ConvexBridgeClient, command: LeaseCommand) {
-        val now = System.currentTimeMillis()
-        client.markCommandRunning(
-            client.payload(
-                buildJsonObject {
-                    put("commandId", command.id)
-                    put("bridgeId", bridgeId)
-                    put("now", now)
-                    put("leaseDurationMs", leaseDurationMs)
-                },
-            ),
-        )
+    private suspend fun recoverDownloadStateOnStartup() {
+        val client = bridgeClient ?: return
+        runCatching {
+            val recovered =
+                client.recoverActiveDownloads(
+                    client.payload(
+                        buildJsonObject {
+                            put("now", System.currentTimeMillis())
+                            put("forceRunningCommands", true)
+                        },
+                    ),
+                )
+            if (recovered.recoveredTasks > 0) {
+                events.info(
+                    "bridge.downloads.recovered",
+                    "Recovered active download state after bridge startup",
+                    "recoveredTasks" to recovered.recoveredTasks.toInt(),
+                    "requeuedTasks" to recovered.requeuedTasks.toInt(),
+                    "failedTasks" to recovered.failedTasks.toInt(),
+                )
+            }
+        }.onFailure { error ->
+            events.error(
+                "bridge.downloads.recovery_failed",
+                "Failed to recover active download state on startup",
+                error,
+                "bridgeId" to bridgeId,
+            )
+        }
+    }
 
-        try {
-            client.renewCommandLease(
+    private suspend fun executeLeasedCommands(
+        client: ConvexBridgeClient,
+        leased: List<LeaseCommand>,
+    ) {
+        if (leased.isEmpty()) {
+            return
+        }
+
+        if (leased.all { it.commandType in parallelizableCommandTypes }) {
+            executeWithConcurrency(client, leased, leased.size)
+            return
+        }
+
+        if (leased.all { it.commandType == "downloads.chapter" }) {
+            executeWithConcurrency(client, leased, DOWNLOAD_COMMAND_CONCURRENCY)
+            return
+        }
+
+        for (command in leased) {
+            handleCommand(client, command)
+        }
+    }
+
+    private suspend fun executeWithConcurrency(
+        client: ConvexBridgeClient,
+        leased: List<LeaseCommand>,
+        limit: Int,
+    ) {
+        coroutineScope {
+            val chunked = leased.chunked(limit.coerceAtLeast(1))
+            for (batch in chunked) {
+                batch.map { command ->
+                    async {
+                        handleCommand(client, command)
+                    }
+                }.awaitAll()
+            }
+        }
+    }
+
+    private fun handleCommand(client: ConvexBridgeClient, command: LeaseCommand) {
+        val startedAt = System.currentTimeMillis()
+        commandContext(command).use {
+            events.debug(
+                "bridge.command.started",
+                "Starting bridge command",
+                "attempt" to command.attemptCount.toInt() + 1,
+                "maxAttempts" to command.maxAttempts.toInt(),
+            )
+
+            client.markCommandRunning(
                 client.payload(
                     buildJsonObject {
                         put("commandId", command.id)
                         put("bridgeId", bridgeId)
-                        put("now", System.currentTimeMillis())
+                        put("now", startedAt)
                         put("leaseDurationMs", leaseDurationMs)
                     },
                 ),
             )
 
-            val result = executeCommand(client, command)
-            client.completeCommand(
-                client.payload(
-                    buildJsonObject {
-                        put("commandId", command.id)
-                        put("bridgeId", bridgeId)
-                        put("now", System.currentTimeMillis())
-                        put("result", result)
-                    },
-                ),
-            )
-        } catch (error: Exception) {
-            logger.error(error) { "Bridge command execution failed for ${command.commandType}" }
-            val retryDelayMs =
-                if (command.commandType == "downloads.chapter") {
-                    ConfigManager.config.downloads.failedRetryDelaySeconds * 1000L
+            try {
+                client.renewCommandLease(
+                    client.payload(
+                        buildJsonObject {
+                            put("commandId", command.id)
+                            put("bridgeId", bridgeId)
+                            put("now", System.currentTimeMillis())
+                            put("leaseDurationMs", leaseDurationMs)
+                        },
+                    ),
+                )
+
+                val result = executeCommand(client, command)
+                client.completeCommand(
+                    client.payload(
+                        buildJsonObject {
+                            put("commandId", command.id)
+                            put("bridgeId", bridgeId)
+                            put("now", System.currentTimeMillis())
+                            put("result", result)
+                        },
+                    ),
+                )
+                events.debug(
+                    "bridge.command.completed",
+                    "Completed bridge command",
+                    "durationMs" to (System.currentTimeMillis() - startedAt),
+                )
+            } catch (error: Exception) {
+                val retryable = isRetryableFailure(command, error)
+                val retryDelayMs =
+                    if (retryable && command.commandType == "downloads.chapter") {
+                        maxOf(
+                            ConfigManager.config.downloads.failedRetryDelaySeconds * 1000L,
+                            ((error as? HttpException)?.retryAfterSeconds ?: 0L) * 1000L,
+                        )
+                    } else {
+                        5_000L
+                    }
+                if (retryable) {
+                    events.error(
+                        "bridge.command.failed",
+                        "Bridge command execution failed",
+                        error,
+                        "durationMs" to (System.currentTimeMillis() - startedAt),
+                        "retryDelayMs" to retryDelayMs,
+                    )
                 } else {
-                    5_000L
+                    events.warn(
+                        "bridge.command.failed_permanent",
+                        "Bridge command failed permanently",
+                        "durationMs" to (System.currentTimeMillis() - startedAt),
+                        "retryDelayMs" to retryDelayMs,
+                        "throwable_class" to error::class.simpleName,
+                        "throwable_message" to error.message,
+                        "httpCode" to (error as? HttpException)?.code,
+                    )
                 }
-            client.failCommand(
-                client.payload(
-                    buildJsonObject {
-                        put("commandId", command.id)
-                        put("bridgeId", bridgeId)
-                        put("now", System.currentTimeMillis())
-                        put("message", error.message ?: "Unhandled bridge command error")
-                        put("retryDelayMs", retryDelayMs)
-                    },
-                ),
-            )
+                client.failCommand(
+                    client.payload(
+                        buildJsonObject {
+                            put("commandId", command.id)
+                            put("bridgeId", bridgeId)
+                            put("now", System.currentTimeMillis())
+                            put("message", error.message ?: "Unhandled bridge command error")
+                            put("retryDelayMs", retryDelayMs)
+                            put("retryable", retryable)
+                        },
+                    ),
+                )
+            }
         }
     }
+
+    private fun isRetryableFailure(command: LeaseCommand, error: Exception): Boolean {
+        val httpError = error as? HttpException ?: return true
+        if (command.commandType == "downloads.chapter") {
+            return httpError.code == 429 || httpError.code in 500..599
+        }
+        return !isPermanentHttpFailure(httpError.code)
+    }
+
+    private fun isPermanentHttpFailure(code: Int): Boolean =
+        code in 400..499 && code != 408 && code != 409 && code != 425 && code != 429
 
     private fun executeCommand(client: ConvexBridgeClient, command: LeaseCommand): JsonObject {
         val payload = command.payload.jsonObject
@@ -183,6 +341,7 @@ class BridgeCommandRunner(
                         client.payload(
                             buildJsonObject {
                                 put("url", url)
+                                put("languages", syncResult["languages"] ?: kotlinx.serialization.json.JsonArray(emptyList()))
                                 put("now", System.currentTimeMillis())
                             },
                         ),
@@ -198,7 +357,7 @@ class BridgeCommandRunner(
             }
             "extensions.repo.search" -> {
                 val query = payload.optionalString("query").orEmpty()
-                val limit = payload.optionalInt("limit") ?: 50
+                val limit = payload.optionalInt("limit") ?: 5000
                 service.searchRepository(query, limit)
             }
             "extensions.install" -> {
@@ -227,6 +386,7 @@ class BridgeCommandRunner(
                                                 put("name", source.name)
                                                 put("lang", source.lang)
                                                 put("supportsLatest", source.supportsLatest)
+                                                put("enabled", source.enabled)
                                             },
                                         )
                                     }
@@ -258,6 +418,7 @@ class BridgeCommandRunner(
                                         put("name", source.name)
                                         put("lang", source.lang)
                                         put("supportsLatest", source.supportsLatest)
+                                        put("enabled", source.enabled)
                                     },
                                 )
                             }
@@ -291,6 +452,7 @@ class BridgeCommandRunner(
                                                 put("name", source.name)
                                                 put("lang", source.lang)
                                                 put("supportsLatest", source.supportsLatest)
+                                                put("enabled", source.enabled)
                                             },
                                         )
                                     }
@@ -326,11 +488,17 @@ class BridgeCommandRunner(
             }
             "sources.preferences.save" -> {
                 val sourceId = payload.requiredString("sourceId")
-                val values = payload["values"]?.jsonObject ?: error("Missing values")
-                kotlinx.coroutines.runBlocking { service.saveSourcePreferences(sourceId, values) }
+                val entries =
+                    payload["entries"]?.jsonArray?.map { entry ->
+                        val obj = entry.jsonObject
+                        obj.requiredString("key") to (obj["value"] ?: JsonNull)
+                    }
+                        ?: payload["values"]?.jsonObject?.entries?.map { it.key to it.value }
+                        ?: error("Missing values")
+                kotlinx.coroutines.runBlocking { service.saveSourcePreferences(sourceId, entries) }
             }
             "explore.search" -> {
-                val query = payload.requiredString("query")
+                val query = payload["query"]?.jsonPrimitive?.contentOrNull.orEmpty()
                 val limit = payload.optionalInt("limit") ?: 30
                 val sourceId = payload.optionalString("sourceId")
                 val searchFilters = payload["searchFilters"]?.jsonObject
@@ -351,7 +519,27 @@ class BridgeCommandRunner(
             "explore.title.fetch" -> {
                 val sourceId = payload.requiredString("sourceId")
                 val titleUrl = payload.requiredString("titleUrl")
-                kotlinx.coroutines.runBlocking { service.fetchTitle(sourceId, titleUrl) }
+                val titleResult = kotlinx.coroutines.runBlocking { service.fetchTitle(sourceId, titleUrl) }
+                val normalizedTitle = titleResult["title"]?.jsonObject ?: error("Missing title payload")
+                client.upsertLibraryTitleMetadata(
+                    client.payload(
+                        buildJsonObject {
+                            put("sourceId", sourceId)
+                            put("titleUrl", titleUrl)
+                            put("sourcePkg", normalizedTitle.optionalString("sourcePkg"))
+                            put("sourceLang", normalizedTitle.optionalString("sourceLang"))
+                            put("title", normalizedTitle.requiredString("title"))
+                            put("author", normalizedTitle.optionalString("author"))
+                            put("artist", normalizedTitle.optionalString("artist"))
+                            put("description", normalizedTitle.optionalString("description"))
+                            put("coverUrl", normalizedTitle.optionalString("coverUrl"))
+                            put("genre", normalizedTitle.optionalString("genre"))
+                            put("status", normalizedTitle.optionalInt("status") ?: 0)
+                            put("now", System.currentTimeMillis())
+                        },
+                    ),
+                )
+                titleResult
             }
             "explore.chapters.fetch" -> {
                 val sourceId = payload.requiredString("sourceId")
@@ -372,6 +560,8 @@ class BridgeCommandRunner(
                     client.payload(
                         buildJsonObject {
                             put("titleId", titleId)
+                            put("sourceId", sourceId)
+                            put("titleUrl", titleUrl)
                             put("chapters", chapters["chapters"] ?: error("Missing chapters payload"))
                             put("now", System.currentTimeMillis())
                         },
@@ -381,6 +571,17 @@ class BridgeCommandRunner(
                     put("ok", true)
                     put("titleId", titleId)
                     put("chapterCount", chapters["chapters"]?.jsonArray?.size ?: 0)
+                }
+            }
+            "library.cover.cache" -> {
+                val titleId = payload.requiredString("titleId")
+                val coverUrl = payload.optionalString("coverUrl")
+                val coverPath = cacheLibraryCover(client, titleId, coverUrl)
+                buildJsonObject {
+                    put("ok", true)
+                    put("titleId", titleId)
+                    put("cached", !coverPath.isNullOrBlank())
+                    put("localCoverPath", coverPath)
                 }
             }
             "library.import" -> {
@@ -394,6 +595,25 @@ class BridgeCommandRunner(
                     kotlinx.coroutines.runBlocking {
                         service.resolveImport(sourceId, sourcePkg, sourceLang, titleUrl)
                     }
+
+                client.upsertLibraryTitleMetadata(
+                    client.payload(
+                        buildJsonObject {
+                            put("sourceId", sourceId)
+                            put("titleUrl", titleUrl)
+                            put("sourcePkg", sourcePkg)
+                            put("sourceLang", sourceLang)
+                            put("title", resolved.requiredString("title"))
+                            put("author", resolved.optionalString("author"))
+                            put("artist", resolved.optionalString("artist"))
+                            put("description", resolved.optionalString("description"))
+                            put("coverUrl", resolved.optionalString("coverUrl"))
+                            put("genre", resolved.optionalString("genre"))
+                            put("status", resolved.optionalInt("status") ?: 0)
+                            put("now", System.currentTimeMillis())
+                        },
+                    ),
+                )
 
                 val clientResult =
                     client.importLibraryTitle(
@@ -417,30 +637,15 @@ class BridgeCommandRunner(
                         ),
                     )
 
-                val coverPath =
-                    runCatching {
-                        service.cacheCover(clientResult.titleId, resolved.optionalString("coverUrl"))
-                    }.onFailure { error ->
-                        logger.warn(error) { "Failed to cache cover for imported title ${clientResult.titleId}" }
-                    }.getOrNull()
-
-                if (!coverPath.isNullOrBlank()) {
-                    client.setLibraryTitleLocalCover(
-                        client.payload(
-                            buildJsonObject {
-                                put("titleId", clientResult.titleId)
-                                put("localCoverPath", coverPath)
-                                put("now", System.currentTimeMillis())
-                            },
-                        ),
-                    )
-                }
+                val coverPath = cacheLibraryCover(client, clientResult.titleId, resolved.optionalString("coverUrl"))
 
                 val chapters = kotlinx.coroutines.runBlocking { service.fetchChapters(sourceId, titleUrl) }
                 client.upsertLibraryChapters(
                     client.payload(
                         buildJsonObject {
                             put("titleId", clientResult.titleId)
+                            put("sourceId", sourceId)
+                            put("titleUrl", titleUrl)
                             put("chapters", chapters["chapters"] ?: error("Missing chapters payload"))
                             put("now", System.currentTimeMillis())
                         },
@@ -460,14 +665,21 @@ class BridgeCommandRunner(
             }
             "downloads.chapter" -> {
                 val chapterId = payload.requiredString("chapterId")
+                val downloadTaskId = payload.optionalString("downloadTaskId")
                 val titleId = payload.requiredString("titleId")
+                val titleName = payload.optionalString("title") ?: titleId
                 val sourceId = payload.requiredString("sourceId")
+                val sourcePkg = payload.optionalString("sourcePkg") ?: "source"
+                val sourceLang = payload.optionalString("sourceLang") ?: ""
                 val chapterUrl = payload.requiredString("chapterUrl")
+                val chapterName = payload.optionalString("chapterName") ?: "chapter"
+                val chapterNumber = payload.optionalDouble("chapterNumber")
 
                 client.setLibraryChapterDownloadState(
                     client.payload(
                         buildJsonObject {
                             put("chapterId", chapterId)
+                            downloadTaskId?.let { put("downloadTaskId", it) }
                             put("status", "downloading")
                             put("downloadedPages", 0)
                             put("lastErrorMessage", "")
@@ -477,55 +689,68 @@ class BridgeCommandRunner(
                 )
 
                 try {
+                    var lastDownloadProgressUpdateAt = System.currentTimeMillis()
+                    var lastDownloadLeaseRenewAt = lastDownloadProgressUpdateAt
+                    val downloadProgressLock = Any()
                     val result =
                         kotlinx.coroutines.runBlocking {
-                            service.downloadChapter(titleId, sourceId, chapterUrl) { downloadedPages, totalPages ->
+                            service.downloadChapter(
+                                titleId = titleId,
+                                titleName = titleName,
+                                sourceId = sourceId,
+                                sourcePkg = sourcePkg,
+                                sourceLang = sourceLang,
+                                chapterUrl = chapterUrl,
+                                chapterName = chapterName,
+                                chapterNumber = chapterNumber,
+                            ) { downloadedPages, totalPages ->
                                 val now = System.currentTimeMillis()
-                                client.renewCommandLease(
-                                    client.payload(
-                                        buildJsonObject {
-                                            put("commandId", command.id)
-                                            put("bridgeId", bridgeId)
-                                            put("now", now)
-                                            put("leaseDurationMs", leaseDurationMs)
-                                        },
-                                    ),
-                                )
-                                client.updateCommandProgress(
-                                    client.payload(
-                                        buildJsonObject {
-                                            put("commandId", command.id)
-                                            put("bridgeId", bridgeId)
-                                            put("now", now)
-                                            put(
-                                                "progress",
-                                                buildJsonObject {
-                                                    put("downloadedPages", downloadedPages)
-                                                    put("totalPages", totalPages)
-                                                    put(
-                                                        "percent",
-                                                        if (totalPages > 0) {
-                                                            (downloadedPages * 100) / totalPages
-                                                        } else {
-                                                            0
-                                                        },
-                                                    )
-                                                },
-                                            )
-                                        },
-                                    ),
-                                )
-                                client.setLibraryChapterDownloadState(
-                                    client.payload(
-                                        buildJsonObject {
-                                            put("chapterId", chapterId)
-                                            put("status", "downloading")
-                                            put("downloadedPages", downloadedPages)
-                                            put("totalPages", totalPages)
-                                            put("now", now)
-                                        },
-                                    ),
-                                )
+                                val (shouldRenewLease, shouldPushProgress) =
+                                    synchronized(downloadProgressLock) {
+                                        val renewLease =
+                                            downloadedPages >= totalPages ||
+                                                now - lastDownloadLeaseRenewAt >= DOWNLOAD_LEASE_RENEW_INTERVAL_MS
+                                        if (renewLease) {
+                                            lastDownloadLeaseRenewAt = now
+                                        }
+
+                                        val pushProgress =
+                                            downloadedPages >= totalPages ||
+                                                downloadedPages <= 1 ||
+                                                now - lastDownloadProgressUpdateAt >= DOWNLOAD_PROGRESS_UPDATE_INTERVAL_MS
+                                        if (pushProgress) {
+                                            lastDownloadProgressUpdateAt = now
+                                        }
+
+                                        renewLease to pushProgress
+                                    }
+                                if (shouldRenewLease) {
+                                    client.renewCommandLease(
+                                        client.payload(
+                                            buildJsonObject {
+                                                put("commandId", command.id)
+                                                put("bridgeId", bridgeId)
+                                                put("now", now)
+                                                put("leaseDurationMs", leaseDurationMs)
+                                            },
+                                        ),
+                                    )
+                                }
+
+                                if (shouldPushProgress) {
+                                    client.setLibraryChapterDownloadState(
+                                        client.payload(
+                                            buildJsonObject {
+                                                put("chapterId", chapterId)
+                                                downloadTaskId?.let { put("downloadTaskId", it) }
+                                                put("status", "downloading")
+                                                put("downloadedPages", downloadedPages)
+                                                put("totalPages", totalPages)
+                                                put("now", now)
+                                            },
+                                        ),
+                                    )
+                                }
                             }
                         }
 
@@ -533,6 +758,7 @@ class BridgeCommandRunner(
                         client.payload(
                             buildJsonObject {
                                 put("chapterId", chapterId)
+                                downloadTaskId?.let { put("downloadTaskId", it) }
                                 put("status", "downloaded")
                                 put("downloadedPages", result.requiredInt("downloadedPages"))
                                 put("totalPages", result.requiredInt("totalPages"))
@@ -551,6 +777,7 @@ class BridgeCommandRunner(
                         client.payload(
                             buildJsonObject {
                                 put("chapterId", chapterId)
+                                downloadTaskId?.let { put("downloadTaskId", it) }
                                 put("status", "failed")
                                 put("lastErrorMessage", error.message ?: "Download failed")
                                 put("now", System.currentTimeMillis())
@@ -564,6 +791,38 @@ class BridgeCommandRunner(
         }
     }
 
+    private fun cacheLibraryCover(
+        client: ConvexBridgeClient,
+        titleId: String,
+        coverUrl: String?,
+    ): String? {
+        val coverPath =
+            runCatching {
+                service.cacheCover(titleId, coverUrl)
+            }.onFailure { error ->
+                events.error(
+                    "bridge.library.cover_cache_failed",
+                    "Failed to cache cover for library title",
+                    error,
+                    "titleId" to titleId,
+                )
+            }.getOrNull()
+
+        if (!coverPath.isNullOrBlank()) {
+            client.setLibraryTitleLocalCover(
+                client.payload(
+                    buildJsonObject {
+                        put("titleId", titleId)
+                        put("localCoverPath", coverPath)
+                        put("now", System.currentTimeMillis())
+                    },
+                ),
+            )
+        }
+
+        return coverPath
+    }
+
     private fun JsonObject.requiredString(key: String): String =
         this[key]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
             ?: throw IllegalArgumentException("Missing $key")
@@ -572,12 +831,37 @@ class BridgeCommandRunner(
         this[key]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
 
     private fun JsonObject.optionalInt(key: String): Int? =
-        this[key]?.jsonPrimitive?.intOrNull
+        this[key]?.jsonPrimitive?.intLikeOrNull()
+
+    private fun JsonObject.optionalDouble(key: String): Double? =
+        this[key]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull()
 
     private fun JsonObject.requiredInt(key: String): Int =
-        this[key]?.jsonPrimitive?.intOrNull ?: throw IllegalArgumentException("Missing $key")
+        this[key]?.jsonPrimitive?.intLikeOrNull() ?: throw IllegalArgumentException("Missing $key")
 
     private fun JsonObject.requiredLong(key: String): Long =
         this[key]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
             ?: throw IllegalArgumentException("Missing $key")
+
+    private fun commandContext(command: LeaseCommand): LogContext {
+        val payload = command.payload.jsonObject
+        return LogContext.of(
+            "bridgeId" to bridgeId,
+            "commandId" to command.id,
+            "commandType" to command.commandType,
+            "requestedByUserId" to command.requestedByUserId,
+            "sourceId" to payload.optionalString("sourceId"),
+            "titleId" to payload.optionalString("titleId"),
+            "titleUrl" to payload.optionalString("titleUrl"),
+            "chapterId" to payload.optionalString("chapterId"),
+            "chapterUrl" to payload.optionalString("chapterUrl"),
+            "pkg" to payload.optionalString("pkg"),
+        )
+    }
+
+    private fun kotlinx.serialization.json.JsonPrimitive.intLikeOrNull(): Int? {
+        val numeric = contentOrNull?.toDoubleOrNull() ?: return null
+        if (!numeric.isFinite() || numeric % 1.0 != 0.0) return null
+        return numeric.toInt()
+    }
 }

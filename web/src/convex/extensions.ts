@@ -3,6 +3,21 @@ import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
 
+async function requireAdminIdentity(ctx: {
+	auth: {
+		getUserIdentity: () => Promise<Record<string, unknown> | null>;
+	};
+}) {
+	const identity = await ctx.auth.getUserIdentity();
+	if (!identity) {
+		throw new Error('Not authenticated');
+	}
+	if (identity.isAdmin !== true && identity.role !== 'admin') {
+		throw new Error('Admin privileges are required');
+	}
+	return identity;
+}
+
 export const getRepository = query({
 	args: {},
 	handler: async (ctx) => {
@@ -12,7 +27,8 @@ export const getRepository = query({
 			.unique();
 		return {
 			url: installation?.extensionRepoUrl ?? '',
-			configured: Boolean(installation?.extensionRepoUrl)
+			configured: Boolean(installation?.extensionRepoUrl),
+			languages: installation?.extensionRepoLanguages ?? []
 		};
 	}
 });
@@ -31,17 +47,23 @@ export const listSources = query({
 		const extensions = await ctx.db.query('installedExtensions').collect();
 		return extensions
 			.flatMap((extension) =>
-				(extension.sources ?? extension.sourceIds.map((id) => ({
-					id,
-					name: id,
-					lang: extension.lang,
-					supportsLatest: false
-				}))).map((source) => ({
-					...source,
-					extensionPkg: extension.pkg,
-					extensionName: extension.name,
-					extensionVersion: extension.version
-				}))
+				(
+					extension.sources ??
+					extension.sourceIds.map((id) => ({
+						id,
+						name: id,
+						lang: extension.lang,
+						supportsLatest: false,
+						enabled: true
+					}))
+				)
+					.filter((source) => source.enabled !== false)
+					.map((source) => ({
+						...source,
+						extensionPkg: extension.pkg,
+						extensionName: extension.name,
+						extensionVersion: extension.version
+					}))
 			)
 			.sort((left, right) => {
 				if (left.extensionName !== right.extensionName) {
@@ -55,6 +77,7 @@ export const listSources = query({
 export const setRepository = mutation({
 	args: {
 		url: v.string(),
+		languages: v.optional(v.array(v.string())),
 		now: v.float64()
 	},
 	handler: async (ctx, args) => {
@@ -67,6 +90,7 @@ export const setRepository = mutation({
 		if (installation) {
 			await ctx.db.patch(installation._id, {
 				extensionRepoUrl: args.url,
+				extensionRepoLanguages: args.languages,
 				updatedAt: args.now
 			});
 			return { updated: true, created: false };
@@ -77,6 +101,42 @@ export const setRepository = mutation({
 			setupState: 'open',
 			schemaVersion: '1',
 			extensionRepoUrl: args.url,
+			extensionRepoLanguages: args.languages,
+			createdAt: args.now,
+			updatedAt: args.now
+		});
+		return { updated: true, created: true };
+	}
+});
+
+export const backfillRepositoryLanguages = mutation({
+	args: {
+		url: v.optional(v.string()),
+		languages: v.array(v.string()),
+		now: v.float64()
+	},
+	handler: async (ctx, args) => {
+		await requireAdminIdentity(ctx);
+		const installation = await ctx.db
+			.query('installation')
+			.withIndex('by_key', (q) => q.eq('key', 'main'))
+			.unique();
+
+		if (installation) {
+			await ctx.db.patch(installation._id, {
+				extensionRepoUrl: args.url ?? installation.extensionRepoUrl,
+				extensionRepoLanguages: args.languages,
+				updatedAt: args.now
+			});
+			return { updated: true, created: false };
+		}
+
+		await ctx.db.insert('installation', {
+			key: 'main',
+			setupState: 'open',
+			schemaVersion: '1',
+			extensionRepoUrl: args.url,
+			extensionRepoLanguages: args.languages,
 			createdAt: args.now,
 			updatedAt: args.now
 		});
@@ -96,7 +156,8 @@ export const upsertInstalled = mutation({
 				id: v.string(),
 				name: v.string(),
 				lang: v.string(),
-				supportsLatest: v.boolean()
+				supportsLatest: v.boolean(),
+				enabled: v.optional(v.boolean())
 			})
 		),
 		now: v.float64()
@@ -131,6 +192,35 @@ export const upsertInstalled = mutation({
 				updatedAt: args.now
 			});
 		}
+
+		return { ok: true };
+	}
+});
+
+export const setSourceEnabled = mutation({
+	args: {
+		pkg: v.string(),
+		sourceId: v.string(),
+		enabled: v.boolean(),
+		now: v.float64()
+	},
+	handler: async (ctx, args) => {
+		await requireBridgeIdentity(ctx);
+		const existing = await ctx.db
+			.query('installedExtensions')
+			.withIndex('by_pkg', (q) => q.eq('pkg', args.pkg))
+			.unique();
+		if (!existing) {
+			throw new Error('Installed extension not found');
+		}
+
+		const nextSources = (existing.sources ?? []).map((source) =>
+			source.id === args.sourceId ? { ...source, enabled: args.enabled } : source
+		);
+		await ctx.db.patch(existing._id, {
+			sources: nextSources,
+			updatedAt: args.now
+		});
 
 		return { ok: true };
 	}

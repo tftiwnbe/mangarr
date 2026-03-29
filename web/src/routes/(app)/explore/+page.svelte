@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import { useConvexClient, useQuery } from 'convex-svelte';
-	import type { Id } from '$convex/_generated/dataModel';
 	import {
 		CheckIcon,
 		CompassIcon,
+		EyeSlashIcon,
 		FunnelIcon,
 		ImageIcon,
 		MagnifyingGlassIcon,
@@ -15,6 +16,7 @@
 
 	import { convexApi } from '$lib/convex/api';
 	import { getCachedCoverUrl } from '$lib/api/covers';
+	import { waitForCommand } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { SlidePanel } from '$lib/elements/slide-panel';
@@ -22,8 +24,18 @@
 	import { _ } from '$lib/i18n';
 	import { contentLanguages } from '$lib/stores/content-languages';
 	import { panelOverlayOpen } from '$lib/stores/ui';
-	import { normalizeContentLanguageCode, toMainContentLanguages } from '$lib/utils/content-languages';
+	import {
+		normalizeContentLanguageCode,
+		toMainContentLanguages
+	} from '$lib/utils/content-languages';
 	import { buildTitlePath } from '$lib/utils/routes';
+	import {
+		effectiveSourceHealthState,
+		isPermanentSourceFailure,
+		sourceHealthRetryInMinutes,
+		sourceHealthLabelKey,
+		type SourceHealthEntry
+	} from '$lib/utils/source-health';
 
 	type TabValue = 'popular' | 'latest' | 'search';
 
@@ -32,6 +44,7 @@
 		name: string;
 		lang: string;
 		supportsLatest: boolean;
+		enabled?: boolean;
 		extensionName: string;
 		extensionPkg: string;
 	};
@@ -48,24 +61,6 @@
 		coverUrl?: string | null;
 	};
 
-	type CommandItem = {
-		id: string;
-		commandType: string;
-		status: string;
-		payload?: Record<string, unknown> | null;
-		result?: Record<string, unknown> | null;
-		lastErrorMessage?: string | null;
-		updatedAt?: number;
-		createdAt?: number;
-	};
-
-	type LibraryTitleItem = {
-		_id: string;
-		sourceId: string;
-		titleUrl: string;
-		title: string;
-	};
-
 	type ExploreCard = {
 		key: string;
 		title: string;
@@ -77,6 +72,14 @@
 		titleUrl: string;
 		canonicalKey: string;
 		importedLibraryId: string | null;
+		importedListedInLibrary: boolean;
+		importedRouteSegment?: string | null;
+	};
+
+	type ImportedLookupEntry = {
+		libraryId: string;
+		listedInLibrary: boolean;
+		routeSegment?: string | null;
 	};
 
 	type FilterMeta = {
@@ -114,7 +117,22 @@
 		items: ExploreItem[];
 	};
 
+	type SourceFailureScope = 'feed' | 'search';
+	type SourceFailure = {
+		sourceId: string;
+		scope: SourceFailureScope;
+		message: string;
+		retryAfter: number;
+		permanent: boolean;
+	};
+
 	const FEED_LIMIT = 24;
+	const FEED_SOURCE_BATCH_SIZE = 4;
+	const FEED_COMMAND_CONCURRENCY = 1;
+	const COMMAND_CONCURRENCY = 3;
+	const FEED_DUPLICATE_PAGE_TOLERANCE = 3;
+	const INITIAL_CARD_RENDER_LIMIT = 60;
+	const CARD_RENDER_PAGE_SIZE = 48;
 	const UUID_SEGMENT_RE =
 		/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 	const LONG_HEX_SEGMENT_RE = /^[0-9a-f]{12,}$/i;
@@ -132,9 +150,8 @@
 	]);
 
 	const client = useConvexClient();
-	const commandsQuery = useQuery(convexApi.commands.listMine, () => ({ limit: 300 }));
 	const sourcesQuery = useQuery(convexApi.extensions.listSources, () => ({}));
-	const libraryQuery = useQuery(convexApi.library.listMine, () => ({}));
+	const importedLookupQuery = useQuery(convexApi.library.getMineImportedSourceLookup, () => ({}));
 
 	const tabs = [
 		{ value: 'popular', label: 'Popular' },
@@ -151,9 +168,18 @@
 	let openingTitleKey = $state<string | null>(null);
 	let selectedExtensionPkgs = $state<string[]>([]);
 	let selectedSourceId = $state('');
+	let activeFeedSourceIds = $state<string[]>([]);
 	let loadedPagesBySource = $state<Record<string, number>>({});
 	let exhaustedFeedSources = $state<Record<string, boolean>>({});
-	let infiniteSentinelVisible = $state(false);
+	let lastFeedLoadSignature = $state('');
+	let canLoadMoreFeed = $state(false);
+	let autoLoadFeedPending = false;
+	let feedSentinel = $state<HTMLDivElement | null>(null);
+	let feedIntersectionObserver: IntersectionObserver | null = null;
+	let renderCardLimit = $state(INITIAL_CARD_RENDER_LIMIT);
+	let feedLoadGeneration = 0;
+	let searchRunGeneration = 0;
+	const inflightFeedRequests = new SvelteMap<string, Promise<FeedResult>>();
 
 	let searchFiltersOpen = $state(false);
 	let searchFiltersLoading = $state(false);
@@ -164,15 +190,22 @@
 
 	let liveFeedResults = $state<Record<string, FeedResult>>({});
 	let liveSearchResults = $state<Record<string, SearchResult>>({});
+	let sourceFailures = $state<Record<string, SourceFailure>>({});
+	let cards = $state<ExploreCard[]>([]);
+	let stableCardOrder: string[] = [];
+	let stableCardsByKey: Record<string, ExploreCard> = {};
 
 	const sources = $derived((sourcesQuery.data ?? []) as SourceItem[]);
-	const commands = $derived((commandsQuery.data ?? []) as CommandItem[]);
-	const libraryTitles = $derived((libraryQuery.data ?? []) as LibraryTitleItem[]);
 	const preferredContentLanguages = $derived(toMainContentLanguages($contentLanguages));
 
 	const sourceOptions = $derived.by(() => sourcesForContentLanguage());
 	const extensionFilters = $derived.by(() => {
-		const grouped: Array<{ pkg: string; name: string; sourceCount: number; sourceNames: string[] }> = [];
+		const grouped: Array<{
+			pkg: string;
+			name: string;
+			sourceCount: number;
+			sourceNames: string[];
+		}> = [];
 		const indexesByPkg: Record<string, number> = {};
 		for (const source of sourceOptions) {
 			const existingIndex = indexesByPkg[source.extensionPkg];
@@ -197,41 +230,87 @@
 	});
 
 	const visibleSources = $derived.by(() => {
-		if (selectedExtensionPkgs.length === 0) return sourceOptions;
-		return sourceOptions.filter((source) => selectedExtensionPkgs.includes(source.extensionPkg));
+		const filteredByExtension =
+			selectedExtensionPkgs.length === 0
+				? sourceOptions
+				: sourceOptions.filter((source) => selectedExtensionPkgs.includes(source.extensionPkg));
+		return activeTab === 'latest'
+			? filteredByExtension.filter((source) => source.supportsLatest)
+			: filteredByExtension;
 	});
 
 	const searchSources = $derived(sourceOptions);
-	const selectedSource = $derived(searchSources.find((source) => source.id === selectedSourceId) ?? null);
+	const selectedSource = $derived(
+		searchSources.find((source) => source.id === selectedSourceId) ?? null
+	);
 	const selectedSourceAppliedFilters = $derived(
 		selectedSourceId ? (appliedSearchFiltersBySource[selectedSourceId] ?? {}) : {}
 	);
 	const appliedSearchFilterCount = $derived(Object.keys(selectedSourceAppliedFilters).length);
 	const hasAppliedSearchFilters = $derived(appliedSearchFilterCount > 0);
+	const canRunSearch = $derived(
+		searchQuery.trim().length > 0 || (Boolean(selectedSourceId) && hasAppliedSearchFilters)
+	);
+	const sourceHealthQuery = useQuery(convexApi.commands.listSourceHealth, () => ({
+		sourceIds:
+			activeTab === 'search'
+				? selectedSourceId
+					? [selectedSourceId]
+					: searchSources.map((source) => source.id)
+				: visibleSources.map((source) => source.id)
+	}));
 
 	const importedLibraryIds = $derived.by(() => {
-		const bySourceKey: Record<string, string> = {};
-		for (const title of libraryTitles) {
-			bySourceKey[`${title.sourceId}::${title.titleUrl}`] = title._id;
-		}
-		return bySourceKey;
+		return (importedLookupQuery.data ?? {}) as Record<string, ImportedLookupEntry>;
 	});
+	const persistedSourceFailures = $derived((sourceHealthQuery.data ?? []) as SourceHealthEntry[]);
 
 	const feedCommandType = $derived(activeTab === 'latest' ? 'explore.latest' : 'explore.popular');
-	const showSearchPrompt = $derived(activeTab === 'search' && searchQuery.trim().length === 0);
-	const hasMoreFeedPages = $derived.by(() => {
-		if (activeTab === 'search') return false;
-		return visibleSources.some((source) => sourceHasMore(feedCommandType, source.id));
+	const showSearchPrompt = $derived(activeTab === 'search' && !canRunSearch);
+	const currentLoading = $derived(
+		loading || loadingMore || sourcesQuery.isLoading || importedLookupQuery.isLoading
+	);
+	const combinedSourceFailures = $derived.by(() => {
+		const merged: Record<string, SourceFailure> = { ...sourceFailures };
+		for (const failure of persistedSourceFailures) {
+			if (failure.scope === 'title') continue;
+			const key = sourceFailureKey(failure.sourceId, failure.scope);
+			const current = merged[key];
+			if (
+				!current ||
+				(failure.retryAfter ?? 0) >= current.retryAfter ||
+				(failure.permanent && !current.permanent)
+			) {
+				merged[key] = {
+					sourceId: failure.sourceId,
+					scope: failure.scope,
+					message: failure.message,
+					retryAfter: failure.retryAfter ?? failure.updatedAt + 30 * 60_000,
+					permanent: failure.permanent
+				};
+			}
+		}
+		return merged;
 	});
-	const currentLoading = $derived(loading || loadingMore || sourcesQuery.isLoading || libraryQuery.isLoading);
-
-	const cards = $derived.by(() => {
+	const activeSourceFailures = $derived.by(() => {
+		const scope: SourceFailureScope = activeTab === 'search' ? 'search' : 'feed';
+		const now = Date.now();
+		return Object.values(combinedSourceFailures)
+			.filter((failure) => failure.scope === scope && failure.retryAfter > now)
+			.map((failure) => ({
+				...failure,
+				sourceName: sourceNameFor(failure.sourceId),
+				retryInMinutes: sourceHealthRetryInMinutes(failure.retryAfter, now) ?? 1
+			}))
+			.sort((left, right) => left.sourceName.localeCompare(right.sourceName));
+	});
+	const incomingCards = $derived.by(() => {
 		const sourceIds =
 			activeTab === 'search'
 				? selectedSourceId
 					? [selectedSourceId]
 					: searchSources.map((source) => source.id)
-				: visibleSources.map((source) => source.id);
+				: activeFeedSourceIds;
 
 		const items: ExploreCard[] = [];
 		const signatureToIndex: Record<string, number> = {};
@@ -243,7 +322,7 @@
 					: feedItemsForSource(feedCommandType, sourceId, loadedPagesBySource[sourceId] ?? 0);
 
 			for (const item of resultItems) {
-				const importedLibraryId = importedLibraryIds[`${item.sourceId}::${item.titleUrl}`] ?? null;
+				const importedEntry = importedLibraryIds[`${item.sourceId}::${item.titleUrl}`] ?? null;
 				const nextCard: ExploreCard = {
 					key: cardKeyFor(item),
 					title: item.title,
@@ -254,7 +333,9 @@
 					sourceLang: item.sourceLang,
 					titleUrl: item.titleUrl,
 					canonicalKey: item.canonicalKey,
-					importedLibraryId
+					importedLibraryId: importedEntry?.libraryId ?? null,
+					importedListedInLibrary: importedEntry?.listedInLibrary ?? false,
+					importedRouteSegment: importedEntry?.routeSegment ?? null
 				};
 
 				const signatures = itemMergeSignatures(item);
@@ -282,7 +363,11 @@
 					title: current.title || nextCard.title,
 					thumbnailUrl: current.thumbnailUrl || nextCard.thumbnailUrl,
 					sourceName: current.sourceName || nextCard.sourceName,
-					importedLibraryId: current.importedLibraryId ?? nextCard.importedLibraryId
+					importedLibraryId: current.importedLibraryId ?? nextCard.importedLibraryId,
+					importedListedInLibrary:
+						current.importedListedInLibrary || nextCard.importedListedInLibrary,
+					importedRouteSegment:
+						current.importedRouteSegment ?? nextCard.importedRouteSegment ?? null
 				};
 				items[existingIndex] = merged;
 				for (const signature of itemMergeSignatures({
@@ -298,9 +383,108 @@
 
 		return items;
 	});
+	const renderContextKey = $derived.by(() => {
+		return activeTab === 'search'
+			? JSON.stringify({
+					activeTab,
+					selectedSourceId,
+					searchQuery: searchQuery.trim().toLowerCase(),
+					filters: selectedSourceAppliedFilters
+				})
+			: JSON.stringify({
+					activeTab,
+					selectedExtensionPkgs: [...selectedExtensionPkgs].sort()
+				});
+	});
+	const visibleCards = $derived(cards.slice(0, renderCardLimit));
+
+	$effect(() => {
+		const nextCardsByKey: Record<string, ExploreCard> = {};
+		for (const card of incomingCards) {
+			nextCardsByKey[card.key] = card;
+		}
+
+		stableCardOrder = stableCardOrder.filter((key) => nextCardsByKey[key] !== undefined);
+		for (const card of incomingCards) {
+			if (!(card.key in stableCardsByKey)) {
+				stableCardOrder.push(card.key);
+			}
+		}
+
+		stableCardsByKey = nextCardsByKey;
+		cards = stableCardOrder
+			.map((key) => stableCardsByKey[key])
+			.filter((card): card is ExploreCard => card !== undefined);
+	});
 
 	function sourceNameFor(sourceId: string): string {
 		return sources.find((source) => source.id === sourceId)?.name ?? 'Source';
+	}
+
+	function sourceFailureKey(sourceId: string, scope: SourceFailureScope) {
+		return `${scope}:${sourceId}`;
+	}
+
+	function parseSourceFailure(
+		sourceId: string,
+		scope: SourceFailureScope,
+		cause: unknown
+	): SourceFailure {
+		const message =
+			cause instanceof Error ? cause.message : `Unable to load ${sourceNameFor(sourceId)}`;
+		const normalized = message.toLowerCase();
+		const permanent = isPermanentSourceFailure(normalized);
+		const rateLimited = normalized.includes('http error 429') || normalized.includes('rate limit');
+		const retryAfter =
+			Date.now() + (permanent ? 30 * 60_000 : rateLimited ? 10 * 60_000 : 5 * 60_000);
+		return {
+			sourceId,
+			scope,
+			message,
+			retryAfter,
+			permanent
+		};
+	}
+
+	function recordSourceFailure(sourceId: string, scope: SourceFailureScope, cause: unknown) {
+		const failure = parseSourceFailure(sourceId, scope, cause);
+		sourceFailures = {
+			...sourceFailures,
+			[sourceFailureKey(sourceId, scope)]: failure
+		};
+		return failure;
+	}
+
+	function clearSourceFailure(sourceId: string, scope: SourceFailureScope) {
+		const key = sourceFailureKey(sourceId, scope);
+		if (!(key in sourceFailures)) return;
+		const next = { ...sourceFailures };
+		delete next[key];
+		sourceFailures = next;
+	}
+
+	function sourceIsUnavailable(sourceId: string, scope: SourceFailureScope) {
+		const failure = combinedSourceFailures[sourceFailureKey(sourceId, scope)];
+		return failure ? failure.retryAfter > Date.now() : false;
+	}
+
+	function sourceFailureFor(sourceId: string, scope: SourceFailureScope) {
+		const failure = combinedSourceFailures[sourceFailureKey(sourceId, scope)];
+		return failure && failure.retryAfter > Date.now() ? failure : null;
+	}
+
+	function sourceFailureLabel(failure: SourceFailure) {
+		return $_(
+			sourceHealthLabelKey({
+				state: effectiveSourceHealthState(failure),
+				permanent: failure.permanent
+			})
+		);
+	}
+
+	function sourceFailureRetrySuffix(failure: SourceFailure) {
+		const retryInMinutes = sourceHealthRetryInMinutes(failure.retryAfter);
+		return retryInMinutes === null ? null : `${retryInMinutes}m`;
 	}
 
 	function displayExtensionName(name: string): string {
@@ -308,10 +492,11 @@
 	}
 
 	function sourcesForContentLanguage(): SourceItem[] {
+		const enabledSources = sources.filter((source) => source.enabled !== false);
 		if (preferredContentLanguages.length === 0) {
-			return sources;
+			return enabledSources;
 		}
-		return sources.filter((source) => {
+		return enabledSources.filter((source) => {
 			const normalized = normalizeContentLanguageCode(source.lang);
 			return normalized !== null && preferredContentLanguages.includes(normalized);
 		});
@@ -411,27 +596,20 @@
 		return `${commandType}:${sourceId}:page:${page}`;
 	}
 
-	function searchResultKey(sourceId: string, query: string, searchFilters: Record<string, unknown>): string {
+	function searchResultKey(
+		sourceId: string,
+		query: string,
+		searchFilters: Record<string, unknown>
+	): string {
 		return `explore.search:${sourceId}:${query.trim().toLowerCase()}:${JSON.stringify(searchFilters)}`;
 	}
 
-	function latestFeedResult(commandType: string, sourceId: string, page: number): FeedResult | null {
-		const live = liveFeedResults[feedResultKey(commandType, sourceId, page)];
-		if (live) return live;
-
-		for (const item of commands) {
-			if (item.commandType !== commandType || item.status !== 'succeeded') continue;
-			const payload = item.payload ?? {};
-			if (String(payload.sourceId ?? '') !== sourceId) continue;
-			if (Number(payload.page ?? 1) !== page) continue;
-			return {
-				items: ((item.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[],
-				page: Number(item.result?.page ?? page),
-				hasNextPage: Boolean(item.result?.hasNextPage ?? false)
-			};
-		}
-
-		return null;
+	function latestFeedResult(
+		commandType: string,
+		sourceId: string,
+		page: number
+	): FeedResult | null {
+		return liveFeedResults[feedResultKey(commandType, sourceId, page)] ?? null;
 	}
 
 	function latestSearchResult(
@@ -440,26 +618,14 @@
 		searchFilters: Record<string, unknown>
 	): SearchResult | null {
 		const key = searchResultKey(sourceId, query, searchFilters);
-		const live = liveSearchResults[key];
-		if (live) return live;
-
-		for (const item of commands) {
-			if (item.commandType !== 'explore.search' || item.status !== 'succeeded') continue;
-			const payload = item.payload ?? {};
-			if (String(payload.sourceId ?? '') !== sourceId) continue;
-			if (String(payload.query ?? '').trim().toLowerCase() !== query.trim().toLowerCase()) continue;
-			if (JSON.stringify((payload.searchFilters as Record<string, unknown> | undefined) ?? {}) !== JSON.stringify(searchFilters)) {
-				continue;
-			}
-			return {
-				items: ((item.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[]
-			};
-		}
-
-		return null;
+		return liveSearchResults[key] ?? null;
 	}
 
-	function feedItemsForSource(commandType: string, sourceId: string, maxPage: number): ExploreItem[] {
+	function feedItemsForSource(
+		commandType: string,
+		sourceId: string,
+		maxPage: number
+	): ExploreItem[] {
 		const items: ExploreItem[] = [];
 		for (let page = 1; page <= maxPage; page += 1) {
 			const result = latestFeedResult(commandType, sourceId, page);
@@ -471,8 +637,8 @@
 
 	function searchItemsForSource(sourceId: string): ExploreItem[] {
 		const query = searchQuery.trim();
-		if (!query) return [];
 		const filters = selectedSourceId === sourceId ? selectedSourceAppliedFilters : {};
+		if (!query && Object.keys(filters).length === 0) return [];
 		return latestSearchResult(sourceId, query, filters)?.items ?? [];
 	}
 
@@ -480,7 +646,7 @@
 		if (exhaustedFeedSources[sourceId]) return false;
 		const currentPage = loadedPagesBySource[sourceId] ?? 0;
 		if (currentPage < 1) return false;
-		return latestFeedResult(commandType, sourceId, currentPage)?.hasNextPage ?? false;
+		return true;
 	}
 
 	function hasUniqueFeedItems(existing: ExploreItem[], incoming: ExploreItem[]): boolean {
@@ -496,6 +662,8 @@
 	}
 
 	function setTab(value: string) {
+		feedLoadGeneration += 1;
+		searchRunGeneration += 1;
 		activeTab = value as TabValue;
 		error = null;
 		if (activeTab !== 'search') {
@@ -522,125 +690,278 @@
 		return value;
 	}
 
-	async function enqueueCommand(commandType: string, payload: Record<string, unknown>) {
-		return client.mutation(convexApi.commands.enqueue, { commandType, payload });
+	async function runWithConcurrency<T>(
+		items: T[],
+		limit: number,
+		task: (item: T) => Promise<void>
+	) {
+		if (items.length === 0) return;
+
+		let index = 0;
+		const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+			while (index < items.length) {
+				const current = items[index];
+				index += 1;
+				await task(current);
+			}
+		});
+
+		await Promise.all(workers);
 	}
 
-	async function pollCommand(commandId: string, timeoutMs = 15000) {
-		const startedAt = Date.now();
-		while (Date.now() - startedAt < timeoutMs) {
-			const command = await client.query(convexApi.commands.getMineById, {
-				commandId: commandId as Id<'commands'>
-			});
-			if (!command) {
-				throw new Error('Command not found');
-			}
-			if (command.status === 'succeeded') {
-				return command;
-			}
-			if (command.status === 'failed' || command.status === 'cancelled' || command.status === 'dead_letter') {
-				throw new Error(command.lastErrorMessage ?? 'Command failed');
-			}
-			await new Promise((resolve) => setTimeout(resolve, 250));
+	async function fetchFeedPage(sourceId: string, page: number): Promise<FeedResult> {
+		const requestKey = `${feedCommandType}:${sourceId}:${page}:${FEED_LIMIT}`;
+		const existingRequest = inflightFeedRequests.get(requestKey);
+		if (existingRequest) {
+			return existingRequest;
 		}
-		throw new Error('Command timed out');
+
+		const request = (async () => {
+			const { commandId } = await client.mutation(convexApi.commands.enqueueExploreFeed, {
+				feedType: feedCommandType === 'explore.latest' ? 'latest' : 'popular',
+				sourceId,
+				page,
+				limit: FEED_LIMIT
+			});
+			const command = await waitForCommand(client, commandId);
+			return {
+				items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[],
+				page: Number(command.result?.page ?? page),
+				hasNextPage: Boolean(command.result?.hasNextPage ?? false)
+			};
+		})().finally(() => {
+			inflightFeedRequests.delete(requestKey);
+		});
+
+		inflightFeedRequests.set(requestKey, request);
+		return request;
 	}
 
-	async function loadFeedInitial() {
-		const sourceIds = visibleSources.map((source) => source.id);
-		loadedPagesBySource = {};
-		exhaustedFeedSources = {};
+	async function fetchNextUniqueFeedPage(
+		sourceId: string,
+		startPage: number,
+		existingItems: ExploreItem[]
+	): Promise<{ result: FeedResult; finalPage: number; exhausted: boolean }> {
+		let page = startPage;
+		let duplicatePages = 0;
+
+		while (true) {
+			const result = await fetchFeedPage(sourceId, page);
+			const hasUniqueItems = hasUniqueFeedItems(existingItems, result.items);
+			if (hasUniqueItems || !result.hasNextPage) {
+				return {
+					result,
+					finalPage: result.page,
+					exhausted: !result.hasNextPage || !hasUniqueItems
+				};
+			}
+
+			duplicatePages += 1;
+			if (duplicatePages >= FEED_DUPLICATE_PAGE_TOLERANCE) {
+				return {
+					result,
+					finalPage: result.page,
+					exhausted: true
+				};
+			}
+
+			page = result.page + 1;
+		}
+	}
+
+	function refreshCanLoadMoreFeed(
+		nextLoaded: Record<string, number>,
+		nextExhausted: Record<string, boolean>
+	) {
+		canLoadMoreFeed =
+			visibleSources.some((source) => {
+				if (sourceIsUnavailable(source.id, 'feed')) return false;
+				const page = nextLoaded[source.id] ?? 0;
+				return page > 0 && nextExhausted[source.id] !== true;
+			}) ||
+			visibleSources.some(
+				(source) =>
+					!sourceIsUnavailable(source.id, 'feed') && !activeFeedSourceIds.includes(source.id)
+			);
+	}
+
+	async function loadFeedInitial(generation: number) {
+		const sourceIds = activeFeedSourceIds.filter(
+			(sourceId) => !sourceIsUnavailable(sourceId, 'feed')
+		);
 		if (sourceIds.length === 0) {
+			loadedPagesBySource = {};
+			exhaustedFeedSources = {};
+			canLoadMoreFeed = false;
 			loading = false;
 			return;
 		}
+		canLoadMoreFeed = true;
+		await loadFeedPageBatch(sourceIds, false, generation);
+	}
 
-		loading = true;
+	async function loadFeedPageBatch(sourceIds: string[], append: boolean, generation: number) {
+		if (sourceIds.length === 0) {
+			if (!append) {
+				loadedPagesBySource = {};
+				exhaustedFeedSources = {};
+				canLoadMoreFeed = false;
+				loading = false;
+			}
+			return;
+		}
+
+		if (append) {
+			loadingMore = true;
+		} else {
+			loading = true;
+		}
 		error = null;
-		const nextPages: Record<string, number> = {};
+		const nextPages: Record<string, number> = append ? { ...loadedPagesBySource } : {};
+		const nextExhausted: Record<string, boolean> = append ? { ...exhaustedFeedSources } : {};
+		const nextLiveFeedResults = { ...liveFeedResults };
 		const failures: string[] = [];
+		let successfulSources = 0;
+		const requestCommandType = feedCommandType;
 
-		await Promise.all(
-			sourceIds.map(async (sourceId) => {
-				try {
-					const { commandId } = await enqueueCommand(feedCommandType, {
-						sourceId,
-						page: 1,
-						limit: FEED_LIMIT
-					});
-					const command = await pollCommand(String(commandId));
-					liveFeedResults[feedResultKey(feedCommandType, sourceId, 1)] = {
-						items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[],
-						page: Number(command.result?.page ?? 1),
-						hasNextPage: Boolean(command.result?.hasNextPage ?? false)
-					};
-					nextPages[sourceId] = 1;
-				} catch (cause) {
-					failures.push(cause instanceof Error ? cause.message : `Unable to load ${sourceNameFor(sourceId)}`);
+		await runWithConcurrency(sourceIds, FEED_COMMAND_CONCURRENCY, async (sourceId) => {
+			try {
+				const result = await fetchFeedPage(sourceId, 1);
+				clearSourceFailure(sourceId, 'feed');
+				successfulSources += 1;
+				nextLiveFeedResults[feedResultKey(feedCommandType, sourceId, 1)] = result;
+				nextPages[sourceId] = 1;
+				if (result.hasNextPage === true) {
+					delete nextExhausted[sourceId];
+				} else {
+					nextExhausted[sourceId] = true;
 				}
-			})
-		);
+			} catch (cause) {
+				recordSourceFailure(sourceId, 'feed', cause);
+				nextExhausted[sourceId] = true;
+				failures.push(
+					cause instanceof Error ? cause.message : `Unable to load ${sourceNameFor(sourceId)}`
+				);
+			}
+		});
 
+		if (
+			generation !== feedLoadGeneration ||
+			activeTab === 'search' ||
+			requestCommandType !== feedCommandType
+		) {
+			if (append) {
+				loadingMore = false;
+			} else {
+				loading = false;
+			}
+			return;
+		}
+
+		liveFeedResults = nextLiveFeedResults;
 		loadedPagesBySource = nextPages;
-		error = failures[0] ?? null;
-		loading = false;
+		exhaustedFeedSources = nextExhausted;
+		refreshCanLoadMoreFeed(nextPages, nextExhausted);
+		error = failures.length > 0 && successfulSources === 0 ? (failures[0] ?? null) : null;
+		if (append) {
+			loadingMore = false;
+		} else {
+			loading = false;
+		}
 	}
 
 	async function loadMoreFeed() {
 		if (loading || loadingMore || activeTab === 'search') return;
+		const generation = feedLoadGeneration;
+		const requestCommandType = feedCommandType;
 
 		const nextSourcePages = visibleSources
+			.filter((source) => !sourceIsUnavailable(source.id, 'feed'))
 			.filter((source) => sourceHasMore(feedCommandType, source.id))
 			.map((source) => ({
 				sourceId: source.id,
 				page: (loadedPagesBySource[source.id] ?? 0) + 1
 			}));
 
-		if (nextSourcePages.length === 0) return;
+		if (nextSourcePages.length === 0) {
+			const nextSourceIds = visibleSources
+				.map((source) => source.id)
+				.filter((sourceId) => !sourceIsUnavailable(sourceId, 'feed'))
+				.filter((sourceId) => !activeFeedSourceIds.includes(sourceId))
+				.slice(0, FEED_SOURCE_BATCH_SIZE);
+			if (nextSourceIds.length === 0) return;
+			activeFeedSourceIds = [...activeFeedSourceIds, ...nextSourceIds];
+			await loadFeedPageBatch(nextSourceIds, true, feedLoadGeneration);
+			return;
+		}
 
 		loadingMore = true;
 		const nextLoaded = { ...loadedPagesBySource };
 		const nextExhausted = { ...exhaustedFeedSources };
+		const nextLiveFeedResults = { ...liveFeedResults };
 		const failures: string[] = [];
+		let successfulSources = 0;
 
-		await Promise.all(
-			nextSourcePages.map(async ({ sourceId, page }) => {
+		await runWithConcurrency(
+			nextSourcePages,
+			FEED_COMMAND_CONCURRENCY,
+			async ({ sourceId, page }) => {
 				try {
-					const { commandId } = await enqueueCommand(feedCommandType, {
+					const existingItems = feedItemsForSource(
+						feedCommandType,
+						sourceId,
+						loadedPagesBySource[sourceId] ?? 0
+					);
+					const { result, finalPage, exhausted } = await fetchNextUniqueFeedPage(
 						sourceId,
 						page,
-						limit: FEED_LIMIT
-					});
-					const command = await pollCommand(String(commandId));
-					const incomingItems =
-						((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[];
-					const existingItems = feedItemsForSource(feedCommandType, sourceId, loadedPagesBySource[sourceId] ?? 0);
-					liveFeedResults[feedResultKey(feedCommandType, sourceId, page)] = {
-						items: incomingItems,
-						page: Number(command.result?.page ?? page),
-						hasNextPage: Boolean(command.result?.hasNextPage ?? false)
-					};
-					nextLoaded[sourceId] = page;
-					if (!hasUniqueFeedItems(existingItems, incomingItems)) {
+						existingItems
+					);
+					clearSourceFailure(sourceId, 'feed');
+					successfulSources += 1;
+					nextLiveFeedResults[feedResultKey(feedCommandType, sourceId, finalPage)] = result;
+					nextLoaded[sourceId] = finalPage;
+					if (exhausted) {
 						nextExhausted[sourceId] = true;
+					} else {
+						delete nextExhausted[sourceId];
 					}
 				} catch (cause) {
-					failures.push(cause instanceof Error ? cause.message : `Unable to load more from ${sourceNameFor(sourceId)}`);
+					recordSourceFailure(sourceId, 'feed', cause);
+					nextExhausted[sourceId] = true;
+					failures.push(
+						cause instanceof Error
+							? cause.message
+							: `Unable to load more from ${sourceNameFor(sourceId)}`
+					);
 				}
-			})
+			}
 		);
 
+		if (generation !== feedLoadGeneration || requestCommandType !== feedCommandType) {
+			loadingMore = false;
+			return;
+		}
+
+		liveFeedResults = nextLiveFeedResults;
 		loadedPagesBySource = nextLoaded;
 		exhaustedFeedSources = nextExhausted;
-		if (failures.length > 0) {
+		refreshCanLoadMoreFeed(nextLoaded, nextExhausted);
+		if (failures.length > 0 && successfulSources === 0 && cards.length === 0) {
 			error = failures[0];
+		} else if (successfulSources > 0 || cards.length > 0) {
+			error = null;
 		}
 		loadingMore = false;
 	}
 
 	async function runSearch() {
+		const generation = ++searchRunGeneration;
 		const value = searchQuery.trim();
-		if (!value) {
+		const selectedSourceFilters = selectedSourceId ? selectedSourceAppliedFilters : {};
+		const hasFilterOnlySearch =
+			Boolean(selectedSourceId) && Object.keys(selectedSourceFilters).length > 0;
+		if (!value && !hasFilterOnlySearch) {
 			loading = false;
 			return;
 		}
@@ -648,9 +969,12 @@
 		const sourceIds =
 			selectedSourceId && searchSources.some((source) => source.id === selectedSourceId)
 				? [selectedSourceId]
-				: searchSources.map((source) => source.id);
+				: searchSources
+						.map((source) => source.id)
+						.filter((sourceId) => !sourceIsUnavailable(sourceId, 'search'));
 
 		if (sourceIds.length === 0) {
+			error = activeSourceFailures[0]?.message ?? null;
 			loading = false;
 			return;
 		}
@@ -658,30 +982,44 @@
 		loading = true;
 		error = null;
 		const failures: string[] = [];
+		const nextLiveSearchResults = { ...liveSearchResults };
 
-		await Promise.all(
-			sourceIds.map(async (sourceId) => {
-				try {
-					const searchFilters = selectedSourceId === sourceId ? selectedSourceAppliedFilters : {};
-					const payload: Record<string, unknown> = {
-						query: value,
-						sourceId,
-						limit: 42
-					};
-					if (Object.keys(searchFilters).length > 0) {
-						payload.searchFilters = searchFilters;
-					}
-					const { commandId } = await enqueueCommand('explore.search', payload);
-					const command = await pollCommand(String(commandId));
-					liveSearchResults[searchResultKey(sourceId, value, searchFilters)] = {
-						items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[]
-					};
-				} catch (cause) {
-					failures.push(cause instanceof Error ? cause.message : `Search failed for ${sourceNameFor(sourceId)}`);
+		await runWithConcurrency(sourceIds, COMMAND_CONCURRENCY, async (sourceId) => {
+			try {
+				const searchFilters = selectedSourceId === sourceId ? selectedSourceAppliedFilters : {};
+				const payload: Record<string, unknown> = {
+					query: value,
+					sourceId,
+					limit: 42
+				};
+				if (Object.keys(searchFilters).length > 0) {
+					payload.searchFilters = searchFilters;
 				}
-			})
-		);
+				const { commandId } = await client.mutation(convexApi.commands.enqueueExploreSearch, {
+					sourceId,
+					query: value,
+					limit: 42,
+					...(Object.keys(searchFilters).length > 0 ? { searchFilters } : {})
+				});
+				const command = await waitForCommand(client, commandId);
+				clearSourceFailure(sourceId, 'search');
+				nextLiveSearchResults[searchResultKey(sourceId, value, searchFilters)] = {
+					items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[]
+				};
+			} catch (cause) {
+				recordSourceFailure(sourceId, 'search', cause);
+				failures.push(
+					cause instanceof Error ? cause.message : `Search failed for ${sourceNameFor(sourceId)}`
+				);
+			}
+		});
 
+		if (generation !== searchRunGeneration || activeTab !== 'search') {
+			loading = false;
+			return;
+		}
+
+		liveSearchResults = nextLiveSearchResults;
 		error = failures[0] ?? null;
 		loading = false;
 	}
@@ -694,16 +1032,20 @@
 		pendingSearchFilterChanges = {};
 
 		try {
-			const { commandId } = await enqueueCommand('sources.preferences.fetch', { sourceId });
-			const command = await pollCommand(String(commandId));
+			const { commandId } = await client.mutation(
+				convexApi.commands.enqueueSourcePreferencesFetch,
+				{
+					sourceId
+				}
+			);
+			const command = await waitForCommand(client, commandId);
 			searchFiltersData = command.result as PreferenceBundle;
 			const applied = appliedSearchFiltersBySource[sourceId];
 			if (applied) {
 				pendingSearchFilterChanges = structuredCloneValue(applied) as Record<string, unknown>;
 			}
 		} catch (cause) {
-			searchFiltersError =
-				cause instanceof Error ? cause.message : 'Failed to load search filters';
+			searchFiltersError = cause instanceof Error ? cause.message : 'Failed to load search filters';
 		} finally {
 			searchFiltersLoading = false;
 		}
@@ -726,7 +1068,7 @@
 		const next = { ...appliedSearchFiltersBySource };
 		delete next[selectedSourceId];
 		appliedSearchFiltersBySource = next;
-		if (searchQuery.trim()) {
+		if (canRunSearch) {
 			void runSearch();
 		}
 	}
@@ -747,7 +1089,9 @@
 			: Array.isArray(selectedSourceAppliedFilters[key])
 				? [...(selectedSourceAppliedFilters[key] as string[])]
 				: [];
-		const next = checked ? [...new Set([...current, option])] : current.filter((item) => item !== option);
+		const next = checked
+			? [...new Set([...current, option])]
+			: current.filter((item) => item !== option);
 		handleSearchFilterChange(key, next);
 	}
 
@@ -766,7 +1110,7 @@
 			appliedSearchFiltersBySource = next;
 		}
 		closeSearchFilters();
-		if (searchQuery.trim()) {
+		if (canRunSearch || Object.keys(pendingSearchFilterChanges).length > 0) {
 			await runSearch();
 		}
 	}
@@ -781,7 +1125,7 @@
 
 	function buildPreviewHref(item: ExploreCard): string {
 		if (item.importedLibraryId) {
-			return buildTitlePath(item.importedLibraryId, item.title);
+			return buildTitlePath(item.importedLibraryId, item.title, item.importedRouteSegment ?? null);
 		}
 		const query = new URLSearchParams({
 			source_id: item.sourceId,
@@ -793,6 +1137,23 @@
 			canonical_key: item.canonicalKey
 		});
 		return `/title/open?${query.toString()}`;
+	}
+
+	function exploreBadge(item: ExploreCard) {
+		if (!item.importedLibraryId) return null;
+		if (item.importedListedInLibrary) {
+			return {
+				variant: 'listed' as const,
+				label: $_('title.inLibrary'),
+				className: 'bg-[var(--success)]/85 text-[var(--void-0)]'
+			};
+		}
+		return {
+			variant: 'hidden' as const,
+			label: $_('explore.hiddenImportedBadge'),
+			className:
+				'bg-[var(--void-1)]/85 text-[var(--text-muted)] ring-1 ring-inset ring-[var(--line)]'
+		};
 	}
 
 	function shouldUseBrowserNavigation(event: MouseEvent): boolean {
@@ -816,31 +1177,48 @@
 		});
 	}
 
-	function observeInfiniteScroll(node: HTMLElement) {
-		if (typeof IntersectionObserver === 'undefined') {
+	async function maybeAutoLoadFeed() {
+		if (renderCardLimit < cards.length) {
+			renderCardLimit = Math.min(renderCardLimit + CARD_RENDER_PAGE_SIZE, cards.length);
 			return;
 		}
+		if (autoLoadFeedPending || activeTab === 'search' || currentLoading || !canLoadMoreFeed) return;
 
-		const observer = new IntersectionObserver(
+		autoLoadFeedPending = true;
+		try {
+			await loadMoreFeed();
+		} finally {
+			autoLoadFeedPending = false;
+		}
+	}
+
+	function resetFeedObserver() {
+		feedIntersectionObserver?.disconnect();
+		feedIntersectionObserver = null;
+	}
+
+	function observeFeedSentinel() {
+		if (typeof window === 'undefined' || !feedSentinel) return;
+		resetFeedObserver();
+		feedIntersectionObserver = new IntersectionObserver(
 			(entries) => {
-				infiniteSentinelVisible = entries.some((entry) => entry.isIntersecting);
+				if (entries.some((entry) => entry.isIntersecting)) {
+					void maybeAutoLoadFeed();
+				}
 			},
-			{ rootMargin: '640px 0px' }
-		);
-		observer.observe(node);
-
-		return {
-			destroy() {
-				observer.disconnect();
-				infiniteSentinelVisible = false;
+			{
+				root: null,
+				rootMargin: '960px 0px 960px 0px',
+				threshold: 0
 			}
-		};
+		);
+		feedIntersectionObserver.observe(feedSentinel);
 	}
 
 	onMount(() => {
-		panelOverlayOpen.set(searchFiltersOpen);
 		return () => {
 			if (searchTimer) clearTimeout(searchTimer);
+			resetFeedObserver();
 			panelOverlayOpen.set(false);
 		};
 	});
@@ -851,7 +1229,7 @@
 	});
 
 	$effect(() => {
-		if (!searchSources.some((source) => source.id === selectedSourceId)) {
+		if (selectedSourceId && !searchSources.some((source) => source.id === selectedSourceId)) {
 			selectedSourceId = '';
 		}
 	});
@@ -859,21 +1237,41 @@
 	$effect(() => {
 		if (!sources.length) return;
 		if (activeTab === 'search') {
-			if (searchQuery.trim()) {
-				void runSearch();
-			} else {
-				loading = false;
-			}
+			lastFeedLoadSignature = '';
+			activeFeedSourceIds = [];
+			loading = false;
 			return;
 		}
-		void loadFeedInitial();
+		const signature = `${feedCommandType}:${visibleSources.map((source) => source.id).join(',')}`;
+		if (signature === lastFeedLoadSignature) {
+			return;
+		}
+		lastFeedLoadSignature = signature;
+		activeFeedSourceIds = visibleSources
+			.filter((source) => !sourceIsUnavailable(source.id, 'feed'))
+			.slice(0, FEED_SOURCE_BATCH_SIZE)
+			.map((source) => source.id);
+		canLoadMoreFeed = activeFeedSourceIds.length > 0;
+		const generation = ++feedLoadGeneration;
+		void loadFeedInitial(generation);
 	});
 
 	$effect(() => {
-		if (!infiniteSentinelVisible || !hasMoreFeedPages || loadingMore || loading || activeTab === 'search') {
-			return;
-		}
-		void loadMoreFeed();
+		void renderContextKey;
+		renderCardLimit = INITIAL_CARD_RENDER_LIMIT;
+	});
+
+	$effect(() => {
+		void activeTab;
+		void cards.length;
+		void currentLoading;
+		void canLoadMoreFeed;
+		void feedSentinel;
+		observeFeedSentinel();
+		void maybeAutoLoadFeed();
+		return () => {
+			resetFeedObserver();
+		};
 	});
 </script>
 
@@ -886,12 +1284,14 @@
 		<h1 class="text-display text-xl text-[var(--text)]">{$_('nav.explore').toLowerCase()}</h1>
 	</div>
 
-	<Tabs tabs={tabs} value={activeTab} onValueChange={setTab} />
+	<Tabs {tabs} value={activeTab} onValueChange={setTab} />
 
 	{#if activeTab === 'search'}
 		<div class="flex flex-col gap-4">
 			<div class="relative">
-				<div class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-ghost)]">
+				<div
+					class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-ghost)]"
+				>
 					<MagnifyingGlassIcon size={14} />
 				</div>
 				<input
@@ -907,7 +1307,11 @@
 						class="absolute top-1/2 right-3 -translate-y-1/2 text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 						onclick={() => {
 							searchQuery = '';
-							loading = false;
+							if (selectedSourceId && Object.keys(selectedSourceAppliedFilters).length > 0) {
+								void runSearch();
+							} else {
+								loading = false;
+							}
 						}}
 					>
 						<XIcon size={14} />
@@ -944,12 +1348,13 @@
 								: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
 							onclick={() => {
 								selectedSourceId = '';
-								if (searchQuery.trim()) void runSearch();
+								if (canRunSearch) void runSearch();
 							}}
 						>
 							{$_('explore.allSources')}
 						</button>
 						{#each searchSources as source (source.id)}
+							{@const searchFailure = sourceFailureFor(source.id, 'search')}
 							<button
 								type="button"
 								class="h-7 shrink-0 px-3 text-[10px] tracking-wider uppercase transition-colors {selectedSourceId ===
@@ -958,10 +1363,22 @@
 									: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
 								onclick={() => {
 									selectedSourceId = source.id;
-									if (searchQuery.trim()) void runSearch();
+									if (searchQuery.trim() || appliedSearchFiltersBySource[source.id])
+										void runSearch();
 								}}
+								title={searchFailure
+									? `${sourceFailureLabel(searchFailure)}: ${searchFailure.message}`
+									: undefined}
 							>
 								{source.name}{source.lang ? ` [${source.lang}]` : ''}
+								{#if searchFailure}
+									<span class="ml-1 text-[9px] text-[var(--text-dim)]">
+										{sourceFailureLabel(searchFailure)}
+										{#if sourceFailureRetrySuffix(searchFailure)}
+											· {sourceFailureRetrySuffix(searchFailure)}
+										{/if}
+									</span>
+								{/if}
 							</button>
 						{/each}
 					</div>
@@ -1003,7 +1420,8 @@
 			<div class="flex flex-wrap gap-2">
 				<button
 					type="button"
-					class="inline-flex items-center gap-1 border px-2.5 py-1 text-xs transition-colors {selectedExtensionPkgs.length > 0
+					class="inline-flex items-center gap-1 border px-2.5 py-1 text-xs transition-colors {selectedExtensionPkgs.length >
+					0
 						? 'border-[var(--line)] text-[var(--text-ghost)] hover:border-[var(--text-ghost)] hover:text-[var(--text-muted)]'
 						: 'border-[var(--text)] bg-[var(--void-2)] text-[var(--text)]'}"
 					onclick={clearExtensionFilters}
@@ -1029,8 +1447,24 @@
 	{/if}
 
 	{#if error}
-		<div class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]">
+		<div
+			class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]"
+		>
 			{error}
+		</div>
+	{/if}
+
+	{#if activeSourceFailures.length > 0}
+		<div
+			class="border border-[var(--line)] bg-[var(--void-2)] px-4 py-3 text-sm text-[var(--text-muted)]"
+		>
+			{activeSourceFailures.length} source{activeSourceFailures.length === 1 ? '' : 's'} temporarily skipped:
+			{activeSourceFailures
+				.map(
+					(failure) =>
+						`${failure.sourceName}${failure.permanent ? '' : ` (${failure.retryInMinutes}m)`}`
+				)
+				.join(', ')}
 		</div>
 	{/if}
 
@@ -1060,7 +1494,10 @@
 		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
 			{#each Array(18) as _, i (i)}
 				<div class="flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)]">
-					<div class="aspect-[2/3] animate-pulse bg-[var(--void-4)]" style={`animation-delay: ${i * 40}ms`}></div>
+					<div
+						class="aspect-[2/3] animate-pulse bg-[var(--void-4)]"
+						style={`animation-delay: ${i * 40}ms`}
+					></div>
 					<div class="flex flex-col gap-1.5 p-2">
 						<div class="h-2 w-full animate-pulse bg-[var(--void-4)]"></div>
 						<div class="h-2 w-3/5 animate-pulse bg-[var(--void-5)]"></div>
@@ -1070,7 +1507,8 @@
 		</div>
 	{:else if cards.length > 0}
 		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-			{#each cards as item (item.key)}
+			{#each visibleCards as item (item.key)}
+				{@const badge = exploreBadge(item)}
 				<a
 					href={buildPreviewHref(item)}
 					class="group card-glow relative flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)] text-left"
@@ -1091,19 +1529,38 @@
 							</div>
 						{/if}
 
-						{#if item.importedLibraryId}
-							<div class="absolute top-1 right-1 flex items-center gap-1 bg-[var(--success)]/85 px-1.5 py-0.5 text-[10px] text-[var(--void-0)]">
-								<CheckIcon size={10} />
-								<span>{$_('title.inLibrary')}</span>
+						<div class="absolute inset-x-1 top-1 flex items-start justify-end gap-2">
+							{#if badge}
+								{#if badge.variant === 'listed'}
+									<div
+										class={`flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[10px] ${badge.className}`}
+									>
+										<CheckIcon size={10} />
+										<span>{badge.label}</span>
+									</div>
+								{:else}
+									<div
+										class={`flex h-6 w-6 shrink-0 items-center justify-center ${badge.className}`}
+										title={badge.label}
+										aria-label={badge.label}
+									>
+										<EyeSlashIcon size={12} />
+									</div>
+								{/if}
+							{/if}
+						</div>
+						<div class="absolute inset-x-1 bottom-1 flex items-end justify-start">
+							<div
+								class="max-w-[85%] truncate bg-[var(--void-0)]/82 px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] backdrop-blur-sm"
+							>
+								{item.sourceName}{item.sourceLang ? ` · ${item.sourceLang.toUpperCase()}` : ''}
 							</div>
-						{/if}
-
-						<div class="absolute bottom-1 left-1 bg-[var(--void-0)]/80 px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">
-							{item.sourceName}
 						</div>
 
 						{#if openingTitleKey === item.key}
-							<div class="absolute inset-0 flex items-center justify-center bg-[var(--void-0)]/60 backdrop-blur-[1px]">
+							<div
+								class="absolute inset-0 flex items-center justify-center bg-[var(--void-0)]/60 backdrop-blur-[1px]"
+							>
 								<SpinnerIcon size={18} class="animate-spin text-[var(--text)]" />
 							</div>
 						{/if}
@@ -1115,8 +1572,11 @@
 				</a>
 			{/each}
 		</div>
-		{#if activeTab !== 'search' && hasMoreFeedPages}
-			<div class="flex items-center justify-center py-4" use:observeInfiniteScroll>
+		{#if activeTab !== 'search' || visibleCards.length < cards.length}
+			<div bind:this={feedSentinel} class="h-px w-full" aria-hidden="true"></div>
+		{/if}
+		{#if activeTab !== 'search' && canLoadMoreFeed}
+			<div class="flex items-center justify-center py-4">
 				{#if loadingMore}
 					<p class="flex items-center gap-2 text-sm text-[var(--text-ghost)]">
 						<SpinnerIcon size={14} class="animate-spin" />
@@ -1127,7 +1587,9 @@
 		{/if}
 	{:else}
 		<div class="flex flex-col items-center gap-4 py-16 text-center">
-			<div class="flex h-16 w-16 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]">
+			<div
+				class="flex h-16 w-16 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]"
+			>
 				{#if activeTab === 'search'}
 					<MagnifyingGlassIcon size={24} class="text-[var(--text-ghost)]" />
 				{:else}
@@ -1164,7 +1626,9 @@
 			<p class="text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
 		</div>
 	{:else if searchFiltersError}
-		<div class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]">
+		<div
+			class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]"
+		>
 			{searchFiltersError}
 		</div>
 	{:else if searchFiltersData}
@@ -1191,7 +1655,8 @@
 									<input
 										type="checkbox"
 										checked={Boolean(getCurrentSearchFilterValue(meta))}
-										onchange={(event) => handleSearchFilterChange(meta.key, event.currentTarget.checked)}
+										onchange={(event) =>
+											handleSearchFilterChange(meta.key, event.currentTarget.checked)}
 									/>
 									<span>Enabled</span>
 								</label>
@@ -1199,21 +1664,23 @@
 								<select
 									class="h-11 border border-[var(--void-4)] bg-[var(--void-2)] px-3 text-sm text-[var(--text)]"
 									value={String(getCurrentSearchFilterValue(meta) ?? '')}
-									onchange={(event) => handleSearchFilterChange(meta.key, event.currentTarget.value)}
+									onchange={(event) =>
+										handleSearchFilterChange(meta.key, event.currentTarget.value)}
 								>
 									{#each meta.entry_values ?? [] as value, index (`${meta.key}:${value}:${index}`)}
-										<option value={value}>{meta.entries?.[index] ?? value}</option>
+										<option {value}>{meta.entries?.[index] ?? value}</option>
 									{/each}
 								</select>
 							{:else if meta.type === 'multi_select'}
 								<div class="grid gap-2">
-										{#each meta.entry_values ?? [] as value, index (`${meta.key}:${value}:${index}`)}
-											<label class="flex items-center gap-3 text-sm text-[var(--text)]">
+									{#each meta.entry_values ?? [] as value, index (`${meta.key}:${value}:${index}`)}
+										<label class="flex items-center gap-3 text-sm text-[var(--text)]">
 											<input
 												type="checkbox"
 												checked={Array.isArray(getCurrentSearchFilterValue(meta)) &&
 													(getCurrentSearchFilterValue(meta) as string[]).includes(value)}
-												onchange={(event) => toggleMultiSelectValue(meta.key, value, event.currentTarget.checked)}
+												onchange={(event) =>
+													toggleMultiSelectValue(meta.key, value, event.currentTarget.checked)}
 											/>
 											<span>{meta.entries?.[index] ?? value}</span>
 										</label>
@@ -1231,12 +1698,8 @@
 					{/each}
 				</div>
 				<div class="flex gap-2 pt-2">
-					<Button variant="outline" size="sm" onclick={closeSearchFilters}>
-						Cancel
-					</Button>
-					<Button size="sm" onclick={() => void applySearchFilters()}>
-						Apply
-					</Button>
+					<Button variant="outline" size="sm" onclick={closeSearchFilters}>Cancel</Button>
+					<Button size="sm" onclick={() => void applySearchFilters()}>Apply</Button>
 				</div>
 			{/if}
 		</div>

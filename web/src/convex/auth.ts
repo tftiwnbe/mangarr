@@ -3,6 +3,9 @@ import { v } from 'convex/values';
 
 import { mutation, query } from './_generated/server';
 
+const SESSION_TOUCH_DEBOUNCE_MS = 60 * 1000;
+const INTEGRATION_KEY_TOUCH_DEBOUNCE_MS = 60 * 1000;
+
 const publicUser = v.object({
 	_id: v.id('users'),
 	username: v.string(),
@@ -83,6 +86,48 @@ export const getSessionByTokenHash = query({
 				createdAt: session.createdAt,
 				lastUsedAt: session.lastUsedAt,
 				revokedAt: session.revokedAt
+			},
+			user: {
+				_id: user._id,
+				username: user.username,
+				isAdmin: user.isAdmin,
+				status: user.status,
+				createdAt: user.createdAt,
+				updatedAt: user.updatedAt,
+				lastLoginAt: user.lastLoginAt
+			}
+		};
+	}
+});
+
+export const getIntegrationApiKeyByHash = query({
+	args: {
+		keyHash: v.string(),
+		now: v.float64()
+	},
+	handler: async (ctx, args) => {
+		const key = await ctx.db
+			.query('integrationApiKeys')
+			.withIndex('by_key_hash', (q) => q.eq('keyHash', args.keyHash))
+			.unique();
+
+		if (!key || key.revokedAt) {
+			return null;
+		}
+
+		const user = await ctx.db.get(key.ownerUserId);
+		if (!user || user.status !== 'active') {
+			return null;
+		}
+
+		return {
+			key: {
+				publicId: key.publicId,
+				name: key.name,
+				keyPrefix: key.keyPrefix,
+				createdAt: key.createdAt,
+				lastUsedAt: key.lastUsedAt,
+				revokedAt: key.revokedAt
 			},
 			user: {
 				_id: user._id,
@@ -248,8 +293,46 @@ export const touchBrowserSession = mutation({
 		if (!session || session.revokedAt) {
 			return { touched: false };
 		}
+		const previousLastUsedAt = session.lastUsedAt ?? session.createdAt;
+		if (args.lastUsedAt <= previousLastUsedAt) {
+			return { touched: false };
+		}
+		if (args.lastUsedAt - previousLastUsedAt < SESSION_TOUCH_DEBOUNCE_MS) {
+			return { touched: false };
+		}
 
 		await ctx.db.patch(session._id, {
+			lastUsedAt: args.lastUsedAt
+		});
+
+		return { touched: true };
+	}
+});
+
+export const touchIntegrationApiKey = mutation({
+	args: {
+		keyHash: v.string(),
+		lastUsedAt: v.float64()
+	},
+	handler: async (ctx, args) => {
+		const key = await ctx.db
+			.query('integrationApiKeys')
+			.withIndex('by_key_hash', (q) => q.eq('keyHash', args.keyHash))
+			.unique();
+
+		if (!key || key.revokedAt) {
+			return { touched: false };
+		}
+
+		const previousLastUsedAt = key.lastUsedAt ?? key.createdAt;
+		if (args.lastUsedAt <= previousLastUsedAt) {
+			return { touched: false };
+		}
+		if (args.lastUsedAt - previousLastUsedAt < INTEGRATION_KEY_TOUCH_DEBOUNCE_MS) {
+			return { touched: false };
+		}
+
+		await ctx.db.patch(key._id, {
 			lastUsedAt: args.lastUsedAt
 		});
 

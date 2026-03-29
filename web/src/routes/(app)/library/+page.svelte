@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
 	import { useConvexClient, useQuery } from 'convex-svelte';
@@ -31,12 +32,13 @@
 	};
 
 	type RawUserStatus = {
-		id: number;
+		id: string;
 		label: string;
 	};
 
 	type TitleItem = {
 		_id: Id<'libraryTitles'>;
+		routeSegment?: string | null;
 		title: string;
 		sourceId: string;
 		sourcePkg: string;
@@ -51,6 +53,15 @@
 			downloaded: number;
 			failed: number;
 		};
+		offlineReadiness: {
+			titlePageReady: boolean;
+			metadataReady: boolean;
+			cachedCover: boolean;
+			downloadedChapters: number;
+			totalChapters: number;
+			fullyDownloaded: boolean;
+			missingCoverCache: boolean;
+		};
 		createdAt: number;
 		updatedAt: number;
 		lastReadAt?: number;
@@ -63,14 +74,6 @@
 		collections?: RawCollection[] | null;
 	};
 
-	type CommandItem = {
-		id: string;
-		commandType: string;
-		status: string;
-		payload?: Record<string, unknown> | null;
-		result?: Record<string, unknown> | null;
-	};
-
 	type LibraryCollectionResource = {
 		id: string;
 		name: string;
@@ -78,6 +81,7 @@
 
 	type LibraryTitleSummary = {
 		id: string;
+		route_segment?: string | null;
 		title: string;
 		thumbnail_url: string | null;
 		chapters_count: number;
@@ -89,88 +93,109 @@
 		genre: string | null;
 		collections: LibraryCollectionResource[];
 		user_rating: number | null;
+		offline_readiness: TitleItem['offlineReadiness'];
+	};
+
+	type HiddenTitleSummary = {
+		_id: Id<'libraryTitles'>;
+		routeSegment?: string | null;
+		title: string;
+		sourceId: string;
+		sourcePkg: string;
+		sourceLang: string;
+		titleUrl: string;
+		coverUrl?: string | null;
+		localCoverPath?: string | null;
+		createdAt: number;
+		updatedAt: number;
 	};
 
 	type SortMode = 'updated' | 'added' | 'reading' | 'alpha' | 'status';
-
-	const DEFAULT_USER_STATUS: RawUserStatus = {
-		id: 1,
-		label: 'Reading'
-	};
-
-	const DEFAULT_COLLECTIONS: LibraryCollectionResource[] = [
-		{ id: 'favorites', name: 'Favorites' },
-		{ id: 'queue', name: 'Queue' },
-		{ id: 'archive', name: 'Archive' }
-	];
+	const INITIAL_LIBRARY_RENDER_LIMIT = 60;
+	const LIBRARY_RENDER_PAGE_SIZE = 48;
 
 	const client = useConvexClient();
 	const library = useQuery(convexApi.library.listMine, () => ({}));
-	const commands = useQuery(convexApi.commands.listMine, () => ({ limit: 150 }));
+	const hiddenLibraryTitles = useQuery(convexApi.library.listHiddenMine, () => ({}));
 
 	let searchQuery = $state('');
 	let selectedCollectionId = $state<string | null>(null);
 	let filterPanelOpen = $state(false);
+	let hiddenPanelOpen = $state(false);
 	let sortMode = $state<SortMode>('updated');
 	let sortDesc = $state(true);
-	let activeReadingStatusIds = $state<number[]>([]);
+	let activeReadingStatusIds = $state<string[]>([]);
 	let activeSourceStatusKeys = $state<string[]>([]);
 	let activeGenres = $state<string[]>([]);
-	let requestedMetadataKeys = $state<string[]>([]);
+	let requestedMetadataTitleIds = $state<string[]>([]);
+	let requestedCoverTitleIds = $state<string[]>([]);
+	let revealTitleId = $state<string | null>(null);
+	let libraryRenderLimit = $state(INITIAL_LIBRARY_RENDER_LIMIT);
+	let libraryRenderSentinel = $state<HTMLDivElement | null>(null);
+	let libraryRenderObserver: IntersectionObserver | null = null;
+	let browserOnline = $state(true);
+
+	onMount(() => {
+		if (typeof navigator !== 'undefined') {
+			browserOnline = navigator.onLine;
+		}
+		const handleOnline = () => {
+			browserOnline = true;
+		};
+		const handleOffline = () => {
+			browserOnline = false;
+		};
+		window.addEventListener('online', handleOnline);
+		window.addEventListener('offline', handleOffline);
+		return () => {
+			window.removeEventListener('online', handleOnline);
+			window.removeEventListener('offline', handleOffline);
+		};
+	});
 
 	const debouncedSearch = new DebouncedValue(() => searchQuery, 150);
 
 	$effect(() => {
-		panelOverlayOpen.set(filterPanelOpen);
+		panelOverlayOpen.set(filterPanelOpen || hiddenPanelOpen);
 		return () => panelOverlayOpen.set(false);
 	});
 
-	const SORT_MODES: { value: SortMode; label: string }[] = [
-		{ value: 'updated', label: 'updated' },
-		{ value: 'added', label: 'added' },
-		{ value: 'reading', label: 'reading' },
-		{ value: 'alpha', label: 'a-z' },
-		{ value: 'status', label: 'status' }
+	const SORT_MODES: Array<{ value: SortMode; labelKey: string }> = [
+		{ value: 'updated', labelKey: 'library.sortModes.updated' },
+		{ value: 'added', labelKey: 'library.sortModes.added' },
+		{ value: 'reading', labelKey: 'library.sortModes.reading' },
+		{ value: 'alpha', labelKey: 'library.sortModes.alpha' },
+		{ value: 'status', labelKey: 'library.sortModes.status' }
 	];
 
-	const SOURCE_STATUS_FILTERS: { key: string; label: string; values: number[] }[] = [
-		{ key: 'ongoing', label: 'ongoing', values: [TITLE_STATUS.ONGOING] },
+	const SOURCE_STATUS_FILTERS: Array<{ key: string; labelKey: string; values: number[] }> = [
+		{ key: 'ongoing', labelKey: 'status.ongoing', values: [TITLE_STATUS.ONGOING] },
 		{
 			key: 'completed',
-			label: 'completed',
+			labelKey: 'status.completed',
 			values: [TITLE_STATUS.COMPLETED, TITLE_STATUS.COMPLETED_ALT]
 		},
-		{ key: 'hiatus', label: 'hiatus', values: [TITLE_STATUS.HIATUS] }
+		{ key: 'hiatus', labelKey: 'status.hiatus', values: [TITLE_STATUS.HIATUS] }
 	];
 
-	const allCommands = $derived((commands.data ?? []) as CommandItem[]);
-
-	const metadataByTitleKey = $derived.by(() => {
-		const map = new SvelteMap<string, { status?: number; genre?: string | null }>();
-		for (const item of allCommands) {
-			if (item.commandType !== 'explore.title.fetch' || item.status !== 'succeeded') continue;
-			const payload = item.payload ?? {};
-			const result = item.result ?? {};
-			const title = (result.title ?? null) as Record<string, unknown> | null;
-			if (!title) continue;
-			const sourceId = String(payload.sourceId ?? '');
-			const titleUrl = String(payload.titleUrl ?? '');
-			if (!sourceId || !titleUrl) continue;
-			map.set(`${sourceId}::${titleUrl}`, {
-				status: typeof title.status === 'number' ? title.status : 0,
-				genre: typeof title.genre === 'string' ? title.genre : null
-			});
-		}
-		return map;
-	});
-
 	const titles = $derived(
-		((library.data ?? []) as TitleItem[]).map((title) =>
-			mapTitleToSummary(title, metadataByTitleKey.get(`${title.sourceId}::${title.titleUrl}`))
-		)
+		((library.data ?? []) as TitleItem[]).map((title) => mapTitleToSummary(title))
 	);
 	const loading = $derived(library.isLoading);
 	const error = $derived(library.error instanceof Error ? library.error.message : null);
+	const hiddenTitles = $derived(((hiddenLibraryTitles.data ?? []) as HiddenTitleSummary[]).slice());
+	const hiddenImportsCount = $derived(hiddenTitles.length);
+	const renderContextKey = $derived(
+		JSON.stringify({
+			query: debouncedSearch.value?.trim().toLowerCase() ?? '',
+			selectedCollectionId,
+			sortMode,
+			sortDesc,
+			activeReadingStatusIds: [...activeReadingStatusIds].sort(),
+			activeSourceStatusKeys: [...activeSourceStatusKeys].sort(),
+			activeGenres: [...activeGenres].sort()
+		})
+	);
 
 	const collections = $derived.by(() => {
 		const seen = new SvelteMap<string, LibraryCollectionResource>();
@@ -181,12 +206,11 @@
 				}
 			}
 		}
-		const computed = [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
-		return computed.length > 0 || titles.length === 0 ? computed : DEFAULT_COLLECTIONS;
+		return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
 	});
 
 	const allUserStatuses = $derived.by(() => {
-		const seen = new SvelteMap<number, RawUserStatus>();
+		const seen = new SvelteMap<string, RawUserStatus>();
 		for (const title of titles) {
 			if (title.user_status && !seen.has(title.user_status.id)) {
 				seen.set(title.user_status.id, title.user_status);
@@ -196,7 +220,9 @@
 	});
 
 	const presentSourceStatusKeys = $derived.by(() => {
-		const presentValues = new SvelteSet(titles.map((title) => title.status).filter((value) => value > 0));
+		const presentValues = new SvelteSet(
+			titles.map((title) => title.status).filter((value) => value > 0)
+		);
 		return SOURCE_STATUS_FILTERS.filter((filter) =>
 			filter.values.some((value) => presentValues.has(value))
 		).map((filter) => filter.key);
@@ -277,46 +303,100 @@
 
 		return result;
 	});
+	const visibleFilteredTitles = $derived(filteredTitles.slice(0, libraryRenderLimit));
 
 	$effect(() => {
-		for (const title of (library.data ?? []) as TitleItem[]) {
-			if ((title.status ?? 0) > 0 && (title.genre ?? '').trim()) continue;
-			const key = `${title.sourceId}::${title.titleUrl}`;
-			if (requestedMetadataKeys.includes(key)) continue;
-			if (metadataByTitleKey.has(key)) continue;
-
-			requestedMetadataKeys = [...requestedMetadataKeys, key];
-			void client.mutation(convexApi.commands.enqueue, {
-				commandType: 'explore.title.fetch',
-				payload: {
-					sourceId: title.sourceId,
-					titleUrl: title.titleUrl
-				}
-			});
+		if (!browserOnline) return;
+		const nextRequested: string[] = [];
+		for (const title of visibleFilteredTitles as LibraryTitleSummary[]) {
+			const key = String(title.id);
+			if (requestedMetadataTitleIds.includes(key) || requestedCoverTitleIds.includes(key)) continue;
+			if (
+				title.offline_readiness.titlePageReady &&
+				(!title.offline_readiness.missingCoverCache || title.offline_readiness.cachedCover)
+			) {
+				continue;
+			}
+			nextRequested.push(key);
 		}
+		if (nextRequested.length === 0) return;
+		requestedMetadataTitleIds = [...requestedMetadataTitleIds, ...nextRequested];
+		requestedCoverTitleIds = [...requestedCoverTitleIds, ...nextRequested];
+		void (async () => {
+			try {
+				await client.mutation(convexApi.library.ensureTitlesOfflineReady, {
+					titleIds: nextRequested as Id<'libraryTitles'>[],
+					limit: 24
+				});
+			} catch {
+				// Keep the session markers to avoid prewarm loops.
+			}
+		})();
 	});
 
-	function mapTitleToSummary(
-		title: TitleItem,
-		metadata?: { status?: number; genre?: string | null }
-	): LibraryTitleSummary {
+	function resetLibraryRenderObserver() {
+		libraryRenderObserver?.disconnect();
+		libraryRenderObserver = null;
+	}
+
+	function maybeLoadMoreLibraryTitles() {
+		if (visibleFilteredTitles.length >= filteredTitles.length) return;
+		libraryRenderLimit = Math.min(
+			libraryRenderLimit + LIBRARY_RENDER_PAGE_SIZE,
+			filteredTitles.length
+		);
+	}
+
+	$effect(() => {
+		void renderContextKey;
+		libraryRenderLimit = INITIAL_LIBRARY_RENDER_LIMIT;
+	});
+
+	$effect(() => {
+		if (typeof window === 'undefined' || !libraryRenderSentinel) return;
+		if (visibleFilteredTitles.length >= filteredTitles.length) {
+			resetLibraryRenderObserver();
+			return;
+		}
+		resetLibraryRenderObserver();
+		libraryRenderObserver = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((entry) => entry.isIntersecting)) {
+					maybeLoadMoreLibraryTitles();
+				}
+			},
+			{
+				root: null,
+				rootMargin: '960px 0px 960px 0px',
+				threshold: 0
+			}
+		);
+		libraryRenderObserver.observe(libraryRenderSentinel);
+		return () => {
+			resetLibraryRenderObserver();
+		};
+	});
+
+	function mapTitleToSummary(title: TitleItem): LibraryTitleSummary {
 		return {
 			id: title._id,
+			route_segment: title.routeSegment ?? null,
 			title: title.title,
 			thumbnail_url: coverSrc(title),
 			chapters_count: title.chapterStats.total,
 			updated_at: title.updatedAt,
 			added_at: title.createdAt,
 			last_read_at: title.lastReadAt ?? null,
-			user_status: title.user_status ?? title.userStatus ?? DEFAULT_USER_STATUS,
-			status: metadata?.status ?? title.status ?? 0,
-			genre: metadata?.genre ?? title.genre ?? null,
+			user_status: title.user_status ?? title.userStatus ?? null,
+			status: title.status ?? 0,
+			genre: title.genre ?? null,
 			collections:
 				title.collections?.map((collection) => ({
 					id: String(collection.id),
 					name: collection.name
 				})) ?? [],
-			user_rating: title.user_rating ?? title.userRating ?? null
+			user_rating: title.user_rating ?? title.userRating ?? null,
+			offline_readiness: title.offlineReadiness
 		};
 	}
 
@@ -325,7 +405,25 @@
 			const params = new URLSearchParams({ path: title.localCoverPath });
 			return `/api/internal/bridge/library/cover?${params.toString()}`;
 		}
+		if (!browserOnline) return null;
 		return title.coverUrl ?? null;
+	}
+
+	function hiddenSourceLabel(title: HiddenTitleSummary) {
+		return title.sourceLang ? `${title.sourcePkg} [${title.sourceLang}]` : title.sourcePkg;
+	}
+
+	async function revealInLibrary(titleId: string) {
+		if (revealTitleId) return;
+		revealTitleId = titleId;
+		try {
+			await client.mutation(convexApi.library.setTitleListedInLibrary, {
+				titleId: titleId as Id<'libraryTitles'>,
+				listed: true
+			});
+		} finally {
+			revealTitleId = null;
+		}
 	}
 
 	function getStatusText(status: number): string {
@@ -348,13 +446,34 @@
 		return getStatusText(title.status);
 	}
 
+	function offlineStatusLabel(title: LibraryTitleSummary): string | null {
+		if (title.offline_readiness.fullyDownloaded) {
+			return $_('library.offlineReady');
+		}
+		if (title.offline_readiness.downloadedChapters > 0) {
+			return $_('library.offlinePartial', {
+				values: {
+					downloaded: title.offline_readiness.downloadedChapters,
+					total: Math.max(
+						title.offline_readiness.totalChapters,
+						title.offline_readiness.downloadedChapters
+					)
+				}
+			});
+		}
+		if (!title.offline_readiness.titlePageReady || title.offline_readiness.missingCoverCache) {
+			return $_('library.offlinePreparing');
+		}
+		return null;
+	}
+
 	function collectionCount(collectionId: string): number {
 		return titles.filter((title) =>
 			title.collections.some((collection) => collection.id === collectionId)
 		).length;
 	}
 
-	function toggleReadingStatus(id: number) {
+	function toggleReadingStatus(id: string) {
 		activeReadingStatusIds = activeReadingStatusIds.includes(id)
 			? activeReadingStatusIds.filter((value) => value !== id)
 			: [...activeReadingStatusIds, id];
@@ -377,6 +496,14 @@
 		activeSourceStatusKeys = [];
 		activeGenres = [];
 	}
+
+	function sortModeLabel(labelKey: string) {
+		return $_(labelKey);
+	}
+
+	function sourceStatusLabel(labelKey: string) {
+		return $_(labelKey);
+	}
 </script>
 
 <svelte:head>
@@ -384,10 +511,15 @@
 </svelte:head>
 
 <div class="flex flex-col gap-3">
-	<div class="flex items-center gap-3">
+	<div class="flex items-center gap-2">
 		<h1 class="text-display flex-1 text-xl text-[var(--text)]">
 			{$_('nav.library').toLowerCase()}
 		</h1>
+		{#if hiddenImportsCount > 0 && !loading}
+			<Button variant="ghost" size="sm" onclick={() => (hiddenPanelOpen = true)}>
+				{$_('library.hiddenButton', { values: { count: hiddenImportsCount } })}
+			</Button>
+		{/if}
 		{#if !loading}
 			<button
 				type="button"
@@ -492,17 +624,30 @@
 			<div>
 				<p class="text-[var(--text)]">{$_('library.empty')}</p>
 				<p class="mt-1 text-sm text-[var(--text-ghost)]">{$_('library.emptyDescription')}</p>
+				{#if hiddenImportsCount > 0}
+					<p class="mt-2 max-w-xl text-sm text-[var(--text-ghost)]">
+						{$_('library.hiddenImports', { values: { count: hiddenImportsCount } })}
+					</p>
+				{/if}
 			</div>
-			<Button variant="outline" onclick={() => goto('/explore')}>
-				{$_('library.addFirst')}
-			</Button>
+			<div class="flex flex-wrap items-center justify-center gap-2">
+				{#if hiddenImportsCount > 0}
+					<Button variant="ghost" onclick={() => (hiddenPanelOpen = true)}>
+						{$_('library.manageHidden')}
+					</Button>
+				{/if}
+				<Button variant="outline" onclick={() => goto('/explore')}>
+					{$_('library.addFirst')}
+				</Button>
+			</div>
 		</div>
 	{:else}
 		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-			{#each filteredTitles as title (title.id)}
+			{#each visibleFilteredTitles as title (title.id)}
 				{@const displayStatus = getDisplayStatus(title)}
+				{@const offlineStatus = offlineStatusLabel(title)}
 				<a
-					href={buildTitlePath(title.id, title.title)}
+					href={buildTitlePath(title.id, title.title, title.route_segment ?? null)}
 					class="group card-glow relative flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)]"
 				>
 					<div class="relative aspect-[2/3] overflow-hidden bg-[var(--void-3)]">
@@ -533,6 +678,9 @@
 						{#if displayStatus}
 							<p class="text-[10px] text-[var(--text-muted)]">{displayStatus}</p>
 						{/if}
+						{#if offlineStatus}
+							<p class="text-[10px] text-[var(--text-ghost)]">{offlineStatus}</p>
+						{/if}
 						{#if title.user_rating != null}
 							<p class="text-[10px] text-[var(--text-muted)]">★ {title.user_rating.toFixed(1)}</p>
 						{/if}
@@ -540,6 +688,9 @@
 				</a>
 			{/each}
 		</div>
+		{#if visibleFilteredTitles.length < filteredTitles.length}
+			<div bind:this={libraryRenderSentinel} class="h-px w-full" aria-hidden="true"></div>
+		{/if}
 
 		{#if filteredTitles.length === 0}
 			<div class="flex flex-col items-center gap-2 py-8 text-center">
@@ -549,17 +700,91 @@
 	{/if}
 </div>
 
-<SlidePanel open={filterPanelOpen} title="sort & filter" onclose={() => (filterPanelOpen = false)}>
+<SlidePanel
+	open={hiddenPanelOpen}
+	title={$_('library.manageHidden')}
+	onclose={() => (hiddenPanelOpen = false)}
+>
+	<div class="flex flex-col gap-4 pt-1">
+		<p class="text-sm text-[var(--text-ghost)]">
+			{$_('library.hiddenImports', { values: { count: hiddenImportsCount } })}
+		</p>
+
+		{#if hiddenLibraryTitles.isLoading}
+			<p class="text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
+		{:else if hiddenTitles.length === 0}
+			<p class="text-sm text-[var(--text-ghost)]">{$_('common.empty')}</p>
+		{:else}
+			<div class="flex flex-col gap-3">
+				{#each hiddenTitles as title (title._id)}
+					<div class="flex items-center gap-3 border border-[var(--line)] bg-[var(--void-2)] p-3">
+						<div class="h-18 w-12 shrink-0 overflow-hidden bg-[var(--void-4)]">
+							{#if coverSrc(title)}
+								<LazyImage
+									src={coverSrc(title) ?? undefined}
+									alt={title.title}
+									class="h-full w-full"
+									imgClass="object-cover"
+								/>
+							{:else}
+								<div class="flex h-full w-full items-center justify-center">
+									<ImageIcon size={16} class="text-[var(--text-ghost)]" />
+								</div>
+							{/if}
+						</div>
+						<div class="min-w-0 flex-1">
+							<p class="truncate text-sm text-[var(--text)]">{title.title}</p>
+							<p class="mt-1 text-[11px] text-[var(--text-ghost)]">{hiddenSourceLabel(title)}</p>
+							<p class="mt-1 text-[11px] text-[var(--text-muted)]">
+								{$_('library.hiddenUpdated', {
+									values: { time: new Date(title.updatedAt).toLocaleString() }
+								})}
+							</p>
+						</div>
+						<div class="flex shrink-0 items-center gap-2">
+							<Button
+								variant="ghost"
+								size="sm"
+								onclick={() =>
+									goto(buildTitlePath(String(title._id), title.title, title.routeSegment ?? null))}
+							>
+								{$_('common.open')}
+							</Button>
+							<Button
+								variant="outline"
+								size="sm"
+								onclick={() => void revealInLibrary(String(title._id))}
+								disabled={revealTitleId === String(title._id)}
+							>
+								{revealTitleId === String(title._id)
+									? $_('common.loading')
+									: $_('library.showInLibrary')}
+							</Button>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	</div>
+</SlidePanel>
+
+<SlidePanel
+	open={filterPanelOpen}
+	title={$_('library.sortAndFilter')}
+	onclose={() => (filterPanelOpen = false)}
+>
 	<div class="flex flex-col gap-3 border-b border-[var(--void-3)] pt-1 pb-5">
 		<div class="flex items-center justify-between">
-			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">sort</span>
+			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
+				{$_('library.sort')}
+			</span>
 			<button
 				type="button"
 				class="flex items-center gap-1.5 text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 				onclick={() => (sortDesc = !sortDesc)}
 			>
 				{#if sortDesc}<CaretDownIcon size={12} />{:else}<CaretUpIcon size={12} />{/if}
-				<span>{sortDesc ? 'desc' : 'asc'}</span>
+				<span>{sortDesc ? $_('library.desc') : $_('library.asc')}</span>
 			</button>
 		</div>
 		<div class="flex flex-wrap gap-1.5">
@@ -571,7 +796,7 @@
 						: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 					onclick={() => (sortMode = mode.value)}
 				>
-					{mode.label}
+					{sortModeLabel(mode.labelKey)}
 				</button>
 			{/each}
 		</div>
@@ -580,7 +805,7 @@
 	{#if allUserStatuses.length > 0}
 		<div class="flex flex-col gap-3 border-b border-[var(--void-3)] py-5">
 			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase"
-				>reading status</span
+				>{$_('library.readingStatus')}</span
 			>
 			<div class="flex flex-wrap gap-1.5">
 				{#each allUserStatuses as status (status.id)}
@@ -606,10 +831,10 @@
 				: ''}"
 		>
 			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase"
-				>source status</span
+				>{$_('library.sourceStatus')}</span
 			>
 			<div class="flex flex-wrap gap-1.5">
-				{#each SOURCE_STATUS_FILTERS.filter((filter) => presentSourceStatusKeys.includes(filter.key)) as sourceFilter (sourceFilter.key)}
+				{#each SOURCE_STATUS_FILTERS.filter( (filter) => presentSourceStatusKeys.includes(filter.key) ) as sourceFilter (sourceFilter.key)}
 					{@const active = activeSourceStatusKeys.includes(sourceFilter.key)}
 					<button
 						type="button"
@@ -618,7 +843,7 @@
 							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 						onclick={() => toggleSourceStatus(sourceFilter.key)}
 					>
-						{sourceFilter.label}
+						{sourceStatusLabel(sourceFilter.labelKey)}
 					</button>
 				{/each}
 			</div>
@@ -627,7 +852,9 @@
 
 	{#if allGenres.length > 0}
 		<div class="flex flex-col gap-3 py-5">
-			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">genre</span>
+			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
+				{$_('library.genres')}
+			</span>
 			<div class="flex flex-wrap gap-1.5">
 				{#each allGenres as genre (genre)}
 					{@const active = activeGenres.includes(genre)}
@@ -652,7 +879,7 @@
 				onclick={clearFilters}
 				class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text-muted)]"
 			>
-				clear filters
+				{$_('library.clearFilters')}
 			</button>
 		</div>
 	{/if}

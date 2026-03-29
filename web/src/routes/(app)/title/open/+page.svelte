@@ -4,8 +4,8 @@
 	import { onMount } from 'svelte';
 	import { useConvexClient } from 'convex-svelte';
 
-	import type { Id } from '$convex/_generated/dataModel';
 	import { convexApi } from '$lib/convex/api';
+	import { waitForCommand } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
 	import { CaretLeftIcon } from 'phosphor-svelte';
 	import { _ } from '$lib/i18n';
@@ -17,6 +17,45 @@
 	let error = $state<string | null>(null);
 	let titleName = $state('');
 	let thumbnailUrl = $state('');
+	let openPhase = $state<'checking' | 'importing' | 'syncing'>('checking');
+
+	async function waitForTitleHydration(
+		titleId: string,
+		expectedChapterCount: number,
+		fallbackTitle: string,
+		timeoutMs = expectedChapterCount > 0 ? 12_000 : 4_000
+	) {
+		const startedAt = Date.now();
+		while (Date.now() - startedAt < timeoutMs) {
+			const [overview, chapters] = await Promise.all([
+				client.query(convexApi.library.getMineOverviewById, {
+					titleId: titleId as never
+				}),
+				client.query(convexApi.library.listTitleChapters, {
+					titleId: titleId as never
+				})
+			]);
+			const chapterCount = chapters.length;
+			const total = Number(overview?.chapterStats?.total ?? chapterCount);
+			if (chapterCount > 0 || total > 0) {
+				return {
+					title: overview?.title ?? fallbackTitle,
+					routeSegment: overview?.routeSegment ?? null,
+					ready: true
+				};
+			}
+			await new Promise((resolve) => setTimeout(resolve, 500));
+		}
+
+		const overview = await client.query(convexApi.library.getMineOverviewById, {
+			titleId: titleId as never
+		});
+		return {
+			title: overview?.title ?? fallbackTitle,
+			routeSegment: overview?.routeSegment ?? null,
+			ready: false
+		};
+	}
 
 	async function openTitle(): Promise<void> {
 		const sourceId = page.url.searchParams.get('source_id')?.trim() ?? '';
@@ -32,64 +71,65 @@
 
 		loading = true;
 		error = null;
+		openPhase = 'checking';
 		try {
-			const existing = await client.query(convexApi.library.findMineBySource, {
+			const openRequest = await client.mutation(convexApi.library.beginTitleOpen, {
 				canonicalKey,
 				sourceId,
+				sourcePkg,
+				sourceLang,
 				titleUrl
 			});
-			if (existing?._id) {
-				await goto(buildTitlePath(String(existing._id), existing.title || titleName || titleUrl), {
-					replaceState: true
-				});
+
+			if (openRequest.titleId) {
+				openPhase = openRequest.state === 'syncing' ? 'syncing' : 'checking';
+				const hydrated = await waitForTitleHydration(
+					String(openRequest.titleId),
+					1,
+					openRequest.title || titleName || titleUrl,
+					6_000
+				);
+				await goto(
+					buildTitlePath(String(openRequest.titleId), hydrated.title, hydrated.routeSegment),
+					{
+						replaceState: true
+					}
+				);
 				return;
 			}
 
-			const { commandId } = await client.mutation(convexApi.commands.enqueue, {
-				commandType: 'library.import',
-				payload: {
+			if (!openRequest.commandId) {
+				throw new Error('Unable to prepare title import');
+			}
+
+			openPhase = 'importing';
+			const command = await waitForCommand(client, openRequest.commandId, {
+				timeoutMs: 45_000,
+				pollIntervalMs: 400
+			});
+
+			let titleId = String(command.result?.titleId ?? '');
+			let resolvedTitle = String(command.result?.title ?? titleName ?? titleUrl);
+			let chapterCount = Number(command.result?.chapterCount ?? 0);
+			if (!titleId) {
+				const resolved = await client.mutation(convexApi.library.beginTitleOpen, {
 					canonicalKey,
 					sourceId,
 					sourcePkg,
 					sourceLang,
 					titleUrl
-				}
-			});
-
-			for (let attempt = 0; attempt < 60; attempt += 1) {
-				const imported = await client.query(convexApi.library.findMineBySource, {
-					canonicalKey,
-					sourceId,
-					titleUrl
 				});
-				if (imported?._id) {
-					await goto(buildTitlePath(String(imported._id), imported.title || titleName || titleUrl), {
-						replaceState: true
-					});
-					return;
-				}
-
-				const command = await client.query(convexApi.commands.getMineById, {
-					commandId: commandId as Id<'commands'>
-				});
-				if (!command) {
-					throw new Error('Import command not found');
-				}
-				if (command.status === 'succeeded') {
-					const titleId = String(command.result?.titleId ?? imported?._id ?? '');
-					if (titleId) {
-						await goto(buildTitlePath(titleId, titleName || titleUrl), { replaceState: true });
-						return;
-					}
-					throw new Error('Import completed without a title id');
-				}
-				if (command.status === 'failed' || command.status === 'cancelled' || command.status === 'dead_letter') {
-					throw new Error(command.lastErrorMessage ?? 'Unable to open title');
-				}
-				await new Promise((resolve) => setTimeout(resolve, 300));
+				titleId = String(resolved.titleId ?? '');
+				resolvedTitle = String(resolved.title ?? resolvedTitle);
 			}
-
-			throw new Error('Timed out while opening title');
+			if (!titleId) {
+				throw new Error('Import completed without a title id');
+			}
+			openPhase = 'syncing';
+			const hydrated = await waitForTitleHydration(titleId, chapterCount, resolvedTitle);
+			await goto(buildTitlePath(titleId, hydrated.title, hydrated.routeSegment), {
+				replaceState: true
+			});
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Unable to open title';
 		} finally {
@@ -101,6 +141,25 @@
 		titleName = page.url.searchParams.get('title')?.trim() ?? '';
 		thumbnailUrl = page.url.searchParams.get('thumbnail_url')?.trim() ?? '';
 		void openTitle();
+	});
+
+	const openPhaseCopy = $derived.by(() => {
+		if (openPhase === 'importing') {
+			return {
+				title: $_('title.importingTitle'),
+				description: $_('title.importingTitleDescription')
+			};
+		}
+		if (openPhase === 'syncing') {
+			return {
+				title: $_('title.syncingChapters'),
+				description: $_('title.syncingChaptersDescription')
+			};
+		}
+		return {
+			title: $_('title.openingTitle'),
+			description: $_('title.openingTitleDescription')
+		};
 	});
 </script>
 
@@ -128,8 +187,11 @@
 				{/if}
 			</div>
 			<div class="relative -mt-24 flex flex-col gap-3 md:mt-0">
+				<p class="text-xs tracking-[0.18em] text-[var(--text-ghost)] uppercase">
+					{openPhaseCopy.title}
+				</p>
 				<div class="h-7 w-3/4 animate-pulse bg-[var(--void-4)]"></div>
-				<div class="h-4 w-1/3 animate-pulse bg-[var(--void-4)]"></div>
+				<div class="text-sm text-[var(--text-ghost)]">{openPhaseCopy.description}</div>
 				<div class="mt-6 h-3 w-full animate-pulse bg-[var(--void-3)]"></div>
 				<div class="h-3 w-5/6 animate-pulse bg-[var(--void-3)]"></div>
 				<div class="h-3 w-4/6 animate-pulse bg-[var(--void-3)]"></div>

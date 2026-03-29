@@ -4,6 +4,7 @@ import { ConvexClient, type AuthTokenFetcher } from 'convex/browser';
 import { setConvexClientContext } from 'convex-svelte';
 
 let client: ConvexClient | null = null;
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 
 export function setupConvexClient() {
 	if (!browser) {
@@ -25,7 +26,37 @@ export function setupConvexClient() {
 }
 
 export function getConvexUrl() {
-	return env.PUBLIC_CONVEX_URL || import.meta.env.PUBLIC_CONVEX_URL || '';
+	const configured = env.PUBLIC_CONVEX_URL || import.meta.env.PUBLIC_CONVEX_URL || '';
+	if (!browser || !configured) {
+		return normalizeConvexUrl(configured);
+	}
+	return resolveBrowserConvexUrl(configured, window.location);
+}
+
+export function resolveBrowserConvexUrl(
+	configuredUrl: string,
+	locationLike: Pick<Location, 'hostname'> | { hostname: string }
+) {
+	try {
+		const url = new URL(configuredUrl);
+		if (!LOOPBACK_HOSTS.has(url.hostname)) {
+			return normalizeConvexUrl(url.toString());
+		}
+
+		const browserHost = locationLike.hostname.trim();
+		if (!browserHost || LOOPBACK_HOSTS.has(browserHost)) {
+			return normalizeConvexUrl(url.toString());
+		}
+
+		url.hostname = browserHost;
+		return normalizeConvexUrl(url.toString());
+	} catch {
+		return normalizeConvexUrl(configuredUrl);
+	}
+}
+
+function normalizeConvexUrl(url: string) {
+	return url.replace(/\/+$/, '');
 }
 
 const fetchConvexToken: AuthTokenFetcher = async ({ forceRefreshToken }) => {

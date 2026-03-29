@@ -110,10 +110,14 @@ export async function resolveAuthState(event: RequestEvent): Promise<AuthState> 
 	const lastUsedAt = lookup.session.lastUsedAt ?? lookup.session.createdAt;
 	if (now - lastUsedAt >= SESSION_REFRESH_WINDOW_MS) {
 		const client = getConvexClient();
-		await client.mutation(convexApi.auth.touchBrowserSession, {
-			sessionTokenHash: hashToken(sessionToken),
-			lastUsedAt: now
-		});
+		try {
+			await client.mutation(convexApi.auth.touchBrowserSession, {
+				sessionTokenHash: hashToken(sessionToken),
+				lastUsedAt: now
+			});
+		} catch {
+			// Session refresh is best-effort; do not fail the request on a touch race.
+		}
 	}
 
 	return {
@@ -283,16 +287,23 @@ export async function changePasswordWithCredentials(
 		username: currentUser.username
 	});
 	if (!user || !verifyPassword(input.currentPassword, user.passwordHash)) {
-		return { ok: false as const, field: 'currentPassword', message: 'Current password is incorrect' };
+		return {
+			ok: false as const,
+			field: 'currentPassword',
+			message: 'Current password is incorrect'
+		};
 	}
 
 	const currentSessionToken = event.locals.auth.sessionToken;
 	const previousSession =
-		currentSessionToken && isConvexConfigured() ? await fetchSessionByToken(currentSessionToken) : null;
+		currentSessionToken && isConvexConfigured()
+			? await fetchSessionByToken(currentSessionToken)
+			: null;
 	const now = Date.now();
-	const expiresAt = previousSession?.session.expiresAt && previousSession.session.expiresAt > now
-		? previousSession.session.expiresAt
-		: now + EPHEMERAL_SESSION_TTL_MS;
+	const expiresAt =
+		previousSession?.session.expiresAt && previousSession.session.expiresAt > now
+			? previousSession.session.expiresAt
+			: now + EPHEMERAL_SESSION_TTL_MS;
 
 	await client.mutation(convexApi.auth.updateUserPassword, {
 		userId: currentUser.id as GenericId<'users'>,

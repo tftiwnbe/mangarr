@@ -23,8 +23,6 @@ data class BridgeConfig(
     data class Downloads(
         @SerialName("download_path")
         val downloadPath: String = "",
-        @SerialName("compression_enabled")
-        val compressionEnabled: Boolean = true,
         @SerialName("failed_retry_delay_seconds")
         val failedRetryDelaySeconds: Int = 300,
     )
@@ -81,6 +79,7 @@ data class BridgeConfig(
         val lang: String,
         @SerialName("supports_latest")
         val supportsLatest: Boolean = true,
+        val enabled: Boolean = true,
     )
 }
 
@@ -121,3 +120,6 @@ fun BridgeConfig.findExtension(packageName: String): BridgeConfig.InstalledExten
 
 fun BridgeConfig.findBySourceId(sourceId: Long): BridgeConfig.InstalledExtension? =
     extensions.find { ext -> ext.sources.any { it.id == sourceId } }
+
+fun BridgeConfig.findSourceInfo(sourceId: Long): BridgeConfig.SourceInfo? =
+    extensions.firstNotNullOfOrNull { ext -> ext.sources.find { it.id == sourceId } }
