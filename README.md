@@ -159,8 +159,8 @@ Pass one of the returned `items[]` objects back as `item`:
     "title_url": "/title/...",
     "title": "Chainsaw Man"
   },
-  "user_status_key": "reading",
-  "collection_names": ["Favorites"],
+  "user_status_key": "plan_to_read",
+  "collection_names": ["Imported"],
   "listed_in_library": true
 }
 ```
@@ -178,8 +178,8 @@ Supported preference fields:
 
 Default behavior when preference fields are omitted:
 
-- applies the default `reading` user status if present
-- applies the default `Queue` collection when it exists
+- applies the default `Plan to Read` user status if present
+- applies the `Imported` collection, creating it on first use if needed
 - lists the title in the visible library grid
 
 The import endpoint reuses the normal Mangarr import flow, so it still merges duplicates, caches covers, and syncs chapters the same way the web UI does.

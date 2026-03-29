@@ -46,10 +46,23 @@ export async function loadLibraryPreferenceCatalog(client: ConvexHttpClient) {
 	await client.mutation(convexApi.library.ensureDefaultUserStatuses, {});
 	await client.mutation(convexApi.library.ensureDefaultCollections, {});
 
-	const [statuses, collections] = await Promise.all([
-		client.query(convexApi.library.listUserStatuses, {}) as Promise<LibraryUserStatus[]>,
-		client.query(convexApi.library.listCollections, {}) as Promise<LibraryCollection[]>
-	]);
+	const statuses = await (client.query(
+		convexApi.library.listUserStatuses,
+		{}
+	) as Promise<LibraryUserStatus[]>);
+	let collections = await (client.query(
+		convexApi.library.listCollections,
+		{}
+	) as Promise<LibraryCollection[]>);
+	if (!collections.some((item) => normalizeLabel(item.name) === 'imported')) {
+		await client.mutation(convexApi.library.createCollection, {
+			name: 'Imported'
+		});
+		collections = await (client.query(
+			convexApi.library.listCollections,
+			{}
+		) as Promise<LibraryCollection[]>);
+	}
 
 	return { statuses, collections };
 }
@@ -90,7 +103,7 @@ export function resolveUserStatusPreference(
 	}
 
 	return (
-		statuses.find((item) => normalizeKey(item.key) === 'reading')?.id ??
+		statuses.find((item) => normalizeKey(item.key) === 'plan_to_read')?.id ??
 		statuses
 			.slice()
 			.sort((left, right) => left.position - right.position)
@@ -135,16 +148,9 @@ export function resolveCollectionPreferences(
 		return [];
 	}
 
-	const sortedDefaults = collections
-		.filter((item) => item.isDefault)
-		.slice()
-		.sort((left, right) => left.position - right.position);
-	const queueLike =
-		sortedDefaults.find((item) => normalizeLabel(item.name) === 'queue') ??
-		sortedDefaults[1] ??
-		null;
+	const imported = collections.find((item) => normalizeLabel(item.name) === 'imported') ?? null;
 
-	return queueLike ? [queueLike.id] : [];
+	return imported ? [imported.id] : [];
 }
 
 export function mapSearchItem(raw: Record<string, unknown>): IntegrationSearchItem {
