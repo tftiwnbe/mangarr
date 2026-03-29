@@ -48,10 +48,19 @@ export const POST: RequestHandler = async (event) => {
 			...(searchFilters ? { searchFilters } : {})
 		}
 	});
-	const completed = await waitForCommand(client, enqueued.commandId, {
-		timeoutMs: 30_000,
-		pollIntervalMs: 300
-	});
+	let completed;
+	try {
+		completed = await waitForCommand(client, enqueued.commandId, {
+			timeoutMs: 30_000,
+			pollIntervalMs: 300
+		});
+	} catch (cause) {
+		const message =
+			cause instanceof Error && cause.message.trim()
+				? cause.message.trim()
+				: 'Title import search failed';
+		throw error(502, message);
+	}
 	const result = isRecord(completed.result) ? completed.result : null;
 	const rawItems = Array.isArray(result?.items) ? result.items : [];
 

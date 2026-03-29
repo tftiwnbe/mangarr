@@ -4,10 +4,10 @@ import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-object LibGroupPatches {
+object SourceAuthPatches {
 	@JvmStatic
-	fun isUserTokenValid(
-		libGroupSource: Any,
+	fun isTokenValid(
+		source: Any,
 		token: String,
 	): Boolean {
 		val headers =
@@ -16,12 +16,12 @@ object LibGroupPatches {
 				.add("Accept", "application/json")
 				.add("Authorization", token)
 				.build()
-		val client = invokeNoArg(libGroupSource, "getClient") as OkHttpClient
-		val apiDomain = getStringField(libGroupSource, "apiDomain")
+		val client = invokeNoArg(source, "getClient") as OkHttpClient
+		val authBaseUrl = readStringField(source, "apiDomain", "baseUrl")
 		val request =
 			Request
 				.Builder()
-				.url("${apiDomain.removeSuffix("/")}/api/auth/me")
+				.url("${authBaseUrl.removeSuffix("/")}/api/auth/me")
 				.headers(headers)
 				.get()
 				.build()
@@ -51,17 +51,19 @@ object LibGroupPatches {
 		error("Could not invoke $methodName on ${target.javaClass.name}")
 	}
 
-	private fun getStringField(
+	private fun readStringField(
 		target: Any,
-		fieldName: String,
+		vararg fieldNames: String,
 	): String {
-		var type: Class<*>? = target.javaClass
-		while (type != null) {
-			runCatching {
-				type.getDeclaredField(fieldName).apply { isAccessible = true }.get(target) as? String
-			}.getOrNull()?.let { return it }
-			type = type.superclass
+		for (fieldName in fieldNames) {
+			var type: Class<*>? = target.javaClass
+			while (type != null) {
+				runCatching {
+					type.getDeclaredField(fieldName).apply { isAccessible = true }.get(target) as? String
+				}.getOrNull()?.takeIf { it.isNotBlank() }?.let { return it }
+				type = type.superclass
+			}
 		}
-		error("Could not read $fieldName from ${target.javaClass.name}")
+		error("Could not read any of ${fieldNames.joinToString()} from ${target.javaClass.name}")
 	}
 }

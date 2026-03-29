@@ -15,12 +15,11 @@ import kotlin.streams.asSequence
 
 object BytecodeEditor {
     private val logger = KotlinLogging.logger {}
-    private const val LIBGROUP_CLASS = "eu/kanade/tachiyomi/multisrc/libgroup/LibGroup"
-    private const val LIBGROUP_TOKEN_METHOD = "isUserTokenValid"
-    private const val LIBGROUP_TOKEN_DESC = "(Ljava/lang/String;)Z"
-    private const val LIBGROUP_PATCH_OWNER = "mangarr/tachibridge/loader/LibGroupPatches"
-    private const val LIBGROUP_PATCH_NAME = "isUserTokenValid"
-    private const val LIBGROUP_PATCH_DESC = "(Ljava/lang/Object;Ljava/lang/String;)Z"
+    private const val TOKEN_VALIDATION_METHOD = "isUserTokenValid"
+    private const val TOKEN_VALIDATION_DESC = "(Ljava/lang/String;)Z"
+    private const val TOKEN_PATCH_OWNER = "mangarr/tachibridge/loader/SourceAuthPatches"
+    private const val TOKEN_PATCH_NAME = "isTokenValid"
+    private const val TOKEN_PATCH_DESC = "(Ljava/lang/Object;Ljava/lang/String;)Z"
 
     fun fixAndroidClasses(jarFile: Path) {
         FileSystems.newFileSystem(jarFile, null as ClassLoader?)?.use {
@@ -36,14 +35,15 @@ object BytecodeEditor {
     }
 
     fun patchInstalledJar(jarFile: Path) {
-        FileSystems.newFileSystem(jarFile, null as ClassLoader?)?.use { fs ->
-            val classPath = fs.getPath("/$LIBGROUP_CLASS.class")
-            if (!Files.exists(classPath)) {
-                return
-            }
-            getClassBytes(classPath)
-                ?.let(::patchLibGroupClass)
-                ?.let(::write)
+        FileSystems.newFileSystem(jarFile, null as ClassLoader?)?.use {
+            Files
+                .walk(it.getPath("/"))
+                .asSequence()
+                .filterNotNull()
+                .filterNot(Files::isDirectory)
+                .mapNotNull(::getClassBytes)
+                .map(::patchTokenValidationClass)
+                .forEach(::write)
         }
     }
 
@@ -144,8 +144,8 @@ object BytecodeEditor {
                             signature,
                             exceptions,
                         )
-                    if (className == LIBGROUP_CLASS && name == LIBGROUP_TOKEN_METHOD && desc == LIBGROUP_TOKEN_DESC) {
-                        return createLibGroupTokenPatch(mv)
+                    if (name == TOKEN_VALIDATION_METHOD && desc == TOKEN_VALIDATION_DESC) {
+                        return createTokenValidationPatch(mv)
                     }
                     return object : MethodVisitor(Opcodes.ASM5, mv) {
                         override fun visitTypeInsn(
@@ -210,25 +210,11 @@ object BytecodeEditor {
         return pair.first to cw.toByteArray()
     }
 
-    private fun patchLibGroupClass(pair: Pair<Path, ByteArray>): Pair<Path, ByteArray> {
+    private fun patchTokenValidationClass(pair: Pair<Path, ByteArray>): Pair<Path, ByteArray> {
         val cr = ClassReader(pair.second)
         val cw = ClassWriter(cr, ClassWriter.COMPUTE_MAXS or ClassWriter.COMPUTE_FRAMES)
         cr.accept(
             object : ClassVisitor(Opcodes.ASM5, cw) {
-                private var className: String? = null
-
-                override fun visit(
-                    version: Int,
-                    access: Int,
-                    name: String?,
-                    signature: String?,
-                    superName: String?,
-                    interfaces: Array<out String>?,
-                ) {
-                    className = name
-                    super.visit(version, access, name, signature, superName, interfaces)
-                }
-
                 override fun visitMethod(
                     access: Int,
                     name: String,
@@ -237,8 +223,8 @@ object BytecodeEditor {
                     exceptions: Array<String?>?,
                 ): MethodVisitor {
                     val mv = super.visitMethod(access, name, desc, signature, exceptions)
-                    if (className == LIBGROUP_CLASS && name == LIBGROUP_TOKEN_METHOD && desc == LIBGROUP_TOKEN_DESC) {
-                        return createLibGroupTokenPatch(mv)
+                    if (name == TOKEN_VALIDATION_METHOD && desc == TOKEN_VALIDATION_DESC) {
+                        return createTokenValidationPatch(mv)
                     }
                     return mv
                 }
@@ -248,7 +234,7 @@ object BytecodeEditor {
         return pair.first to cw.toByteArray()
     }
 
-    private fun createLibGroupTokenPatch(mv: MethodVisitor): MethodVisitor =
+    private fun createTokenValidationPatch(mv: MethodVisitor): MethodVisitor =
         object : MethodVisitor(Opcodes.ASM5, mv) {
             override fun visitCode() {
                 super.visitCode()
@@ -256,9 +242,9 @@ object BytecodeEditor {
                 mv.visitVarInsn(Opcodes.ALOAD, 1)
                 mv.visitMethodInsn(
                     Opcodes.INVOKESTATIC,
-                    LIBGROUP_PATCH_OWNER,
-                    LIBGROUP_PATCH_NAME,
-                    LIBGROUP_PATCH_DESC,
+                    TOKEN_PATCH_OWNER,
+                    TOKEN_PATCH_NAME,
+                    TOKEN_PATCH_DESC,
                     false,
                 )
                 mv.visitInsn(Opcodes.IRETURN)

@@ -20,25 +20,17 @@ private const val PAGE_LIST_CACHE_TTL_MS = 10 * 60 * 1000L
 internal class ExtensionManagerPageCacheSupport(
 	private val networkHelper: NetworkHelper,
 	private val chapterPagesCache: ConcurrentHashMap<String, CachedChapterPages>,
-	private val libGroupSupport: ExtensionManagerLibGroupSupport,
 ) {
 	suspend fun resolvePageImageUrl(source: Source, page: SourcePage): String {
 		val explicitImageUrl = safeString { page.imageUrl }
 		if (explicitImageUrl.isNotBlank()) {
-			return normalizePageImageUrl(page.url, explicitImageUrl)
+			return normalizePageImageUrl(source, page.url, explicitImageUrl)
 		}
 
 		if (source is HttpSource) {
 			val computed = runCatching { source.getImageUrl(page).orEmpty() }.getOrDefault("")
 			if (computed.isNotBlank()) {
-				return normalizePageImageUrl(page.url, computed)
-			}
-		}
-
-		if (libGroupSupport.isLibGroupSource(source)) {
-			val fallback = libGroupSupport.normalizeLibGroupAssetUrl(source, safeString { page.url })
-			if (fallback.isNotBlank()) {
-				return fallback
+				return normalizePageImageUrl(source, page.url, computed)
 			}
 		}
 
@@ -96,7 +88,11 @@ internal class ExtensionManagerPageCacheSupport(
 			else -> false
 		}
 
-	private fun normalizePageImageUrl(pageUrl: String, rawImageUrl: String): String {
+	private fun normalizePageImageUrl(
+		source: Source,
+		pageUrl: String,
+		rawImageUrl: String,
+	): String {
 		val trimmedImageUrl = rawImageUrl.trim()
 		if (trimmedImageUrl.isBlank()) {
 			return ""
@@ -118,6 +114,12 @@ internal class ExtensionManagerPageCacheSupport(
 						.map(String::trim)
 						.filter(String::isNotBlank)
 						.forEach(::add)
+				}
+				if (source is HttpSource) {
+					val baseUrl = source.baseUrl.trim()
+					if (baseUrl.isNotBlank()) {
+						add(baseUrl)
+					}
 				}
 			}
 
@@ -149,28 +151,8 @@ internal class ExtensionManagerPageCacheSupport(
 			?.takeUnless { bypassCache }
 			?.pages
 			?: run {
-				val pages =
-					if (libGroupSupport.isLibGroupSource(source)) {
-						val fallbackPages = libGroupSupport.fetchLibGroupPagesFallback(source, normalizedUrl)
-						if (!fallbackPages.isNullOrEmpty()) {
-							fallbackPages
-						} else {
-							val chapter = SChapter.create().apply { url = normalizedUrl }
-							try {
-								source.getPageList(chapter)
-							} catch (error: Exception) {
-								fallbackPages ?: throw libGroupSupport.decorateLibGroupError(source, error)
-							}
-						}
-					} else {
-						val chapter = SChapter.create().apply { url = normalizedUrl }
-						try {
-							source.getPageList(chapter)
-						} catch (error: Exception) {
-							libGroupSupport.fetchLibGroupPagesFallback(source, normalizedUrl)
-								?: throw libGroupSupport.decorateLibGroupError(source, error)
-						}
-					}
+				val chapter = SChapter.create().apply { url = normalizedUrl }
+				val pages = source.getPageList(chapter)
 
 				chapterPagesCache[chapterPagesCacheKey(source.id, normalizedUrl)] =
 					CachedChapterPages(

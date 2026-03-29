@@ -280,13 +280,12 @@ class BridgeService(
     suspend fun saveSourcePreferences(sourceId: String, entries: List<Pair<String, JsonElement>>): JsonObject {
         extensionManager.awaitReady()
         val parsedSourceId = sourceId.toLong()
-        for ((key, value) in entries) {
-            extensionManager.setPreference(
-                parsedSourceId,
-                key,
-                json.encodeToString(JsonElement.serializer(), value),
-            )
-        }
+        extensionManager.setPreferences(
+            parsedSourceId,
+            entries.map { (key, value) ->
+                key to json.encodeToString(JsonElement.serializer(), value)
+            },
+        )
 
         return buildJsonObject {
             put("ok", true)
