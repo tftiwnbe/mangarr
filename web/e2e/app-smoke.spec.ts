@@ -96,10 +96,18 @@ test('supports filter-only advanced search from explore', async ({ page }) => {
 	} else {
 		const selectFilters = filtersPanel.locator('select');
 		await expect(selectFilters.first()).toBeVisible();
-		const optionValues = await selectFilters.first().locator('option').evaluateAll((options) =>
-			options.map((option) => ({ value: option.getAttribute('value') ?? '', disabled: option.disabled }))
+		const optionValues = await selectFilters
+			.first()
+			.locator('option')
+			.evaluateAll((options) =>
+				options.map((option) => ({
+					value: option.getAttribute('value') ?? '',
+					disabled: option.disabled
+				}))
+			);
+		const nextValue = optionValues.find(
+			(option, index) => index > 0 && option.value && !option.disabled
 		);
-		const nextValue = optionValues.find((option, index) => index > 0 && option.value && !option.disabled);
 		expect(nextValue).toBeTruthy();
 		await selectFilters.first().selectOption(nextValue!.value);
 	}
@@ -108,22 +116,27 @@ test('supports filter-only advanced search from explore', async ({ page }) => {
 	await expect(page.getByRole('searchbox')).toHaveValue('');
 	await expect(page.getByText(/Loading/i)).toBeVisible();
 	await expect(page.getByText(/Loading/i)).not.toBeVisible({ timeout: 30_000 });
-	await expect.poll(async () => page.locator('a[href*="/title/"]').count(), { timeout: 30_000 }).toBeGreaterThan(0);
+	await expect
+		.poll(async () => page.locator('a[href*="/title/"]').count(), { timeout: 30_000 })
+		.toBeGreaterThan(0);
 });
 
 test('opens the reader and loads page images', async ({ page }) => {
 	const titlePath = await ensureReadableLibraryTitlePath(page);
 	await openReaderFromTitle(page, titlePath);
 	await expect
-		.poll(async () =>
-			page.evaluate(() =>
-				Array.from(
-					document.querySelectorAll<HTMLImageElement>('img[src*="/api/internal/bridge/"][src*="page"]')
-				).some((img) => {
-					const style = window.getComputedStyle(img);
-					return img.naturalWidth > 0 && style.opacity !== '0' && style.visibility !== 'hidden';
-				})
-			),
+		.poll(
+			async () =>
+				page.evaluate(() =>
+					Array.from(
+						document.querySelectorAll<HTMLImageElement>(
+							'img[src*="/api/internal/bridge/"][src*="page"]'
+						)
+					).some((img) => {
+						const style = window.getComputedStyle(img);
+						return img.naturalWidth > 0 && style.opacity !== '0' && style.visibility !== 'hidden';
+					})
+				),
 			{ timeout: 20_000 }
 		)
 		.toBe(true);

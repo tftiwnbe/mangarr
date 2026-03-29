@@ -38,21 +38,29 @@ export function isPermanentSourceFailure(message: string): boolean {
 	);
 }
 
-export function sourceHealthLabelKey(entry: Pick<SourceHealthEntry, 'state' | 'permanent'>): string {
+export function sourceHealthLabelKey(
+	entry: Pick<SourceHealthEntry, 'state' | 'permanent'>
+): string {
 	if (entry.state === 'cooldown') {
 		return 'explore.sourceCooldown';
 	}
 	return entry.permanent ? 'explore.sourceUnavailable' : 'explore.sourceDegraded';
 }
 
-export function effectiveSourceHealthState(entry: SourceHealthLike, now: number = Date.now()): SourceHealthState {
+export function effectiveSourceHealthState(
+	entry: SourceHealthLike,
+	now: number = Date.now()
+): SourceHealthState {
 	if (!entry.permanent && entry.retryAfter !== null && entry.retryAfter > now) {
 		return 'cooldown';
 	}
 	return 'degraded';
 }
 
-export function sourceHealthRetryInMinutes(retryAfter: number | null, now: number = Date.now()): number | null {
+export function sourceHealthRetryInMinutes(
+	retryAfter: number | null,
+	now: number = Date.now()
+): number | null {
 	if (retryAfter === null || retryAfter <= now) {
 		return null;
 	}

@@ -8,7 +8,7 @@ import {
 	DOWNLOAD_STATUS,
 	findVariantForTitle,
 	getPreferredVariantForTitle,
-	requireOwnedTitle,
+	requireOwnedTitle
 } from './library_shared';
 import { pickBestMergeCandidate } from './title_identity';
 
@@ -245,7 +245,8 @@ export const upsertChaptersForTitle = mutation({
 		}
 
 		const staleChapters = existing.filter(
-			(chapter) => chapter.titleVariantId === variant._id && !seenChapterUrls.has(chapter.chapterUrl)
+			(chapter) =>
+				chapter.titleVariantId === variant._id && !seenChapterUrls.has(chapter.chapterUrl)
 		);
 
 		for (const staleChapter of staleChapters) {
@@ -325,12 +326,10 @@ async function importForUserCore(
 		now: number;
 	}
 ) {
-	const attachVariantToTitle = async (
-		existing: {
-			_id: GenericId<'libraryTitles'>;
-			preferredVariantId?: GenericId<'titleVariants'>;
-		}
-	) => {
+	const attachVariantToTitle = async (existing: {
+		_id: GenericId<'libraryTitles'>;
+		preferredVariantId?: GenericId<'titleVariants'>;
+	}) => {
 		const variantId = await ctx.db.insert('titleVariants', {
 			ownerUserId: args.userId,
 			libraryTitleId: existing._id,

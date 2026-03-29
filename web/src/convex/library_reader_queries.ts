@@ -61,12 +61,17 @@ export const listMine = query({
 
 				return {
 					...title,
-					routeSegment: titleRouteSegments.get(String(title._id)) ?? buildTitleRouteBase(title.title),
-					userStatus: title.userStatusId ? (statusById.get(String(title.userStatusId)) ?? null) : null,
+					routeSegment:
+						titleRouteSegments.get(String(title._id)) ?? buildTitleRouteBase(title.title),
+					userStatus: title.userStatusId
+						? (statusById.get(String(title.userStatusId)) ?? null)
+						: null,
 					userRating: title.userRating ?? null,
 					collections: collectionIds
 						.map((collectionId) => collectionById.get(String(collectionId)) ?? null)
-						.filter((collection): collection is NonNullable<typeof collection> => collection !== null)
+						.filter(
+							(collection): collection is NonNullable<typeof collection> => collection !== null
+						)
 						.sort((left, right) => left.position - right.position),
 					variantsCount: variantCountsByTitleId.get(String(title._id)) ?? 0,
 					chapterStats: summarizeDownloadStats(chapters),
@@ -124,7 +129,9 @@ export const getMineVisibilitySummary = query({
 
 		const titles = await ctx.db
 			.query('libraryTitles')
-			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', identity.subject as GenericId<'users'>))
+			.withIndex('by_owner_user_id', (q) =>
+				q.eq('ownerUserId', identity.subject as GenericId<'users'>)
+			)
 			.collect();
 
 		let listedCount = 0;
@@ -265,32 +272,39 @@ export const getMineOverviewByRouteSegment = query({
 			return null;
 		}
 
-		const [overviewTitles, chapters, userStatus, collections, variants, progressRows, downloadProfile] =
-			await Promise.all([
-				ctx.db
-					.query('libraryTitles')
-					.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', title.ownerUserId))
-					.collect(),
-				ctx.db
-					.query('libraryChapters')
-					.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
-					.collect(),
-				resolveOwnedTitleUserStatus(ctx, title),
-				listCollectionsForTitle(ctx, title),
-				listVariantsForTitle(ctx, title),
-				ctx.db
-					.query('chapterProgress')
-					.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
-						q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-					)
-					.collect(),
-				ctx.db
-					.query('downloadProfiles')
-					.withIndex('by_owner_user_id_library_title_id', (q) =>
-						q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-					)
-					.unique()
-			]);
+		const [
+			overviewTitles,
+			chapters,
+			userStatus,
+			collections,
+			variants,
+			progressRows,
+			downloadProfile
+		] = await Promise.all([
+			ctx.db
+				.query('libraryTitles')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', title.ownerUserId))
+				.collect(),
+			ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+				.collect(),
+			resolveOwnedTitleUserStatus(ctx, title),
+			listCollectionsForTitle(ctx, title),
+			listVariantsForTitle(ctx, title),
+			ctx.db
+				.query('chapterProgress')
+				.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.collect(),
+			ctx.db
+				.query('downloadProfiles')
+				.withIndex('by_owner_user_id_library_title_id', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.unique()
+		]);
 
 		const latestProgress =
 			[...progressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
@@ -336,38 +350,46 @@ export const getMineById = query({
 	},
 	handler: async (ctx, args) => {
 		const title = await requireOwnedTitle(ctx, args.titleId);
-		const [titles, chapters, userStatus, collections, variants, progressRows, titleComments, downloadProfile] =
-			await Promise.all([
-				ctx.db
-					.query('libraryTitles')
-					.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', title.ownerUserId))
-					.collect(),
-				ctx.db
-					.query('libraryChapters')
-					.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
-					.collect(),
-				resolveOwnedTitleUserStatus(ctx, title),
-				listCollectionsForTitle(ctx, title),
-				listVariantsForTitle(ctx, title),
-				ctx.db
-					.query('chapterProgress')
-					.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
-						q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-					)
-					.collect(),
-				ctx.db
-					.query('chapterComments')
-					.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
-						q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-					)
-					.collect(),
-				ctx.db
-					.query('downloadProfiles')
-					.withIndex('by_owner_user_id_library_title_id', (q) =>
-						q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-					)
-					.unique()
-			]);
+		const [
+			titles,
+			chapters,
+			userStatus,
+			collections,
+			variants,
+			progressRows,
+			titleComments,
+			downloadProfile
+		] = await Promise.all([
+			ctx.db
+				.query('libraryTitles')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', title.ownerUserId))
+				.collect(),
+			ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+				.collect(),
+			resolveOwnedTitleUserStatus(ctx, title),
+			listCollectionsForTitle(ctx, title),
+			listVariantsForTitle(ctx, title),
+			ctx.db
+				.query('chapterProgress')
+				.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.collect(),
+			ctx.db
+				.query('chapterComments')
+				.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.collect(),
+			ctx.db
+				.query('downloadProfiles')
+				.withIndex('by_owner_user_id_library_title_id', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.unique()
+		]);
 
 		const chapterById = new Map(chapters.map((chapter) => [chapter._id, chapter]));
 		const latestProgress =
@@ -431,31 +453,32 @@ export const getMineOverviewById = query({
 	},
 	handler: async (ctx, args) => {
 		const title = await requireOwnedTitle(ctx, args.titleId);
-		const [titles, chapters, userStatus, collections, variants, progressRows, downloadProfile] = await Promise.all([
-			ctx.db
-				.query('libraryTitles')
-				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', title.ownerUserId))
-				.collect(),
-			ctx.db
-				.query('libraryChapters')
-				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
-				.collect(),
-			resolveOwnedTitleUserStatus(ctx, title),
-			listCollectionsForTitle(ctx, title),
-			listVariantsForTitle(ctx, title),
-			ctx.db
-				.query('chapterProgress')
-				.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
-					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-				)
-				.collect(),
-			ctx.db
-				.query('downloadProfiles')
-				.withIndex('by_owner_user_id_library_title_id', (q) =>
-					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-				)
-				.unique()
-		]);
+		const [titles, chapters, userStatus, collections, variants, progressRows, downloadProfile] =
+			await Promise.all([
+				ctx.db
+					.query('libraryTitles')
+					.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', title.ownerUserId))
+					.collect(),
+				ctx.db
+					.query('libraryChapters')
+					.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+					.collect(),
+				resolveOwnedTitleUserStatus(ctx, title),
+				listCollectionsForTitle(ctx, title),
+				listVariantsForTitle(ctx, title),
+				ctx.db
+					.query('chapterProgress')
+					.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+						q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+					)
+					.collect(),
+				ctx.db
+					.query('downloadProfiles')
+					.withIndex('by_owner_user_id_library_title_id', (q) =>
+						q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+					)
+					.unique()
+			]);
 
 		const latestProgress =
 			[...progressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;

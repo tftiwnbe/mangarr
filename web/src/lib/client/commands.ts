@@ -47,7 +47,11 @@ export async function waitForCommand<TCommand extends CommandState = CommandStat
 		if (command.status === 'succeeded') {
 			return command;
 		}
-		if (command.status === 'failed' || command.status === 'cancelled' || command.status === 'dead_letter') {
+		if (
+			command.status === 'failed' ||
+			command.status === 'cancelled' ||
+			command.status === 'dead_letter'
+		) {
 			throw new Error(command.lastErrorMessage ?? 'Command failed');
 		}
 

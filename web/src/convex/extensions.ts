@@ -47,19 +47,22 @@ export const listSources = query({
 		const extensions = await ctx.db.query('installedExtensions').collect();
 		return extensions
 			.flatMap((extension) =>
-				(extension.sources ?? extension.sourceIds.map((id) => ({
-					id,
-					name: id,
-					lang: extension.lang,
-					supportsLatest: false,
-					enabled: true
-				})))
+				(
+					extension.sources ??
+					extension.sourceIds.map((id) => ({
+						id,
+						name: id,
+						lang: extension.lang,
+						supportsLatest: false,
+						enabled: true
+					}))
+				)
 					.filter((source) => source.enabled !== false)
 					.map((source) => ({
-					...source,
-					extensionPkg: extension.pkg,
-					extensionName: extension.name,
-					extensionVersion: extension.version
+						...source,
+						extensionPkg: extension.pkg,
+						extensionName: extension.name,
+						extensionVersion: extension.version
 					}))
 			)
 			.sort((left, right) => {
@@ -190,7 +193,7 @@ export const upsertInstalled = mutation({
 			});
 		}
 
-	return { ok: true };
+		return { ok: true };
 	}
 });
 

@@ -19,6 +19,11 @@ crons.interval(
 	}
 );
 
-crons.interval('data retention pass', { hours: 6 }, internalMaintenance.maintenance.runRetentionPass, {});
+crons.interval(
+	'data retention pass',
+	{ hours: 6 },
+	internalMaintenance.maintenance.runRetentionPass,
+	{}
+);
 
 export default crons;

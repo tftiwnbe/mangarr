@@ -277,6 +277,6 @@ function mapDownloadTaskRow(task: {
 		localRelativePath: task.localRelativePath ?? null,
 		storageKind: task.storageKind ?? null,
 		fileSizeBytes: task.fileSizeBytes ?? null,
-		updatedAt: task.updatedAt,
+		updatedAt: task.updatedAt
 	};
 }

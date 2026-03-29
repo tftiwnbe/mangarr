@@ -77,7 +77,10 @@ function titleFormVariants(value: string | null | undefined): string[] {
 	return [...variants];
 }
 
-function tokenOverlapScore(left: string | null | undefined, right: string | null | undefined): number {
+function tokenOverlapScore(
+	left: string | null | undefined,
+	right: string | null | undefined
+): number {
 	const leftTokens = normalizedTokens(left);
 	const rightTokens = normalizedTokens(right);
 	if (leftTokens.length === 0 || rightTokens.length === 0) return 0;
@@ -97,7 +100,10 @@ function tokenOverlapScore(left: string | null | undefined, right: string | null
 	return 0;
 }
 
-function significantTokenScore(left: string | null | undefined, right: string | null | undefined): number {
+function significantTokenScore(
+	left: string | null | undefined,
+	right: string | null | undefined
+): number {
 	const leftTokens = significantTokens(left);
 	const rightTokens = significantTokens(right);
 	if (leftTokens.length < 2 || rightTokens.length < 2) return 0;
@@ -109,7 +115,10 @@ function significantTokenScore(left: string | null | undefined, right: string | 
 	return tokenOverlapScore(leftKey, rightKey);
 }
 
-function textContainmentScore(left: string | null | undefined, right: string | null | undefined): number {
+function textContainmentScore(
+	left: string | null | undefined,
+	right: string | null | undefined
+): number {
 	const leftVariants = titleFormVariants(left);
 	const rightVariants = titleFormVariants(right);
 	let best = 0;
@@ -160,11 +169,7 @@ function contributorScore(
 				best = Math.max(best, 90);
 				continue;
 			}
-			if (
-				left.length >= 8 &&
-				right.length >= 8 &&
-				(left.includes(right) || right.includes(left))
-			) {
+			if (left.length >= 8 && right.length >= 8 && (left.includes(right) || right.includes(left))) {
 				best = Math.max(best, 50);
 				continue;
 			}

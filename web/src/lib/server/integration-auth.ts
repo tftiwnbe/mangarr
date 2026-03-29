@@ -36,7 +36,9 @@ export type IntegrationAuthContext = {
 	client: Awaited<ReturnType<typeof getUserConvexClient>>;
 };
 
-export async function requireIntegrationApiUser(event: RequestEvent): Promise<IntegrationAuthContext> {
+export async function requireIntegrationApiUser(
+	event: RequestEvent
+): Promise<IntegrationAuthContext> {
 	const rawKey = readIntegrationApiKey(event.request.headers);
 	if (!rawKey) {
 		throw error(401, 'Integration API key is required');

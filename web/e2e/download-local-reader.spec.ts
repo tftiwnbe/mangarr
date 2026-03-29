@@ -70,14 +70,17 @@ async function listCandidateTitles(request: APIRequestContext, token: string) {
 	return [...visibleTitles, ...hiddenTitles];
 }
 
-test('downloaded chapters are readable from the local bridge page endpoint', async ({ request }) => {
+test('downloaded chapters are readable from the local bridge page endpoint', async ({
+	request
+}) => {
 	await login(request);
 	const token = await getConvexToken(request);
 
 	const titles = await listCandidateTitles(request, token);
 	expect(titles.length).toBeGreaterThan(0);
 
-	const readableTitle = titles.find((title) => Number(title.chapterStats?.total ?? 0) > 0) ?? titles[0];
+	const readableTitle =
+		titles.find((title) => Number(title.chapterStats?.total ?? 0) > 0) ?? titles[0];
 	expect(readableTitle).toBeTruthy();
 
 	const chapters = await callConvex<
@@ -102,7 +105,11 @@ test('downloaded chapters are readable from the local bridge page endpoint', asy
 				Number(item.totalPages ?? 0) > 0
 		) ?? chapters[0]!;
 
-	if (chapter.downloadStatus !== 'downloaded' || !chapter.localRelativePath || !chapter.storageKind) {
+	if (
+		chapter.downloadStatus !== 'downloaded' ||
+		!chapter.localRelativePath ||
+		!chapter.storageKind
+	) {
 		const queued = await callConvex<{ taskId?: string }>(
 			request,
 			token,

@@ -283,12 +283,12 @@ export default defineSchema({
 		cancelledAt: v.optional(v.float64()),
 		createdAt: v.float64(),
 		updatedAt: v.float64()
-		})
-			.index('by_status_updated_at', ['status', 'updatedAt'])
-			.index('by_owner_user_id_updated_at', ['ownerUserId', 'updatedAt'])
-			.index('by_owner_user_id_status_updated_at', ['ownerUserId', 'status', 'updatedAt'])
-			.index('by_library_chapter_id_created_at', ['libraryChapterId', 'createdAt'])
-			.index('by_command_id', ['commandId']),
+	})
+		.index('by_status_updated_at', ['status', 'updatedAt'])
+		.index('by_owner_user_id_updated_at', ['ownerUserId', 'updatedAt'])
+		.index('by_owner_user_id_status_updated_at', ['ownerUserId', 'status', 'updatedAt'])
+		.index('by_library_chapter_id_created_at', ['libraryChapterId', 'createdAt'])
+		.index('by_command_id', ['commandId']),
 
 	chapterProgress: defineTable({
 		ownerUserId: v.id('users'),
@@ -299,7 +299,11 @@ export default defineSchema({
 		updatedAt: v.float64()
 	})
 		.index('by_owner_user_id_chapter_id', ['ownerUserId', 'chapterId'])
-		.index('by_owner_user_id_library_title_id_updated_at', ['ownerUserId', 'libraryTitleId', 'updatedAt']),
+		.index('by_owner_user_id_library_title_id_updated_at', [
+			'ownerUserId',
+			'libraryTitleId',
+			'updatedAt'
+		]),
 
 	chapterComments: defineTable({
 		ownerUserId: v.id('users'),
@@ -311,7 +315,11 @@ export default defineSchema({
 		updatedAt: v.float64()
 	})
 		.index('by_owner_user_id_chapter_id_updated_at', ['ownerUserId', 'chapterId', 'updatedAt'])
-		.index('by_owner_user_id_library_title_id_updated_at', ['ownerUserId', 'libraryTitleId', 'updatedAt']),
+		.index('by_owner_user_id_library_title_id_updated_at', [
+			'ownerUserId',
+			'libraryTitleId',
+			'updatedAt'
+		]),
 
 	commands: defineTable({
 		commandType: v.string(),

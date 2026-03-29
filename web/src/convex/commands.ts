@@ -371,18 +371,17 @@ export const listMine = query({
 			.order('desc')
 			.take(limit);
 
-		return rows
-			.map((row) => ({
-				id: row._id,
-				commandType: row.commandType,
-				status: row.status,
-				payload: row.payload,
-				progress: row.progress ?? null,
-				result: row.result ?? null,
-				lastErrorMessage: row.lastErrorMessage ?? null,
-				createdAt: row.createdAt,
-				updatedAt: row.updatedAt
-			}));
+		return rows.map((row) => ({
+			id: row._id,
+			commandType: row.commandType,
+			status: row.status,
+			payload: row.payload,
+			progress: row.progress ?? null,
+			result: row.result ?? null,
+			lastErrorMessage: row.lastErrorMessage ?? null,
+			createdAt: row.createdAt,
+			updatedAt: row.updatedAt
+		}));
 	}
 });
 
@@ -461,10 +460,13 @@ export const lease = mutation({
 				ctx.db
 					.query('commands')
 					.withIndex('by_status_target_capability_priority_run_after', (q) =>
-						q.eq('status', STATUS.QUEUED).eq('targetCapability', capability).lte('runAfter', args.now)
+						q
+							.eq('status', STATUS.QUEUED)
+							.eq('targetCapability', capability)
+							.lte('runAfter', args.now)
 					)
-					.take(limit),
-			),
+					.take(limit)
+			)
 		);
 
 		const eligible = candidates
@@ -657,9 +659,9 @@ export const listSourceHealth = query({
 			return [];
 		}
 
-		const requestedSourceIds = Array.from(new Set(args.sourceIds.map((sourceId) => sourceId.trim()))).filter(
-			Boolean
-		);
+		const requestedSourceIds = Array.from(
+			new Set(args.sourceIds.map((sourceId) => sourceId.trim()))
+		).filter(Boolean);
 		if (requestedSourceIds.length === 0) {
 			return [];
 		}

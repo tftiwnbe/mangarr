@@ -79,9 +79,7 @@ export const POST: RequestHandler = async (event) => {
 
 	await client.mutation(convexApi.library.updateTitlePreferences, {
 		titleId,
-		...(userStatusId !== null
-			? { userStatusId: userStatusId as Id<'libraryUserStatuses'> }
-			: {}),
+		...(userStatusId !== null ? { userStatusId: userStatusId as Id<'libraryUserStatuses'> } : {}),
 		collectionIds: collectionIds as Id<'libraryCollections'>[]
 	});
 

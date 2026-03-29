@@ -209,30 +209,30 @@
 	let linkingVariantKey = $state<string | null>(null);
 	let preferredVariantSavingId = $state<string | null>(null);
 	let removingVariantId = $state<string | null>(null);
-		let normalizingSources = $state(false);
-		let lastSourceNormalizationSignature = $state('');
-		let lastSyncedPreferenceSignature = $state('');
-		let lastMetadataKey = $state('');
-		let browserOnline = $state(true);
-		let coverCacheRequested = $state(false);
+	let normalizingSources = $state(false);
+	let lastSourceNormalizationSignature = $state('');
+	let lastSyncedPreferenceSignature = $state('');
+	let lastMetadataKey = $state('');
+	let browserOnline = $state(true);
+	let coverCacheRequested = $state(false);
 
-		onMount(() => {
-			if (typeof navigator !== 'undefined') {
-				browserOnline = navigator.onLine;
-			}
-			const handleOnline = () => {
-				browserOnline = true;
-			};
-			const handleOffline = () => {
-				browserOnline = false;
-			};
-			window.addEventListener('online', handleOnline);
-			window.addEventListener('offline', handleOffline);
-			return () => {
-				window.removeEventListener('online', handleOnline);
-				window.removeEventListener('offline', handleOffline);
-			};
-		});
+	onMount(() => {
+		if (typeof navigator !== 'undefined') {
+			browserOnline = navigator.onLine;
+		}
+		const handleOnline = () => {
+			browserOnline = true;
+		};
+		const handleOffline = () => {
+			browserOnline = false;
+		};
+		window.addEventListener('online', handleOnline);
+		window.addEventListener('offline', handleOffline);
+		return () => {
+			window.removeEventListener('online', handleOnline);
+			window.removeEventListener('offline', handleOffline);
+		};
+	});
 
 	const client = useConvexClient();
 	const titleQuery = useQuery(convexApi.library.getMineOverviewByRouteSegment, () =>
@@ -243,9 +243,8 @@
 	const titleChaptersQuery = useQuery(convexApi.library.listTitleChapters, () =>
 		resolvedTitleId ? { titleId: resolvedTitleId } : 'skip'
 	);
-	const titleCommentsQuery = useQuery(
-		convexApi.library.listTitleComments,
-		() => (activeTab === 'comments' && resolvedTitleId ? { titleId: resolvedTitleId } : 'skip')
+	const titleCommentsQuery = useQuery(convexApi.library.listTitleComments, () =>
+		activeTab === 'comments' && resolvedTitleId ? { titleId: resolvedTitleId } : 'skip'
 	);
 	const sourcesQuery = useQuery(convexApi.extensions.listSources, () => ({}));
 	const statusesQuery = useQuery(convexApi.library.listUserStatuses, () => ({}));
@@ -258,9 +257,8 @@
 	const title = $derived(rawTitleQueryData);
 	const titleChapters = $derived((titleChaptersQuery.data ?? []) as ChapterRow[]);
 	const titleComments = $derived((titleCommentsQuery.data ?? []) as TitleComment[]);
-	const sourceHealthQuery = useQuery(
-		convexApi.commands.listSourceHealth,
-		() => (title ? { sourceIds: [title.sourceId] } : 'skip')
+	const sourceHealthQuery = useQuery(convexApi.commands.listSourceHealth, () =>
+		title ? { sourceIds: [title.sourceId] } : 'skip'
 	);
 	const sourceHealthEntries = $derived((sourceHealthQuery.data ?? []) as SourceHealthEntry[]);
 	const currentSourceHealth = $derived.by(
@@ -271,7 +269,9 @@
 	);
 	const sources = $derived((sourcesQuery.data ?? []) as SourceItem[]);
 	const availableStatuses = $derived(
-		((statusesQuery.data ?? []) as UserStatusOption[]).sort((left, right) => left.position - right.position)
+		((statusesQuery.data ?? []) as UserStatusOption[]).sort(
+			(left, right) => left.position - right.position
+		)
 	);
 	const availableCollections = $derived(
 		((collectionsQuery.data ?? []) as CollectionOption[]).sort(
@@ -299,15 +299,15 @@
 		titleBackTarget?.startsWith('/explore') ? $_('nav.explore') : $_('nav.library')
 	);
 
-		const coverSrc = $derived.by(() => {
-			if (!title) return null;
-			if (title.localCoverPath) {
-				const params = new URLSearchParams({ path: title.localCoverPath });
-				return `/api/internal/bridge/library/cover?${params.toString()}`;
-			}
-			if (!browserOnline) return null;
-			return title.coverUrl ?? null;
-		});
+	const coverSrc = $derived.by(() => {
+		if (!title) return null;
+		if (title.localCoverPath) {
+			const params = new URLSearchParams({ path: title.localCoverPath });
+			return `/api/internal/bridge/library/cover?${params.toString()}`;
+		}
+		if (!browserOnline) return null;
+		return title.coverUrl ?? null;
+	});
 
 	const genres = $derived.by(() =>
 		String(title?.genre ?? '')
@@ -318,11 +318,15 @@
 	const sourcesCount = $derived(title?.variants.length ?? (title ? 1 : 0));
 	const readingProgressCount = $derived(title?.readingProgress.startedChapters ?? 0);
 	const preferredVariantId = $derived.by(
-		() => title?.preferredVariantId ?? title?.variants.find((variant) => variant.isPreferred)?.id ?? null
+		() =>
+			title?.preferredVariantId ??
+			title?.variants.find((variant) => variant.isPreferred)?.id ??
+			null
 	);
 	const sourceName = $derived.by(() => {
 		if (!title) return '';
-		const preferredVariant = title.variants.find((variant) => variant.id === preferredVariantId) ?? null;
+		const preferredVariant =
+			title.variants.find((variant) => variant.id === preferredVariantId) ?? null;
 		return (
 			preferredVariant?.sourceName?.trim() ||
 			sources.find((item) => item.id === title.sourceId)?.name ||
@@ -390,7 +394,10 @@
 		};
 	});
 	const linkedSourceKeys = $derived.by(
-		() => new Set(title?.variants.map((variant) => sourceVariantKey(variant.sourceId, variant.titleUrl)) ?? [])
+		() =>
+			new Set(
+				title?.variants.map((variant) => sourceVariantKey(variant.sourceId, variant.titleUrl)) ?? []
+			)
 	);
 	const availableMatchSources = $derived.by(() => {
 		if (!title) return [] as SourceItem[];
@@ -407,16 +414,19 @@
 				return left.name.localeCompare(right.name);
 			});
 	});
-	const hasStaleVariants = $derived.by(() => title?.variants.some((variant) => variant.isStale) ?? false);
-	const chaptersLabel = $derived.by(() =>
-		`${title?.chapterStats.total ?? 0} ${$_('title.chapters').toLowerCase()}`
+	const hasStaleVariants = $derived.by(
+		() => title?.variants.some((variant) => variant.isStale) ?? false
+	);
+	const chaptersLabel = $derived.by(
+		() => `${title?.chapterStats.total ?? 0} ${$_('title.chapters').toLowerCase()}`
 	);
 	const sourcesLabel = $derived.by(() => `${sourcesCount} ${$_('title.sources').toLowerCase()}`);
 	const startReadingChapter = $derived.by(() => {
 		if (!title) return null;
 		if (title.readingProgress.latest) {
 			return (
-				titleChapters.find((chapter) => chapter._id === title.readingProgress.latest?.chapterId) ?? null
+				titleChapters.find((chapter) => chapter._id === title.readingProgress.latest?.chapterId) ??
+				null
 			);
 		}
 		return titleChapters[0] ?? null;
@@ -461,7 +471,11 @@
 
 	$effect(() => {
 		if (!title) return;
-		const canonicalPath = buildTitlePath(String(title._id), title.title, title.routeSegment ?? null);
+		const canonicalPath = buildTitlePath(
+			String(title._id),
+			title.title,
+			title.routeSegment ?? null
+		);
 		if (page.url.pathname !== canonicalPath) {
 			void goto(canonicalPath, { replaceState: true, noScroll: true });
 		}
@@ -518,21 +532,21 @@
 		}
 	});
 
-		$effect(() => {
-			const key = title ? `${title.sourceId}::${title.titleUrl}` : '';
-			if (key === lastMetadataKey) return;
-			lastMetadataKey = key;
-			metadataRequested = false;
-			readinessRequested = false;
-			coverCacheRequested = false;
-			chapterHydrationStatus = 'idle';
-		});
+	$effect(() => {
+		const key = title ? `${title.sourceId}::${title.titleUrl}` : '';
+		if (key === lastMetadataKey) return;
+		lastMetadataKey = key;
+		metadataRequested = false;
+		readinessRequested = false;
+		coverCacheRequested = false;
+		chapterHydrationStatus = 'idle';
+	});
 
-		$effect(() => {
-			if (!browserOnline || !title || metadataRequested) return;
-			if (
-				(title.author ?? '').trim() &&
-				(title.artist ?? '').trim() &&
+	$effect(() => {
+		if (!browserOnline || !title || metadataRequested) return;
+		if (
+			(title.author ?? '').trim() &&
+			(title.artist ?? '').trim() &&
 			(title.genre ?? '').trim() &&
 			Number(title.status ?? 0) > 0 &&
 			(title.description ?? '').trim()
@@ -553,13 +567,13 @@
 				// Leave fields as-is; key reset on navigation/title change enables a later retry.
 			}
 		})();
-		});
+	});
 
-		$effect(() => {
-			if (!browserOnline || !title || readinessRequested) return;
-			if (titleChapters.length > 0) return;
-			readinessRequested = true;
-			chapterHydrationStatus = 'syncing';
+	$effect(() => {
+		if (!browserOnline || !title || readinessRequested) return;
+		if (titleChapters.length > 0) return;
+		readinessRequested = true;
+		chapterHydrationStatus = 'syncing';
 		void (async () => {
 			try {
 				const titleId = title._id;
@@ -581,24 +595,24 @@
 			} catch {
 				readinessRequested = false;
 				chapterHydrationStatus = 'failed';
-				}
-			})();
-		});
+			}
+		})();
+	});
 
-		$effect(() => {
-			if (!browserOnline || !title || coverCacheRequested) return;
-			if (title.localCoverPath || !(title.coverUrl ?? '').trim()) return;
-			coverCacheRequested = true;
-			void (async () => {
-				try {
-					await client.mutation(convexApi.library.ensureTitleCoverCache, {
-						titleId: title._id
-					});
-				} catch {
-					// Leave the current cover state as-is until a later online retry.
-				}
-			})();
-		});
+	$effect(() => {
+		if (!browserOnline || !title || coverCacheRequested) return;
+		if (title.localCoverPath || !(title.coverUrl ?? '').trim()) return;
+		coverCacheRequested = true;
+		void (async () => {
+			try {
+				await client.mutation(convexApi.library.ensureTitleCoverCache, {
+					titleId: title._id
+				});
+			} catch {
+				// Leave the current cover state as-is until a later online retry.
+			}
+		})();
+	});
 
 	const isChapterHydrating = $derived(
 		Boolean(title) &&
@@ -624,7 +638,11 @@
 		return $_('title.noChaptersDescription');
 	});
 
-	function sourceDisplayName(sourceId: string, fallback: string, sourceName?: string | null): string {
+	function sourceDisplayName(
+		sourceId: string,
+		fallback: string,
+		sourceName?: string | null
+	): string {
 		return sourceName?.trim() || sources.find((source) => source.id === sourceId)?.name || fallback;
 	}
 
@@ -762,9 +780,7 @@
 		try {
 			await client.mutation(convexApi.library.updateTitlePreferences, {
 				titleId: title._id,
-				userStatusId: selectedStatusId
-					? (selectedStatusId as Id<'libraryUserStatuses'>)
-					: null,
+				userStatusId: selectedStatusId ? (selectedStatusId as Id<'libraryUserStatuses'>) : null,
 				userRating: selectedRating > 0 ? selectedRating : null,
 				collectionIds: selectedCollectionIds as Id<'libraryCollections'>[]
 			});
@@ -868,8 +884,7 @@
 		if (!title) return false;
 		return title.variants.some(
 			(variant) =>
-				variant.sourcePkg === item.sourcePkg &&
-				variant.titleUrl.trim() === item.titleUrl.trim()
+				variant.sourcePkg === item.sourcePkg && variant.titleUrl.trim() === item.titleUrl.trim()
 		);
 	}
 
@@ -939,8 +954,7 @@
 					sourceName: source.name,
 					titleUrl: resolvedUrl,
 					title: resolvedTitle,
-					description:
-						typeof resolved.description === 'string' ? resolved.description : undefined,
+					description: typeof resolved.description === 'string' ? resolved.description : undefined,
 					coverUrl: typeof resolved.coverUrl === 'string' ? resolved.coverUrl : null
 				});
 			};
@@ -1019,8 +1033,7 @@
 				preferredVariantId: variantId as Id<'titleVariants'>
 			});
 		} catch (cause) {
-			sourceManagementError =
-				cause instanceof Error ? cause.message : $_('title.sourceLinkFailed');
+			sourceManagementError = cause instanceof Error ? cause.message : $_('title.sourceLinkFailed');
 		} finally {
 			preferredVariantSavingId = null;
 		}
@@ -1200,39 +1213,45 @@
 
 			<div class="flex flex-col">
 				<div class="relative -mt-20 flex flex-col gap-2 sm:-mt-24 md:mt-0">
-					<h1 class="text-display text-2xl leading-tight text-[var(--text)] sm:text-3xl md:text-2xl">
+					<h1
+						class="text-display text-2xl leading-tight text-[var(--text)] sm:text-3xl md:text-2xl"
+					>
 						{title.title}
 					</h1>
 					{#if author || artist}
 						<p class="text-sm text-[var(--text-ghost)]">
 							{#if author}{author}{/if}
 							{#if artist && artist !== author}
-								{#if author} · {/if}{artist}
+								{#if author}
+									·
+								{/if}{artist}
 							{/if}
 						</p>
 					{/if}
 					<p class="text-xs text-[var(--void-6)]">
 						{#if displayStatus}{displayStatus}{/if}
-						{#if title.chapterStats.total > 0} · {chaptersLabel}{/if}
-						{#if sourcesCount > 0} · {sourcesLabel}{/if}
+						{#if title.chapterStats.total > 0}
+							· {chaptersLabel}{/if}
+						{#if sourcesCount > 0}
+							· {sourcesLabel}{/if}
 					</p>
-						<TitleSourcePanel
-							sourceName={sourceName}
-							sourceLang={title.sourceLang}
-							sourceHealthLabel={sourceHealthSummary.label}
-							sourceHealthDetail={sourceHealthSummary.detail}
-							offlineLabel={offlineReadinessSummary.label}
-							offlineDetail={offlineReadinessSummary.detail}
-							headingLabel={$_('title.readingSource')}
-							prepareOfflineLabel={$_('title.prepareOffline')}
-							refreshSourceLabel={$_('title.refreshSource')}
-							browserOnline={browserOnline}
-							offlinePreparing={offlinePreparing}
-							sourceStatusRefreshing={sourceStatusRefreshing}
-							onPrepareOffline={prepareOffline}
-							onRefreshSource={refreshSourceState}
-						/>
-					</div>
+					<TitleSourcePanel
+						{sourceName}
+						sourceLang={title.sourceLang}
+						sourceHealthLabel={sourceHealthSummary.label}
+						sourceHealthDetail={sourceHealthSummary.detail}
+						offlineLabel={offlineReadinessSummary.label}
+						offlineDetail={offlineReadinessSummary.detail}
+						headingLabel={$_('title.readingSource')}
+						prepareOfflineLabel={$_('title.prepareOffline')}
+						refreshSourceLabel={$_('title.refreshSource')}
+						{browserOnline}
+						{offlinePreparing}
+						{sourceStatusRefreshing}
+						onPrepareOffline={prepareOffline}
+						onRefreshSource={refreshSourceState}
+					/>
+				</div>
 
 				<div class="mt-8 flex flex-col gap-4 md:hidden">
 					<div class="flex items-center gap-3">
@@ -1327,35 +1346,32 @@
 					{#if activeTab === 'info'}
 						<TitleInfoTab
 							description={title.description ?? null}
-							showFullDescription={showFullDescription}
+							{showFullDescription}
 							onToggleDescription={() => (showFullDescription = !showFullDescription)}
-							genres={genres}
-							author={author}
-							artist={artist}
-							displayStatus={displayStatus}
-							sourceName={sourceName}
+							{genres}
+							{author}
+							{artist}
+							{displayStatus}
+							{sourceName}
 							sourceLang={title.sourceLang}
-							chaptersLabel={chaptersLabel}
-							sourcesLabel={sourcesLabel}
-							updatesEnabled={updatesEnabled}
+							{chaptersLabel}
+							{sourcesLabel}
+							{updatesEnabled}
 						/>
 					{:else if activeTab === 'chapters'}
 						<TitleChaptersTab
-							titleChapters={titleChapters}
-							chapterHydrationStatus={chapterHydrationStatus}
-							chapterHydrationHeadline={chapterHydrationHeadline}
-							chapterHydrationDescription={chapterHydrationDescription}
-							downloadingChapterIds={downloadingChapterIds}
+							{titleChapters}
+							{chapterHydrationStatus}
+							{chapterHydrationHeadline}
+							{chapterHydrationDescription}
+							{downloadingChapterIds}
 							onRetryHydration={() => void retryTitleHydration()}
 							onOpenChapter={(chapter) => openChapter(chapter as ChapterRow)}
 							onDownloadChapter={(chapterId) =>
 								void downloadChapter(chapterId as Id<'libraryChapters'>)}
 						/>
 					{:else}
-						<TitleCommentsTab
-							loading={titleCommentsQuery.isLoading}
-							titleComments={titleComments}
-						/>
+						<TitleCommentsTab loading={titleCommentsQuery.isLoading} {titleComments} />
 					{/if}
 				</div>
 			</div>
@@ -1545,7 +1561,8 @@
 									variant="ghost"
 									size="sm"
 									onclick={() => void choosePreferredVariant(variant.id)}
-									disabled={preferredVariantSavingId === variant.id || preferredVariantId === variant.id}
+									disabled={preferredVariantSavingId === variant.id ||
+										preferredVariantId === variant.id}
 									loading={preferredVariantSavingId === variant.id}
 								>
 									{preferredVariantId === variant.id
@@ -1594,7 +1611,9 @@
 						{:else if sourceMatches.length > 0}
 							<div class="flex flex-col gap-2">
 								{#each sourceMatches as result (`${result.sourceId}::${result.titleUrl}`)}
-									<div class="flex items-start justify-between gap-3 bg-[var(--void-2)] px-3 py-3 text-sm">
+									<div
+										class="flex items-start justify-between gap-3 bg-[var(--void-2)] px-3 py-3 text-sm"
+									>
 										<div class="min-w-0">
 											<div class="truncate text-[var(--text)]">{result.title}</div>
 											<div class="mt-1 text-xs text-[var(--text-ghost)]">

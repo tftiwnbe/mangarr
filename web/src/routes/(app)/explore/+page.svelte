@@ -24,7 +24,10 @@
 	import { _ } from '$lib/i18n';
 	import { contentLanguages } from '$lib/stores/content-languages';
 	import { panelOverlayOpen } from '$lib/stores/ui';
-	import { normalizeContentLanguageCode, toMainContentLanguages } from '$lib/utils/content-languages';
+	import {
+		normalizeContentLanguageCode,
+		toMainContentLanguages
+	} from '$lib/utils/content-languages';
 	import { buildTitlePath } from '$lib/utils/routes';
 	import {
 		effectiveSourceHealthState,
@@ -197,7 +200,12 @@
 
 	const sourceOptions = $derived.by(() => sourcesForContentLanguage());
 	const extensionFilters = $derived.by(() => {
-		const grouped: Array<{ pkg: string; name: string; sourceCount: number; sourceNames: string[] }> = [];
+		const grouped: Array<{
+			pkg: string;
+			name: string;
+			sourceCount: number;
+			sourceNames: string[];
+		}> = [];
 		const indexesByPkg: Record<string, number> = {};
 		for (const source of sourceOptions) {
 			const existingIndex = indexesByPkg[source.extensionPkg];
@@ -232,13 +240,17 @@
 	});
 
 	const searchSources = $derived(sourceOptions);
-	const selectedSource = $derived(searchSources.find((source) => source.id === selectedSourceId) ?? null);
+	const selectedSource = $derived(
+		searchSources.find((source) => source.id === selectedSourceId) ?? null
+	);
 	const selectedSourceAppliedFilters = $derived(
 		selectedSourceId ? (appliedSearchFiltersBySource[selectedSourceId] ?? {}) : {}
 	);
 	const appliedSearchFilterCount = $derived(Object.keys(selectedSourceAppliedFilters).length);
 	const hasAppliedSearchFilters = $derived(appliedSearchFilterCount > 0);
-	const canRunSearch = $derived(searchQuery.trim().length > 0 || (Boolean(selectedSourceId) && hasAppliedSearchFilters));
+	const canRunSearch = $derived(
+		searchQuery.trim().length > 0 || (Boolean(selectedSourceId) && hasAppliedSearchFilters)
+	);
 	const sourceHealthQuery = useQuery(convexApi.commands.listSourceHealth, () => ({
 		sourceIds:
 			activeTab === 'search'
@@ -423,7 +435,8 @@
 		const normalized = message.toLowerCase();
 		const permanent = isPermanentSourceFailure(normalized);
 		const rateLimited = normalized.includes('http error 429') || normalized.includes('rate limit');
-		const retryAfter = Date.now() + (permanent ? 30 * 60_000 : rateLimited ? 10 * 60_000 : 5 * 60_000);
+		const retryAfter =
+			Date.now() + (permanent ? 30 * 60_000 : rateLimited ? 10 * 60_000 : 5 * 60_000);
 		return {
 			sourceId,
 			scope,
@@ -583,11 +596,19 @@
 		return `${commandType}:${sourceId}:page:${page}`;
 	}
 
-	function searchResultKey(sourceId: string, query: string, searchFilters: Record<string, unknown>): string {
+	function searchResultKey(
+		sourceId: string,
+		query: string,
+		searchFilters: Record<string, unknown>
+	): string {
 		return `explore.search:${sourceId}:${query.trim().toLowerCase()}:${JSON.stringify(searchFilters)}`;
 	}
 
-	function latestFeedResult(commandType: string, sourceId: string, page: number): FeedResult | null {
+	function latestFeedResult(
+		commandType: string,
+		sourceId: string,
+		page: number
+	): FeedResult | null {
 		return liveFeedResults[feedResultKey(commandType, sourceId, page)] ?? null;
 	}
 
@@ -600,7 +621,11 @@
 		return liveSearchResults[key] ?? null;
 	}
 
-	function feedItemsForSource(commandType: string, sourceId: string, maxPage: number): ExploreItem[] {
+	function feedItemsForSource(
+		commandType: string,
+		sourceId: string,
+		maxPage: number
+	): ExploreItem[] {
 		const items: ExploreItem[] = [];
 		for (let page = 1; page <= maxPage; page += 1) {
 			const result = latestFeedResult(commandType, sourceId, page);
@@ -744,7 +769,10 @@
 		}
 	}
 
-	function refreshCanLoadMoreFeed(nextLoaded: Record<string, number>, nextExhausted: Record<string, boolean>) {
+	function refreshCanLoadMoreFeed(
+		nextLoaded: Record<string, number>,
+		nextExhausted: Record<string, boolean>
+	) {
 		canLoadMoreFeed =
 			visibleSources.some((source) => {
 				if (sourceIsUnavailable(source.id, 'feed')) return false;
@@ -752,12 +780,15 @@
 				return page > 0 && nextExhausted[source.id] !== true;
 			}) ||
 			visibleSources.some(
-				(source) => !sourceIsUnavailable(source.id, 'feed') && !activeFeedSourceIds.includes(source.id)
+				(source) =>
+					!sourceIsUnavailable(source.id, 'feed') && !activeFeedSourceIds.includes(source.id)
 			);
 	}
 
 	async function loadFeedInitial(generation: number) {
-		const sourceIds = activeFeedSourceIds.filter((sourceId) => !sourceIsUnavailable(sourceId, 'feed'));
+		const sourceIds = activeFeedSourceIds.filter(
+			(sourceId) => !sourceIsUnavailable(sourceId, 'feed')
+		);
 		if (sourceIds.length === 0) {
 			loadedPagesBySource = {};
 			exhaustedFeedSources = {};
@@ -794,25 +825,31 @@
 		const requestCommandType = feedCommandType;
 
 		await runWithConcurrency(sourceIds, FEED_COMMAND_CONCURRENCY, async (sourceId) => {
-				try {
-					const result = await fetchFeedPage(sourceId, 1);
-					clearSourceFailure(sourceId, 'feed');
-					successfulSources += 1;
-					nextLiveFeedResults[feedResultKey(feedCommandType, sourceId, 1)] = result;
-					nextPages[sourceId] = 1;
-					if (result.hasNextPage === true) {
-						delete nextExhausted[sourceId];
-					} else {
-						nextExhausted[sourceId] = true;
-					}
-				} catch (cause) {
-					recordSourceFailure(sourceId, 'feed', cause);
+			try {
+				const result = await fetchFeedPage(sourceId, 1);
+				clearSourceFailure(sourceId, 'feed');
+				successfulSources += 1;
+				nextLiveFeedResults[feedResultKey(feedCommandType, sourceId, 1)] = result;
+				nextPages[sourceId] = 1;
+				if (result.hasNextPage === true) {
+					delete nextExhausted[sourceId];
+				} else {
 					nextExhausted[sourceId] = true;
-					failures.push(cause instanceof Error ? cause.message : `Unable to load ${sourceNameFor(sourceId)}`);
 				}
-			});
+			} catch (cause) {
+				recordSourceFailure(sourceId, 'feed', cause);
+				nextExhausted[sourceId] = true;
+				failures.push(
+					cause instanceof Error ? cause.message : `Unable to load ${sourceNameFor(sourceId)}`
+				);
+			}
+		});
 
-		if (generation !== feedLoadGeneration || activeTab === 'search' || requestCommandType !== feedCommandType) {
+		if (
+			generation !== feedLoadGeneration ||
+			activeTab === 'search' ||
+			requestCommandType !== feedCommandType
+		) {
 			if (append) {
 				loadingMore = false;
 			} else {
@@ -825,7 +862,7 @@
 		loadedPagesBySource = nextPages;
 		exhaustedFeedSources = nextExhausted;
 		refreshCanLoadMoreFeed(nextPages, nextExhausted);
-		error = failures.length > 0 && successfulSources === 0 ? failures[0] ?? null : null;
+		error = failures.length > 0 && successfulSources === 0 ? (failures[0] ?? null) : null;
 		if (append) {
 			loadingMore = false;
 		} else {
@@ -865,9 +902,16 @@
 		const failures: string[] = [];
 		let successfulSources = 0;
 
-		await runWithConcurrency(nextSourcePages, FEED_COMMAND_CONCURRENCY, async ({ sourceId, page }) => {
+		await runWithConcurrency(
+			nextSourcePages,
+			FEED_COMMAND_CONCURRENCY,
+			async ({ sourceId, page }) => {
 				try {
-					const existingItems = feedItemsForSource(feedCommandType, sourceId, loadedPagesBySource[sourceId] ?? 0);
+					const existingItems = feedItemsForSource(
+						feedCommandType,
+						sourceId,
+						loadedPagesBySource[sourceId] ?? 0
+					);
 					const { result, finalPage, exhausted } = await fetchNextUniqueFeedPage(
 						sourceId,
 						page,
@@ -885,14 +929,16 @@
 				} catch (cause) {
 					recordSourceFailure(sourceId, 'feed', cause);
 					nextExhausted[sourceId] = true;
-					failures.push(cause instanceof Error ? cause.message : `Unable to load more from ${sourceNameFor(sourceId)}`);
+					failures.push(
+						cause instanceof Error
+							? cause.message
+							: `Unable to load more from ${sourceNameFor(sourceId)}`
+					);
 				}
-			});
+			}
+		);
 
-		if (
-			generation !== feedLoadGeneration ||
-			requestCommandType !== feedCommandType
-		) {
+		if (generation !== feedLoadGeneration || requestCommandType !== feedCommandType) {
 			loadingMore = false;
 			return;
 		}
@@ -913,19 +959,19 @@
 		const generation = ++searchRunGeneration;
 		const value = searchQuery.trim();
 		const selectedSourceFilters = selectedSourceId ? selectedSourceAppliedFilters : {};
-		const hasFilterOnlySearch = Boolean(selectedSourceId) && Object.keys(selectedSourceFilters).length > 0;
+		const hasFilterOnlySearch =
+			Boolean(selectedSourceId) && Object.keys(selectedSourceFilters).length > 0;
 		if (!value && !hasFilterOnlySearch) {
 			loading = false;
 			return;
 		}
 
-		const sourceIds = (
+		const sourceIds =
 			selectedSourceId && searchSources.some((source) => source.id === selectedSourceId)
 				? [selectedSourceId]
 				: searchSources
 						.map((source) => source.id)
-						.filter((sourceId) => !sourceIsUnavailable(sourceId, 'search'))
-		);
+						.filter((sourceId) => !sourceIsUnavailable(sourceId, 'search'));
 
 		if (sourceIds.length === 0) {
 			error = activeSourceFailures[0]?.message ?? null;
@@ -939,32 +985,34 @@
 		const nextLiveSearchResults = { ...liveSearchResults };
 
 		await runWithConcurrency(sourceIds, COMMAND_CONCURRENCY, async (sourceId) => {
-				try {
-					const searchFilters = selectedSourceId === sourceId ? selectedSourceAppliedFilters : {};
-					const payload: Record<string, unknown> = {
-						query: value,
-						sourceId,
-						limit: 42
-					};
-					if (Object.keys(searchFilters).length > 0) {
-						payload.searchFilters = searchFilters;
-					}
-					const { commandId } = await client.mutation(convexApi.commands.enqueueExploreSearch, {
-						sourceId,
-						query: value,
-						limit: 42,
-						...(Object.keys(searchFilters).length > 0 ? { searchFilters } : {})
-					});
-					const command = await waitForCommand(client, commandId);
-					clearSourceFailure(sourceId, 'search');
-					nextLiveSearchResults[searchResultKey(sourceId, value, searchFilters)] = {
-						items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[]
-					};
-				} catch (cause) {
-					recordSourceFailure(sourceId, 'search', cause);
-					failures.push(cause instanceof Error ? cause.message : `Search failed for ${sourceNameFor(sourceId)}`);
+			try {
+				const searchFilters = selectedSourceId === sourceId ? selectedSourceAppliedFilters : {};
+				const payload: Record<string, unknown> = {
+					query: value,
+					sourceId,
+					limit: 42
+				};
+				if (Object.keys(searchFilters).length > 0) {
+					payload.searchFilters = searchFilters;
 				}
-			});
+				const { commandId } = await client.mutation(convexApi.commands.enqueueExploreSearch, {
+					sourceId,
+					query: value,
+					limit: 42,
+					...(Object.keys(searchFilters).length > 0 ? { searchFilters } : {})
+				});
+				const command = await waitForCommand(client, commandId);
+				clearSourceFailure(sourceId, 'search');
+				nextLiveSearchResults[searchResultKey(sourceId, value, searchFilters)] = {
+					items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[]
+				};
+			} catch (cause) {
+				recordSourceFailure(sourceId, 'search', cause);
+				failures.push(
+					cause instanceof Error ? cause.message : `Search failed for ${sourceNameFor(sourceId)}`
+				);
+			}
+		});
 
 		if (generation !== searchRunGeneration || activeTab !== 'search') {
 			loading = false;
@@ -984,9 +1032,12 @@
 		pendingSearchFilterChanges = {};
 
 		try {
-			const { commandId } = await client.mutation(convexApi.commands.enqueueSourcePreferencesFetch, {
-				sourceId
-			});
+			const { commandId } = await client.mutation(
+				convexApi.commands.enqueueSourcePreferencesFetch,
+				{
+					sourceId
+				}
+			);
 			const command = await waitForCommand(client, commandId);
 			searchFiltersData = command.result as PreferenceBundle;
 			const applied = appliedSearchFiltersBySource[sourceId];
@@ -994,8 +1045,7 @@
 				pendingSearchFilterChanges = structuredCloneValue(applied) as Record<string, unknown>;
 			}
 		} catch (cause) {
-			searchFiltersError =
-				cause instanceof Error ? cause.message : 'Failed to load search filters';
+			searchFiltersError = cause instanceof Error ? cause.message : 'Failed to load search filters';
 		} finally {
 			searchFiltersLoading = false;
 		}
@@ -1039,7 +1089,9 @@
 			: Array.isArray(selectedSourceAppliedFilters[key])
 				? [...(selectedSourceAppliedFilters[key] as string[])]
 				: [];
-		const next = checked ? [...new Set([...current, option])] : current.filter((item) => item !== option);
+		const next = checked
+			? [...new Set([...current, option])]
+			: current.filter((item) => item !== option);
 		handleSearchFilterChange(key, next);
 	}
 
@@ -1099,7 +1151,8 @@
 		return {
 			variant: 'hidden' as const,
 			label: $_('explore.hiddenImportedBadge'),
-			className: 'bg-[var(--void-1)]/85 text-[var(--text-muted)] ring-1 ring-inset ring-[var(--line)]'
+			className:
+				'bg-[var(--void-1)]/85 text-[var(--text-muted)] ring-1 ring-inset ring-[var(--line)]'
 		};
 	}
 
@@ -1220,7 +1273,6 @@
 			resetFeedObserver();
 		};
 	});
-
 </script>
 
 <svelte:head>
@@ -1232,12 +1284,14 @@
 		<h1 class="text-display text-xl text-[var(--text)]">{$_('nav.explore').toLowerCase()}</h1>
 	</div>
 
-	<Tabs tabs={tabs} value={activeTab} onValueChange={setTab} />
+	<Tabs {tabs} value={activeTab} onValueChange={setTab} />
 
 	{#if activeTab === 'search'}
 		<div class="flex flex-col gap-4">
 			<div class="relative">
-				<div class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-ghost)]">
+				<div
+					class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-ghost)]"
+				>
 					<MagnifyingGlassIcon size={14} />
 				</div>
 				<input
@@ -1307,24 +1361,25 @@
 								source.id
 									? 'bg-[var(--void-4)] text-[var(--text)]'
 									: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
-							onclick={() => {
-								selectedSourceId = source.id;
-								if (searchQuery.trim() || appliedSearchFiltersBySource[source.id]) void runSearch();
-							}}
-							title={searchFailure
-								? `${sourceFailureLabel(searchFailure)}: ${searchFailure.message}`
-								: undefined}
-						>
-							{source.name}{source.lang ? ` [${source.lang}]` : ''}
-							{#if searchFailure}
-								<span class="ml-1 text-[9px] text-[var(--text-dim)]">
-									{sourceFailureLabel(searchFailure)}
-									{#if sourceFailureRetrySuffix(searchFailure)}
-										· {sourceFailureRetrySuffix(searchFailure)}
-									{/if}
-								</span>
-							{/if}
-						</button>
+								onclick={() => {
+									selectedSourceId = source.id;
+									if (searchQuery.trim() || appliedSearchFiltersBySource[source.id])
+										void runSearch();
+								}}
+								title={searchFailure
+									? `${sourceFailureLabel(searchFailure)}: ${searchFailure.message}`
+									: undefined}
+							>
+								{source.name}{source.lang ? ` [${source.lang}]` : ''}
+								{#if searchFailure}
+									<span class="ml-1 text-[9px] text-[var(--text-dim)]">
+										{sourceFailureLabel(searchFailure)}
+										{#if sourceFailureRetrySuffix(searchFailure)}
+											· {sourceFailureRetrySuffix(searchFailure)}
+										{/if}
+									</span>
+								{/if}
+							</button>
 						{/each}
 					</div>
 
@@ -1365,7 +1420,8 @@
 			<div class="flex flex-wrap gap-2">
 				<button
 					type="button"
-					class="inline-flex items-center gap-1 border px-2.5 py-1 text-xs transition-colors {selectedExtensionPkgs.length > 0
+					class="inline-flex items-center gap-1 border px-2.5 py-1 text-xs transition-colors {selectedExtensionPkgs.length >
+					0
 						? 'border-[var(--line)] text-[var(--text-ghost)] hover:border-[var(--text-ghost)] hover:text-[var(--text-muted)]'
 						: 'border-[var(--text)] bg-[var(--void-2)] text-[var(--text)]'}"
 					onclick={clearExtensionFilters}
@@ -1391,17 +1447,22 @@
 	{/if}
 
 	{#if error}
-		<div class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]">
+		<div
+			class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]"
+		>
 			{error}
 		</div>
 	{/if}
 
 	{#if activeSourceFailures.length > 0}
-		<div class="border border-[var(--line)] bg-[var(--void-2)] px-4 py-3 text-sm text-[var(--text-muted)]">
+		<div
+			class="border border-[var(--line)] bg-[var(--void-2)] px-4 py-3 text-sm text-[var(--text-muted)]"
+		>
 			{activeSourceFailures.length} source{activeSourceFailures.length === 1 ? '' : 's'} temporarily skipped:
 			{activeSourceFailures
-				.map((failure) =>
-					`${failure.sourceName}${failure.permanent ? '' : ` (${failure.retryInMinutes}m)`}`
+				.map(
+					(failure) =>
+						`${failure.sourceName}${failure.permanent ? '' : ` (${failure.retryInMinutes}m)`}`
 				)
 				.join(', ')}
 		</div>
@@ -1433,7 +1494,10 @@
 		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
 			{#each Array(18) as _, i (i)}
 				<div class="flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)]">
-					<div class="aspect-[2/3] animate-pulse bg-[var(--void-4)]" style={`animation-delay: ${i * 40}ms`}></div>
+					<div
+						class="aspect-[2/3] animate-pulse bg-[var(--void-4)]"
+						style={`animation-delay: ${i * 40}ms`}
+					></div>
 					<div class="flex flex-col gap-1.5 p-2">
 						<div class="h-2 w-full animate-pulse bg-[var(--void-4)]"></div>
 						<div class="h-2 w-3/5 animate-pulse bg-[var(--void-5)]"></div>
@@ -1468,7 +1532,9 @@
 						<div class="absolute inset-x-1 top-1 flex items-start justify-end gap-2">
 							{#if badge}
 								{#if badge.variant === 'listed'}
-									<div class={`flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[10px] ${badge.className}`}>
+									<div
+										class={`flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[10px] ${badge.className}`}
+									>
 										<CheckIcon size={10} />
 										<span>{badge.label}</span>
 									</div>
@@ -1484,13 +1550,17 @@
 							{/if}
 						</div>
 						<div class="absolute inset-x-1 bottom-1 flex items-end justify-start">
-							<div class="max-w-[85%] truncate bg-[var(--void-0)]/82 px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] backdrop-blur-sm">
+							<div
+								class="max-w-[85%] truncate bg-[var(--void-0)]/82 px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] backdrop-blur-sm"
+							>
 								{item.sourceName}{item.sourceLang ? ` · ${item.sourceLang.toUpperCase()}` : ''}
 							</div>
 						</div>
 
 						{#if openingTitleKey === item.key}
-							<div class="absolute inset-0 flex items-center justify-center bg-[var(--void-0)]/60 backdrop-blur-[1px]">
+							<div
+								class="absolute inset-0 flex items-center justify-center bg-[var(--void-0)]/60 backdrop-blur-[1px]"
+							>
 								<SpinnerIcon size={18} class="animate-spin text-[var(--text)]" />
 							</div>
 						{/if}
@@ -1517,7 +1587,9 @@
 		{/if}
 	{:else}
 		<div class="flex flex-col items-center gap-4 py-16 text-center">
-			<div class="flex h-16 w-16 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]">
+			<div
+				class="flex h-16 w-16 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]"
+			>
 				{#if activeTab === 'search'}
 					<MagnifyingGlassIcon size={24} class="text-[var(--text-ghost)]" />
 				{:else}
@@ -1554,7 +1626,9 @@
 			<p class="text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
 		</div>
 	{:else if searchFiltersError}
-		<div class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]">
+		<div
+			class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]"
+		>
 			{searchFiltersError}
 		</div>
 	{:else if searchFiltersData}
@@ -1581,7 +1655,8 @@
 									<input
 										type="checkbox"
 										checked={Boolean(getCurrentSearchFilterValue(meta))}
-										onchange={(event) => handleSearchFilterChange(meta.key, event.currentTarget.checked)}
+										onchange={(event) =>
+											handleSearchFilterChange(meta.key, event.currentTarget.checked)}
 									/>
 									<span>Enabled</span>
 								</label>
@@ -1589,21 +1664,23 @@
 								<select
 									class="h-11 border border-[var(--void-4)] bg-[var(--void-2)] px-3 text-sm text-[var(--text)]"
 									value={String(getCurrentSearchFilterValue(meta) ?? '')}
-									onchange={(event) => handleSearchFilterChange(meta.key, event.currentTarget.value)}
+									onchange={(event) =>
+										handleSearchFilterChange(meta.key, event.currentTarget.value)}
 								>
 									{#each meta.entry_values ?? [] as value, index (`${meta.key}:${value}:${index}`)}
-										<option value={value}>{meta.entries?.[index] ?? value}</option>
+										<option {value}>{meta.entries?.[index] ?? value}</option>
 									{/each}
 								</select>
 							{:else if meta.type === 'multi_select'}
 								<div class="grid gap-2">
-										{#each meta.entry_values ?? [] as value, index (`${meta.key}:${value}:${index}`)}
-											<label class="flex items-center gap-3 text-sm text-[var(--text)]">
+									{#each meta.entry_values ?? [] as value, index (`${meta.key}:${value}:${index}`)}
+										<label class="flex items-center gap-3 text-sm text-[var(--text)]">
 											<input
 												type="checkbox"
 												checked={Array.isArray(getCurrentSearchFilterValue(meta)) &&
 													(getCurrentSearchFilterValue(meta) as string[]).includes(value)}
-												onchange={(event) => toggleMultiSelectValue(meta.key, value, event.currentTarget.checked)}
+												onchange={(event) =>
+													toggleMultiSelectValue(meta.key, value, event.currentTarget.checked)}
 											/>
 											<span>{meta.entries?.[index] ?? value}</span>
 										</label>
@@ -1621,12 +1698,8 @@
 					{/each}
 				</div>
 				<div class="flex gap-2 pt-2">
-					<Button variant="outline" size="sm" onclick={closeSearchFilters}>
-						Cancel
-					</Button>
-					<Button size="sm" onclick={() => void applySearchFilters()}>
-						Apply
-					</Button>
+					<Button variant="outline" size="sm" onclick={closeSearchFilters}>Cancel</Button>
+					<Button size="sm" onclick={() => void applySearchFilters()}>Apply</Button>
 				</div>
 			{/if}
 		</div>

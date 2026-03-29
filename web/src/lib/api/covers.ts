@@ -6,7 +6,11 @@ export function getCachedCoverUrl(url: string | null | undefined): string {
 	if (!trimmed) {
 		return FALLBACK_COVER;
 	}
-	if (trimmed.startsWith(COVER_PROXY_PATH) || trimmed.startsWith('/') || trimmed.startsWith('data:')) {
+	if (
+		trimmed.startsWith(COVER_PROXY_PATH) ||
+		trimmed.startsWith('/') ||
+		trimmed.startsWith('data:')
+	) {
 		return trimmed;
 	}
 	if (/^https?:\/\//i.test(trimmed)) {

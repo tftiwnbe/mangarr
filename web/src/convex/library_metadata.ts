@@ -94,12 +94,13 @@ export const beginTitleOpen = mutation({
 			titleUrl: args.titleUrl
 		});
 		if (existingTitle) {
-			const hasChapters = (
-				await ctx.db
-					.query('libraryChapters')
-					.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', existingTitle._id))
-					.take(1)
-			).length > 0;
+			const hasChapters =
+				(
+					await ctx.db
+						.query('libraryChapters')
+						.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', existingTitle._id))
+						.take(1)
+				).length > 0;
 			return {
 				state: hasChapters ? ('ready' as const) : ('syncing' as const),
 				titleId: existingTitle._id,
@@ -607,12 +608,11 @@ function isTitleMetadataIncomplete(title: {
 	genre?: string;
 	status?: number;
 }) {
-	return ![
-		title.author,
-		title.artist,
-		title.description,
-		title.genre
-	].every((value) => typeof value === 'string' && value.trim().length > 0) || !Number(title.status ?? 0);
+	return (
+		![title.author, title.artist, title.description, title.genre].every(
+			(value) => typeof value === 'string' && value.trim().length > 0
+		) || !Number(title.status ?? 0)
+	);
 }
 
 async function requireOwnedTitle(ctx: QueryCtx | MutationCtx, titleId: GenericId<'libraryTitles'>) {

@@ -2,7 +2,8 @@ import { defineConfig } from '@playwright/test';
 
 const useWebServer = process.env.PW_USE_WEBSERVER === '1';
 const previewBaseUrl = 'http://127.0.0.1:4173';
-const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? (useWebServer ? previewBaseUrl : 'http://127.0.0.1:3737');
+const baseURL =
+	process.env.PLAYWRIGHT_BASE_URL ?? (useWebServer ? previewBaseUrl : 'http://127.0.0.1:3737');
 
 export default defineConfig({
 	testDir: 'e2e',

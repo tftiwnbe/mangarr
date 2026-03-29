@@ -37,7 +37,9 @@
 	} from '$lib/utils/chapter-display';
 	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
 
-	const { data } = $props<{ data: { titleSegment: string | null; chapterSegment: string | null } }>();
+	const { data } = $props<{
+		data: { titleSegment: string | null; chapterSegment: string | null };
+	}>();
 
 	type ReaderMode = 'vertical' | 'horizontal';
 
@@ -104,21 +106,18 @@
 	const readerBackSkipPrefixes = ['/reader/'];
 
 	const client = useConvexClient();
-	const readerQuery = useQuery(
-		convexApi.library.getReaderByRouteSegments,
-		() =>
-			data.titleSegment && data.chapterSegment
-				? {
-						titleRouteSegment: data.titleSegment,
-						chapterRouteSegment: data.chapterSegment
-					}
-				: 'skip'
+	const readerQuery = useQuery(convexApi.library.getReaderByRouteSegments, () =>
+		data.titleSegment && data.chapterSegment
+			? {
+					titleRouteSegment: data.titleSegment,
+					chapterRouteSegment: data.chapterSegment
+				}
+			: 'skip'
 	);
 	const rawReaderData = $derived((readerQuery.data as ReaderQuery) ?? null);
 	const resolvedCommentChapterId = $derived(rawReaderData?.chapter?._id ?? null);
-	const commentsQuery = useQuery(
-		convexApi.library.listChapterComments,
-		() => (resolvedCommentChapterId ? { chapterId: resolvedCommentChapterId } : 'skip')
+	const commentsQuery = useQuery(convexApi.library.listChapterComments, () =>
+		resolvedCommentChapterId ? { chapterId: resolvedCommentChapterId } : 'skip'
 	);
 
 	let mode = $state<ReaderMode>('vertical');
@@ -160,9 +159,7 @@
 	const currentChapterId = $derived(chapter?._id ?? null);
 	const chapters = $derived(readerData?.chapters ?? []);
 	const comments = $derived((commentsQuery.data ?? []) as CommentItem[]);
-	const loadError = $derived(
-		readerQuery.error instanceof Error ? readerQuery.error.message : null
-	);
+	const loadError = $derived(readerQuery.error instanceof Error ? readerQuery.error.message : null);
 
 	const pageParamIndex = $derived.by(() => {
 		const raw = page.url.searchParams.get('page');
@@ -236,10 +233,10 @@
 		return chapters[index + 1]?._id ?? null;
 	});
 	const prevChapter = $derived.by(() =>
-		prevChapterId ? chapters.find((item) => item._id === prevChapterId) ?? null : null
+		prevChapterId ? (chapters.find((item) => item._id === prevChapterId) ?? null) : null
 	);
 	const nextChapter = $derived.by(() =>
-		nextChapterId ? chapters.find((item) => item._id === nextChapterId) ?? null : null
+		nextChapterId ? (chapters.find((item) => item._id === nextChapterId) ?? null) : null
 	);
 	const canonicalTitlePath = $derived.by(() =>
 		title ? buildTitlePath(String(title._id), title.title, title.routeSegment ?? null) : '/library'
@@ -575,14 +572,14 @@
 					chapterUrl: chapter.chapterUrl
 				});
 				const command = await waitForCommand<CommandItem>(client, commandId, {
-						timeoutMs: 15_000,
-						pollIntervalMs: 250,
-						onUpdate: (next) => {
-							if (`${chapter.sourceId}::${chapter.chapterUrl}` === requestKey) {
-								remotePagesCommand = next;
-							}
+					timeoutMs: 15_000,
+					pollIntervalMs: 250,
+					onUpdate: (next) => {
+						if (`${chapter.sourceId}::${chapter.chapterUrl}` === requestKey) {
+							remotePagesCommand = next;
 						}
-					});
+					}
+				});
 				if (`${chapter.sourceId}::${chapter.chapterUrl}` === requestKey) {
 					remotePagesCommand = command;
 				}
@@ -592,8 +589,7 @@
 						id: requestKey,
 						commandType: 'reader.pages.fetch',
 						status: 'failed',
-						lastErrorMessage:
-							error instanceof Error ? error.message : $_('reader.noPages')
+						lastErrorMessage: error instanceof Error ? error.message : $_('reader.noPages')
 					};
 				}
 			} finally {
@@ -668,7 +664,8 @@
 			sequentialPageCeiling = 0;
 			progressSyncInFlight = false;
 			pendingServerPageIndex = null;
-			lastSavedServerPageIndex = readerData?.progress?.pageIndex ?? getReaderProgress(currentChapterId) ?? null;
+			lastSavedServerPageIndex =
+				readerData?.progress?.pageIndex ?? getReaderProgress(currentChapterId) ?? null;
 			loadedPageIds.clear();
 			paintedPageIds.clear();
 			pageRetryCounts = {};
@@ -826,7 +823,12 @@
 
 			{#if pages.length > 0}
 				<div class="mx-2 hidden items-center gap-0.5 md:flex">
-					<Button variant="ghost" size="icon-sm" onclick={() => openChapter(prevChapter)} disabled={!prevChapter}>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						onclick={() => openChapter(prevChapter)}
+						disabled={!prevChapter}
+					>
 						<SkipBackIcon size={16} />
 					</Button>
 					<Button variant="ghost" size="icon-sm" onclick={() => (showChapterPanel = true)}>
@@ -840,9 +842,16 @@
 						size="icon-sm"
 						onclick={() => (mode = mode === 'vertical' ? 'horizontal' : 'vertical')}
 					>
-						{#if mode === 'vertical'}<ArrowsOutIcon size={16} />{:else}<ArrowsInIcon size={16} />{/if}
+						{#if mode === 'vertical'}<ArrowsOutIcon size={16} />{:else}<ArrowsInIcon
+								size={16}
+							/>{/if}
 					</Button>
-					<Button variant="ghost" size="icon-sm" onclick={() => openChapter(nextChapter)} disabled={!nextChapter}>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						onclick={() => openChapter(nextChapter)}
+						disabled={!nextChapter}
+					>
 						<SkipForwardIcon size={16} />
 					</Button>
 				</div>
@@ -929,8 +938,18 @@
 					onerror={() => handlePageError(currentPage)}
 				/>
 				{#if isTouchDevice}
-					<button type="button" class="absolute inset-y-0 left-0 z-20 w-1/3" aria-label={$_('reader.prevPage')} onclick={prevPage}></button>
-					<button type="button" class="absolute inset-y-0 right-0 z-20 w-1/3" aria-label={$_('reader.nextPage')} onclick={nextPage}></button>
+					<button
+						type="button"
+						class="absolute inset-y-0 left-0 z-20 w-1/3"
+						aria-label={$_('reader.prevPage')}
+						onclick={prevPage}
+					></button>
+					<button
+						type="button"
+						class="absolute inset-y-0 right-0 z-20 w-1/3"
+						aria-label={$_('reader.nextPage')}
+						onclick={nextPage}
+					></button>
 				{/if}
 			</div>
 		{/if}
@@ -966,7 +985,12 @@
 				: 'pointer-events-none translate-y-full'}"
 		>
 			<div class="flex h-11 items-center justify-between px-2">
-				<Button variant="ghost" size="icon-sm" onclick={() => openChapter(prevChapter)} disabled={!prevChapter}>
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					onclick={() => openChapter(prevChapter)}
+					disabled={!prevChapter}
+				>
 					<SkipBackIcon size={16} />
 				</Button>
 				<div class="flex items-center gap-1">
@@ -981,10 +1005,17 @@
 						size="icon-sm"
 						onclick={() => (mode = mode === 'vertical' ? 'horizontal' : 'vertical')}
 					>
-						{#if mode === 'vertical'}<ArrowsOutIcon size={16} />{:else}<ArrowsInIcon size={16} />{/if}
+						{#if mode === 'vertical'}<ArrowsOutIcon size={16} />{:else}<ArrowsInIcon
+								size={16}
+							/>{/if}
 					</Button>
 				</div>
-				<Button variant="ghost" size="icon-sm" onclick={() => openChapter(nextChapter)} disabled={!nextChapter}>
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					onclick={() => openChapter(nextChapter)}
+					disabled={!nextChapter}
+				>
 					<SkipForwardIcon size={16} />
 				</Button>
 			</div>
@@ -992,7 +1023,11 @@
 	{/if}
 </div>
 
-<SlidePanel open={showChapterPanel} title={$_('reader.chapters')} onclose={() => (showChapterPanel = false)}>
+<SlidePanel
+	open={showChapterPanel}
+	title={$_('reader.chapters')}
+	onclose={() => (showChapterPanel = false)}
+>
 	<div class="flex flex-col">
 		{#if chapters.length === 0}
 			<p class="py-8 text-center text-xs text-[var(--text-ghost)]">{$_('common.noResults')}</p>
@@ -1015,7 +1050,9 @@
 						{/if}
 					</div>
 					{#if item.chapterNumber != null}
-						<span class="shrink-0 text-[10px] text-[var(--text-ghost)] tabular-nums">{item.chapterNumber}</span>
+						<span class="shrink-0 text-[10px] text-[var(--text-ghost)] tabular-nums"
+							>{item.chapterNumber}</span
+						>
 					{/if}
 				</button>
 			{/each}
@@ -1023,7 +1060,11 @@
 	</div>
 </SlidePanel>
 
-<SlidePanel open={showCommentsPanel} title={$_('reader.comments')} onclose={() => (showCommentsPanel = false)}>
+<SlidePanel
+	open={showCommentsPanel}
+	title={$_('reader.comments')}
+	onclose={() => (showCommentsPanel = false)}
+>
 	<div class="flex flex-col gap-4">
 		<div class="flex flex-col gap-2">
 			<textarea
@@ -1037,7 +1078,9 @@
 				</p>
 				<div class="flex items-center gap-1.5">
 					{#if editingCommentId}
-						<Button variant="ghost" size="sm" onclick={startNewComment}>{$_('common.cancel')}</Button>
+						<Button variant="ghost" size="sm" onclick={startNewComment}
+							>{$_('common.cancel')}</Button
+						>
 					{/if}
 					<Button variant="ghost" size="sm" onclick={saveComment} disabled={commentSubmitting}>
 						{#if commentSubmitting}
@@ -1086,7 +1129,11 @@
 						</div>
 						<p class="text-xs whitespace-pre-wrap text-[var(--text-soft)]">{comment.message}</p>
 						<div class="flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
-							<button type="button" class="transition-colors hover:text-[var(--text-muted)]" onclick={() => startEditComment(comment)}>
+							<button
+								type="button"
+								class="transition-colors hover:text-[var(--text-muted)]"
+								onclick={() => startEditComment(comment)}
+							>
 								{$_('common.edit')}
 							</button>
 							<button

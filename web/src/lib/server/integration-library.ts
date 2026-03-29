@@ -46,22 +46,19 @@ export async function loadLibraryPreferenceCatalog(client: ConvexHttpClient) {
 	await client.mutation(convexApi.library.ensureDefaultUserStatuses, {});
 	await client.mutation(convexApi.library.ensureDefaultCollections, {});
 
-	const statuses = await (client.query(
-		convexApi.library.listUserStatuses,
-		{}
-	) as Promise<LibraryUserStatus[]>);
-	let collections = await (client.query(
-		convexApi.library.listCollections,
-		{}
-	) as Promise<LibraryCollection[]>);
+	const statuses = await (client.query(convexApi.library.listUserStatuses, {}) as Promise<
+		LibraryUserStatus[]
+	>);
+	let collections = await (client.query(convexApi.library.listCollections, {}) as Promise<
+		LibraryCollection[]
+	>);
 	if (!collections.some((item) => normalizeLabel(item.name) === 'imported')) {
 		await client.mutation(convexApi.library.createCollection, {
 			name: 'Imported'
 		});
-		collections = await (client.query(
-			convexApi.library.listCollections,
-			{}
-		) as Promise<LibraryCollection[]>);
+		collections = await (client.query(convexApi.library.listCollections, {}) as Promise<
+			LibraryCollection[]
+		>);
 	}
 
 	return { statuses, collections };
@@ -133,7 +130,9 @@ export function resolveCollectionPreferences(
 	}
 
 	for (const collectionName of explicitNames) {
-		const match = collections.find((item) => normalizeLabel(item.name) === normalizeLabel(collectionName));
+		const match = collections.find(
+			(item) => normalizeLabel(item.name) === normalizeLabel(collectionName)
+		);
 		if (!match) {
 			throw error(400, `Unknown collection name: ${collectionName}`);
 		}
@@ -176,7 +175,9 @@ export function readImportItem(payload: Record<string, unknown>): IntegrationSea
 	return mapSearchItem(source);
 }
 
-export function readImportPreferences(payload: Record<string, unknown>): IntegrationImportPreferences {
+export function readImportPreferences(
+	payload: Record<string, unknown>
+): IntegrationImportPreferences {
 	return {
 		userStatusId: readOptionalString(payload, 'user_status_id', 'userStatusId'),
 		userStatusKey: readOptionalString(payload, 'user_status_key', 'userStatusKey'),

@@ -1,7 +1,7 @@
-	<script lang="ts">
-		import { goto } from '$app/navigation';
-		import { onMount } from 'svelte';
-		import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+<script lang="ts">
+	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import {
@@ -126,32 +126,32 @@
 	let sortDesc = $state(true);
 	let activeReadingStatusIds = $state<string[]>([]);
 	let activeSourceStatusKeys = $state<string[]>([]);
-		let activeGenres = $state<string[]>([]);
-		let requestedMetadataTitleIds = $state<string[]>([]);
-		let requestedCoverTitleIds = $state<string[]>([]);
-		let revealTitleId = $state<string | null>(null);
-		let libraryRenderLimit = $state(INITIAL_LIBRARY_RENDER_LIMIT);
-		let libraryRenderSentinel = $state<HTMLDivElement | null>(null);
-		let libraryRenderObserver: IntersectionObserver | null = null;
-		let browserOnline = $state(true);
+	let activeGenres = $state<string[]>([]);
+	let requestedMetadataTitleIds = $state<string[]>([]);
+	let requestedCoverTitleIds = $state<string[]>([]);
+	let revealTitleId = $state<string | null>(null);
+	let libraryRenderLimit = $state(INITIAL_LIBRARY_RENDER_LIMIT);
+	let libraryRenderSentinel = $state<HTMLDivElement | null>(null);
+	let libraryRenderObserver: IntersectionObserver | null = null;
+	let browserOnline = $state(true);
 
-		onMount(() => {
-			if (typeof navigator !== 'undefined') {
-				browserOnline = navigator.onLine;
-			}
-			const handleOnline = () => {
-				browserOnline = true;
-			};
-			const handleOffline = () => {
-				browserOnline = false;
-			};
-			window.addEventListener('online', handleOnline);
-			window.addEventListener('offline', handleOffline);
-			return () => {
-				window.removeEventListener('online', handleOnline);
-				window.removeEventListener('offline', handleOffline);
-			};
-		});
+	onMount(() => {
+		if (typeof navigator !== 'undefined') {
+			browserOnline = navigator.onLine;
+		}
+		const handleOnline = () => {
+			browserOnline = true;
+		};
+		const handleOffline = () => {
+			browserOnline = false;
+		};
+		window.addEventListener('online', handleOnline);
+		window.addEventListener('offline', handleOffline);
+		return () => {
+			window.removeEventListener('online', handleOnline);
+			window.removeEventListener('offline', handleOffline);
+		};
+	});
 
 	const debouncedSearch = new DebouncedValue(() => searchQuery, 150);
 
@@ -178,7 +178,9 @@
 		{ key: 'hiatus', labelKey: 'status.hiatus', values: [TITLE_STATUS.HIATUS] }
 	];
 
-	const titles = $derived(((library.data ?? []) as TitleItem[]).map((title) => mapTitleToSummary(title)));
+	const titles = $derived(
+		((library.data ?? []) as TitleItem[]).map((title) => mapTitleToSummary(title))
+	);
 	const loading = $derived(library.isLoading);
 	const error = $derived(library.error instanceof Error ? library.error.message : null);
 	const hiddenTitles = $derived(((hiddenLibraryTitles.data ?? []) as HiddenTitleSummary[]).slice());
@@ -218,7 +220,9 @@
 	});
 
 	const presentSourceStatusKeys = $derived.by(() => {
-		const presentValues = new SvelteSet(titles.map((title) => title.status).filter((value) => value > 0));
+		const presentValues = new SvelteSet(
+			titles.map((title) => title.status).filter((value) => value > 0)
+		);
 		return SOURCE_STATUS_FILTERS.filter((filter) =>
 			filter.values.some((value) => presentValues.has(value))
 		).map((filter) => filter.key);
@@ -301,34 +305,34 @@
 	});
 	const visibleFilteredTitles = $derived(filteredTitles.slice(0, libraryRenderLimit));
 
-		$effect(() => {
-			if (!browserOnline) return;
-			const nextRequested: string[] = [];
-			for (const title of visibleFilteredTitles as LibraryTitleSummary[]) {
-				const key = String(title.id);
-				if (requestedMetadataTitleIds.includes(key) || requestedCoverTitleIds.includes(key)) continue;
-				if (
-					title.offline_readiness.titlePageReady &&
-					(!title.offline_readiness.missingCoverCache || title.offline_readiness.cachedCover)
-				) {
-					continue;
-				}
-				nextRequested.push(key);
+	$effect(() => {
+		if (!browserOnline) return;
+		const nextRequested: string[] = [];
+		for (const title of visibleFilteredTitles as LibraryTitleSummary[]) {
+			const key = String(title.id);
+			if (requestedMetadataTitleIds.includes(key) || requestedCoverTitleIds.includes(key)) continue;
+			if (
+				title.offline_readiness.titlePageReady &&
+				(!title.offline_readiness.missingCoverCache || title.offline_readiness.cachedCover)
+			) {
+				continue;
 			}
-			if (nextRequested.length === 0) return;
-			requestedMetadataTitleIds = [...requestedMetadataTitleIds, ...nextRequested];
-			requestedCoverTitleIds = [...requestedCoverTitleIds, ...nextRequested];
-			void (async () => {
-				try {
-					await client.mutation(convexApi.library.ensureTitlesOfflineReady, {
-						titleIds: nextRequested as Id<'libraryTitles'>[],
-						limit: 24
-					});
-				} catch {
-					// Keep the session markers to avoid prewarm loops.
-				}
-			})();
-		});
+			nextRequested.push(key);
+		}
+		if (nextRequested.length === 0) return;
+		requestedMetadataTitleIds = [...requestedMetadataTitleIds, ...nextRequested];
+		requestedCoverTitleIds = [...requestedCoverTitleIds, ...nextRequested];
+		void (async () => {
+			try {
+				await client.mutation(convexApi.library.ensureTitlesOfflineReady, {
+					titleIds: nextRequested as Id<'libraryTitles'>[],
+					limit: 24
+				});
+			} catch {
+				// Keep the session markers to avoid prewarm loops.
+			}
+		})();
+	});
 
 	function resetLibraryRenderObserver() {
 		libraryRenderObserver?.disconnect();
@@ -396,14 +400,14 @@
 		};
 	}
 
-		function coverSrc(title: Pick<TitleItem, 'localCoverPath' | 'coverUrl'>) {
-			if (title.localCoverPath) {
-				const params = new URLSearchParams({ path: title.localCoverPath });
-				return `/api/internal/bridge/library/cover?${params.toString()}`;
-			}
-			if (!browserOnline) return null;
-			return title.coverUrl ?? null;
+	function coverSrc(title: Pick<TitleItem, 'localCoverPath' | 'coverUrl'>) {
+		if (title.localCoverPath) {
+			const params = new URLSearchParams({ path: title.localCoverPath });
+			return `/api/internal/bridge/library/cover?${params.toString()}`;
 		}
+		if (!browserOnline) return null;
+		return title.coverUrl ?? null;
+	}
 
 	function hiddenSourceLabel(title: HiddenTitleSummary) {
 		return title.sourceLang ? `${title.sourcePkg} [${title.sourceLang}]` : title.sourcePkg;
@@ -450,7 +454,10 @@
 			return $_('library.offlinePartial', {
 				values: {
 					downloaded: title.offline_readiness.downloadedChapters,
-					total: Math.max(title.offline_readiness.totalChapters, title.offline_readiness.downloadedChapters)
+					total: Math.max(
+						title.offline_readiness.totalChapters,
+						title.offline_readiness.downloadedChapters
+					)
 				}
 			});
 		}
@@ -636,10 +643,10 @@
 		</div>
 	{:else}
 		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-				{#each visibleFilteredTitles as title (title.id)}
-					{@const displayStatus = getDisplayStatus(title)}
-					{@const offlineStatus = offlineStatusLabel(title)}
-					<a
+			{#each visibleFilteredTitles as title (title.id)}
+				{@const displayStatus = getDisplayStatus(title)}
+				{@const offlineStatus = offlineStatusLabel(title)}
+				<a
 					href={buildTitlePath(title.id, title.title, title.route_segment ?? null)}
 					class="group card-glow relative flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)]"
 				>
@@ -666,17 +673,17 @@
 						{/if}
 					</div>
 
-						<div class="flex flex-1 flex-col gap-1 p-2">
-							<p class="line-clamp-2 text-xs leading-tight text-[var(--text)]">{title.title}</p>
-							{#if displayStatus}
-								<p class="text-[10px] text-[var(--text-muted)]">{displayStatus}</p>
-							{/if}
-							{#if offlineStatus}
-								<p class="text-[10px] text-[var(--text-ghost)]">{offlineStatus}</p>
-							{/if}
-							{#if title.user_rating != null}
-								<p class="text-[10px] text-[var(--text-muted)]">★ {title.user_rating.toFixed(1)}</p>
-							{/if}
+					<div class="flex flex-1 flex-col gap-1 p-2">
+						<p class="line-clamp-2 text-xs leading-tight text-[var(--text)]">{title.title}</p>
+						{#if displayStatus}
+							<p class="text-[10px] text-[var(--text-muted)]">{displayStatus}</p>
+						{/if}
+						{#if offlineStatus}
+							<p class="text-[10px] text-[var(--text-ghost)]">{offlineStatus}</p>
+						{/if}
+						{#if title.user_rating != null}
+							<p class="text-[10px] text-[var(--text-muted)]">★ {title.user_rating.toFixed(1)}</p>
+						{/if}
 					</div>
 				</a>
 			{/each}
@@ -827,7 +834,7 @@
 				>{$_('library.sourceStatus')}</span
 			>
 			<div class="flex flex-wrap gap-1.5">
-				{#each SOURCE_STATUS_FILTERS.filter((filter) => presentSourceStatusKeys.includes(filter.key)) as sourceFilter (sourceFilter.key)}
+				{#each SOURCE_STATUS_FILTERS.filter( (filter) => presentSourceStatusKeys.includes(filter.key) ) as sourceFilter (sourceFilter.key)}
 					{@const active = activeSourceStatusKeys.includes(sourceFilter.key)}
 					<button
 						type="button"

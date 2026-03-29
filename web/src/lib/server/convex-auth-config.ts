@@ -42,7 +42,8 @@ export function getConvexAuthRuntimeConfig(): ConvexAuthRuntimeConfig {
 
 	cachedConfig = {
 		issuer: process.env.MANGARR_CONVEX_AUTH_ISSUER || DEFAULT_CONVEX_AUTH_ISSUER,
-		applicationId: process.env.MANGARR_CONVEX_AUTH_APPLICATION_ID || DEFAULT_CONVEX_AUTH_APPLICATION_ID,
+		applicationId:
+			process.env.MANGARR_CONVEX_AUTH_APPLICATION_ID || DEFAULT_CONVEX_AUTH_APPLICATION_ID,
 		tokenTtlSeconds: parseTokenTtlSeconds(process.env.MANGARR_CONVEX_AUTH_TOKEN_TTL_SECONDS),
 		keyId,
 		privateJwk: {
@@ -62,7 +63,11 @@ function parsePrivateJwk(value: string | undefined) {
 
 	try {
 		const parsed = JSON.parse(value) as Partial<typeof DEVELOPMENT_PRIVATE_JWK>;
-		if (typeof parsed.x === 'string' && typeof parsed.y === 'string' && typeof parsed.d === 'string') {
+		if (
+			typeof parsed.x === 'string' &&
+			typeof parsed.y === 'string' &&
+			typeof parsed.d === 'string'
+		) {
 			return {
 				kty: 'EC',
 				crv: 'P-256',

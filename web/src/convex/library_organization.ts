@@ -468,7 +468,9 @@ export const listMergeCandidates = query({
 				.collect(),
 			ctx.db
 				.query('titleVariants')
-				.withIndex('by_owner_user_id_library_title_id', (q) => q.eq('ownerUserId', title.ownerUserId))
+				.withIndex('by_owner_user_id_library_title_id', (q) =>
+					q.eq('ownerUserId', title.ownerUserId)
+				)
 				.collect(),
 			loadOwnerUserStatusMap(ctx, title.ownerUserId),
 			loadOwnerVariantCountsByTitleId(ctx, title.ownerUserId)
@@ -531,7 +533,10 @@ export const listMergeCandidates = query({
 				);
 				return { candidate, score };
 			})
-			.sort((left, right) => right.score - left.score || right.candidate.updatedAt - left.candidate.updatedAt)
+			.sort(
+				(left, right) =>
+					right.score - left.score || right.candidate.updatedAt - left.candidate.updatedAt
+			)
 			.slice(0, limit)
 			.map(({ candidate, score }) => ({
 				id: candidate._id,

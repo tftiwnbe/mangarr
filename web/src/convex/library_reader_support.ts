@@ -1,12 +1,16 @@
 import type { GenericId } from 'convex/values';
 
 import type { QueryCtx } from './_generated/server';
-import { buildChapterRouteBase, buildTitleRouteBase, buildUniqueRouteSegmentMap } from '../lib/utils/route-segments';
+import {
+	buildChapterRouteBase,
+	buildTitleRouteBase,
+	buildUniqueRouteSegmentMap
+} from '../lib/utils/route-segments';
 import { DOWNLOAD_STATUS } from './library_shared_access';
 
-export function buildTitleRouteSegments<T extends { _id: GenericId<'libraryTitles'>; title: string }>(
-	titles: readonly T[]
-) {
+export function buildTitleRouteSegments<
+	T extends { _id: GenericId<'libraryTitles'>; title: string }
+>(titles: readonly T[]) {
 	return buildUniqueRouteSegmentMap({
 		items: titles,
 		getId: (title) => String(title._id),
@@ -39,8 +43,9 @@ export async function findOwnedTitleByRouteSegment(
 		.collect();
 	const routeSegments = buildTitleRouteSegments(titles);
 	return (
-		titles.find((title: (typeof titles)[number]) => routeSegments.get(String(title._id)) === routeSegment) ??
-		null
+		titles.find(
+			(title: (typeof titles)[number]) => routeSegments.get(String(title._id)) === routeSegment
+		) ?? null
 	);
 }
 
@@ -116,7 +121,8 @@ export function summarizeOfflineReadiness(
 ) {
 	const downloadStats = summarizeDownloadStats(chapters);
 	const metadataReady = isOfflineMetadataReady(title);
-	const cachedCover = typeof title.localCoverPath === 'string' && title.localCoverPath.trim().length > 0;
+	const cachedCover =
+		typeof title.localCoverPath === 'string' && title.localCoverPath.trim().length > 0;
 	return {
 		titlePageReady: metadataReady && downloadStats.total > 0,
 		metadataReady,

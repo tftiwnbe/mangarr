@@ -1,6 +1,10 @@
 import anyAscii from 'any-ascii';
 
-import { formatChapterNumberValue, hasDisplayableChapterNumber, parseStructuredChapterName } from './chapter-display';
+import {
+	formatChapterNumberValue,
+	hasDisplayableChapterNumber,
+	parseStructuredChapterName
+} from './chapter-display';
 
 const NON_ALNUM_RE = /[^a-z0-9]+/g;
 const ROUTE_COLLISION_DELIMITER = '~';
@@ -79,11 +83,13 @@ export function buildUniqueRouteSegmentMap<T>(args: {
 
 		let length = 6;
 		let segment = `${base}${ROUTE_COLLISION_DELIMITER}${shortRouteToken(id, length)}`;
-		while (collisions.some((candidateId) => {
-			if (candidateId === id) return false;
-			const candidate = `${base}${ROUTE_COLLISION_DELIMITER}${shortRouteToken(candidateId, length)}`;
-			return candidate === segment;
-		})) {
+		while (
+			collisions.some((candidateId) => {
+				if (candidateId === id) return false;
+				const candidate = `${base}${ROUTE_COLLISION_DELIMITER}${shortRouteToken(candidateId, length)}`;
+				return candidate === segment;
+			})
+		) {
 			length += 2;
 			segment = `${base}${ROUTE_COLLISION_DELIMITER}${shortRouteToken(id, length)}`;
 		}

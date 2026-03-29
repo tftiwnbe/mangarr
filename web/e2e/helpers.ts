@@ -22,7 +22,9 @@ let cachedConvexToken: string | null = null;
 
 export async function login(page: Page) {
 	await page.goto('/login?redirect=%2Flibrary');
-	await page.waitForURL((url) => url.pathname.startsWith('/library') || url.pathname.startsWith('/login'));
+	await page.waitForURL(
+		(url) => url.pathname.startsWith('/library') || url.pathname.startsWith('/login')
+	);
 	if (!page.url().includes('/login')) {
 		return;
 	}
@@ -81,9 +83,11 @@ async function listHiddenLibraryTitles(page: Page) {
 
 export async function firstExploreImportCard(page: Page): Promise<Locator> {
 	await page.goto('/explore');
-	const mangadexCard = page.locator(
-		'a[href^="/title/open"][href*="source_pkg=eu.kanade.tachiyomi.extension.all.mangadex"]'
-	).first();
+	const mangadexCard = page
+		.locator(
+			'a[href^="/title/open"][href*="source_pkg=eu.kanade.tachiyomi.extension.all.mangadex"]'
+		)
+		.first();
 	if ((await mangadexCard.count()) > 0) {
 		await expect(mangadexCard).toBeVisible();
 		return mangadexCard;
@@ -209,7 +213,9 @@ export async function ensureDownloadedChapter(page: Page, titlePath: string) {
 	const chapterRows = page.locator('[data-testid="chapter-row"]');
 	await expect(chapterRows.first()).toBeVisible();
 
-	const downloadedRows = page.locator('[data-testid="chapter-row"][data-download-status="downloaded"]');
+	const downloadedRows = page.locator(
+		'[data-testid="chapter-row"][data-download-status="downloaded"]'
+	);
 	if ((await downloadedRows.count()) > 0) {
 		return downloadedRows.first();
 	}

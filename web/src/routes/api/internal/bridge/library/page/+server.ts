@@ -15,8 +15,12 @@ export const GET: RequestHandler = async (event) => {
 	upstream.searchParams.set('path', path);
 	upstream.searchParams.set('index', index);
 
-	return proxyBridgeRequest(event, `${upstream.pathname.slice(1)}?${upstream.searchParams.toString()}`, {
-		requireAdmin: false,
-		timeoutMs: 30000
-	});
+	return proxyBridgeRequest(
+		event,
+		`${upstream.pathname.slice(1)}?${upstream.searchParams.toString()}`,
+		{
+			requireAdmin: false,
+			timeoutMs: 30000
+		}
+	);
 };

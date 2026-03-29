@@ -89,9 +89,12 @@
 					openRequest.title || titleName || titleUrl,
 					6_000
 				);
-				await goto(buildTitlePath(String(openRequest.titleId), hydrated.title, hydrated.routeSegment), {
-					replaceState: true
-				});
+				await goto(
+					buildTitlePath(String(openRequest.titleId), hydrated.title, hydrated.routeSegment),
+					{
+						replaceState: true
+					}
+				);
 				return;
 			}
 

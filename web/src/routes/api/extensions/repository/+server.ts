@@ -63,7 +63,10 @@ export const GET: RequestHandler = async ({ locals }) => {
 	requireAdmin(locals);
 
 	const client = getConvexClient();
-	const repository = (await client.query(convexApi.extensions.getRepository, {})) as RepositoryState;
+	const repository = (await client.query(
+		convexApi.extensions.getRepository,
+		{}
+	)) as RepositoryState;
 	const storedLanguages = Array.isArray(repository.languages) ? repository.languages : [];
 	if (!repository.configured || storedLanguages.length > 0) {
 		return json({
@@ -84,7 +87,9 @@ export const GET: RequestHandler = async ({ locals }) => {
 			});
 		}
 		const bridgeRepository = (await bridgeResponse.json()) as RepositoryState;
-		const bridgeLanguages = Array.isArray(bridgeRepository.languages) ? bridgeRepository.languages : [];
+		const bridgeLanguages = Array.isArray(bridgeRepository.languages)
+			? bridgeRepository.languages
+			: [];
 		if (!locals.auth.user || bridgeLanguages.length === 0) {
 			return json({
 				...repository,

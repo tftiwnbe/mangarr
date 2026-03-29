@@ -32,7 +32,6 @@ function isActiveDownloadTaskStatus(status: DownloadTaskStatus) {
 	return status === DOWNLOAD_TASK_STATUS.QUEUED || status === DOWNLOAD_TASK_STATUS.DOWNLOADING;
 }
 
-
 export const cancelQueuedChapterDownload = mutation({
 	args: {
 		chapterId: v.id('libraryChapters')
@@ -389,7 +388,10 @@ export const setChapterDownloadState = mutation({
 			return { ok: true };
 		}
 
-		if (args.status === DOWNLOAD_STATUS.DOWNLOADING && task.status === DOWNLOAD_TASK_STATUS.DOWNLOADING) {
+		if (
+			args.status === DOWNLOAD_STATUS.DOWNLOADING &&
+			task.status === DOWNLOAD_TASK_STATUS.DOWNLOADING
+		) {
 			return { ok: true };
 		}
 
@@ -401,13 +403,16 @@ export const setChapterDownloadState = mutation({
 				: computeProgressPercent(downloadedPages, totalPages);
 		const errorMessage = normalizeOptionalString(args.lastErrorMessage);
 
-		const taskPatch: Partial<(typeof task)> = {
+		const taskPatch: Partial<typeof task> = {
 			downloadedPages,
 			totalPages,
 			progressPercent: percent,
 			localRelativePath:
-				args.localRelativePath === undefined ? task.localRelativePath : (args.localRelativePath ?? undefined),
-			storageKind: args.storageKind === undefined ? task.storageKind : (args.storageKind ?? undefined),
+				args.localRelativePath === undefined
+					? task.localRelativePath
+					: (args.localRelativePath ?? undefined),
+			storageKind:
+				args.storageKind === undefined ? task.storageKind : (args.storageKind ?? undefined),
 			fileSizeBytes: args.fileSizeBytes === undefined ? task.fileSizeBytes : args.fileSizeBytes,
 			errorMessage:
 				args.status === DOWNLOAD_STATUS.FAILED
@@ -570,30 +575,32 @@ async function recoverActiveDownloadsInternal(
 			chapter.localRelativePath.length > 0 &&
 			typeof chapter.storageKind === 'string';
 
-			if (hasDownloadedStorage) {
-				await finalizeRecoveredCompletedTask(ctx, task, chapter, args.now);
-				continue;
-			}
-
-			if (shouldRequeue) {
-				await requeueRecoveredTask(ctx, task, chapter, command, args.now);
-				requeuedTasks += 1;
-				continue;
-			}
-
-			if (commandStatus === 'dead_letter' || commandStatus === 'cancelled') {
-				const errorMessage = command?.lastErrorMessage ?? task.errorMessage ?? 'Download failed';
-				await failRecoveredTask(
-					ctx,
-					task,
-					chapter,
-					commandStatus === 'cancelled' ? DOWNLOAD_TASK_STATUS.CANCELLED : DOWNLOAD_TASK_STATUS.FAILED,
-					errorMessage,
-					args.now
-				);
-				failedTasks += 1;
-			}
+		if (hasDownloadedStorage) {
+			await finalizeRecoveredCompletedTask(ctx, task, chapter, args.now);
+			continue;
 		}
+
+		if (shouldRequeue) {
+			await requeueRecoveredTask(ctx, task, chapter, command, args.now);
+			requeuedTasks += 1;
+			continue;
+		}
+
+		if (commandStatus === 'dead_letter' || commandStatus === 'cancelled') {
+			const errorMessage = command?.lastErrorMessage ?? task.errorMessage ?? 'Download failed';
+			await failRecoveredTask(
+				ctx,
+				task,
+				chapter,
+				commandStatus === 'cancelled'
+					? DOWNLOAD_TASK_STATUS.CANCELLED
+					: DOWNLOAD_TASK_STATUS.FAILED,
+				errorMessage,
+				args.now
+			);
+			failedTasks += 1;
+		}
+	}
 
 	return {
 		recoveredTasks: requeuedTasks + failedTasks,
@@ -607,12 +614,14 @@ async function findLatestDownloadTaskForChapter(
 	chapterId: GenericId<'libraryChapters'>
 ) {
 	return (
-		await ctx.db
-			.query('downloadTasks')
-			.withIndex('by_library_chapter_id_created_at', (q) => q.eq('libraryChapterId', chapterId))
-			.order('desc')
-			.take(1)
-	)[0] ?? null;
+		(
+			await ctx.db
+				.query('downloadTasks')
+				.withIndex('by_library_chapter_id_created_at', (q) => q.eq('libraryChapterId', chapterId))
+				.order('desc')
+				.take(1)
+		)[0] ?? null
+	);
 }
 
 async function runDownloadCycleForUser(
@@ -693,11 +702,9 @@ async function remainingDownloadCapacityForUser(
 			RESERVED_RUNNING_DOWNLOAD_SLOTS + 1
 		)
 	]);
-	const reservedSlots = queuedTasks.length + Math.min(RESERVED_RUNNING_DOWNLOAD_SLOTS, downloadingTasks.length);
-	return Math.max(
-		0,
-		MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER - reservedSlots
-	);
+	const reservedSlots =
+		queuedTasks.length + Math.min(RESERVED_RUNNING_DOWNLOAD_SLOTS, downloadingTasks.length);
+	return Math.max(0, MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER - reservedSlots);
 }
 
 async function remainingQueuedDownloadCapacityForUser(
@@ -726,7 +733,9 @@ async function findActiveDownloadTaskForChapter(
 
 	return (
 		tasks.find(
-			(task) => task.ownerUserId === ownerUserId && isActiveDownloadTaskStatus(task.status as DownloadTaskStatus)
+			(task) =>
+				task.ownerUserId === ownerUserId &&
+				isActiveDownloadTaskStatus(task.status as DownloadTaskStatus)
 		) ?? null
 	);
 }

@@ -160,9 +160,7 @@
 								chapter.downloadStatus === 'downloading' ||
 								downloadingChapterIds.includes(chapter._id)}
 						>
-							{#if chapter.downloadStatus === 'queued' ||
-								chapter.downloadStatus === 'downloading' ||
-								downloadingChapterIds.includes(chapter._id)}
+							{#if chapter.downloadStatus === 'queued' || chapter.downloadStatus === 'downloading' || downloadingChapterIds.includes(chapter._id)}
 								<SpinnerIcon size={12} class="animate-spin" />
 							{:else}
 								<DownloadIcon size={12} />

@@ -192,7 +192,7 @@ private fun readerPageBodyPath(readerPageCacheDir: Path, cacheKey: String): Path
 
 private fun hashCacheKey(value: String): String =
 	MessageDigest
-		.getInstance("SHA-1")
+		.getInstance("SHA-256")
 		.digest(value.toByteArray(Charsets.UTF_8))
 		.joinToString("") { byte -> "%02x".format(byte) }
 

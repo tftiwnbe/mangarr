@@ -107,7 +107,9 @@ export function parseImportedStorageInput(input: string): Record<string, unknown
 	}
 }
 
-export function normalizeImportedStoragePayload(raw: Record<string, unknown>): Record<string, unknown> {
+export function normalizeImportedStoragePayload(
+	raw: Record<string, unknown>
+): Record<string, unknown> {
 	const out: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(raw)) {
 		const normalizedKey = key.trim();
@@ -203,7 +205,9 @@ function buildLibGroupTokenStorePayload(raw: Record<string, unknown>): Record<st
 		}
 	}
 	if (!tokenPayload || !authPayload) {
-		throw new Error('Unable to find LibGroup auth payload. Expected object with token/auth fields.');
+		throw new Error(
+			'Unable to find LibGroup auth payload. Expected object with token/auth fields.'
+		);
 	}
 	const userId = Number(authPayload.id);
 	const tokenType = String(tokenPayload.token_type ?? tokenPayload.tokenType ?? '').trim();

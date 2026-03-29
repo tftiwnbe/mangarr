@@ -135,9 +135,7 @@
 	const filteredAvailable = $derived.by(() => {
 		let list = availableExtensions;
 		if (selectedLang && selectedLang !== 'all') {
-			list = list.filter(
-				(item) => normalizeContentLanguageCode(item.lang) === selectedLang
-			);
+			list = list.filter((item) => normalizeContentLanguageCode(item.lang) === selectedLang);
 		}
 		if (!trimmedSearch) return list;
 		return list.filter(
@@ -214,7 +212,11 @@
 		if (typeof window === 'undefined' || renderMoreRaf) return;
 		renderMoreRaf = window.requestAnimationFrame(() => {
 			renderMoreRaf = 0;
-			if (activeTab !== 'available' || availableLoading || renderLimit >= filteredAvailable.length) {
+			if (
+				activeTab !== 'available' ||
+				availableLoading ||
+				renderLimit >= filteredAvailable.length
+			) {
 				return;
 			}
 			const documentHeight = document.documentElement.scrollHeight;
@@ -320,7 +322,9 @@
 		installingPkg = pkg;
 		error = null;
 		try {
-			const { commandId } = await client.mutation(convexApi.commands.enqueueExtensionInstall, { pkg });
+			const { commandId } = await client.mutation(convexApi.commands.enqueueExtensionInstall, {
+				pkg
+			});
 			await waitForCommand(client, commandId, {
 				timeoutMs: 30_000,
 				pollIntervalMs: 300
@@ -339,7 +343,9 @@
 		uninstallingPkg = pkg;
 		error = null;
 		try {
-			const { commandId } = await client.mutation(convexApi.commands.enqueueExtensionUninstall, { pkg });
+			const { commandId } = await client.mutation(convexApi.commands.enqueueExtensionUninstall, {
+				pkg
+			});
 			await waitForCommand(client, commandId, {
 				timeoutMs: 30_000,
 				pollIntervalMs: 300
@@ -357,14 +363,11 @@
 		togglingProxyPkg = pkg;
 		error = null;
 		try {
-			await fetchJson<{ ok: boolean }>(
-				'/api/internal/bridge/extensions/proxy',
-				{
-					method: 'PUT',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ pkg, useProxy })
-				}
-			);
+			await fetchJson<{ ok: boolean }>('/api/internal/bridge/extensions/proxy', {
+				method: 'PUT',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ pkg, useProxy })
+			});
 			installedExtensions = installedExtensions.map((item) =>
 				item.pkg === pkg ? { ...item, use_proxy: useProxy } : item
 			);
@@ -409,9 +412,12 @@
 		pendingPreferenceChanges.clear();
 		advancedOpen = false;
 		try {
-			const { commandId } = await client.mutation(convexApi.commands.enqueueSourcePreferencesFetch, {
-				sourceId
-			});
+			const { commandId } = await client.mutation(
+				convexApi.commands.enqueueSourcePreferencesFetch,
+				{
+					sourceId
+				}
+			);
 			const command = await waitForCommand(client, commandId, {
 				timeoutMs: 30_000,
 				pollIntervalMs: 300
@@ -485,13 +491,10 @@
 				throw new Error('No imported keys yet. Paste JSON map to import.');
 			}
 			const deletes = existingKeys.map((key) => [key, deletePreferenceValue()] as const);
-			const { commandId } = await client.mutation(
-				convexApi.commands.enqueueSourcePreferencesSave,
-				{
-					sourceId: sourceSettingsData.source_id,
-					entries: buildPreferenceEntries([...deletes, ...Object.entries(mapped)])
-				}
-			);
+			const { commandId } = await client.mutation(convexApi.commands.enqueueSourcePreferencesSave, {
+				sourceId: sourceSettingsData.source_id,
+				entries: buildPreferenceEntries([...deletes, ...Object.entries(mapped)])
+			});
 			await waitForCommand(client, commandId, {
 				timeoutMs: 30_000,
 				pollIntervalMs: 300
@@ -516,14 +519,19 @@
 
 <div class="flex flex-col gap-4">
 	<div class="flex items-center gap-3">
-		<h1 class="text-display flex-1 text-xl text-[var(--text)]">{$_('nav.extensions').toLowerCase()}</h1>
+		<h1 class="text-display flex-1 text-xl text-[var(--text)]">
+			{$_('nav.extensions').toLowerCase()}
+		</h1>
 		<button
 			type="button"
 			class="flex h-8 w-8 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 			onclick={() => void refreshPage()}
 			disabled={refreshing || availableLoading || loading}
 		>
-			<ArrowsClockwiseIcon size={15} class={refreshing || availableLoading || loading ? 'animate-spin' : ''} />
+			<ArrowsClockwiseIcon
+				size={15}
+				class={refreshing || availableLoading || loading ? 'animate-spin' : ''}
+			/>
 		</button>
 	</div>
 
@@ -568,8 +576,8 @@
 					type="button"
 					class="h-7 shrink-0 px-2.5 text-[10px] tracking-wider uppercase transition-colors
 						{isActive
-							? 'bg-[var(--void-3)] text-[var(--text)]'
-							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+						? 'bg-[var(--void-3)] text-[var(--text)]'
+						: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 					onclick={() => (selectedLang = lang === 'all' ? null : lang)}
 				>
 					{lang}
@@ -628,11 +636,16 @@
 
 					<div
 						class="transition-all duration-200"
-						style="animation: slide-up var(--duration-slow) var(--ease-out) forwards; animation-delay: {Math.min(i * 30, 300)}ms; opacity: 0"
+						style="animation: slide-up var(--duration-slow) var(--ease-out) forwards; animation-delay: {Math.min(
+							i * 30,
+							300
+						)}ms; opacity: 0"
 					>
 						<button
 							type="button"
-							class="flex w-full items-center gap-4 px-1 py-4 text-left transition-colors hover:bg-[var(--void-1)] {isExpanded ? '' : 'border-b border-[var(--line-soft)]'}"
+							class="flex w-full items-center gap-4 px-1 py-4 text-left transition-colors hover:bg-[var(--void-1)] {isExpanded
+								? ''
+								: 'border-b border-[var(--line-soft)]'}"
 							onclick={() => (expandedPkg = isExpanded ? null : ext.pkg)}
 						>
 							{#if getExtensionIcon(ext.pkg, ext.icon)}
@@ -649,7 +662,9 @@
 
 							<div class="min-w-0 flex-1">
 								<div class="flex items-center gap-2">
-									<span class="truncate text-[15px] leading-tight text-[var(--text)]">{displayExtensionName(ext.name)}</span>
+									<span class="truncate text-[15px] leading-tight text-[var(--text)]"
+										>{displayExtensionName(ext.name)}</span
+									>
 									{#if ext.nsfw}
 										<span class="shrink-0 text-[10px] text-[var(--text-ghost)]">18+</span>
 									{/if}
@@ -676,15 +691,26 @@
 											</p>
 										{:else}
 											{#each visibleSources as source (source.id)}
-												<div class="flex items-center gap-3 py-2.5 transition-colors {source.enabled === false ? 'opacity-45' : ''}">
+												<div
+													class="flex items-center gap-3 py-2.5 transition-colors {source.enabled ===
+													false
+														? 'opacity-45'
+														: ''}"
+												>
 													<div class="min-w-0 flex-1">
 														<div class="flex items-center gap-2">
-															<span class="truncate text-xs text-[var(--text-soft)]">{source.name}</span>
-															<span class="shrink-0 text-[10px] tracking-wide text-[var(--text-ghost)] uppercase">
+															<span class="truncate text-xs text-[var(--text-soft)]"
+																>{source.name}</span
+															>
+															<span
+																class="shrink-0 text-[10px] tracking-wide text-[var(--text-ghost)] uppercase"
+															>
 																{source.lang}
 															</span>
 															{#if source.enabled === false}
-																<span class="shrink-0 text-[10px] tracking-wide text-[var(--text-ghost)] uppercase">
+																<span
+																	class="shrink-0 text-[10px] tracking-wide text-[var(--text-ghost)] uppercase"
+																>
 																	off
 																</span>
 															{/if}
@@ -694,7 +720,8 @@
 														checked={source.enabled !== false}
 														disabled={togglingSourceId === source.id}
 														loading={togglingSourceId === source.id}
-														onCheckedChange={(enabled) => void handleToggleSource(ext.pkg, source.id, enabled)}
+														onCheckedChange={(enabled) =>
+															void handleToggleSource(ext.pkg, source.id, enabled)}
 													/>
 													<button
 														type="button"
@@ -710,7 +737,9 @@
 									</div>
 
 									<div class="flex items-center gap-3">
-										<span class="flex-1 text-xs text-[var(--text-muted)]">{$_('extensions.proxy').toLowerCase()}</span>
+										<span class="flex-1 text-xs text-[var(--text-muted)]"
+											>{$_('extensions.proxy').toLowerCase()}</span
+										>
 										<Switch
 											checked={ext.use_proxy}
 											disabled={isTogglingProxy}
@@ -765,7 +794,10 @@
 				{@const isInstalling = installingPkg === ext.pkg}
 				<div
 					class="flex items-center gap-4 border-b border-[var(--line-soft)] px-1 py-3.5 transition-colors hover:bg-[var(--void-1)]"
-					style="animation: slide-up var(--duration-slow) var(--ease-out) forwards; animation-delay: {Math.min(i * 20, 400)}ms; opacity: 0"
+					style="animation: slide-up var(--duration-slow) var(--ease-out) forwards; animation-delay: {Math.min(
+						i * 20,
+						400
+					)}ms; opacity: 0"
 				>
 					{#if getExtensionIcon(ext.pkg, ext.icon)}
 						<img
@@ -780,8 +812,12 @@
 					{/if}
 					<div class="min-w-0 flex-1">
 						<div class="flex items-center gap-2">
-							<span class="truncate text-[15px] leading-tight text-[var(--text)]">{displayExtensionName(ext.name)}</span>
-							<span class="shrink-0 text-[10px] tracking-wider text-[var(--text-ghost)] uppercase">{ext.lang}</span>
+							<span class="truncate text-[15px] leading-tight text-[var(--text)]"
+								>{displayExtensionName(ext.name)}</span
+							>
+							<span class="shrink-0 text-[10px] tracking-wider text-[var(--text-ghost)] uppercase"
+								>{ext.lang}</span
+							>
 							{#if ext.nsfw}
 								<span class="shrink-0 text-[10px] text-[var(--text-ghost)]">18+</span>
 							{/if}
@@ -825,7 +861,9 @@
 
 <SlidePanel
 	open={sourceSettingsOpen}
-	title={sourceSettingsData ? `${sourceSettingsData.name} settings` : $_('extensions.sourceSettings')}
+	title={sourceSettingsData
+		? `${sourceSettingsData.name} settings`
+		: $_('extensions.sourceSettings')}
 	onclose={closeSourceSettings}
 >
 	{#if sourceSettingsLoading}
@@ -834,7 +872,9 @@
 			<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
 		</div>
 	{:else if sourceSettingsError}
-		<div class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-xs text-[var(--error)]">
+		<div
+			class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-xs text-[var(--error)]"
+		>
 			{sourceSettingsError}
 		</div>
 	{:else if sourceSettingsData}
@@ -874,11 +914,18 @@
 									{@const entryVal = pref.entry_values?.[i] ?? entry}
 									<button
 										type="button"
-										class="flex items-center gap-2 px-3 py-2.5 text-xs transition-colors {val === entryVal ? 'bg-[var(--void-3)] text-[var(--text)]' : 'text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
+										class="flex items-center gap-2 px-3 py-2.5 text-xs transition-colors {val ===
+										entryVal
+											? 'bg-[var(--void-3)] text-[var(--text)]'
+											: 'text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
 										onclick={() => handlePreferenceChange(pref.key, entryVal)}
 										disabled={!pref.enabled}
 									>
-										<div class="h-3 w-3 border border-[var(--void-6)] {val === entryVal ? 'bg-[var(--text)]' : ''}"></div>
+										<div
+											class="h-3 w-3 border border-[var(--void-6)] {val === entryVal
+												? 'bg-[var(--text)]'
+												: ''}"
+										></div>
 										{entry}
 									</button>
 								{/each}
@@ -893,14 +940,22 @@
 									{@const isSelected = val.includes(entryVal)}
 									<button
 										type="button"
-										class="flex items-center gap-2 px-3 py-2.5 text-xs transition-colors {isSelected ? 'bg-[var(--void-3)] text-[var(--text)]' : 'text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
+										class="flex items-center gap-2 px-3 py-2.5 text-xs transition-colors {isSelected
+											? 'bg-[var(--void-3)] text-[var(--text)]'
+											: 'text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
 										onclick={() => {
-											const next = isSelected ? val.filter((item) => item !== entryVal) : [...val, entryVal];
+											const next = isSelected
+												? val.filter((item) => item !== entryVal)
+												: [...val, entryVal];
 											handlePreferenceChange(pref.key, next);
 										}}
 										disabled={!pref.enabled}
 									>
-										<div class="flex h-4 w-4 items-center justify-center border border-[var(--void-6)] {isSelected ? 'bg-[var(--text)]' : ''}">
+										<div
+											class="flex h-4 w-4 items-center justify-center border border-[var(--void-6)] {isSelected
+												? 'bg-[var(--text)]'
+												: ''}"
+										>
 											{#if isSelected}
 												<CheckIcon size={10} class="text-[var(--void-0)]" />
 											{/if}
@@ -959,7 +1014,10 @@
 
 										<p class="text-[11px] text-[var(--text-ghost)]">
 											{#if importedStoragePreferences.length > 0}
-												{importedStoragePreferences.length} imported key{importedStoragePreferences.length === 1 ? '' : 's'} loaded
+												{importedStoragePreferences.length} imported key{importedStoragePreferences.length ===
+												1
+													? ''
+													: 's'} loaded
 											{:else}
 												no imported keys
 											{/if}
@@ -972,7 +1030,9 @@
 										{/if}
 
 										{#if authImportSuccess}
-											<div class="bg-[var(--success)]/10 px-3 py-2 text-[11px] text-[var(--success)]">
+											<div
+												class="bg-[var(--success)]/10 px-3 py-2 text-[11px] text-[var(--success)]"
+											>
 												{authImportSuccess}
 											</div>
 										{/if}
@@ -981,7 +1041,8 @@
 											variant="ghost"
 											size="sm"
 											onclick={() => void importAuthStorage()}
-											disabled={authImportSaving || (!authImportText.trim() && importedStoragePreferences.length === 0)}
+											disabled={authImportSaving ||
+												(!authImportText.trim() && importedStoragePreferences.length === 0)}
 											loading={authImportSaving}
 										>
 											apply

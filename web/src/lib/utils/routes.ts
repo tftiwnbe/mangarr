@@ -1,10 +1,10 @@
-import {
-	buildChapterRouteBase,
-	buildTitleRouteBase,
-	decodeRouteSegment
-} from './route-segments';
+import { buildChapterRouteBase, buildTitleRouteBase, decodeRouteSegment } from './route-segments';
 
-export function buildTitlePath(_titleId: string, titleName: string, routeSegment?: string | null): string {
+export function buildTitlePath(
+	_titleId: string,
+	titleName: string,
+	routeSegment?: string | null
+): string {
 	return `/title/${encodeURIComponent(routeSegment ?? buildTitleRouteBase(titleName))}`;
 }
 

@@ -18,7 +18,11 @@ export const DEFAULT_USER_STATUSES = [
 	{ key: 'plan_to_read', label: 'Plan to Read' }
 ] as const;
 
-export const DEFAULT_COLLECTIONS = [{ name: 'Favorites' }, { name: 'Queue' }, { name: 'Archive' }] as const;
+export const DEFAULT_COLLECTIONS = [
+	{ name: 'Favorites' },
+	{ name: 'Queue' },
+	{ name: 'Archive' }
+] as const;
 
 export async function requireViewerIdentity(ctx: QueryCtx | MutationCtx) {
 	const identity = await ctx.auth.getUserIdentity();

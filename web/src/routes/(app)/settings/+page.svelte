@@ -261,7 +261,9 @@
 		statusesLoading = true;
 		statusesError = null;
 		try {
-			const result = await fetchJson<{ items: LibraryUserStatusResource[] }>('/api/library/statuses');
+			const result = await fetchJson<{ items: LibraryUserStatusResource[] }>(
+				'/api/library/statuses'
+			);
 			statuses = result.items;
 		} catch (cause) {
 			statusesError = cause instanceof Error ? cause.message : 'Failed to load statuses';
@@ -274,7 +276,9 @@
 		collectionsLoading = true;
 		collectionsError = null;
 		try {
-			const result = await fetchJson<{ items: LibraryCollectionResource[] }>('/api/library/collections');
+			const result = await fetchJson<{ items: LibraryCollectionResource[] }>(
+				'/api/library/collections'
+			);
 			collections = result.items;
 		} catch (cause) {
 			collectionsError = cause instanceof Error ? cause.message : 'Failed to load collections';
@@ -305,7 +309,9 @@
 		integrationKeysLoading = true;
 		integrationKeysError = null;
 		try {
-			const result = await fetchJson<{ keys: IntegrationApiKeyResource[] }>('/api/auth/integration-keys');
+			const result = await fetchJson<{ keys: IntegrationApiKeyResource[] }>(
+				'/api/auth/integration-keys'
+			);
 			integrationApiKeys = result.keys;
 		} catch (cause) {
 			integrationKeysError =
@@ -319,7 +325,9 @@
 		flareSettingsLoading = true;
 		flareSettingsError = null;
 		try {
-			const settings = await fetchJson<FlareSolverrSettings>('/api/internal/bridge/settings/flaresolverr');
+			const settings = await fetchJson<FlareSolverrSettings>(
+				'/api/internal/bridge/settings/flaresolverr'
+			);
 			flareEnabled = settings.enabled;
 			flareUrl = settings.url;
 			flareTimeoutSeconds = settings.timeoutSeconds;
@@ -362,7 +370,11 @@
 			const repository = await fetchJson<RepositoryState>('/api/extensions/repository');
 			extensionRepoUrl = repository.url;
 			const repoLangs = toMainContentLanguages(repository.languages ?? []);
-			const nextKnownLangs = toMainContentLanguages([...knownLangs, ...repoLangs, ...$contentLanguages]);
+			const nextKnownLangs = toMainContentLanguages([
+				...knownLangs,
+				...repoLangs,
+				...$contentLanguages
+			]);
 			if (nextKnownLangs.length > 0) {
 				setKnownContentLanguages(nextKnownLangs);
 				knownLangs = nextKnownLangs;
@@ -528,7 +540,9 @@
 	}
 
 	function handleStatusFieldChange(statusId: string, value: string) {
-		statuses = statuses.map((status) => (status.id === statusId ? { ...status, label: value } : status));
+		statuses = statuses.map((status) =>
+			status.id === statusId ? { ...status, label: value } : status
+		);
 	}
 
 	async function handleSaveStatus(statusId: string) {
@@ -537,14 +551,17 @@
 		statusSavingId = statusId;
 		statusesError = null;
 		try {
-			const updated = await fetchJson<LibraryUserStatusResource>(`/api/library/statuses/${statusId}`, {
-				method: 'PUT',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					label: status.label,
-					position: status.position
-				})
-			});
+			const updated = await fetchJson<LibraryUserStatusResource>(
+				`/api/library/statuses/${statusId}`,
+				{
+					method: 'PUT',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({
+						label: status.label,
+						position: status.position
+					})
+				}
+			);
 			statuses = statuses.map((item) => (item.id === statusId ? updated : item));
 		} catch (cause) {
 			statusesError = cause instanceof Error ? cause.message : 'Failed to save status';
@@ -849,8 +866,8 @@
 									type="button"
 									class="flex items-center gap-1.5 px-3 py-2 text-xs tracking-wider uppercase transition-all duration-150
 										{isActive
-											? 'bg-[var(--void-4)] text-[var(--text)]'
-											: 'text-[var(--text-ghost)] hover:bg-[var(--void-3)] hover:text-[var(--text-muted)]'}"
+										? 'bg-[var(--void-4)] text-[var(--text)]'
+										: 'text-[var(--text-ghost)] hover:bg-[var(--void-3)] hover:text-[var(--text-muted)]'}"
 									onclick={() => setTheme(mode.value)}
 								>
 									<ModeIcon size={14} weight={isActive ? 'fill' : 'light'} />
@@ -972,7 +989,9 @@
 					{:else}
 						<div class="flex flex-col">
 							{#each integrationApiKeys as key (`${key.publicId}`)}
-								<div class="flex items-center justify-between gap-3 border-b border-[var(--void-3)]/30 py-3 last:border-b-0">
+								<div
+									class="flex items-center justify-between gap-3 border-b border-[var(--void-3)]/30 py-3 last:border-b-0"
+								>
 									<div class="min-w-0 flex-1">
 										<p class="truncate text-sm text-[var(--text)]">{key.name}</p>
 										<p class="mt-1 text-xs text-[var(--text-ghost)]">
@@ -1020,13 +1039,18 @@
 					{:else}
 						<div class="flex flex-col">
 							{#each statuses as status (status.id)}
-								<div class="flex items-center gap-2 border-b border-[var(--void-3)]/30 py-2.5 last:border-b-0">
+								<div
+									class="flex items-center gap-2 border-b border-[var(--void-3)]/30 py-2.5 last:border-b-0"
+								>
 									<input
 										type="text"
 										class="settings-input-compact min-w-0 flex-1"
 										value={status.label}
 										oninput={(event) =>
-											handleStatusFieldChange(status.id, (event.currentTarget as HTMLInputElement).value)}
+											handleStatusFieldChange(
+												status.id,
+												(event.currentTarget as HTMLInputElement).value
+											)}
 									/>
 									<span class="hidden shrink-0 text-[10px] text-[var(--text-ghost)] sm:inline-flex">
 										{status.key}
@@ -1103,7 +1127,9 @@
 								<p class="py-2 text-xs text-[var(--text-ghost)]">{$_('settings.noCollections')}</p>
 							{:else}
 								{#each sortedCollections as collection (collection.id)}
-									<div class="flex items-center gap-2 border-b border-[var(--void-3)]/30 py-2.5 last:border-b-0">
+									<div
+										class="flex items-center gap-2 border-b border-[var(--void-3)]/30 py-2.5 last:border-b-0"
+									>
 										<input
 											type="text"
 											class="settings-input-compact min-w-0 flex-1"
@@ -1241,8 +1267,8 @@
 											type="button"
 											class="h-7 min-w-[32px] px-2.5 text-[10px] tracking-wider uppercase transition-all
 												{isSelected
-													? 'bg-[var(--void-4)] text-[var(--text)]'
-													: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
+												? 'bg-[var(--void-4)] text-[var(--text)]'
+												: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
 											onclick={() => handleToggleContentLang(lang)}
 										>
 											{lang}
@@ -1355,7 +1381,11 @@
 					{#if proxySettingsLoading}
 						<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
 					{:else}
-						<Input label="Proxy hostname" bind:value={proxyHostname} placeholder="proxy.example.com" />
+						<Input
+							label="Proxy hostname"
+							bind:value={proxyHostname}
+							placeholder="proxy.example.com"
+						/>
 
 						<div class="flex flex-col gap-1.5">
 							<label class="text-label" for="proxy-port">Proxy port</label>
@@ -1475,7 +1505,9 @@
 						/>
 
 						<div class="flex flex-col gap-1.5">
-							<label class="text-label" for="flare-session-ttl">Session TTL minutes (optional)</label>
+							<label class="text-label" for="flare-session-ttl"
+								>Session TTL minutes (optional)</label
+							>
 							<input
 								id="flare-session-ttl"
 								type="number"
@@ -1508,7 +1540,9 @@
 							<p class="animate-fade-in text-xs text-[var(--error)]">{flareSettingsError}</p>
 						{/if}
 						{#if flareSettingsSuccess}
-							<p class="animate-fade-in text-xs text-[var(--success)]">FlareSolverr settings saved</p>
+							<p class="animate-fade-in text-xs text-[var(--success)]">
+								FlareSolverr settings saved
+							</p>
 						{/if}
 					{/if}
 				</section>
@@ -1555,7 +1589,9 @@
 							<span class="text-label">restart count</span>
 							<span class="text-[var(--text)]">{health.bridge?.restartCount ?? 0}</span>
 							<span class="text-label">last command poll</span>
-							<span class="text-[var(--text)]">{formatDateTime(health.commands?.lastSuccessAt)}</span>
+							<span class="text-[var(--text)]"
+								>{formatDateTime(health.commands?.lastSuccessAt)}</span
+							>
 						</div>
 						{#if health.commands?.lastError}
 							<p class="text-xs text-[var(--error)]">{health.commands.lastError}</p>
