@@ -1,7 +1,7 @@
 package mangarr.tachibridge.runtime
 
-import mangarr.tachibridge.extensions.PageImagePayload
 import mangarr.tachibridge.config.ConfigManager
+import mangarr.tachibridge.extensions.PageImagePayload
 import mangarr.tachibridge.util.ImageUtil
 import java.io.ByteArrayInputStream
 import java.net.URLConnection
@@ -10,12 +10,12 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.text.Normalizer
 import java.util.zip.ZipEntry
-import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
-import kotlin.io.path.getLastModifiedTime
 import kotlin.io.path.deleteIfExists
 import kotlin.io.path.exists
+import kotlin.io.path.getLastModifiedTime
 import kotlin.io.path.inputStream
 import kotlin.io.path.isDirectory
 import kotlin.io.path.name
@@ -25,7 +25,6 @@ import kotlin.io.path.readBytes
 import kotlin.io.path.relativeTo
 import kotlin.io.path.writeBytes
 
-private const val LEGACY_DEFAULT_DOWNLOADS_PATH = "/app/config/bridge/downloads"
 private const val CONTAINER_DEFAULT_DOWNLOADS_PATH = "/app/downloads"
 
 data class StoredChapterPayload(
@@ -47,6 +46,7 @@ data class StoredChapterFilePayload(
     val contentType: String,
     val filePath: Path,
     val fileSizeBytes: Long,
+    val deleteAfterSend: Boolean = false,
 )
 
 class DownloadStorage(
@@ -61,26 +61,34 @@ class DownloadStorage(
 
     fun createChapterWorkspace(
         titleId: String,
+        titleName: String,
+        sourceId: String,
+        sourcePkg: String,
+        sourceLang: String,
         chapterUrl: String,
+        chapterName: String,
+        chapterNumber: Double?,
     ): ChapterWorkspace {
-        val downloadsRoot = downloadsRoot()
-        val titleDir = downloadsRoot.resolve(titleId)
-        Files.createDirectories(titleDir)
-
-        val chapterKey = hashKey(chapterUrl)
-        val tempDir = titleDir.resolve("$chapterKey.tmp")
-        val finalDir = titleDir.resolve(chapterKey)
-        val archiveFile = titleDir.resolve("$chapterKey.cbz")
+        val finalDir =
+            storedChapterPath(
+                titleId = titleId,
+                titleName = titleName,
+                sourceId = sourceId,
+                sourcePkg = sourcePkg,
+                sourceLang = sourceLang,
+                chapterUrl = chapterUrl,
+                chapterName = chapterName,
+                chapterNumber = chapterNumber,
+            )
+        val tempDir = finalDir.parent.resolve("${finalDir.fileName}.tmp")
 
         finalDir.toFile().deleteRecursively()
-        archiveFile.deleteIfExists()
         tempDir.toFile().deleteRecursively()
         Files.createDirectories(tempDir)
 
         return ChapterWorkspace(
             tempDir = tempDir,
             finalDir = finalDir,
-            archiveFile = archiveFile,
         )
     }
 
@@ -107,26 +115,21 @@ class DownloadStorage(
         workspace.tempDir.resolve(fileName).writeBytes(image.bytes)
     }
 
-    fun finalizeChapterDownload(
-        workspace: ChapterWorkspace,
-        archive: Boolean,
-    ): StoredChapterPayload {
+    fun finalizeChapterDownload(workspace: ChapterWorkspace): StoredChapterPayload {
         val downloadsRoot = downloadsRoot()
-        val target =
-            if (archive) {
-                writeArchive(workspace.tempDir, workspace.archiveFile)
-                workspace.tempDir.toFile().deleteRecursively()
-                workspace.archiveFile
-            } else {
-                Files.move(workspace.tempDir, workspace.finalDir)
-                workspace.finalDir
-            }
+        Files.createDirectories(workspace.finalDir.parent)
+        Files.move(
+            workspace.tempDir,
+            workspace.finalDir,
+            StandardCopyOption.REPLACE_EXISTING,
+            StandardCopyOption.ATOMIC_MOVE,
+        )
 
         return StoredChapterPayload(
-            storageKind = if (archive) "archive" else "directory",
-            localRelativePath = target.relativeTo(downloadsRoot).pathString.replace('\\', '/'),
-            fileSizeBytes = pathSize(target),
-            pageCount = countStoredPages(target, if (archive) "archive" else "directory"),
+            storageKind = "directory",
+            localRelativePath = workspace.finalDir.relativeTo(downloadsRoot).pathString.replace('\\', '/'),
+            fileSizeBytes = pathSize(workspace.finalDir),
+            pageCount = countStoredPages(workspace.finalDir),
         )
     }
 
@@ -149,109 +152,104 @@ class DownloadStorage(
 
     fun readStoredPage(
         relativePath: String,
-        storageKind: String,
         index: Int,
     ): PageImagePayload {
         require(index >= 0) { "Page index must be non-negative" }
-        val resolved = resolveRelative(downloadsRoot(), relativePath)
-        return when (storageKind) {
-            "directory" -> readDirectoryPage(resolved, index)
-            "archive" -> readArchivePage(resolved, index)
-            else -> error("Unsupported storage kind: $storageKind")
-        }
+        return readDirectoryPage(resolveRelative(downloadsRoot(), relativePath), index)
     }
 
-    fun readStoredChapterFile(
-        relativePath: String,
-        storageKind: String,
-    ): StoredChapterFilePayload {
+    fun readStoredChapterFile(relativePath: String): StoredChapterFilePayload {
         val resolved = resolveRelative(downloadsRoot(), relativePath)
-        return when (storageKind) {
-            "archive" ->
-                StoredChapterFilePayload(
-                    fileName = resolved.fileName.toString(),
-                    contentType = "application/vnd.comicbook+zip",
-                    filePath = resolved,
-                    fileSizeBytes = Files.size(resolved),
-                )
-            "directory" -> {
-                val cachedArchive = ensureDirectoryArchive(resolved)
-                StoredChapterFilePayload(
-                    fileName = cachedArchive.fileName.toString(),
-                    contentType = "application/vnd.comicbook+zip",
-                    filePath = cachedArchive,
-                    fileSizeBytes = Files.size(cachedArchive),
-                )
-            }
-            else -> error("Unsupported storage kind: $storageKind")
+        require(resolved.exists() && resolved.isDirectory()) { "Downloaded chapter directory is unavailable" }
+
+        val exportFile = Files.createTempFile(resolved.parent, "${resolved.fileName}.", ".export.zip")
+        try {
+            writeArchive(resolved, exportFile)
+        } catch (error: Exception) {
+            exportFile.deleteIfExists()
+            throw error
         }
+
+        return StoredChapterFilePayload(
+            fileName = "${resolved.fileName}.zip",
+            contentType = "application/zip",
+            filePath = exportFile,
+            fileSizeBytes = Files.size(exportFile),
+            deleteAfterSend = true,
+        )
     }
 
     fun resolveStoredChapter(
         titleId: String,
+        titleName: String,
+        sourceId: String,
+        sourcePkg: String,
+        sourceLang: String,
         chapterUrl: String,
+        chapterName: String,
+        chapterNumber: Double?,
     ): StoredChapterPayload? {
-        val downloadsRoot = downloadsRoot()
-        val titleDir = downloadsRoot.resolve(titleId)
-        val chapterKey = hashKey(chapterUrl)
-        val archive = titleDir.resolve("$chapterKey.cbz")
-        if (archive.exists()) {
-            return StoredChapterPayload(
-                storageKind = "archive",
-                localRelativePath = archive.relativeTo(downloadsRoot).pathString.replace('\\', '/'),
-                fileSizeBytes = pathSize(archive),
-                pageCount = countStoredPages(archive, "archive"),
+        val directory =
+            storedChapterPath(
+                titleId = titleId,
+                titleName = titleName,
+                sourceId = sourceId,
+                sourcePkg = sourcePkg,
+                sourceLang = sourceLang,
+                chapterUrl = chapterUrl,
+                chapterName = chapterName,
+                chapterNumber = chapterNumber,
             )
+        if (!directory.exists() || !directory.isDirectory()) {
+            return null
         }
 
-        val directory = titleDir.resolve(chapterKey)
-        if (directory.exists() && directory.isDirectory()) {
-            return StoredChapterPayload(
-                storageKind = "directory",
-                localRelativePath = directory.relativeTo(downloadsRoot).pathString.replace('\\', '/'),
-                fileSizeBytes = pathSize(directory),
-                pageCount = countStoredPages(directory, "directory"),
-            )
-        }
-
-        return null
+        return StoredChapterPayload(
+            storageKind = "directory",
+            localRelativePath = directory.relativeTo(downloadsRoot()).pathString.replace('\\', '/'),
+            fileSizeBytes = pathSize(directory),
+            pageCount = countStoredPages(directory),
+        )
     }
 
     fun deleteStoredChapter(
         titleId: String,
+        titleName: String,
+        sourceId: String,
+        sourcePkg: String,
+        sourceLang: String,
         chapterUrl: String,
+        chapterName: String,
+        chapterNumber: Double?,
         relativePath: String?,
-        storageKind: String?,
     ): Boolean {
-        val downloadsRoot = downloadsRoot()
-        var deleted = false
-
-        if (!relativePath.isNullOrBlank() && !storageKind.isNullOrBlank()) {
-            val resolved = resolveRelative(downloadsRoot, relativePath)
-            deleted = deleteResolvedStoredChapter(resolved, storageKind)
+        if (!relativePath.isNullOrBlank()) {
+            return deleteResolvedStoredChapter(resolveRelative(downloadsRoot(), relativePath))
         }
 
-        val chapterKey = hashKey(chapterUrl)
-        val titleDir = downloadsRoot.resolve(titleId)
-        val archive = titleDir.resolve("$chapterKey.cbz")
-        val directory = titleDir.resolve(chapterKey)
-        deleted = deleteResolvedStoredChapter(archive, "archive") || deleted
-        deleted = deleteResolvedStoredChapter(directory, "directory") || deleted
-
-        return deleted
+        val directory =
+            storedChapterPath(
+                titleId = titleId,
+                titleName = titleName,
+                sourceId = sourceId,
+                sourcePkg = sourcePkg,
+                sourceLang = sourceLang,
+                chapterUrl = chapterUrl,
+                chapterName = chapterName,
+                chapterNumber = chapterNumber,
+            )
+        return deleteResolvedStoredChapter(directory)
     }
 
     fun summary(): DownloadStorageSummary {
         val downloadsRoot = downloadsRoot()
         Files.createDirectories(downloadsRoot)
         val store = Files.getFileStore(downloadsRoot)
-        val totalSpaceBytes = store.totalSpace
-        val freeSpaceBytes = store.usableSpace
         return DownloadStorageSummary(
             downloadPath = downloadsRoot.toAbsolutePath().normalize().pathString,
             usedSpaceBytes = totalStoredSize(downloadsRoot),
-            freeSpaceBytes = freeSpaceBytes,
-            totalSpaceBytes = totalSpaceBytes,
+            freeSpaceBytes = store.usableSpace,
+            totalSpaceBytes = store.totalSpace,
         )
     }
 
@@ -270,11 +268,11 @@ class DownloadStorage(
         now: Long = System.currentTimeMillis(),
         coverMaxAgeMs: Long = 30L * 24 * 60 * 60 * 1000,
         tempWorkspaceMaxAgeMs: Long = 6L * 60 * 60 * 1000,
-        generatedArchiveMaxAgeMs: Long = 7L * 24 * 60 * 60 * 1000,
+        tempExportMaxAgeMs: Long = 6L * 60 * 60 * 1000,
     ): DownloadStoragePruneSummary {
         var deletedCoverFiles = 0
         var deletedTempWorkspaces = 0
-        var deletedGeneratedArchives = 0
+        var deletedTempExports = 0
 
         coversRoot.toFile().listFiles()?.forEach { file ->
             val ageMs = now - file.toPath().getLastModifiedTime().toMillis()
@@ -284,10 +282,11 @@ class DownloadStorage(
         }
 
         val downloadsRoot = downloadsRoot()
-        Files.list(downloadsRoot).use { titleDirs ->
-            titleDirs.filter { candidate -> Files.isDirectory(candidate) }.forEach { titleDir ->
-                Files.list(titleDir).use { entries ->
-                    entries.forEach { entry ->
+        if (downloadsRoot.exists()) {
+            Files.walk(downloadsRoot).use { entries ->
+                entries
+                    .sorted(Comparator.reverseOrder())
+                    .forEach { entry ->
                         val ageMs = now - entry.getLastModifiedTime().toMillis()
                         val fileName = entry.fileName.toString()
                         when {
@@ -297,22 +296,21 @@ class DownloadStorage(
                                 }
                             }
 
-                            fileName.endsWith(".cbz") && Files.isRegularFile(entry) && ageMs > generatedArchiveMaxAgeMs -> {
-                                val siblingDirectory = titleDir.resolve(fileName.removeSuffix(".cbz"))
-                                if (Files.isDirectory(siblingDirectory) && entry.deleteIfExists()) {
-                                    deletedGeneratedArchives += 1
-                                }
+                            fileName.endsWith(".export.zip") &&
+                                Files.isRegularFile(entry) &&
+                                ageMs > tempExportMaxAgeMs &&
+                                entry.deleteIfExists() -> {
+                                deletedTempExports += 1
                             }
                         }
                     }
-                }
             }
         }
 
         return DownloadStoragePruneSummary(
             deletedCoverFiles = deletedCoverFiles,
             deletedTempWorkspaces = deletedTempWorkspaces,
-            deletedGeneratedArchives = deletedGeneratedArchives,
+            deletedTempExports = deletedTempExports,
         )
     }
 
@@ -337,26 +335,79 @@ class DownloadStorage(
         return PageImagePayload(contentType = contentType, bytes = bytes)
     }
 
-    private fun readArchivePage(
-        archive: Path,
-        index: Int,
-    ): PageImagePayload {
-        require(archive.exists()) { "Downloaded archive is unavailable" }
-        ZipFile(archive.toFile()).use { zip ->
-            val entries =
-                zip.entries()
-                    .toList()
-                    .filter { entry -> !entry.isDirectory && isImage(entry.name) }
-                    .sortedBy { it.name }
-            val entry = entries.getOrNull(index) ?: error("Archived page index out of bounds")
-            val bytes = zip.getInputStream(entry).use { stream -> stream.readBytes() }
-            val contentType =
-                URLConnection.guessContentTypeFromName(entry.name)
-                    ?: ImageUtil.findImageType(ByteArrayInputStream(bytes))?.mime
-                    ?: "application/octet-stream"
-            return PageImagePayload(contentType = contentType, bytes = bytes)
-        }
+    private fun storedChapterPath(
+        titleId: String,
+        titleName: String,
+        sourceId: String,
+        sourcePkg: String,
+        sourceLang: String,
+        chapterUrl: String,
+        chapterName: String,
+        chapterNumber: Double?,
+    ): Path =
+        downloadsRoot()
+            .resolve(titleDirectoryName(titleName, titleId))
+            .resolve(sourceDirectoryName(sourcePkg, sourceLang, sourceId))
+            .resolve(chapterDirectoryName(chapterName, chapterNumber, chapterUrl))
+
+    private fun titleDirectoryName(
+        titleName: String,
+        titleId: String,
+    ): String = "${slugSegment(titleName, 72, "title")}--${shortSuffix(titleId)}"
+
+    private fun sourceDirectoryName(
+        sourcePkg: String,
+        sourceLang: String,
+        sourceId: String,
+    ): String {
+        val baseName =
+            buildString {
+                append(sourcePkg.substringAfterLast('.').ifBlank { "source" })
+                if (sourceLang.isNotBlank()) {
+                    append("-")
+                    append(sourceLang)
+                }
+            }
+        return "${slugSegment(baseName, 48, "source")}--${shortSuffix(sourceId)}"
     }
+
+    private fun chapterDirectoryName(
+        chapterName: String,
+        chapterNumber: Double?,
+        chapterUrl: String,
+    ): String {
+        val numberPrefix = formatChapterNumber(chapterNumber)
+        val raw =
+            listOfNotNull(numberPrefix, chapterName.trim().takeIf { it.isNotEmpty() })
+                .joinToString(" ")
+                .ifBlank { "chapter" }
+        return "${slugSegment(raw, 88, "chapter")}--${hashKey(chapterUrl)}"
+    }
+
+    private fun formatChapterNumber(chapterNumber: Double?): String? {
+        val value = chapterNumber ?: return null
+        if (!value.isFinite()) return null
+        val normalized = if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
+        return "ch-$normalized"
+    }
+
+    private fun slugSegment(
+        value: String,
+        maxLength: Int,
+        fallback: String,
+    ): String {
+        val normalized =
+            Normalizer
+                .normalize(value.lowercase(), Normalizer.Form.NFKD)
+                .replace("\\p{M}+".toRegex(), "")
+                .replace("[^a-z0-9]+".toRegex(), "-")
+                .trim('-')
+                .take(maxLength)
+                .trim('-')
+        return normalized.ifBlank { fallback }
+    }
+
+    private fun shortSuffix(value: String): String = hashKey(value).take(6)
 
     private fun resolveRelative(
         root: Path,
@@ -370,53 +421,28 @@ class DownloadStorage(
     private fun downloadsRoot(): Path {
         val configured = ConfigManager.config.downloads.downloadPath.trim()
         val envDefault = System.getenv("MANGARR_DOWNLOADS_DIR")?.trim().orEmpty()
-        val normalizedConfigured =
-            when {
-                configured == LEGACY_DEFAULT_DOWNLOADS_PATH && envDefault.isNotEmpty() -> envDefault
-                configured == LEGACY_DEFAULT_DOWNLOADS_PATH -> CONTAINER_DEFAULT_DOWNLOADS_PATH
-                else -> configured
-            }
         val root =
-            if (normalizedConfigured.isNotEmpty()) {
-                Paths.get(normalizedConfigured)
+            if (configured.isNotEmpty()) {
+                Paths.get(configured)
             } else if (envDefault.isNotEmpty()) {
                 Paths.get(envDefault)
             } else {
-                dataRoot.resolve("downloads")
+                Paths.get(CONTAINER_DEFAULT_DOWNLOADS_PATH)
             }.toAbsolutePath().normalize()
         Files.createDirectories(root)
         return root
     }
 
-    private fun deleteResolvedStoredChapter(
-        path: Path,
-        storageKind: String,
-    ): Boolean =
-        when (storageKind) {
-            "archive" -> path.deleteIfExists()
-            "directory" ->
-                if (path.exists() && path.isDirectory()) {
-                    path.toFile().deleteRecursively()
-                } else {
-                    false
-                }
-            else -> false
+    private fun deleteResolvedStoredChapter(path: Path): Boolean =
+        if (path.exists() && path.isDirectory()) {
+            path.toFile().deleteRecursively()
+        } else {
+            false
         }
 
-    private fun countStoredPages(
-        path: Path,
-        storageKind: String,
-    ): Int =
-        when (storageKind) {
-            "directory" ->
-                Files.list(path).use { stream ->
-                    stream.filter { candidate -> Files.isRegularFile(candidate) && isImage(candidate.name) }.count().toInt()
-                }
-            "archive" ->
-                ZipFile(path.toFile()).use { zip ->
-                    zip.entries().toList().count { entry -> !entry.isDirectory && isImage(entry.name) }
-                }
-            else -> 0
+    private fun countStoredPages(path: Path): Int =
+        Files.list(path).use { stream ->
+            stream.filter { candidate -> Files.isRegularFile(candidate) && isImage(candidate.name) }.count().toInt()
         }
 
     private fun totalStoredSize(root: Path): Long =
@@ -445,45 +471,6 @@ class DownloadStorage(
         }
     }
 
-    private fun ensureDirectoryArchive(sourceDir: Path): Path {
-        require(sourceDir.exists() && sourceDir.isDirectory()) { "Downloaded chapter directory is unavailable" }
-        val archivePath = sourceDir.parent.resolve("${sourceDir.fileName}.cbz")
-        if (archivePath.exists() && !directoryArchiveIsStale(sourceDir, archivePath)) {
-            return archivePath
-        }
-
-        val tempArchive = Files.createTempFile(sourceDir.parent, "${sourceDir.fileName}.", ".cbz.tmp")
-        try {
-            writeArchive(sourceDir, tempArchive)
-            Files.move(
-                tempArchive,
-                archivePath,
-                StandardCopyOption.REPLACE_EXISTING,
-                StandardCopyOption.ATOMIC_MOVE,
-            )
-        } catch (error: Exception) {
-            tempArchive.deleteIfExists()
-            throw error
-        }
-        return archivePath
-    }
-
-    private fun directoryArchiveIsStale(
-        sourceDir: Path,
-        archivePath: Path,
-    ): Boolean {
-        val archiveModifiedAt = Files.getLastModifiedTime(archivePath).toMillis()
-        val sourceModifiedAt =
-            Files.walk(sourceDir).use { stream ->
-                stream
-                    .filter { path -> Files.isRegularFile(path) }
-                    .mapToLong { path -> Files.getLastModifiedTime(path).toMillis() }
-                    .max()
-                    .orElse(0L)
-            }
-        return sourceModifiedAt > archiveModifiedAt
-    }
-
     private fun pathSize(path: Path): Long =
         if (Files.isDirectory(path)) {
             Files.walk(path).use { stream ->
@@ -509,11 +496,10 @@ class DownloadStorage(
 data class ChapterWorkspace(
     val tempDir: Path,
     val finalDir: Path,
-    val archiveFile: Path,
 )
 
 data class DownloadStoragePruneSummary(
     val deletedCoverFiles: Int,
     val deletedTempWorkspaces: Int,
-    val deletedGeneratedArchives: Int,
+    val deletedTempExports: Int,
 )

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <property name="BRIDGE_LOG_DIR" value="${MANGARR_BRIDGE_LOG_DIR:-./logs}" />
+    <property name="BRIDGE_LOG_DIR" value="${MANGARR_BRIDGE_LOG_DIR:-./config/logs/bridge}" />
     <property name="BRIDGE_LOG_FILE_BASENAME" value="${MANGARR_BRIDGE_LOG_FILE_BASENAME:-bridge-events}" />
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">

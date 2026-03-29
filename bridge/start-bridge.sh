@@ -17,7 +17,7 @@ JVM_OPTS=(
 )
 
 # Logging
-LOG_ROOT="${MANGARR_LOG_ROOT:-./logs}"
+LOG_ROOT="${MANGARR_LOG_ROOT:-./config/logs}"
 LOG_DIR="${MANGARR_SYSTEM_LOG_DIR:-${LOG_ROOT}/system}"
 BRIDGE_LOG_DIR="${MANGARR_BRIDGE_LOG_DIR:-${LOG_ROOT}/bridge}"
 mkdir -p "$LOG_DIR" "$BRIDGE_LOG_DIR"

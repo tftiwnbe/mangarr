@@ -107,7 +107,7 @@ MANGARR_BRIDGE_INTERNAL_URL="${MANGARR_BRIDGE_INTERNAL_URL:-http://127.0.0.1:${M
 MANGARR_DOWNLOADS_DIR="${MANGARR_DOWNLOADS_DIR:-/app/downloads}"
 MANGARR_PUBLIC_HOST="${MANGARR_PUBLIC_HOST:-127.0.0.1}"
 MANGARR_PUBLIC_SCHEME="${MANGARR_PUBLIC_SCHEME:-http}"
-MANGARR_LOG_ROOT="${MANGARR_LOG_ROOT:-/app/data/logs}"
+MANGARR_LOG_ROOT="${MANGARR_LOG_ROOT:-/app/config/logs}"
 MANGARR_SYSTEM_LOG_DIR="${MANGARR_SYSTEM_LOG_DIR:-${MANGARR_LOG_ROOT}/system}"
 MANGARR_BRIDGE_LOG_DIR="${MANGARR_BRIDGE_LOG_DIR:-${MANGARR_LOG_ROOT}/bridge}"
 MANGARR_CONVEX_AUTH_ISSUER="${MANGARR_CONVEX_AUTH_ISSUER:-https://auth.mangarr.local/convex}"
@@ -134,18 +134,7 @@ ln -sfn "$(basename "${WEB_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/web.log"
 ln -sfn "$(basename "${BRIDGE_CONSOLE_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/bridge-console.log"
 ln -sfn "$(basename "${BRIDGE_NOISE_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/bridge-native-noise.log"
 
-DEFAULT_DOWNLOADS_BACKING_DIR="/app/data/downloads"
-mkdir -p "${DEFAULT_DOWNLOADS_BACKING_DIR}"
-if [ "${MANGARR_DOWNLOADS_DIR}" = "/app/downloads" ]; then
-  if [ -e "${MANGARR_DOWNLOADS_DIR}" ] && [ ! -L "${MANGARR_DOWNLOADS_DIR}" ]; then
-    rmdir "${MANGARR_DOWNLOADS_DIR}" 2>/dev/null || true
-  fi
-  if [ ! -e "${MANGARR_DOWNLOADS_DIR}" ]; then
-    ln -s "${DEFAULT_DOWNLOADS_BACKING_DIR}" "${MANGARR_DOWNLOADS_DIR}"
-  fi
-else
-  mkdir -p "${MANGARR_DOWNLOADS_DIR}"
-fi
+mkdir -p "${MANGARR_DOWNLOADS_DIR}"
 
 SECRET_FILE="${CONVEX_ROOT}/instance_secret"
 if [ ! -s "${SECRET_FILE}" ]; then
@@ -330,7 +319,7 @@ ENTRYPOINT ["tini", "--"]
 
 FROM mangarr-base AS mangarr-dev
 ENV MANGARR_APP_MODE=dev
-RUN mkdir -p /app/bin /app/config /app/data /app/web
+RUN mkdir -p /app/bin /app/config /app/downloads /app/web
 COPY --from=bridge-build /app/bridge/app/build/tachibridge-*.jar /app/bin/
 RUN sh -c 'jar=$(echo /app/bin/tachibridge-*.jar); cp "$jar" /app/bin/tachibridge.jar'
 
@@ -349,7 +338,7 @@ COPY web /app/web
 COPY --from=web-build /app/web/build /app/web/build
 
 WORKDIR /app
-RUN mkdir -p /app/bin /app/config /app/data
+RUN mkdir -p /app/bin /app/config /app/downloads
 COPY --from=bridge-build /app/bridge/app/build/tachibridge-*.jar /app/bin/
 RUN sh -c 'jar=$(echo /app/bin/tachibridge-*.jar); cp "$jar" /app/bin/tachibridge.jar'
 

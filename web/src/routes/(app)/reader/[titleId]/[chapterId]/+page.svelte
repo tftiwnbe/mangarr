@@ -276,7 +276,6 @@
 		if (item.kind === 'local' && chapter.localRelativePath && chapter.storageKind) {
 			const params = new SvelteURLSearchParams({
 				path: chapter.localRelativePath,
-				storage: chapter.storageKind,
 				index: String(item.index)
 			});
 			return `/api/internal/bridge/library/page?${params.toString()}`;

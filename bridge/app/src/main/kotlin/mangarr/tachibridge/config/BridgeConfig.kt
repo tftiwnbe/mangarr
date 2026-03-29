@@ -23,8 +23,6 @@ data class BridgeConfig(
     data class Downloads(
         @SerialName("download_path")
         val downloadPath: String = "",
-        @SerialName("compression_enabled")
-        val compressionEnabled: Boolean = true,
         @SerialName("failed_retry_delay_seconds")
         val failedRetryDelaySeconds: Int = 300,
     )

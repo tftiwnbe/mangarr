@@ -10,7 +10,13 @@ import { getUserConvexClient } from '$lib/server/convex';
 type LibraryChapter = {
 	_id: string;
 	libraryTitleId: string;
+	title: string;
 	chapterUrl: string;
+	chapterName: string;
+	chapterNumber?: number | null;
+	sourceId: string;
+	sourcePkg: string;
+	sourceLang: string;
 	localRelativePath?: string | null;
 	storageKind?: string | null;
 };
@@ -38,7 +44,13 @@ export const POST: RequestHandler = async (event) => {
 		body: JSON.stringify({
 			chapterId: chapter._id,
 			titleId: chapter.libraryTitleId,
+			titleName: chapter.title,
+			sourceId: chapter.sourceId,
+			sourcePkg: chapter.sourcePkg,
+			sourceLang: chapter.sourceLang,
 			chapterUrl: chapter.chapterUrl,
+			chapterName: chapter.chapterName,
+			chapterNumber: chapter.chapterNumber ?? null,
 			localRelativePath: chapter.localRelativePath ?? null,
 			storageKind: chapter.storageKind ?? null
 		}),

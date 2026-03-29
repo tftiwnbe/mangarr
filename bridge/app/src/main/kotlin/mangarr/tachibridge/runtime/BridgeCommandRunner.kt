@@ -667,8 +667,13 @@ class BridgeCommandRunner(
                 val chapterId = payload.requiredString("chapterId")
                 val downloadTaskId = payload.optionalString("downloadTaskId")
                 val titleId = payload.requiredString("titleId")
+                val titleName = payload.optionalString("title") ?: titleId
                 val sourceId = payload.requiredString("sourceId")
+                val sourcePkg = payload.optionalString("sourcePkg") ?: "source"
+                val sourceLang = payload.optionalString("sourceLang") ?: ""
                 val chapterUrl = payload.requiredString("chapterUrl")
+                val chapterName = payload.optionalString("chapterName") ?: "chapter"
+                val chapterNumber = payload.optionalDouble("chapterNumber")
 
                 client.setLibraryChapterDownloadState(
                     client.payload(
@@ -689,7 +694,16 @@ class BridgeCommandRunner(
                     val downloadProgressLock = Any()
                     val result =
                         kotlinx.coroutines.runBlocking {
-                            service.downloadChapter(titleId, sourceId, chapterUrl) { downloadedPages, totalPages ->
+                            service.downloadChapter(
+                                titleId = titleId,
+                                titleName = titleName,
+                                sourceId = sourceId,
+                                sourcePkg = sourcePkg,
+                                sourceLang = sourceLang,
+                                chapterUrl = chapterUrl,
+                                chapterName = chapterName,
+                                chapterNumber = chapterNumber,
+                            ) { downloadedPages, totalPages ->
                                 val now = System.currentTimeMillis()
                                 val (shouldRenewLease, shouldPushProgress) =
                                     synchronized(downloadProgressLock) {
@@ -818,6 +832,9 @@ class BridgeCommandRunner(
 
     private fun JsonObject.optionalInt(key: String): Int? =
         this[key]?.jsonPrimitive?.intLikeOrNull()
+
+    private fun JsonObject.optionalDouble(key: String): Double? =
+        this[key]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull()
 
     private fun JsonObject.requiredInt(key: String): Int =
         this[key]?.jsonPrimitive?.intLikeOrNull() ?: throw IllegalArgumentException("Missing $key")

@@ -65,7 +65,6 @@
 
 	type DownloadSettings = {
 		downloadPath: string;
-		compressionEnabled: boolean;
 		failedRetryDelaySeconds: number;
 		totalSpaceBytes: number;
 		usedSpaceBytes: number;
@@ -172,7 +171,6 @@
 
 	let downloadRootDir = $state('');
 	let downloadFailedChapterRetryDelaySeconds = $state(21600);
-	let downloadCompressChapters = $state(false);
 	let downloadTotalBytes = $state(0);
 	let downloadUsedBytes = $state(0);
 	let downloadFreeBytes = $state(0);
@@ -292,7 +290,6 @@
 			const settings = await fetchJson<DownloadSettings>('/api/internal/bridge/settings/downloads');
 			downloadRootDir = settings.downloadPath;
 			downloadFailedChapterRetryDelaySeconds = settings.failedRetryDelaySeconds;
-			downloadCompressChapters = settings.compressionEnabled;
 			downloadTotalBytes = settings.totalSpaceBytes;
 			downloadUsedBytes = settings.usedSpaceBytes;
 			downloadFreeBytes = settings.freeSpaceBytes;
@@ -676,13 +673,11 @@
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({
 					downloadPath: downloadRootDir.trim(),
-					compressionEnabled: downloadCompressChapters,
 					failedRetryDelaySeconds: retryDelay
 				})
 			});
 			downloadRootDir = updated.downloadPath;
 			downloadFailedChapterRetryDelaySeconds = updated.failedRetryDelaySeconds;
-			downloadCompressChapters = updated.compressionEnabled;
 			downloadTotalBytes = updated.totalSpaceBytes;
 			downloadUsedBytes = updated.usedSpaceBytes;
 			downloadFreeBytes = updated.freeSpaceBytes;
@@ -1305,20 +1300,6 @@
 								{$_('settings.failedChapterRetryDelayDescription')}
 							</p>
 						</div>
-
-						<div class="flex items-center justify-between gap-3 py-1">
-							<span class="text-sm text-[var(--text-soft)]">
-								{$_('settings.downloadCompressionEnabled')}
-							</span>
-							<Switch
-								checked={downloadCompressChapters}
-								onCheckedChange={(value) => (downloadCompressChapters = value)}
-							/>
-						</div>
-
-						<p class="text-xs text-[var(--text-ghost)]">
-							{$_('settings.downloadCompressionLevelDescription')}
-						</p>
 
 						<div class="flex flex-col gap-2 pt-2">
 							<div class="flex items-baseline justify-between">

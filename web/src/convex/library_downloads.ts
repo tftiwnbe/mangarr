@@ -389,6 +389,10 @@ export const setChapterDownloadState = mutation({
 			return { ok: true };
 		}
 
+		if (args.status === DOWNLOAD_STATUS.DOWNLOADING && task.status === DOWNLOAD_TASK_STATUS.DOWNLOADING) {
+			return { ok: true };
+		}
+
 		const downloadedPages = args.downloadedPages ?? task.downloadedPages;
 		const totalPages = args.totalPages ?? task.totalPages;
 		const percent =
@@ -497,10 +501,13 @@ async function queueDownloadAttempt(
 			downloadTaskId: taskId,
 			titleId: args.title._id,
 			sourceId: args.chapter.sourceId,
+			sourcePkg: args.chapter.sourcePkg,
+			sourceLang: args.chapter.sourceLang,
 			titleUrl: args.chapter.titleUrl,
 			chapterUrl: args.chapter.chapterUrl,
 			title: args.title.title,
-			chapterName: args.chapter.chapterName
+			chapterName: args.chapter.chapterName,
+			chapterNumber: args.chapter.chapterNumber
 		},
 		idempotencyKey: `downloads.chapter:${String(args.chapter._id)}:${attemptNumber}:${args.now}`,
 		status: 'queued',

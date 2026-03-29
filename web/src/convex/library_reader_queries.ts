@@ -238,6 +238,7 @@ export const listTitleChapters = query({
 			.sort((left, right) => left.sequence - right.sequence)
 			.map((chapter) => ({
 				...chapter,
+				title: title.title,
 				routeSegment:
 					chapterRouteSegments.get(String(chapter._id)) ??
 					buildChapterRouteBase(chapter.chapterName, chapter.chapterNumber ?? null)
@@ -769,6 +770,8 @@ export const listAllMineChapters = query({
 				return {
 					...chapter,
 					title: title?.title ?? '',
+					sourcePkg: chapter.sourcePkg,
+					sourceLang: chapter.sourceLang,
 					titleCoverUrl: title?.coverUrl ?? null,
 					localCoverPath: title?.localCoverPath ?? null
 				};
@@ -791,6 +794,8 @@ export const getMineChapterById = query({
 		return {
 			...chapter,
 			title: title.title,
+			sourcePkg: chapter.sourcePkg,
+			sourceLang: chapter.sourceLang,
 			titleCoverUrl: title.coverUrl ?? null,
 			localCoverPath: title.localCoverPath ?? null
 		};

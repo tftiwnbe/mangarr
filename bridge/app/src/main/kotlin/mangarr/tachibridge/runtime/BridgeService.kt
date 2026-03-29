@@ -70,7 +70,7 @@ class BridgeService(
             deletedReaderPageFiles = deletedReaderPageFiles,
             deletedCoverFiles = storage.deletedCoverFiles,
             deletedTempWorkspaces = storage.deletedTempWorkspaces,
-            deletedGeneratedArchives = storage.deletedGeneratedArchives,
+            deletedTempExports = storage.deletedTempExports,
         )
     }
 
@@ -506,8 +506,13 @@ class BridgeService(
 
     suspend fun downloadChapter(
         titleId: String,
+        titleName: String,
         sourceId: String,
+        sourcePkg: String,
+        sourceLang: String,
         chapterUrl: String,
+        chapterName: String,
+        chapterNumber: Double?,
         onProgress: (downloadedPages: Int, totalPages: Int) -> Unit,
     ): JsonObject {
         extensionManager.awaitReady()
@@ -521,7 +526,17 @@ class BridgeService(
                 extensionManager.getPagesList(parsedSourceId, chapterUrl)
             }
         val totalPages = pages.pagesList.size
-        val workspace = downloadStorage.createChapterWorkspace(titleId, chapterUrl)
+        val workspace =
+            downloadStorage.createChapterWorkspace(
+                titleId = titleId,
+                titleName = titleName,
+                sourceId = sourceId,
+                sourcePkg = sourcePkg,
+                sourceLang = sourceLang,
+                chapterUrl = chapterUrl,
+                chapterName = chapterName,
+                chapterNumber = chapterNumber,
+            )
 
         if (totalPages > 0) {
             val nextIndex = AtomicInteger(0)
@@ -543,11 +558,7 @@ class BridgeService(
             }
         }
 
-        val stored =
-            downloadStorage.finalizeChapterDownload(
-                workspace,
-                archive = ConfigManager.config.downloads.compressionEnabled,
-            )
+        val stored = downloadStorage.finalizeChapterDownload(workspace)
         return buildJsonObject {
             put("ok", true)
             put("totalPages", totalPages)
@@ -603,23 +614,20 @@ class BridgeService(
 
     fun fetchStoredPage(
         localRelativePath: String,
-        storageKind: String,
         index: Int,
-    ): PageImagePayload = downloadStorage.readStoredPage(localRelativePath, storageKind, index)
+    ): PageImagePayload = downloadStorage.readStoredPage(localRelativePath, index)
 
     fun fetchStoredCover(localCoverPath: String): PageImagePayload = downloadStorage.readCover(localCoverPath)
 
     fun fetchStoredChapterFile(
         localRelativePath: String,
-        storageKind: String,
-    ): StoredChapterFilePayload = downloadStorage.readStoredChapterFile(localRelativePath, storageKind)
+    ): StoredChapterFilePayload = downloadStorage.readStoredChapterFile(localRelativePath)
 
     fun downloadSettings(): JsonObject {
         val settings = ConfigManager.config.downloads
         val storage = downloadStorage.summary()
         return buildJsonObject {
             put("downloadPath", storage.downloadPath)
-            put("compressionEnabled", settings.compressionEnabled)
             put("failedRetryDelaySeconds", settings.failedRetryDelaySeconds)
             put("totalSpaceBytes", storage.totalSpaceBytes)
             put("usedSpaceBytes", storage.usedSpaceBytes)
@@ -698,13 +706,11 @@ class BridgeService(
 
     fun updateDownloadSettings(
         downloadPath: String?,
-        compressionEnabled: Boolean?,
         failedRetryDelaySeconds: Int?,
     ): JsonObject {
         ConfigManager.updateDownloads { current ->
             current.copy(
                 downloadPath = downloadPath?.trim() ?: current.downloadPath,
-                compressionEnabled = compressionEnabled ?: current.compressionEnabled,
                 failedRetryDelaySeconds =
                     failedRetryDelaySeconds?.coerceIn(60, 604_800) ?: current.failedRetryDelaySeconds,
             )
@@ -714,15 +720,47 @@ class BridgeService(
 
     fun deleteDownloadedChapter(
         titleId: String,
+        titleName: String,
+        sourceId: String,
+        sourcePkg: String,
+        sourceLang: String,
         chapterUrl: String,
+        chapterName: String,
+        chapterNumber: Double?,
         localRelativePath: String?,
-        storageKind: String?,
-    ): Boolean = downloadStorage.deleteStoredChapter(titleId, chapterUrl, localRelativePath, storageKind)
+    ): Boolean =
+        downloadStorage.deleteStoredChapter(
+            titleId = titleId,
+            titleName = titleName,
+            sourceId = sourceId,
+            sourcePkg = sourcePkg,
+            sourceLang = sourceLang,
+            chapterUrl = chapterUrl,
+            chapterName = chapterName,
+            chapterNumber = chapterNumber,
+            relativePath = localRelativePath,
+        )
 
     fun resolveStoredChapter(
         titleId: String,
+        titleName: String,
+        sourceId: String,
+        sourcePkg: String,
+        sourceLang: String,
         chapterUrl: String,
-    ): StoredChapterPayload? = downloadStorage.resolveStoredChapter(titleId, chapterUrl)
+        chapterName: String,
+        chapterNumber: Double?,
+    ): StoredChapterPayload? =
+        downloadStorage.resolveStoredChapter(
+            titleId = titleId,
+            titleName = titleName,
+            sourceId = sourceId,
+            sourcePkg = sourcePkg,
+            sourceLang = sourceLang,
+            chapterUrl = chapterUrl,
+            chapterName = chapterName,
+            chapterNumber = chapterNumber,
+        )
 
     fun cacheCover(
         titleId: String,
@@ -1033,7 +1071,13 @@ class BridgeService(
 data class DownloadReconcileChapter(
     val chapterId: String,
     val titleId: String,
+    val titleName: String,
+    val sourceId: String,
+    val sourcePkg: String,
+    val sourceLang: String,
     val chapterUrl: String,
+    val chapterName: String,
+    val chapterNumber: Double? = null,
     val currentStatus: String,
     val localRelativePath: String? = null,
     val storageKind: String? = null,
@@ -1063,7 +1107,7 @@ data class CachePruneSummary(
     val deletedReaderPageFiles: Int,
     val deletedCoverFiles: Int,
     val deletedTempWorkspaces: Int,
-    val deletedGeneratedArchives: Int,
+    val deletedTempExports: Int,
 )
 
 private fun mangarr.tachibridge.config.BridgeConfig.SourceInfo.toPayload() =

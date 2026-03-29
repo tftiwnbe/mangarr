@@ -229,10 +229,6 @@ object ConfigManager {
         updateDownloads { it.copy(downloadPath = path.trim()) }
     }
 
-    fun setDownloadCompressionEnabled(enabled: Boolean) {
-        updateDownloads { it.copy(compressionEnabled = enabled) }
-    }
-
     fun setFailedRetryDelaySeconds(seconds: Int) {
         updateDownloads { downloads ->
             downloads.copy(failedRetryDelaySeconds = seconds.coerceIn(60, 604_800))

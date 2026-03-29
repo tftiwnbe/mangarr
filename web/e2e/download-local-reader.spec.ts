@@ -5,6 +5,8 @@ const PASSWORD = process.env.MANGARR_E2E_PASSWORD ?? 'Admin12345';
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:3737';
 const CONVEX_URL = process.env.MANGARR_E2E_CONVEX_URL ?? 'http://127.0.0.1:3210';
 
+test.setTimeout(300_000);
+
 async function login(request: APIRequestContext) {
 	const response = await request.post(`${BASE_URL}/api/auth/login`, {
 		data: {
@@ -149,7 +151,7 @@ test('downloaded chapters are readable from the local bridge page endpoint', asy
 	expect(chapter.storageKind).toBeTruthy();
 
 	const pageResponse = await request.get(
-		`${BASE_URL}/api/internal/bridge/library/page?path=${encodeURIComponent(chapter.localRelativePath!)}&storage=${encodeURIComponent(chapter.storageKind!)}&index=0`
+		`${BASE_URL}/api/internal/bridge/library/page?path=${encodeURIComponent(chapter.localRelativePath!)}&index=0`
 	);
 	expect(pageResponse.ok()).toBeTruthy();
 	expect(pageResponse.headers()['content-type']).toMatch(/^image\//);

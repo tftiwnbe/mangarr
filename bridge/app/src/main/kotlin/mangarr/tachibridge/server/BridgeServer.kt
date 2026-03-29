@@ -221,7 +221,7 @@ class BridgeServer(
                                 summary.deletedReaderPageFiles +
                                 summary.deletedCoverFiles +
                                 summary.deletedTempWorkspaces +
-                                summary.deletedGeneratedArchives
+                                summary.deletedTempExports
                         if (deletedEntries > 0) {
                             events.info(
                                 "bridge.cache.pruned",
@@ -232,7 +232,7 @@ class BridgeServer(
                                 "deletedReaderPageFiles" to summary.deletedReaderPageFiles,
                                 "deletedCoverFiles" to summary.deletedCoverFiles,
                                 "deletedTempWorkspaces" to summary.deletedTempWorkspaces,
-                                "deletedGeneratedArchives" to summary.deletedGeneratedArchives,
+                                "deletedTempExports" to summary.deletedTempExports,
                             )
                         }
                     }.onFailure { error ->

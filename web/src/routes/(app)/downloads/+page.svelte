@@ -376,8 +376,7 @@
 	function taskFileHref(task: DashboardTask): string | null {
 		if (!task.localRelativePath || !task.storageKind) return null;
 		const params = new URLSearchParams({
-			path: task.localRelativePath,
-			storage: task.storageKind
+			path: task.localRelativePath
 		});
 		return `/api/internal/bridge/library/file?${params.toString()}`;
 	}

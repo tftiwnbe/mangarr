@@ -10,8 +10,14 @@ import { getUserConvexClient } from '$lib/server/convex';
 type LibraryChapter = {
 	_id: string;
 	libraryTitleId: string;
+	title: string;
 	chapterUrl: string;
+	chapterName: string;
+	chapterNumber?: number | null;
 	downloadStatus: string;
+	sourceId: string;
+	sourcePkg: string;
+	sourceLang: string;
 	localRelativePath?: string | null;
 	storageKind?: string | null;
 };
@@ -39,7 +45,13 @@ export const POST: RequestHandler = async (event) => {
 			chapters: scoped.map((chapter) => ({
 				chapterId: chapter._id,
 				titleId: chapter.libraryTitleId,
+				titleName: chapter.title,
+				sourceId: chapter.sourceId,
+				sourcePkg: chapter.sourcePkg,
+				sourceLang: chapter.sourceLang,
 				chapterUrl: chapter.chapterUrl,
+				chapterName: chapter.chapterName,
+				chapterNumber: chapter.chapterNumber ?? null,
 				currentStatus: chapter.downloadStatus,
 				localRelativePath: chapter.localRelativePath ?? null,
 				storageKind: chapter.storageKind ?? null

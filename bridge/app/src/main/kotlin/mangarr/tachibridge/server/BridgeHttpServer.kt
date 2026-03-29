@@ -28,6 +28,7 @@ import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.io.IOException
 import java.util.concurrent.Executors
+import kotlin.io.path.deleteIfExists
 
 private val logger = KotlinLogging.logger {}
 
@@ -166,19 +167,18 @@ class BridgeHttpServer(
             }
 
             val localRelativePath = exchange.queryParam("path")
-            val storageKind = exchange.queryParam("storage")
             val index = exchange.queryParam("index")?.toIntOrNull()
-            if (localRelativePath.isNullOrBlank() || storageKind.isNullOrBlank() || index == null || index < 0) {
-                sendJson(exchange, 400, buildJsonObject { put("message", "Missing path, storage, or index") })
+            if (localRelativePath.isNullOrBlank() || index == null || index < 0) {
+                sendJson(exchange, 400, buildJsonObject { put("message", "Missing path or index") })
                 return@createContext
             }
 
             try {
-                val image = bridgeService.fetchStoredPage(localRelativePath, storageKind, index)
+                val image = bridgeService.fetchStoredPage(localRelativePath, index)
                 sendBytes(exchange, 200, image.bytes, image.contentType)
             } catch (error: Exception) {
                 logger.warn(error) {
-                    "Failed to serve downloaded page asset path=$localRelativePath storage=$storageKind index=$index"
+                    "Failed to serve downloaded page asset path=$localRelativePath index=$index"
                 }
                 sendJson(exchange, 404, buildJsonObject { put("message", "Downloaded page asset is unavailable") })
             }
@@ -218,14 +218,13 @@ class BridgeHttpServer(
             }
 
             val localRelativePath = exchange.queryParam("path")
-            val storageKind = exchange.queryParam("storage")
-            if (localRelativePath.isNullOrBlank() || storageKind.isNullOrBlank()) {
-                sendJson(exchange, 400, buildJsonObject { put("message", "Missing path or storage") })
+            if (localRelativePath.isNullOrBlank()) {
+                sendJson(exchange, 400, buildJsonObject { put("message", "Missing path") })
                 return@createContext
             }
 
             try {
-                val file = bridgeService.fetchStoredChapterFile(localRelativePath, storageKind)
+                val file = bridgeService.fetchStoredChapterFile(localRelativePath)
                 sendFile(
                     exchange,
                     200,
@@ -233,10 +232,11 @@ class BridgeHttpServer(
                     file.contentType,
                     file.fileSizeBytes,
                     mapOf("content-disposition" to """attachment; filename="${file.fileName}""""),
+                    deleteAfterSend = file.deleteAfterSend,
                 )
             } catch (error: Exception) {
                 logger.warn(error) {
-                    "Failed to serve downloaded chapter file path=$localRelativePath storage=$storageKind"
+                    "Failed to serve downloaded chapter file path=$localRelativePath"
                 }
                 sendJson(exchange, 404, buildJsonObject { put("message", "Downloaded chapter file is unavailable") })
             }
@@ -254,7 +254,6 @@ class BridgeHttpServer(
                     val updated =
                         bridgeService.updateDownloadSettings(
                             downloadPath = payload.optionalString("downloadPath"),
-                            compressionEnabled = payload.optionalBoolean("compressionEnabled"),
                             failedRetryDelaySeconds = payload.optionalInt("failedRetryDelaySeconds"),
                         )
                     sendJson(exchange, 200, updated)
@@ -427,7 +426,17 @@ class BridgeHttpServer(
             var missing = 0
 
             for (chapter in chapters) {
-                val stored = bridgeService.resolveStoredChapter(chapter.titleId, chapter.chapterUrl)
+                val stored =
+                    bridgeService.resolveStoredChapter(
+                        titleId = chapter.titleId,
+                        titleName = chapter.titleName,
+                        sourceId = chapter.sourceId,
+                        sourcePkg = chapter.sourcePkg,
+                        sourceLang = chapter.sourceLang,
+                        chapterUrl = chapter.chapterUrl,
+                        chapterName = chapter.chapterName,
+                        chapterNumber = chapter.chapterNumber,
+                    )
                 if (stored == null) {
                     if (chapter.currentStatus == "downloaded" || !chapter.localRelativePath.isNullOrBlank()) {
                         updateChapterState(
@@ -495,9 +504,14 @@ class BridgeHttpServer(
             val deleted =
                 bridgeService.deleteDownloadedChapter(
                     titleId = titleId,
+                    titleName = payload.requiredString("titleName"),
+                    sourceId = payload.requiredString("sourceId"),
+                    sourcePkg = payload.requiredString("sourcePkg"),
+                    sourceLang = payload.requiredString("sourceLang"),
                     chapterUrl = chapterUrl,
+                    chapterName = payload.requiredString("chapterName"),
+                    chapterNumber = payload.optionalDouble("chapterNumber"),
                     localRelativePath = payload.optionalString("localRelativePath"),
-                    storageKind = payload.optionalString("storageKind"),
                 )
 
             updateChapterState(
@@ -576,14 +590,21 @@ class BridgeHttpServer(
         contentType: String,
         contentLength: Long,
         extraHeaders: Map<String, String> = emptyMap(),
+        deleteAfterSend: Boolean = false,
     ) {
         exchange.responseHeaders.set("content-type", contentType)
         exchange.responseHeaders.set("cache-control", "private, max-age=300")
         for ((name, value) in extraHeaders) {
             exchange.responseHeaders.set(name, value)
         }
-        sendResponse(exchange, status, contentLength) {
-            Files.copy(filePath, it)
+        try {
+            sendResponse(exchange, status, contentLength) {
+                Files.copy(filePath, it)
+            }
+        } finally {
+            if (deleteAfterSend) {
+                runCatching { filePath.deleteIfExists() }
+            }
         }
     }
 
@@ -657,7 +678,13 @@ class BridgeHttpServer(
         return DownloadReconcileChapter(
             chapterId = payload.requiredString("chapterId"),
             titleId = payload.requiredString("titleId"),
+            titleName = payload.requiredString("titleName"),
+            sourceId = payload.requiredString("sourceId"),
+            sourcePkg = payload.requiredString("sourcePkg"),
+            sourceLang = payload.requiredString("sourceLang"),
             chapterUrl = payload.requiredString("chapterUrl"),
+            chapterName = payload.requiredString("chapterName"),
+            chapterNumber = payload.optionalDouble("chapterNumber"),
             currentStatus = payload.requiredString("currentStatus"),
             localRelativePath = payload.optionalString("localRelativePath"),
             storageKind = payload.optionalString("storageKind"),
@@ -706,6 +733,9 @@ class BridgeHttpServer(
 
     private fun JsonObject.optionalBoolean(name: String): Boolean? =
         this[name]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
+
+    private fun JsonObject.optionalDouble(name: String): Double? =
+        this[name]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull()
 
     private fun JsonPrimitive.intLikeOrNull(): Int? {
         val numeric = contentOrNull?.toDoubleOrNull() ?: return null
