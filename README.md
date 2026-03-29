@@ -101,7 +101,7 @@ Create an integration key in `Settings -> Integration API Keys`, then send it wi
 
 ### Search Titles
 
-`POST /api/integration/library/search`
+`POST /api/titles/import/search`
 
 Request body:
 
@@ -145,7 +145,7 @@ Response shape:
 
 ### Add To Library
 
-`POST /api/integration/library/import`
+`POST /api/titles/import`
 
 Pass one of the returned `items[]` objects back as `item`:
 
