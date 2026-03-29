@@ -5,8 +5,8 @@ import {
 	DEFAULT_CONVEX_AUTH_APPLICATION_ID,
 	DEFAULT_CONVEX_AUTH_ISSUER,
 	DEFAULT_KEY_ID,
-	DEFAULT_PRIVATE_JWK,
 	DEFAULT_TOKEN_TTL_SECONDS,
+	DEVELOPMENT_PRIVATE_JWK,
 	type ConvexAuthRuntimeConfig
 } from './convex-auth-config';
 
@@ -156,11 +156,11 @@ function getServerConvexAuthRuntimeConfig(): ConvexAuthRuntimeConfig {
 
 function parsePrivateJwk(value: string | undefined) {
 	if (!value) {
-		return DEFAULT_PRIVATE_JWK;
+		return isProductionLike() ? failMissingPrivateJwk() : DEVELOPMENT_PRIVATE_JWK;
 	}
 
 	try {
-		const parsed = JSON.parse(value) as Partial<typeof DEFAULT_PRIVATE_JWK>;
+		const parsed = JSON.parse(value) as Partial<typeof DEVELOPMENT_PRIVATE_JWK>;
 		if (typeof parsed.x === 'string' && typeof parsed.y === 'string' && typeof parsed.d === 'string') {
 			return {
 				kty: 'EC',
@@ -171,13 +171,24 @@ function parsePrivateJwk(value: string | undefined) {
 			};
 		}
 	} catch {
-		// Fall back to the baked-in development key below.
+		if (isProductionLike()) {
+			failMissingPrivateJwk();
+		}
 	}
 
-	return DEFAULT_PRIVATE_JWK;
+	return DEVELOPMENT_PRIVATE_JWK;
 }
 
 function parseTokenTtlSeconds(value: string | undefined) {
 	const parsed = Number.parseInt(value || '', 10);
 	return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TOKEN_TTL_SECONDS;
+}
+
+function isProductionLike() {
+	const mode = (process.env.NODE_ENV || process.env.MANGARR_APP_MODE || '').toLowerCase();
+	return mode === 'production' || mode === 'prod';
+}
+
+function failMissingPrivateJwk(): never {
+	throw new Error('MANGARR_CONVEX_AUTH_PRIVATE_JWK must be configured for production runtime');
 }

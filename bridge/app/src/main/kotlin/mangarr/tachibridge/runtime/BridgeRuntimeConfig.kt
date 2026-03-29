@@ -4,7 +4,7 @@ private const val DEFAULT_CONVEX_AUTH_ISSUER = "https://auth.mangarr.local/conve
 private const val DEFAULT_CONVEX_AUTH_APPLICATION_ID = "mangarr-web"
 private const val DEFAULT_CONVEX_AUTH_KEY_ID = "mangarr-20260310"
 private const val DEFAULT_CONVEX_AUTH_TOKEN_TTL_SECONDS = 300L
-private const val DEFAULT_CONVEX_AUTH_PRIVATE_JWK =
+private const val DEVELOPMENT_CONVEX_AUTH_PRIVATE_JWK =
     """{"kty":"EC","crv":"P-256","x":"wQ_V3WF3zt9VDJAjCxSurV-qo9bDqjfE6j4_76Q8JkU","y":"8MDEofdMVTjhKLtpPUKWbgID5F8aJN17eNc5OXmNA5k","d":"VpOZuu2eEPXIAEWRUtt1eSo13Ick2wOH8PWbrP4crz8"}"""
 
 data class ConvexAuthRuntimeConfig(
@@ -54,7 +54,7 @@ fun loadBridgeRuntimeConfig(defaultPort: Int): BridgeRuntimeConfig =
                 privateJwkJson =
                     System.getenv("MANGARR_CONVEX_AUTH_PRIVATE_JWK")
                         ?.ifBlank { null }
-                        ?: DEFAULT_CONVEX_AUTH_PRIVATE_JWK,
+                        ?: defaultConvexAuthPrivateJwk(),
                 tokenTtlSeconds =
                     System.getenv("MANGARR_CONVEX_AUTH_TOKEN_TTL_SECONDS")
                         ?.toLongOrNull()
@@ -70,3 +70,20 @@ fun loadBridgeRuntimeConfig(defaultPort: Int): BridgeRuntimeConfig =
         commandPollIntervalMs = System.getenv("MANGARR_BRIDGE_COMMAND_POLL_INTERVAL_MS")?.toLongOrNull() ?: 2_000L,
         commandLeaseDurationMs = System.getenv("MANGARR_BRIDGE_COMMAND_LEASE_DURATION_MS")?.toLongOrNull() ?: 30_000L,
     )
+
+private fun defaultConvexAuthPrivateJwk(): String {
+    if (isProductionLike()) {
+        error("MANGARR_CONVEX_AUTH_PRIVATE_JWK must be configured for production runtime")
+    }
+    return DEVELOPMENT_CONVEX_AUTH_PRIVATE_JWK
+}
+
+private fun isProductionLike(): Boolean {
+    val mode =
+        System.getenv("MANGARR_APP_MODE")
+            ?.ifBlank { null }
+            ?.lowercase()
+            ?: System.getenv("NODE_ENV")?.ifBlank { null }?.lowercase()
+            ?: ""
+    return mode == "prod" || mode == "production"
+}

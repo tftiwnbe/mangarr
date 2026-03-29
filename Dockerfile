@@ -114,7 +114,6 @@ MANGARR_CONVEX_AUTH_ISSUER="${MANGARR_CONVEX_AUTH_ISSUER:-https://auth.mangarr.l
 MANGARR_CONVEX_AUTH_APPLICATION_ID="${MANGARR_CONVEX_AUTH_APPLICATION_ID:-mangarr-web}"
 MANGARR_CONVEX_AUTH_TOKEN_TTL_SECONDS="${MANGARR_CONVEX_AUTH_TOKEN_TTL_SECONDS:-3600}"
 MANGARR_CONVEX_AUTH_KEY_ID="${MANGARR_CONVEX_AUTH_KEY_ID:-mangarr-20260310}"
-MANGARR_CONVEX_AUTH_PRIVATE_JWK="${MANGARR_CONVEX_AUTH_PRIVATE_JWK:-{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"wQ_V3WF3zt9VDJAjCxSurV-qo9bDqjfE6j4_76Q8JkU\",\"y\":\"8MDEofdMVTjhKLtpPUKWbgID5F8aJN17eNc5OXmNA5k\",\"d\":\"VpOZuu2eEPXIAEWRUtt1eSo13Ick2wOH8PWbrP4crz8\"}}"
 MANGARR_KCEF_ENABLED="${MANGARR_KCEF_ENABLED:-true}"
 MANGARR_XVFB_DISPLAY="${MANGARR_XVFB_DISPLAY:-:99}"
 RUST_LOG="${RUST_LOG:-error,database::search_index_workers::retriable_worker=off}"
@@ -150,6 +149,17 @@ if [ ! -s "${SERVICE_SECRET_FILE}" ]; then
 fi
 chmod 600 "${SERVICE_SECRET_FILE}"
 MANGARR_SERVICE_SECRET="${MANGARR_SERVICE_SECRET:-$(cat "${SERVICE_SECRET_FILE}")}"
+
+AUTH_JWK_FILE="${CONVEX_ROOT}/auth_private_jwk.json"
+if [ ! -s "${AUTH_JWK_FILE}" ]; then
+  node <<'JWK_EOF' > "${AUTH_JWK_FILE}"
+const { generateKeyPairSync } = require('node:crypto');
+const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+process.stdout.write(JSON.stringify(privateKey.export({ format: 'jwk' })));
+JWK_EOF
+fi
+chmod 600 "${AUTH_JWK_FILE}"
+MANGARR_CONVEX_AUTH_PRIVATE_JWK="${MANGARR_CONVEX_AUTH_PRIVATE_JWK:-$(cat "${AUTH_JWK_FILE}")}"
 : > /app/web/.env.local
 
 ADMIN_KEY="$("/app/convex/generate_key" "${INSTANCE_NAME}" "${INSTANCE_SECRET}" 2> >(grep -v '^Admin key:$' >&2) | tail -n1)"
@@ -261,6 +271,17 @@ wait_for_http "Convex backend" "http://127.0.0.1:${CONVEX_PORT:-3210}/version"
 if [ "${MANGARR_APP_MODE:-prod}" = "dev" ]; then
   [ -d /app/web/node_modules/.pnpm ] || (cd /app/web && pnpm install --frozen-lockfile --force)
 fi
+
+seed_convex_env_var() {
+  local name="$1"
+  local value="$2"
+  (cd /app/web && pnpm exec convex env set "$name" "$value") >/dev/null
+}
+
+seed_convex_env_var "MANGARR_CONVEX_AUTH_ISSUER" "${MANGARR_CONVEX_AUTH_ISSUER}"
+seed_convex_env_var "MANGARR_CONVEX_AUTH_APPLICATION_ID" "${MANGARR_CONVEX_AUTH_APPLICATION_ID}"
+seed_convex_env_var "MANGARR_CONVEX_AUTH_KEY_ID" "${MANGARR_CONVEX_AUTH_KEY_ID}"
+seed_convex_env_var "MANGARR_CONVEX_AUTH_PRIVATE_JWK" "${MANGARR_CONVEX_AUTH_PRIVATE_JWK}"
 
 (cd /app/web && pnpm exec convex dev --once --typecheck disable --codegen disable) \
   > >(pipe_component_output "setup" "${SETUP_LOG_FILE}" "" "stdout") \

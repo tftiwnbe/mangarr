@@ -63,6 +63,66 @@ Default URLs:
 
 `config/` stores bridge artifacts and Convex runtime state. `data/` is reserved for content and other user-managed payloads.
 
+## Deploying
+
+Production Compose uses:
+
+- `./config:/app/config`
+- `./data:/app/downloads`
+
+Bring it up with:
+
+```bash
+docker compose up -d --build
+```
+
+The container now includes a healthcheck that validates both the web app and the internal bridge runtime.
+
+### Required Persistent Data
+
+Back up these host paths:
+
+- `config/`
+- `data/`
+
+`config/` contains:
+
+- Convex instance state
+- bridge state and installed extensions
+- generated signing secrets and auth JWK
+- saved logs under `config/logs/`
+
+`data/` contains:
+
+- downloaded chapter files under `/app/downloads`
+
+### Runtime Notes
+
+- The runtime generates a per-instance Convex JWT signing key inside `config/convex/` on first boot.
+- The default public URL assumptions are `http://127.0.0.1:3737` and `http://127.0.0.1:3210`.
+- Override `MANGARR_PUBLIC_HOST` and `MANGARR_PUBLIC_SCHEME` in production if the app is served behind a domain or reverse proxy.
+- Bridge/system logs are written to `config/logs/system/`.
+- Structured bridge event logs are written to `config/logs/bridge/bridge-events.jsonl`.
+
+### Restore
+
+To restore an instance, stop the container and restore both `config/` and `data/`, then start the same image version or a newer compatible one:
+
+```bash
+docker compose down
+docker compose up -d
+```
+
+### Production-Like Smoke Check
+
+You can run a clean verification with fresh temporary host volumes:
+
+```bash
+just verify-prod
+```
+
+That command starts the production Compose stack with temporary `config/` and `downloads/` directories, checks the login page, prints container status, and tears the stack down again.
+
 ## Development Workflow
 
 Common commands are grouped in the `Justfile`:
