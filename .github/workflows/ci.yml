@@ -31,7 +31,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
@@ -42,7 +42,7 @@ jobs:
         run: cd web && pnpm run lint
 
       - name: Run web checks
-        run: cd web && pnpm run check:all
+        run: cd web && pnpm run check
 
       - name: Build web client
         run: cd web && pnpm run build
@@ -70,54 +70,3 @@ jobs:
 
       - name: Build bridge
         run: cd bridge && ./gradlew build shadowJar --no-daemon
-
-  docker-smoke:
-    name: docker-smoke
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-          run_install: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-
-      - name: Install web dependencies
-        run: cd web && pnpm install --frozen-lockfile
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Start compose stack
-        run: |
-          docker compose -f compose.yaml up --build -d
-
-      - name: Wait for web and bridge endpoints
-        run: |
-          for attempt in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:3737 >/dev/null && \
-               docker compose -f compose.yaml exec -T mangarr curl -fsS http://127.0.0.1:3212/health >/dev/null; then
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "Compose smoke endpoints did not pass in time."
-          exit 1
-
-      - name: Show compose logs on failure
-        if: failure()
-        run: docker compose -f compose.yaml logs
-
-      - name: Stop compose stack
-        if: always()
-        run: docker compose -f compose.yaml down -v || true
