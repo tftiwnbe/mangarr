@@ -3,7 +3,6 @@
 	import { SvelteMap } from 'svelte/reactivity';
 	import { slide } from 'svelte/transition';
 	import { useConvexClient, useQuery } from 'convex-svelte';
-	import type { Id } from '$convex/_generated/dataModel';
 	import {
 		ArrowsClockwiseIcon,
 		CaretDownIcon,
@@ -18,10 +17,22 @@
 	} from 'phosphor-svelte';
 
 	import { convexApi } from '$lib/convex/api';
+	import { waitForCommand } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { Switch } from '$lib/elements/switch';
 	import { Tabs } from '$lib/elements/tabs';
+	import {
+		buildPreferenceEntries,
+		deletePreferenceValue,
+		getHiddenStorageKeys,
+		mapSourcePreferencesBundle,
+		normalizeImportedStoragePayload,
+		parseImportedStorageInput,
+		serializeImportedStorage,
+		type PreferenceBundle,
+		type SourcePreferencesResolved
+	} from '$lib/extensions/source-preferences';
 	import { _ } from '$lib/i18n';
 	import { contentLanguages, setKnownContentLanguages } from '$lib/stores/content-languages';
 	import { panelOverlayOpen } from '$lib/stores/ui';
@@ -37,6 +48,7 @@
 		name: string;
 		lang: string;
 		supportsLatest: boolean;
+		enabled?: boolean;
 	};
 
 	type InstalledExtension = {
@@ -60,52 +72,6 @@
 		sources: SourceMeta[];
 	};
 
-	type FilterMeta = {
-		key: string;
-		title: string;
-		summary?: string;
-		type: string;
-		enabled?: boolean;
-		visible?: boolean;
-		default_value?: unknown;
-		current_value?: unknown;
-		entries?: string[];
-		entry_values?: string[];
-	};
-
-	type FilterItem = {
-		name: string;
-		type: string;
-		data: FilterMeta;
-	};
-
-	type PreferenceBundle = {
-		source: { id: string; name: string; lang: string; supportsLatest: boolean };
-		preferences: FilterItem[];
-		searchFilters: FilterItem[];
-	};
-
-	type SourcePreference = {
-		key: string;
-		title: string;
-		summary?: string;
-		type: string;
-		enabled: boolean;
-		visible: boolean;
-		default_value?: unknown;
-		current_value?: unknown;
-		entries?: string[];
-		entry_values?: string[];
-	};
-
-	type SourcePreferencesResolved = {
-		source_id: string;
-		name: string;
-		lang: string;
-		preferences: SourcePreference[];
-		searchFilters: SourcePreference[];
-	};
-
 	type InstalledResponse = {
 		ok: boolean;
 		items: InstalledExtension[];
@@ -125,8 +91,9 @@
 	let installingPkg = $state<string | null>(null);
 	let uninstallingPkg = $state<string | null>(null);
 	let togglingProxyPkg = $state<string | null>(null);
-	let renderLimit = $state(30);
-	let sentinelEl = $state<HTMLDivElement | null>(null);
+	let togglingSourceId = $state<string | null>(null);
+	let renderLimit = $state(60);
+	let renderMoreRaf = 0;
 
 	let installedExtensions = $state<InstalledExtension[]>([]);
 	let availableExtensions = $state<RepoItem[]>([]);
@@ -168,9 +135,7 @@
 	const filteredAvailable = $derived.by(() => {
 		let list = availableExtensions;
 		if (selectedLang && selectedLang !== 'all') {
-			list = list.filter(
-				(item) => normalizeContentLanguageCode(item.lang) === selectedLang
-			);
+			list = list.filter((item) => normalizeContentLanguageCode(item.lang) === selectedLang);
 		}
 		if (!trimmedSearch) return list;
 		return list.filter(
@@ -183,10 +148,7 @@
 
 	const visibleAvailable = $derived(filteredAvailable.slice(0, renderLimit));
 
-	const importedStoragePreferences = $derived.by(() => {
-		if (!sourceSettingsData) return [];
-		return sourceSettingsData.preferences.filter(isHiddenStoragePreference);
-	});
+	const importedStoragePreferences = $derived.by(() => getHiddenStorageKeys(sourceSettingsData));
 
 	$effect(() => {
 		panelOverlayOpen.set(sourceSettingsOpen);
@@ -206,26 +168,26 @@
 	$effect(() => {
 		void trimmedSearch;
 		void selectedLang;
-		renderLimit = 30;
+		renderLimit = 60;
 	});
 
-	$effect(() => {
-		if (!sentinelEl || activeTab !== 'available') return;
-		const observer = new IntersectionObserver(
-			(entries) => {
-				if (entries[0]?.isIntersecting && renderLimit < filteredAvailable.length) {
-					renderLimit += 30;
-				}
-			},
-			{ rootMargin: '200px' }
-		);
-		observer.observe(sentinelEl);
-		return () => observer.disconnect();
-	});
-
-	onMount(async () => {
-		await refreshPage();
-		loading = false;
+	onMount(() => {
+		const handleRenderMore = () => scheduleRenderMore();
+		window.addEventListener('scroll', handleRenderMore, { passive: true });
+		window.addEventListener('resize', handleRenderMore);
+		void (async () => {
+			await refreshPage();
+			scheduleRenderMore();
+			loading = false;
+		})();
+		return () => {
+			if (renderMoreRaf) {
+				window.cancelAnimationFrame(renderMoreRaf);
+				renderMoreRaf = 0;
+			}
+			window.removeEventListener('scroll', handleRenderMore);
+			window.removeEventListener('resize', handleRenderMore);
+		};
 	});
 
 	async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -244,6 +206,25 @@
 
 	function displayExtensionName(name: string) {
 		return name.replace(/^tachiyomi:\s*/i, '').trim();
+	}
+
+	function scheduleRenderMore() {
+		if (typeof window === 'undefined' || renderMoreRaf) return;
+		renderMoreRaf = window.requestAnimationFrame(() => {
+			renderMoreRaf = 0;
+			if (
+				activeTab !== 'available' ||
+				availableLoading ||
+				renderLimit >= filteredAvailable.length
+			) {
+				return;
+			}
+			const documentHeight = document.documentElement.scrollHeight;
+			const viewportBottom = window.scrollY + window.innerHeight;
+			if (documentHeight - viewportBottom <= 960) {
+				renderLimit = Math.min(renderLimit + 60, filteredAvailable.length);
+			}
+		});
 	}
 
 	function getExtensionIcon(pkg: string, icon?: string | null) {
@@ -301,42 +282,17 @@
 		}));
 	}
 
-	async function enqueueCommand(commandType: string, payload: Record<string, unknown>) {
-		const { commandId } = await client.mutation(convexApi.commands.enqueue, {
-			commandType,
-			payload
-		});
-		return String(commandId);
-	}
-
-	async function pollCommand(commandId: string, timeoutMs = 30_000) {
-		const startedAt = Date.now();
-		while (Date.now() - startedAt < timeoutMs) {
-			const row = await client.query(convexApi.commands.getMineById, {
-				commandId: commandId as Id<'commands'>
-			});
-			if (!row) {
-				throw new Error('Queued command was not found');
-			}
-			if (row.status === 'succeeded') {
-				return row;
-			}
-			if (row.status === 'failed' || row.status === 'dead_letter' || row.status === 'cancelled') {
-				throw new Error(row.lastErrorMessage ?? 'Bridge command failed');
-			}
-			await new Promise((resolve) => setTimeout(resolve, 300));
-		}
-		throw new Error('Command timed out');
-	}
-
 	async function loadAvailableExtensions() {
 		availableLoading = true;
 		try {
-			const commandId = await enqueueCommand('extensions.repo.search', {
+			const { commandId } = await client.mutation(convexApi.commands.enqueueRepositorySearch, {
 				query: '',
-				limit: 200
+				limit: 5000
 			});
-			const command = await pollCommand(commandId);
+			const command = await waitForCommand(client, commandId, {
+				timeoutMs: 30_000,
+				pollIntervalMs: 300
+			});
 			const items = ((command.result?.items ?? []) as RepoItem[]).filter(Boolean);
 			availableExtensions = items
 				.filter((item) => !isInstalled(item.pkg))
@@ -344,6 +300,7 @@
 					...item,
 					name: displayExtensionName(item.name)
 				}));
+			scheduleRenderMore();
 		} finally {
 			availableLoading = false;
 		}
@@ -353,12 +310,25 @@
 		return installedExtensions.some((item) => item.pkg === pkg);
 	}
 
+	$effect(() => {
+		void activeTab;
+		void availableLoading;
+		void filteredAvailable.length;
+		void renderLimit;
+		scheduleRenderMore();
+	});
+
 	async function handleInstall(pkg: string) {
 		installingPkg = pkg;
 		error = null;
 		try {
-			const commandId = await enqueueCommand('extensions.install', { pkg });
-			await pollCommand(commandId);
+			const { commandId } = await client.mutation(convexApi.commands.enqueueExtensionInstall, {
+				pkg
+			});
+			await waitForCommand(client, commandId, {
+				timeoutMs: 30_000,
+				pollIntervalMs: 300
+			});
 			await Promise.all([loadInstalledExtensions(), loadAvailableExtensions()]);
 			activeTab = 'installed';
 			expandedPkg = pkg;
@@ -373,8 +343,13 @@
 		uninstallingPkg = pkg;
 		error = null;
 		try {
-			const commandId = await enqueueCommand('extensions.uninstall', { pkg });
-			await pollCommand(commandId);
+			const { commandId } = await client.mutation(convexApi.commands.enqueueExtensionUninstall, {
+				pkg
+			});
+			await waitForCommand(client, commandId, {
+				timeoutMs: 30_000,
+				pollIntervalMs: 300
+			});
 			if (expandedPkg === pkg) expandedPkg = null;
 			await Promise.all([loadInstalledExtensions(), loadAvailableExtensions()]);
 		} catch (cause) {
@@ -388,14 +363,11 @@
 		togglingProxyPkg = pkg;
 		error = null;
 		try {
-			await fetchJson<{ ok: boolean }>(
-				'/api/internal/bridge/extensions/proxy',
-				{
-					method: 'PUT',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ pkg, useProxy })
-				}
-			);
+			await fetchJson<{ ok: boolean }>('/api/internal/bridge/extensions/proxy', {
+				method: 'PUT',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ pkg, useProxy })
+			});
 			installedExtensions = installedExtensions.map((item) =>
 				item.pkg === pkg ? { ...item, use_proxy: useProxy } : item
 			);
@@ -406,36 +378,30 @@
 		}
 	}
 
-	function mapBundle(bundle: PreferenceBundle): SourcePreferencesResolved {
-		return {
-			source_id: bundle.source.id,
-			name: bundle.source.name,
-			lang: bundle.source.lang,
-			preferences: bundle.preferences.map((item) => ({
-				key: item.data.key,
-				title: item.data.title || item.name || item.data.key,
-				summary: item.data.summary,
-				type: item.data.type || item.type || 'text',
-				enabled: item.data.enabled !== false,
-				visible: item.data.visible !== false,
-				default_value: item.data.default_value,
-				current_value: item.data.current_value,
-				entries: item.data.entries,
-				entry_values: item.data.entry_values
-			})),
-			searchFilters: bundle.searchFilters.map((item) => ({
-				key: item.data.key,
-				title: item.data.title || item.name || item.data.key,
-				summary: item.data.summary,
-				type: item.data.type || item.type || 'text',
-				enabled: item.data.enabled !== false,
-				visible: item.data.visible !== false,
-				default_value: item.data.default_value,
-				current_value: item.data.current_value,
-				entries: item.data.entries,
-				entry_values: item.data.entry_values
-			}))
-		};
+	async function handleToggleSource(pkg: string, sourceId: string, enabled: boolean) {
+		togglingSourceId = sourceId;
+		error = null;
+		try {
+			await fetchJson<{ ok: boolean }>('/api/internal/bridge/extensions/source-enabled', {
+				method: 'PUT',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ pkg, sourceId, enabled })
+			});
+			installedExtensions = installedExtensions.map((item) =>
+				item.pkg === pkg
+					? {
+							...item,
+							sources: item.sources.map((source) =>
+								source.id === sourceId ? { ...source, enabled } : source
+							)
+						}
+					: item
+			);
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Failed to update source';
+		} finally {
+			togglingSourceId = null;
+		}
 	}
 
 	async function openSourceSettings(sourceId: string) {
@@ -446,10 +412,18 @@
 		pendingPreferenceChanges.clear();
 		advancedOpen = false;
 		try {
-			const commandId = await enqueueCommand('sources.preferences.fetch', { sourceId });
-			const command = await pollCommand(commandId);
-			sourceSettingsData = mapBundle(command.result as PreferenceBundle);
-			syncAuthImportTextFromImportedStorage(sourceSettingsData);
+			const { commandId } = await client.mutation(
+				convexApi.commands.enqueueSourcePreferencesFetch,
+				{
+					sourceId
+				}
+			);
+			const command = await waitForCommand(client, commandId, {
+				timeoutMs: 30_000,
+				pollIntervalMs: 300
+			});
+			sourceSettingsData = mapSourcePreferencesBundle(command.result as PreferenceBundle);
+			authImportText = serializeImportedStorage(sourceSettingsData);
 		} catch (cause) {
 			sourceSettingsError =
 				cause instanceof Error ? cause.message : 'Failed to load source preferences';
@@ -484,12 +458,14 @@
 		sourceSettingsSaving = true;
 		sourceSettingsError = null;
 		try {
-			const values = Object.fromEntries(pendingPreferenceChanges.entries());
-			const commandId = await enqueueCommand('sources.preferences.save', {
+			const { commandId } = await client.mutation(convexApi.commands.enqueueSourcePreferencesSave, {
 				sourceId: sourceSettingsData.source_id,
-				values
+				entries: buildPreferenceEntries(pendingPreferenceChanges.entries())
 			});
-			await pollCommand(commandId);
+			await waitForCommand(client, commandId, {
+				timeoutMs: 30_000,
+				pollIntervalMs: 300
+			});
 			await openSourceSettings(sourceSettingsData.source_id);
 		} catch (cause) {
 			sourceSettingsError =
@@ -497,169 +473,6 @@
 		} finally {
 			sourceSettingsSaving = false;
 		}
-	}
-
-	function parsePossiblyStringifiedJson(value: unknown): unknown {
-		if (typeof value !== 'string') return value;
-		const trimmed = value.trim();
-		if (!trimmed) return value;
-		if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return value;
-		try {
-			return JSON.parse(trimmed);
-		} catch {
-			return value;
-		}
-	}
-
-	function parseLooseKeyValueInput(input: string): Record<string, unknown> | null {
-		const lines = input
-			.split('\n')
-			.map((line) => line.trim())
-			.filter((line) => line.length > 0);
-		if (lines.length === 0) return null;
-		const map: Record<string, unknown> = {};
-		for (const line of lines) {
-			const separatorIndex = line.search(/\s+/);
-			if (separatorIndex <= 0) return null;
-			const key = line.slice(0, separatorIndex).trim();
-			const rawValue = line.slice(separatorIndex).trim();
-			if (!key || !rawValue) return null;
-			map[key] = parsePossiblyStringifiedJson(rawValue);
-		}
-		return map;
-	}
-
-	function parseAuthImportInput(input: string): Record<string, unknown> {
-		const trimmed = input.trim();
-		if (!trimmed) throw new Error('Paste JSON or key-value storage dump first.');
-		try {
-			const parsed = JSON.parse(trimmed);
-			if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-				throw new Error('Top-level JSON must be an object.');
-			}
-			return parsed as Record<string, unknown>;
-		} catch {
-			const loose = parseLooseKeyValueInput(trimmed);
-			if (loose) return loose;
-			throw new Error(
-				'Unable to parse input. Expected JSON object or lines in format: key <json/value>.'
-			);
-		}
-	}
-
-	function buildLibGroupTokenStorePayload(raw: Record<string, unknown>): Record<string, unknown> {
-		let tokenPayload: Record<string, unknown> | null = null;
-		let authPayload: Record<string, unknown> | null = null;
-		if (raw.token && raw.auth && typeof raw.token === 'object' && typeof raw.auth === 'object') {
-			tokenPayload = raw.token as Record<string, unknown>;
-			authPayload = raw.auth as Record<string, unknown>;
-		}
-		const authEntry = parsePossiblyStringifiedJson(raw.auth);
-		if (!tokenPayload && authEntry && typeof authEntry === 'object' && !Array.isArray(authEntry)) {
-			const authObj = authEntry as Record<string, unknown>;
-			if (authObj.token && authObj.auth) {
-				tokenPayload = authObj.token as Record<string, unknown>;
-				authPayload = authObj.auth as Record<string, unknown>;
-			}
-		}
-		if (!tokenPayload || !authPayload) {
-			throw new Error(
-				'Unable to find LibGroup auth payload. Expected object with token/auth fields.'
-			);
-		}
-		const userId = Number(authPayload.id);
-		if (!Number.isFinite(userId) || userId <= 0) throw new Error('Invalid auth.id in payload.');
-		const tokenType = String(tokenPayload.token_type ?? tokenPayload.tokenType ?? '').trim();
-		const accessToken = String(tokenPayload.access_token ?? tokenPayload.accessToken ?? '').trim();
-		const expiresIn = Number(tokenPayload.expires_in ?? tokenPayload.expiresIn ?? 0);
-		const timestamp = Number(tokenPayload.timestamp ?? Date.now());
-		if (!tokenType || !accessToken || !Number.isFinite(expiresIn) || expiresIn <= 0) {
-			throw new Error('Invalid token payload. token_type, access_token, expires_in are required.');
-		}
-		return {
-			TokenStore: {
-				auth: { id: userId },
-				token: {
-					token_type: tokenType,
-					access_token: accessToken,
-					expires_in: Math.trunc(expiresIn),
-					timestamp: Math.trunc(Number.isFinite(timestamp) ? timestamp : Date.now())
-				}
-			}
-		};
-	}
-
-	function normalizeRawMapPayload(raw: Record<string, unknown>): Record<string, unknown> {
-		const out: Record<string, unknown> = {};
-		for (const [key, value] of Object.entries(raw)) {
-			const normalizedKey = key.trim();
-			if (!normalizedKey) continue;
-			const parsed = parsePossiblyStringifiedJson(value);
-			if (
-				typeof parsed === 'string' ||
-				typeof parsed === 'number' ||
-				typeof parsed === 'boolean' ||
-				parsed === null
-			) {
-				out[normalizedKey] = parsed;
-			} else {
-				out[normalizedKey] = JSON.stringify(parsed);
-			}
-		}
-		try {
-			const maybeTokenStore = buildLibGroupTokenStorePayload(raw);
-			for (const [key, value] of Object.entries(maybeTokenStore)) {
-				out[key] = JSON.stringify(value);
-			}
-		} catch {
-			/* not a LibGroup payload */
-		}
-		return out;
-	}
-
-	function hasStoredValue(value: unknown): boolean {
-		if (value === null || value === undefined) return false;
-		if (typeof value === 'string') return value.trim().length > 0;
-		if (Array.isArray(value)) return value.length > 0;
-		return true;
-	}
-
-	function isHiddenStoragePreference(
-		pref: NonNullable<typeof sourceSettingsData>['preferences'][number]
-	): boolean {
-		return !pref.visible && hasStoredValue(pref.current_value);
-	}
-
-	function getHiddenStorageKeys(): string[] {
-		if (!sourceSettingsData) return [];
-		return sourceSettingsData.preferences.filter(isHiddenStoragePreference).map((pref) => pref.key);
-	}
-
-	function importedStorageMap(
-		data: SourcePreferencesResolved | null = sourceSettingsData
-	): Record<string, unknown> {
-		const map: Record<string, unknown> = {};
-		if (!data) return map;
-		for (const pref of data.preferences) {
-			if (!isHiddenStoragePreference(pref)) continue;
-			map[pref.key] = pref.current_value;
-		}
-		return map;
-	}
-
-	function serializeImportedStorageMap(map: Record<string, unknown>): string {
-		if (Object.keys(map).length === 0) return '';
-		try {
-			return JSON.stringify(map, null, 2);
-		} catch {
-			return '';
-		}
-	}
-
-	function syncAuthImportTextFromImportedStorage(
-		data: SourcePreferencesResolved | null = sourceSettingsData
-	) {
-		authImportText = serializeImportedStorageMap(importedStorageMap(data));
 	}
 
 	async function importAuthStorage() {
@@ -670,19 +483,22 @@
 		try {
 			let mapped: Record<string, unknown> = {};
 			if (authImportText.trim()) {
-				const raw = parseAuthImportInput(authImportText);
-				mapped = normalizeRawMapPayload(raw);
+				const raw = parseImportedStorageInput(authImportText);
+				mapped = normalizeImportedStoragePayload(raw);
 			}
-			const existingKeys = getHiddenStorageKeys();
+			const existingKeys = getHiddenStorageKeys(sourceSettingsData);
 			if (existingKeys.length === 0 && Object.keys(mapped).length === 0) {
 				throw new Error('No imported keys yet. Paste JSON map to import.');
 			}
-			const deletes = Object.fromEntries(existingKeys.map((key) => [key, null]));
-			const commandId = await enqueueCommand('sources.preferences.save', {
+			const deletes = existingKeys.map((key) => [key, deletePreferenceValue()] as const);
+			const { commandId } = await client.mutation(convexApi.commands.enqueueSourcePreferencesSave, {
 				sourceId: sourceSettingsData.source_id,
-				values: { ...deletes, ...mapped }
+				entries: buildPreferenceEntries([...deletes, ...Object.entries(mapped)])
 			});
-			await pollCommand(commandId);
+			await waitForCommand(client, commandId, {
+				timeoutMs: 30_000,
+				pollIntervalMs: 300
+			});
 			await openSourceSettings(sourceSettingsData.source_id);
 			authImportSuccess =
 				Object.keys(mapped).length === 0
@@ -703,14 +519,19 @@
 
 <div class="flex flex-col gap-4">
 	<div class="flex items-center gap-3">
-		<h1 class="text-display flex-1 text-xl text-[var(--text)]">{$_('nav.extensions').toLowerCase()}</h1>
+		<h1 class="text-display flex-1 text-xl text-[var(--text)]">
+			{$_('nav.extensions').toLowerCase()}
+		</h1>
 		<button
 			type="button"
 			class="flex h-8 w-8 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 			onclick={() => void refreshPage()}
 			disabled={refreshing || availableLoading || loading}
 		>
-			<ArrowsClockwiseIcon size={15} class={refreshing || availableLoading || loading ? 'animate-spin' : ''} />
+			<ArrowsClockwiseIcon
+				size={15}
+				class={refreshing || availableLoading || loading ? 'animate-spin' : ''}
+			/>
 		</button>
 	</div>
 
@@ -755,8 +576,8 @@
 					type="button"
 					class="h-7 shrink-0 px-2.5 text-[10px] tracking-wider uppercase transition-colors
 						{isActive
-							? 'bg-[var(--void-3)] text-[var(--text)]'
-							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+						? 'bg-[var(--void-3)] text-[var(--text)]'
+						: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 					onclick={() => (selectedLang = lang === 'all' ? null : lang)}
 				>
 					{lang}
@@ -809,17 +630,22 @@
 				{#each filteredInstalled as ext, i (ext.pkg)}
 					{@const isExpanded = expandedPkg === ext.pkg}
 					{@const visibleSources = getFilteredSources(ext.sources)}
-					{@const enabledCount = visibleSources.length}
+					{@const enabledCount = ext.sources.filter((source) => source.enabled !== false).length}
 					{@const isUninstalling = uninstallingPkg === ext.pkg}
 					{@const isTogglingProxy = togglingProxyPkg === ext.pkg}
 
 					<div
 						class="transition-all duration-200"
-						style="animation: slide-up var(--duration-slow) var(--ease-out) forwards; animation-delay: {Math.min(i * 30, 300)}ms; opacity: 0"
+						style="animation: slide-up var(--duration-slow) var(--ease-out) forwards; animation-delay: {Math.min(
+							i * 30,
+							300
+						)}ms; opacity: 0"
 					>
 						<button
 							type="button"
-							class="flex w-full items-center gap-4 px-1 py-4 text-left transition-colors hover:bg-[var(--void-1)] {isExpanded ? '' : 'border-b border-[var(--line-soft)]'}"
+							class="flex w-full items-center gap-4 px-1 py-4 text-left transition-colors hover:bg-[var(--void-1)] {isExpanded
+								? ''
+								: 'border-b border-[var(--line-soft)]'}"
 							onclick={() => (expandedPkg = isExpanded ? null : ext.pkg)}
 						>
 							{#if getExtensionIcon(ext.pkg, ext.icon)}
@@ -836,7 +662,9 @@
 
 							<div class="min-w-0 flex-1">
 								<div class="flex items-center gap-2">
-									<span class="truncate text-[15px] leading-tight text-[var(--text)]">{displayExtensionName(ext.name)}</span>
+									<span class="truncate text-[15px] leading-tight text-[var(--text)]"
+										>{displayExtensionName(ext.name)}</span
+									>
 									{#if ext.nsfw}
 										<span class="shrink-0 text-[10px] text-[var(--text-ghost)]">18+</span>
 									{/if}
@@ -863,15 +691,38 @@
 											</p>
 										{:else}
 											{#each visibleSources as source (source.id)}
-												<div class="flex items-center gap-3 py-2.5 transition-colors">
+												<div
+													class="flex items-center gap-3 py-2.5 transition-colors {source.enabled ===
+													false
+														? 'opacity-45'
+														: ''}"
+												>
 													<div class="min-w-0 flex-1">
 														<div class="flex items-center gap-2">
-															<span class="truncate text-xs text-[var(--text-soft)]">{source.name}</span>
-															<span class="shrink-0 text-[10px] tracking-wide text-[var(--text-ghost)] uppercase">
+															<span class="truncate text-xs text-[var(--text-soft)]"
+																>{source.name}</span
+															>
+															<span
+																class="shrink-0 text-[10px] tracking-wide text-[var(--text-ghost)] uppercase"
+															>
 																{source.lang}
 															</span>
+															{#if source.enabled === false}
+																<span
+																	class="shrink-0 text-[10px] tracking-wide text-[var(--text-ghost)] uppercase"
+																>
+																	off
+																</span>
+															{/if}
 														</div>
 													</div>
+													<Switch
+														checked={source.enabled !== false}
+														disabled={togglingSourceId === source.id}
+														loading={togglingSourceId === source.id}
+														onCheckedChange={(enabled) =>
+															void handleToggleSource(ext.pkg, source.id, enabled)}
+													/>
 													<button
 														type="button"
 														class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-3)] hover:text-[var(--text)]"
@@ -886,7 +737,9 @@
 									</div>
 
 									<div class="flex items-center gap-3">
-										<span class="flex-1 text-xs text-[var(--text-muted)]">{$_('extensions.proxy').toLowerCase()}</span>
+										<span class="flex-1 text-xs text-[var(--text-muted)]"
+											>{$_('extensions.proxy').toLowerCase()}</span
+										>
 										<Switch
 											checked={ext.use_proxy}
 											disabled={isTogglingProxy}
@@ -941,7 +794,10 @@
 				{@const isInstalling = installingPkg === ext.pkg}
 				<div
 					class="flex items-center gap-4 border-b border-[var(--line-soft)] px-1 py-3.5 transition-colors hover:bg-[var(--void-1)]"
-					style="animation: slide-up var(--duration-slow) var(--ease-out) forwards; animation-delay: {Math.min(i * 20, 400)}ms; opacity: 0"
+					style="animation: slide-up var(--duration-slow) var(--ease-out) forwards; animation-delay: {Math.min(
+						i * 20,
+						400
+					)}ms; opacity: 0"
 				>
 					{#if getExtensionIcon(ext.pkg, ext.icon)}
 						<img
@@ -956,8 +812,12 @@
 					{/if}
 					<div class="min-w-0 flex-1">
 						<div class="flex items-center gap-2">
-							<span class="truncate text-[15px] leading-tight text-[var(--text)]">{displayExtensionName(ext.name)}</span>
-							<span class="shrink-0 text-[10px] tracking-wider text-[var(--text-ghost)] uppercase">{ext.lang}</span>
+							<span class="truncate text-[15px] leading-tight text-[var(--text)]"
+								>{displayExtensionName(ext.name)}</span
+							>
+							<span class="shrink-0 text-[10px] tracking-wider text-[var(--text-ghost)] uppercase"
+								>{ext.lang}</span
+							>
 							{#if ext.nsfw}
 								<span class="shrink-0 text-[10px] text-[var(--text-ghost)]">18+</span>
 							{/if}
@@ -982,8 +842,18 @@
 		</div>
 
 		{#if visibleAvailable.length < filteredAvailable.length}
-			<div bind:this={sentinelEl} class="flex justify-center py-4">
+			<div class="flex flex-col items-center gap-3 py-4">
 				<SpinnerIcon size={16} class="animate-spin text-[var(--text-ghost)]" />
+				<Button
+					variant="outline"
+					size="sm"
+					onclick={() => {
+						renderLimit = Math.min(renderLimit + 60, filteredAvailable.length);
+						scheduleRenderMore();
+					}}
+				>
+					Load more
+				</Button>
 			</div>
 		{/if}
 	{/if}
@@ -991,7 +861,9 @@
 
 <SlidePanel
 	open={sourceSettingsOpen}
-	title={sourceSettingsData ? `${sourceSettingsData.name} settings` : $_('extensions.sourceSettings')}
+	title={sourceSettingsData
+		? `${sourceSettingsData.name} settings`
+		: $_('extensions.sourceSettings')}
 	onclose={closeSourceSettings}
 >
 	{#if sourceSettingsLoading}
@@ -1000,7 +872,9 @@
 			<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
 		</div>
 	{:else if sourceSettingsError}
-		<div class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-xs text-[var(--error)]">
+		<div
+			class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-xs text-[var(--error)]"
+		>
 			{sourceSettingsError}
 		</div>
 	{:else if sourceSettingsData}
@@ -1040,11 +914,18 @@
 									{@const entryVal = pref.entry_values?.[i] ?? entry}
 									<button
 										type="button"
-										class="flex items-center gap-2 px-3 py-2.5 text-xs transition-colors {val === entryVal ? 'bg-[var(--void-3)] text-[var(--text)]' : 'text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
+										class="flex items-center gap-2 px-3 py-2.5 text-xs transition-colors {val ===
+										entryVal
+											? 'bg-[var(--void-3)] text-[var(--text)]'
+											: 'text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
 										onclick={() => handlePreferenceChange(pref.key, entryVal)}
 										disabled={!pref.enabled}
 									>
-										<div class="h-3 w-3 border border-[var(--void-6)] {val === entryVal ? 'bg-[var(--text)]' : ''}"></div>
+										<div
+											class="h-3 w-3 border border-[var(--void-6)] {val === entryVal
+												? 'bg-[var(--text)]'
+												: ''}"
+										></div>
 										{entry}
 									</button>
 								{/each}
@@ -1059,14 +940,22 @@
 									{@const isSelected = val.includes(entryVal)}
 									<button
 										type="button"
-										class="flex items-center gap-2 px-3 py-2.5 text-xs transition-colors {isSelected ? 'bg-[var(--void-3)] text-[var(--text)]' : 'text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
+										class="flex items-center gap-2 px-3 py-2.5 text-xs transition-colors {isSelected
+											? 'bg-[var(--void-3)] text-[var(--text)]'
+											: 'text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
 										onclick={() => {
-											const next = isSelected ? val.filter((item) => item !== entryVal) : [...val, entryVal];
+											const next = isSelected
+												? val.filter((item) => item !== entryVal)
+												: [...val, entryVal];
 											handlePreferenceChange(pref.key, next);
 										}}
 										disabled={!pref.enabled}
 									>
-										<div class="flex h-4 w-4 items-center justify-center border border-[var(--void-6)] {isSelected ? 'bg-[var(--text)]' : ''}">
+										<div
+											class="flex h-4 w-4 items-center justify-center border border-[var(--void-6)] {isSelected
+												? 'bg-[var(--text)]'
+												: ''}"
+										>
 											{#if isSelected}
 												<CheckIcon size={10} class="text-[var(--void-0)]" />
 											{/if}
@@ -1125,7 +1014,10 @@
 
 										<p class="text-[11px] text-[var(--text-ghost)]">
 											{#if importedStoragePreferences.length > 0}
-												{importedStoragePreferences.length} imported key{importedStoragePreferences.length === 1 ? '' : 's'} loaded
+												{importedStoragePreferences.length} imported key{importedStoragePreferences.length ===
+												1
+													? ''
+													: 's'} loaded
 											{:else}
 												no imported keys
 											{/if}
@@ -1138,7 +1030,9 @@
 										{/if}
 
 										{#if authImportSuccess}
-											<div class="bg-[var(--success)]/10 px-3 py-2 text-[11px] text-[var(--success)]">
+											<div
+												class="bg-[var(--success)]/10 px-3 py-2 text-[11px] text-[var(--success)]"
+											>
 												{authImportSuccess}
 											</div>
 										{/if}
@@ -1147,7 +1041,8 @@
 											variant="ghost"
 											size="sm"
 											onclick={() => void importAuthStorage()}
-											disabled={authImportSaving || (!authImportText.trim() && importedStoragePreferences.length === 0)}
+											disabled={authImportSaving ||
+												(!authImportText.trim() && importedStoragePreferences.length === 0)}
 											loading={authImportSaving}
 										>
 											apply

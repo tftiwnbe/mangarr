@@ -58,6 +58,13 @@ data class HeartbeatResponse(
     val created: Boolean,
 )
 
+@Serializable
+data class RecoverDownloadsResponse(
+    val recoveredTasks: Double,
+    val requeuedTasks: Double,
+    val failedTasks: Double,
+)
+
 data class ConvexBridgeClientConfig(
     val baseUrl: String,
     val authTokenProvider: () -> String,
@@ -95,6 +102,9 @@ class ConvexBridgeClient(
     fun upsertInstalledExtension(args: JsonObject): OkResponse =
         mutation("extensions:upsertInstalled", args)
 
+    fun setInstalledExtensionSourceEnabled(args: JsonObject): OkResponse =
+        mutation("extensions:setSourceEnabled", args)
+
     fun removeInstalledExtension(args: JsonObject): OkResponse =
         mutation("extensions:removeInstalled", args)
 
@@ -107,8 +117,14 @@ class ConvexBridgeClient(
     fun setLibraryTitleLocalCover(args: JsonObject): OkResponse =
         mutation("library:setLocalCoverPath", args)
 
+    fun upsertLibraryTitleMetadata(args: JsonObject): OkResponse =
+        mutation("library:upsertTitleMetadataFromBridge", args)
+
     fun setLibraryChapterDownloadState(args: JsonObject): OkResponse =
         mutation("library:setChapterDownloadState", args)
+
+    fun recoverActiveDownloads(args: JsonObject): RecoverDownloadsResponse =
+        mutation("library:recoverActiveDownloads", args)
 
     private inline fun <reified T> mutation(path: String, args: JsonObject): T =
         call("/api/mutation", path, args)

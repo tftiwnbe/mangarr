@@ -5,7 +5,6 @@ import dev.datlag.kcef.KCEF
 import dev.datlag.kcef.KCEFBuilder.Settings.LogSeverity
 import eu.kanade.tachiyomi.App
 import eu.kanade.tachiyomi.network.NetworkHelper
-import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -15,11 +14,17 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import mangarr.tachibridge.config.ConfigManager
 import mangarr.tachibridge.extensions.ExtensionManager
 import mangarr.tachibridge.loader.ConfigExtensionsDirectories
 import mangarr.tachibridge.loader.ExtensionLoader
 import mangarr.tachibridge.loader.PackageTools
+import mangarr.tachibridge.logging.EventLogger
+import mangarr.tachibridge.logging.LogContext
 import mangarr.tachibridge.repo.ExtensionRepoService
 import mangarr.tachibridge.runtime.BridgeCommandRunner
 import mangarr.tachibridge.runtime.BridgeHeartbeatReporter
@@ -45,7 +50,9 @@ import xyz.nulldev.androidcompat.webkit.KcefWebViewProvider
 import java.io.File
 import java.nio.file.Files
 import java.security.Security
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
 import kotlin.math.roundToInt
@@ -55,7 +62,10 @@ data class ServerConfig(
     val runtime: BridgeRuntimeConfig,
 )
 
-private val logger = KotlinLogging.logger {}
+private val events = EventLogger.named(
+    "mangarr.tachibridge.server.BridgeServer",
+    "component" to "bridge_server",
+)
 
 @kotlinx.serialization.ExperimentalSerializationApi
 class BridgeServer(
@@ -77,37 +87,53 @@ class BridgeServer(
     private lateinit var httpServer: BridgeHttpServer
     private val bridgeScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val shutdownLatch = CountDownLatch(1)
+    private var kcefInitialized = false
+    private val runtimeContext =
+        LogContext.of(
+            "bridgeId" to config.runtime.bridgeId,
+            "port" to config.runtime.port,
+            "dataDir" to dataPath.toString(),
+            "extensionsDir" to extensionsPath.toString(),
+        )
 
     @kotlinx.coroutines.DelicateCoroutinesApi
     fun start() =
         runBlocking {
-            // Initialize config first
-            ConfigManager.init(dataPath)
+            events.info(
+                "bridge.runtime.starting",
+                "Starting bridge runtime",
+                "bridgeId" to config.runtime.bridgeId,
+                "port" to config.runtime.port,
+                "dataDir" to dataPath,
+                "extensionsDir" to extensionsPath,
+                "host" to config.runtime.host,
+                "convexConfigured" to config.runtime.convexUrl.isNotBlank(),
+            )
 
-            // Ensure a writable temporary directory for CEF/Jogamp to use.
-            // Some embedded OpenGL implementations (Jogamp) cannot infer an executable
-            // temp directory when running on Android. Explicitly set the temp
-            // directory to a subfolder of our data directory.
+            ConfigManager.init(dataPath)
+            System.setProperty("mangarr.data.dir", dataPath.toString())
+
             val tmpDir = dataPath.resolve("tmp").also { it.createDirectories() }
             System.setProperty("java.io.tmpdir", tmpDir.toString())
 
-            // Initialize FlareSolverr config provider
             mangarr.tachibridge.config.FlareSolverrConfigProvider.update(
                 ConfigManager.config.flareSolverr,
             )
 
-            // Initialize Android compatibility layer
             initializeAndroidCompat()
 
-            // Get network helper from Injekt
             networkHelper = Injekt.get()
 
-            // Initialize repo service
             val initialRepoUrl = ConfigManager.config.repoUrl
             val json = Json { ignoreUnknownKeys = true }
-            repoService = ExtensionRepoService(networkHelper, initialRepoUrl, json)
+            repoService =
+                ExtensionRepoService(
+                    networkHelper = networkHelper,
+                    initialRepoIndexUrl = initialRepoUrl,
+                    cachePath = dataPath.resolve("cache/repo/index.json"),
+                    json = json,
+                )
 
-            // Initialize extension manager
             extensionManager =
                 ExtensionManager(
                     extensionsDir = extensionsPath,
@@ -128,7 +154,14 @@ class BridgeServer(
                 } else {
                     null
                 }
-            val bridgeService = BridgeService(extensionManager, repoService, DownloadStorage(dataPath))
+            val bridgeService =
+                BridgeService(
+                    extensionManager,
+                    repoService,
+                    DownloadStorage(dataPath),
+                    dataPath.resolve("cache/feeds"),
+                    dataPath.resolve("cache/reader-pages"),
+                )
             bridgeState = BridgeState(config.runtime.bridgeId, config.runtime.port, convexClient != null)
             heartbeatReporter =
                 BridgeHeartbeatReporter(
@@ -162,32 +195,140 @@ class BridgeServer(
             heartbeatReporter.start()
             commandRunner.start()
             httpServer.start()
+            events.info(
+                "bridge.runtime.started",
+                "Bridge runtime started",
+                "bridgeId" to config.runtime.bridgeId,
+                "port" to config.runtime.port,
+                "host" to config.runtime.host,
+                "repoUrl" to ConfigManager.config.repoUrl.ifBlank { null },
+            )
 
             bridgeScope.launch {
+                events.info(
+                    "bridge.warmup.started",
+                    "Bridge warmup started",
+                    "bridgeId" to config.runtime.bridgeId,
+                    "phase" to "warmup",
+                )
                 try {
-                    initializeKCEF()
+                    val warmupWarnings = mutableListOf<String>()
+                    runCatching {
+                        bridgeService.pruneCaches()
+                    }.onSuccess { summary ->
+                        val deletedEntries =
+                            summary.deletedFeedFiles +
+                                summary.deletedReaderPageFiles +
+                                summary.deletedCoverFiles +
+                                summary.deletedTempWorkspaces +
+                                summary.deletedTempExports
+                        if (deletedEntries > 0) {
+                            events.info(
+                                "bridge.cache.pruned",
+                                "Pruned bridge caches during warmup",
+                                "bridgeId" to config.runtime.bridgeId,
+                                "phase" to "warmup",
+                                "deletedFeedFiles" to summary.deletedFeedFiles,
+                                "deletedReaderPageFiles" to summary.deletedReaderPageFiles,
+                                "deletedCoverFiles" to summary.deletedCoverFiles,
+                                "deletedTempWorkspaces" to summary.deletedTempWorkspaces,
+                                "deletedTempExports" to summary.deletedTempExports,
+                            )
+                        }
+                    }.onFailure { error ->
+                        events.warn(
+                            "bridge.cache.prune_failed",
+                            "Failed to prune bridge caches during warmup",
+                            "bridgeId" to config.runtime.bridgeId,
+                            "phase" to "warmup",
+                            "warning" to (error.message ?: "cache prune failed"),
+                        )
+                    }
+                    runCatching {
+                        initializeKCEF()
+                    }.onFailure { error ->
+                        val message = error.message ?: "KCEF warmup failed"
+                        warmupWarnings += "KCEF: $message"
+                        events.warn(
+                            "bridge.kcef.degraded",
+                            "KCEF warmup failed, continuing in degraded mode",
+                            "bridgeId" to config.runtime.bridgeId,
+                            "phase" to "warmup",
+                            "warning" to message,
+                        )
+                    }
                     extensionManager.init()
-                    bridgeState.setReady()
-                    logger.info { "Bridge warmup complete with ${extensionManager.listSources().size} loaded sources" }
+                    if (convexClient != null && ConfigManager.config.repoUrl.isNotBlank()) {
+                        runCatching {
+                            val repository = bridgeService.repositorySnapshot()
+                            convexClient.setExtensionRepository(
+                                convexClient.payload(
+                                    kotlinx.serialization.json.buildJsonObject {
+                                        put("url", repository["url"] ?: JsonPrimitive(ConfigManager.config.repoUrl))
+                                        put("languages", repository["languages"] ?: JsonArray(emptyList()))
+                                        put("now", System.currentTimeMillis())
+                                    },
+                                ),
+                            )
+                        }.onFailure { error ->
+                            events.error(
+                                "bridge.repository.backfill_failed",
+                                "Failed to persist repository metadata during warmup",
+                                error,
+                                "bridgeId" to config.runtime.bridgeId,
+                                "repoUrl" to ConfigManager.config.repoUrl,
+                            )
+                            warmupWarnings +=
+                                "Repository metadata backfill: ${error.message ?: "failed"}"
+                        }
+                    }
+                    val warningMessage =
+                        warmupWarnings
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
+                            .joinToString("; ")
+                            .ifBlank { null }
+                    if (warningMessage == null) {
+                        bridgeState.setReady()
+                    } else {
+                        bridgeState.setDegraded(warningMessage)
+                    }
+                    events.info(
+                        "bridge.warmup.completed",
+                        "Bridge warmup completed",
+                        "bridgeId" to config.runtime.bridgeId,
+                        "phase" to "warmup",
+                        "sourceCount" to extensionManager.listSources().size,
+                        "degraded" to (warningMessage != null),
+                        "warnings" to warningMessage,
+                    )
                 } catch (e: Exception) {
                     bridgeState.setError(e.message ?: "Bridge warmup failed")
-                    logger.error(e) { "Bridge warmup failed" }
+                    events.error(
+                        "bridge.warmup.failed",
+                        "Bridge warmup failed",
+                        e,
+                        "bridgeId" to config.runtime.bridgeId,
+                        "phase" to "warmup",
+                    )
                 }
             }
 
-            logger.info { "==================================================" }
-            logger.info { "Bridge Server started on port ${config.runtime.port}" }
-            logger.info { "Data directory: $dataPath" }
-            logger.info { "Extensions directory: $extensionsPath" }
-            logger.info { "Repository: ${ConfigManager.config.repoUrl.ifBlank { "(not configured)" }}" }
-            logger.info { "Bridge warmup started" }
-            logger.info { "==================================================" }
-
             Runtime.getRuntime().addShutdownHook(
                 Thread {
-                    logger.info { "Shutting down bridge runtime..." }
+                    events.info(
+                        "bridge.runtime.shutdown_requested",
+                        "Shutting down bridge runtime",
+                        "bridgeId" to config.runtime.bridgeId,
+                        "phase" to "shutdown",
+                    )
                     this@BridgeServer.stop()
-                    logger.info { "Server stopped" }
+                    events.info(
+                        "bridge.runtime.stopped",
+                        "Bridge runtime stopped",
+                        "bridgeId" to config.runtime.bridgeId,
+                        "phase" to "shutdown",
+                    )
                 },
             )
         }
@@ -201,10 +342,21 @@ class BridgeServer(
             extensionManager.cleanup()
             httpServer.stop()
 
-            // Shutdown KCEF
-            logger.info { "Shutting down KCEF..." }
-            KCEF.disposeBlocking()
-            logger.info { "KCEF shutdown complete" }
+            if (kcefInitialized) {
+                events.info(
+                    "bridge.kcef.shutdown_started",
+                    "Shutting down KCEF",
+                    "bridgeId" to config.runtime.bridgeId,
+                    "phase" to "shutdown",
+                )
+                KCEF.disposeBlocking()
+                events.info(
+                    "bridge.kcef.shutdown_completed",
+                    "KCEF shutdown complete",
+                    "bridgeId" to config.runtime.bridgeId,
+                    "phase" to "shutdown",
+                )
+            }
             shutdownLatch.countDown()
         }
 
@@ -214,7 +366,12 @@ class BridgeServer(
 
     @kotlinx.coroutines.DelicateCoroutinesApi
     private fun initializeKCEF() {
-        logger.info { "Initializing KCEF (Chromium Embedded Framework)..." }
+        val kcefEvents = events.withContext("subsystem" to "kcef")
+        if (!isKcefEnabled()) {
+            kcefEvents.info("bridge.kcef.disabled", "KCEF is disabled")
+            return
+        }
+        kcefEvents.info("bridge.kcef.initializing", "Initializing KCEF")
         Security.addProvider(BouncyCastleProvider())
 
         val kcefInstallOverride =
@@ -229,8 +386,6 @@ class BridgeServer(
         kcefBinDir.createDirectories()
         kcefCacheDir.createDirectories()
 
-        val kcefLogger = KotlinLogging.logger("KCEF")
-
         fun logMissingNativeDeps(installDir: java.nio.file.Path) {
             val osName = System.getProperty("os.name")?.lowercase() ?: ""
             if (!osName.contains("linux")) return
@@ -243,7 +398,11 @@ class BridgeServer(
 
             val existingLib = candidateLibs.firstOrNull { Files.exists(it) }
             if (existingLib == null) {
-                kcefLogger.warn { "KCEF library not found under $installDir" }
+                kcefEvents.warn(
+                    "bridge.kcef.native_lib_missing",
+                    "KCEF native library not found",
+                    "installDir" to installDir,
+                )
                 return
             }
 
@@ -256,30 +415,53 @@ class BridgeServer(
                 process.waitFor()
                 val missing = output.lineSequence().filter { it.contains("not found") }.toList()
                 if (missing.isNotEmpty()) {
-                    kcefLogger.warn { "KCEF missing native deps:\n${missing.joinToString("\n")}" }
+                    kcefEvents.warn(
+                        "bridge.kcef.native_deps_missing",
+                        "KCEF native dependencies are missing",
+                        "library" to existingLib.fileName,
+                        "missingDeps" to missing.joinToString(", "),
+                    )
                 } else {
-                    kcefLogger.info { "KCEF native deps OK for ${existingLib.fileName}" }
+                    kcefEvents.info(
+                        "bridge.kcef.native_deps_ready",
+                        "KCEF native dependencies are available",
+                        "library" to existingLib.fileName,
+                    )
                 }
             } catch (e: Exception) {
-                kcefLogger.debug(e) { "Skipping ldd dependency check" }
+                kcefEvents.warn(
+                    "bridge.kcef.native_deps_check_skipped",
+                    "Skipping KCEF native dependency check",
+                    "reason" to (e.message ?: e::class.java.simpleName),
+                )
             }
         }
+
+        val initSignal = CountDownLatch(1)
+        val initialized = AtomicBoolean(false)
+        var initFailure: Throwable? = null
 
         try {
             KCEF.initBlocking(
                 builder = {
                     progress {
-                        var lastNum = -1
+                        var lastBucket = -1
                         onDownloading {
-                            val num = it.roundToInt()
-                            if (num != lastNum) {
-                                lastNum = num
-                                logger.info { "KCEF download progress: $num" }
+                            val bucket = (it.roundToInt() / 10) * 10
+                            if (bucket != lastBucket) {
+                                lastBucket = bucket
+                                kcefEvents.info(
+                                    "bridge.kcef.download_progress",
+                                    "KCEF download progress",
+                                    "progressPercent" to bucket,
+                                )
                             }
                         }
                         onInitialized {
-                            kcefLogger.info { "KCEF initialized successfully" }
+                            initialized.set(true)
+                            kcefEvents.info("bridge.kcef.initialized", "KCEF initialized successfully")
                             logMissingNativeDeps(kcefBinDir)
+                            initSignal.countDown()
                         }
                     }
                     download { github() }
@@ -306,43 +488,62 @@ class BridgeServer(
                     installDir(kcefBinDir.toFile())
                 },
                 onError = { error ->
-                    kcefLogger.error(error) { "KCEF initialization error" }
+                    initFailure = error
+                    kcefEvents.error("bridge.kcef.init_error", "KCEF initialization error", error)
+                    initSignal.countDown()
                 },
                 onRestartRequired = {
-                    kcefLogger.warn { "KCEF restart required" }
+                    kcefEvents.warn("bridge.kcef.restart_required", "KCEF restart required")
                 },
             )
         } catch (e: Exception) {
-            kcefLogger.error(e) { "Failed to initialize KCEF" }
+            kcefEvents.error("bridge.kcef.init_failed", "Failed to initialize KCEF", e)
             throw e
         }
 
-        // Add shutdown hook for KCEF
+        if (!initSignal.await(15, TimeUnit.SECONDS)) {
+            val failure = initFailure ?: IllegalStateException("KCEF did not finish initialization within 15 seconds")
+            kcefEvents.error("bridge.kcef.init_incomplete", "KCEF initialization did not complete", failure)
+            throw IllegalStateException("KCEF initialization did not complete", failure)
+        }
+
+        if (!initialized.get()) {
+            val failure = initFailure ?: IllegalStateException("KCEF did not finish initialization")
+            kcefEvents.error("bridge.kcef.init_incomplete", "KCEF initialization did not complete", failure)
+            throw IllegalStateException("KCEF initialization did not complete", failure)
+        }
+
         Runtime.getRuntime().addShutdownHook(
             Thread {
-                val kcefLogger = KotlinLogging.logger("KCEF")
-                kcefLogger.debug { "Shutting down KCEF" }
-                try {
-                    KCEF.disposeBlocking()
-                    kcefLogger.debug { "KCEF shutdown complete" }
-                } catch (e: Exception) {
-                    kcefLogger.error(e) { "Error shutting down KCEF" }
+                runtimeContext.with("phase" to "shutdown", "subsystem" to "kcef").use {
+                    try {
+                        if (kcefInitialized) {
+                            KCEF.disposeBlocking()
+                        }
+                    } catch (e: Exception) {
+                        events.error("bridge.kcef.shutdown_failed", "Error shutting down KCEF", e)
+                    }
                 }
             },
         )
 
-        logger.info { "KCEF initialization complete" }
-        logger.info { "KCEF install dir: $kcefBinDir" }
-        logger.info { "KCEF cache dir: $kcefCacheDir" }
+        kcefInitialized = true
+        kcefEvents.info(
+            "bridge.kcef.ready",
+            "KCEF initialization complete",
+            "installDir" to kcefBinDir,
+            "cacheDir" to kcefCacheDir,
+        )
     }
 
     @kotlinx.coroutines.DelicateCoroutinesApi
     private fun initializeAndroidCompat() {
-        logger.info { "Initializing Android compatibility layer..." }
+        val androidEvents = events.withContext("subsystem" to "android_compat")
+        androidEvents.info("bridge.android_compat.initializing", "Initializing Android compatibility layer")
 
         val app = App()
         startKoin {
-            logger(KoinSlf4jLogger(Level.DEBUG))
+            logger(KoinSlf4jLogger(Level.WARNING))
             modules(androidCompatModule())
         }.apply {
             AndroidCompatInitializer().init()
@@ -360,7 +561,9 @@ class BridgeServer(
         @Suppress("DEPRECATION")
         class LooperThread : Thread() {
             override fun run() {
-                logger.debug { "Starting Android Main Looper" }
+                runtimeContext.with("subsystem" to "android_compat", "loopThread" to "android_main_looper").use {
+                    events.info("bridge.android_compat.looper_started", "Android main looper started")
+                }
                 Looper.prepareMainLooper()
                 Looper.loop()
             }
@@ -370,6 +573,13 @@ class BridgeServer(
         // looperThread.isDaemon = true
         looperThread.start()
 
-        logger.info { "Android compatibility layer initialized" }
+        androidEvents.info("bridge.android_compat.ready", "Android compatibility layer initialized")
     }
+
+    private fun isKcefEnabled(): Boolean =
+        System.getenv("MANGARR_KCEF_ENABLED")
+            ?.trim()
+            ?.lowercase()
+            ?.let { it == "1" || it == "true" || it == "yes" }
+            ?: true
 }

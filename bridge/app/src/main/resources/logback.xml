@@ -1,6 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <property name="BRIDGE_LOG_DIR" value="${MANGARR_BRIDGE_LOG_DIR:-./config/logs/bridge}" />
+    <property name="BRIDGE_LOG_FILE_BASENAME" value="${MANGARR_BRIDGE_LOG_FILE_BASENAME:-bridge-events}" />
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg %mdc%n%ex</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${BRIDGE_LOG_DIR}/${BRIDGE_LOG_FILE_BASENAME}.jsonl</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${BRIDGE_LOG_DIR}/archive/${BRIDGE_LOG_FILE_BASENAME}.%d{yyyy-MM-dd}.%i.jsonl.gz</fileNamePattern>
+            <maxHistory>14</maxHistory>
+            <totalSizeCap>512MB</totalSizeCap>
+            <maxFileSize>20MB</maxFileSize>
+        </rollingPolicy>
         <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
             <providers>
                 <timestamp>
@@ -31,12 +47,21 @@
         </encoder>
     </appender>
 
-    <logger name="io.netty" level="INFO"/>
-    <logger name="io.ktor" level="INFO"/>
+    <logger name="io.netty" level="WARN"/>
+    <logger name="io.ktor" level="WARN"/>
     <logger name="io.ktor.server" level="WARN"/>
     <logger name="org.eclipse.jetty" level="WARN"/>
+    <logger name="org.koin" level="WARN"/>
+    <logger name="org.cef" level="WARN"/>
+    <logger name="dev.datlag.kcef" level="WARN"/>
+    <logger name="eu.kanade.tachiyomi.network.interceptor.CloudflareInterceptor" level="WARN"/>
+    <logger name="mangarr.tachibridge.loader.BytecodeEditor" level="WARN"/>
+    <logger name="mangarr.tachibridge.loader.ExtensionLoader" level="WARN"/>
+    <logger name="mangarr.tachibridge.config.ConfigManager" level="WARN"/>
+    <logger name="mangarr.tachibridge.runtime.BridgeCommandRunner" level="INFO"/>
 
-    <root level="DEBUG">
-        <appender-ref ref="STDOUT" />
+    <root level="INFO">
+        <appender-ref ref="CONSOLE" />
+        <appender-ref ref="JSON_FILE" />
     </root>
 </configuration>

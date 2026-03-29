@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import type { Id } from '$convex/_generated/dataModel';
 
 import { buildBridgeInternalHeaders, getBridgeBaseUrl } from '$lib/server/bridge';
 import { requireUser } from '$lib/server/auth';
@@ -9,8 +10,14 @@ import { getUserConvexClient } from '$lib/server/convex';
 type LibraryChapter = {
 	_id: string;
 	libraryTitleId: string;
+	title: string;
 	chapterUrl: string;
+	chapterName: string;
+	chapterNumber?: number | null;
 	downloadStatus: string;
+	sourceId: string;
+	sourcePkg: string;
+	sourceLang: string;
 	localRelativePath?: string | null;
 	storageKind?: string | null;
 };
@@ -21,8 +28,13 @@ export const POST: RequestHandler = async (event) => {
 	const titleId = typeof requestJson.titleId === 'string' ? requestJson.titleId : null;
 
 	const client = await getUserConvexClient(user);
-	const chapters = ((await client.query(convexApi.library.listAllMineChapters, {})) ?? []) as LibraryChapter[];
-	const scoped = titleId ? chapters.filter((chapter) => chapter.libraryTitleId === titleId) : chapters;
+	const scoped = (
+		titleId
+			? await client.query(convexApi.library.listTitleChapters, {
+					titleId: titleId as Id<'libraryTitles'>
+				})
+			: await client.query(convexApi.library.listAllMineChapters, {})
+	) as LibraryChapter[];
 
 	const response = await fetch(new URL('downloads/reconcile', `${getBridgeBaseUrl()}/`), {
 		method: 'POST',
@@ -33,7 +45,13 @@ export const POST: RequestHandler = async (event) => {
 			chapters: scoped.map((chapter) => ({
 				chapterId: chapter._id,
 				titleId: chapter.libraryTitleId,
+				titleName: chapter.title,
+				sourceId: chapter.sourceId,
+				sourcePkg: chapter.sourcePkg,
+				sourceLang: chapter.sourceLang,
 				chapterUrl: chapter.chapterUrl,
+				chapterName: chapter.chapterName,
+				chapterNumber: chapter.chapterNumber ?? null,
 				currentStatus: chapter.downloadStatus,
 				localRelativePath: chapter.localRelativePath ?? null,
 				storageKind: chapter.storageKind ?? null

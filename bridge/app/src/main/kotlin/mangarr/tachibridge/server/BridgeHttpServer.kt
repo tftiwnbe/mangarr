@@ -25,7 +25,10 @@ import mangarr.tachibridge.runtime.ConvexBridgeClient
 import mangarr.tachibridge.runtime.DownloadReconcileChapter
 import java.net.URLDecoder
 import java.net.InetSocketAddress
+import java.nio.file.Files
+import java.io.IOException
 import java.util.concurrent.Executors
+import kotlin.io.path.deleteIfExists
 
 private val logger = KotlinLogging.logger {}
 
@@ -164,19 +167,18 @@ class BridgeHttpServer(
             }
 
             val localRelativePath = exchange.queryParam("path")
-            val storageKind = exchange.queryParam("storage")
             val index = exchange.queryParam("index")?.toIntOrNull()
-            if (localRelativePath.isNullOrBlank() || storageKind.isNullOrBlank() || index == null || index < 0) {
-                sendJson(exchange, 400, buildJsonObject { put("message", "Missing path, storage, or index") })
+            if (localRelativePath.isNullOrBlank() || index == null || index < 0) {
+                sendJson(exchange, 400, buildJsonObject { put("message", "Missing path or index") })
                 return@createContext
             }
 
             try {
-                val image = bridgeService.fetchStoredPage(localRelativePath, storageKind, index)
+                val image = bridgeService.fetchStoredPage(localRelativePath, index)
                 sendBytes(exchange, 200, image.bytes, image.contentType)
             } catch (error: Exception) {
                 logger.warn(error) {
-                    "Failed to serve downloaded page asset path=$localRelativePath storage=$storageKind index=$index"
+                    "Failed to serve downloaded page asset path=$localRelativePath index=$index"
                 }
                 sendJson(exchange, 404, buildJsonObject { put("message", "Downloaded page asset is unavailable") })
             }
@@ -216,24 +218,25 @@ class BridgeHttpServer(
             }
 
             val localRelativePath = exchange.queryParam("path")
-            val storageKind = exchange.queryParam("storage")
-            if (localRelativePath.isNullOrBlank() || storageKind.isNullOrBlank()) {
-                sendJson(exchange, 400, buildJsonObject { put("message", "Missing path or storage") })
+            if (localRelativePath.isNullOrBlank()) {
+                sendJson(exchange, 400, buildJsonObject { put("message", "Missing path") })
                 return@createContext
             }
 
             try {
-                val file = bridgeService.fetchStoredChapterFile(localRelativePath, storageKind)
-                sendBytes(
+                val file = bridgeService.fetchStoredChapterFile(localRelativePath)
+                sendFile(
                     exchange,
                     200,
-                    file.bytes,
+                    file.filePath,
                     file.contentType,
+                    file.fileSizeBytes,
                     mapOf("content-disposition" to """attachment; filename="${file.fileName}""""),
+                    deleteAfterSend = file.deleteAfterSend,
                 )
             } catch (error: Exception) {
                 logger.warn(error) {
-                    "Failed to serve downloaded chapter file path=$localRelativePath storage=$storageKind"
+                    "Failed to serve downloaded chapter file path=$localRelativePath"
                 }
                 sendJson(exchange, 404, buildJsonObject { put("message", "Downloaded chapter file is unavailable") })
             }
@@ -251,7 +254,6 @@ class BridgeHttpServer(
                     val updated =
                         bridgeService.updateDownloadSettings(
                             downloadPath = payload.optionalString("downloadPath"),
-                            compressionEnabled = payload.optionalBoolean("compressionEnabled"),
                             failedRetryDelaySeconds = payload.optionalInt("failedRetryDelaySeconds"),
                         )
                     sendJson(exchange, 200, updated)
@@ -326,6 +328,23 @@ class BridgeHttpServer(
             }
         }
 
+        server.createContext("/extensions/repository") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+            if (exchange.requestMethod.uppercase() != "GET") {
+                sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+                return@createContext
+            }
+
+            try {
+                sendJson(exchange, 200, bridgeService.repositorySnapshot())
+            } catch (error: Exception) {
+                logger.warn(error) { "Failed to read repository snapshot" }
+                sendJson(exchange, 502, buildJsonObject { put("message", "Unable to read repository snapshot") })
+            }
+        }
+
         server.createContext("/extensions/proxy") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
@@ -352,6 +371,43 @@ class BridgeHttpServer(
             }
         }
 
+        server.createContext("/extensions/source-enabled") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+            if (exchange.requestMethod.uppercase() != "PUT") {
+                sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+                return@createContext
+            }
+
+            val payload = readJsonBody(exchange)
+            val pkg = payload.optionalString("pkg")
+            val sourceId = payload.optionalString("sourceId")
+            val enabled = payload.optionalBoolean("enabled")
+            if (pkg.isNullOrBlank() || sourceId.isNullOrBlank() || enabled == null) {
+                sendJson(exchange, 400, buildJsonObject { put("message", "Missing pkg, sourceId, or enabled") })
+                return@createContext
+            }
+
+            try {
+                val result = kotlinx.coroutines.runBlocking { bridgeService.setSourceEnabled(sourceId, enabled) }
+                bridgeClient?.setInstalledExtensionSourceEnabled(
+                    bridgeClient.payload(
+                        buildJsonObject {
+                            put("pkg", pkg)
+                            put("sourceId", sourceId)
+                            put("enabled", enabled)
+                            put("now", System.currentTimeMillis())
+                        },
+                    ),
+                )
+                sendJson(exchange, 200, result)
+            } catch (error: Exception) {
+                logger.warn(error) { "Failed to toggle source $sourceId for $pkg" }
+                sendJson(exchange, 502, buildJsonObject { put("message", "Unable to update source state") })
+            }
+        }
+
         server.createContext("/downloads/reconcile") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
@@ -370,7 +426,17 @@ class BridgeHttpServer(
             var missing = 0
 
             for (chapter in chapters) {
-                val stored = bridgeService.resolveStoredChapter(chapter.titleId, chapter.chapterUrl)
+                val stored =
+                    bridgeService.resolveStoredChapter(
+                        titleId = chapter.titleId,
+                        titleName = chapter.titleName,
+                        sourceId = chapter.sourceId,
+                        sourcePkg = chapter.sourcePkg,
+                        sourceLang = chapter.sourceLang,
+                        chapterUrl = chapter.chapterUrl,
+                        chapterName = chapter.chapterName,
+                        chapterNumber = chapter.chapterNumber,
+                    )
                 if (stored == null) {
                     if (chapter.currentStatus == "downloaded" || !chapter.localRelativePath.isNullOrBlank()) {
                         updateChapterState(
@@ -438,9 +504,14 @@ class BridgeHttpServer(
             val deleted =
                 bridgeService.deleteDownloadedChapter(
                     titleId = titleId,
+                    titleName = payload.requiredString("titleName"),
+                    sourceId = payload.requiredString("sourceId"),
+                    sourcePkg = payload.requiredString("sourcePkg"),
+                    sourceLang = payload.requiredString("sourceLang"),
                     chapterUrl = chapterUrl,
+                    chapterName = payload.requiredString("chapterName"),
+                    chapterNumber = payload.optionalDouble("chapterNumber"),
                     localRelativePath = payload.optionalString("localRelativePath"),
-                    storageKind = payload.optionalString("storageKind"),
                 )
 
             updateChapterState(
@@ -465,7 +536,6 @@ class BridgeHttpServer(
         }
 
         server.start()
-        logger.info { "Bridge HTTP server started on $host:$port" }
     }
 
     fun stop() {
@@ -491,8 +561,9 @@ class BridgeHttpServer(
     private fun sendJson(exchange: HttpExchange, status: Int, payload: kotlinx.serialization.json.JsonObject) {
         val body = json.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), payload).toByteArray()
         exchange.responseHeaders.add("content-type", "application/json")
-        exchange.sendResponseHeaders(status, body.size.toLong())
-        exchange.responseBody.use { output -> output.write(body) }
+        sendResponse(exchange, status, body.size.toLong()) {
+            it.write(body)
+        }
     }
 
     private fun sendBytes(
@@ -507,8 +578,68 @@ class BridgeHttpServer(
         for ((name, value) in extraHeaders) {
             exchange.responseHeaders.set(name, value)
         }
-        exchange.sendResponseHeaders(status, body.size.toLong())
-        exchange.responseBody.use { output -> output.write(body) }
+        sendResponse(exchange, status, body.size.toLong()) {
+            it.write(body)
+        }
+    }
+
+    private fun sendFile(
+        exchange: HttpExchange,
+        status: Int,
+        filePath: java.nio.file.Path,
+        contentType: String,
+        contentLength: Long,
+        extraHeaders: Map<String, String> = emptyMap(),
+        deleteAfterSend: Boolean = false,
+    ) {
+        exchange.responseHeaders.set("content-type", contentType)
+        exchange.responseHeaders.set("cache-control", "private, max-age=300")
+        for ((name, value) in extraHeaders) {
+            exchange.responseHeaders.set(name, value)
+        }
+        try {
+            sendResponse(exchange, status, contentLength) {
+                Files.copy(filePath, it)
+            }
+        } finally {
+            if (deleteAfterSend) {
+                runCatching { filePath.deleteIfExists() }
+            }
+        }
+    }
+
+    private inline fun sendResponse(
+        exchange: HttpExchange,
+        status: Int,
+        contentLength: Long,
+        write: (java.io.OutputStream) -> Unit,
+    ) {
+        try {
+            exchange.sendResponseHeaders(status, contentLength)
+            exchange.responseBody.use { output -> write(output) }
+        } catch (error: IOException) {
+            if (isClientAbort(error)) {
+                logger.debug(error) { "Client disconnected before bridge response completed" }
+                return
+            }
+            throw error
+        }
+    }
+
+    private fun isClientAbort(error: IOException): Boolean {
+        var current: Throwable? = error
+        while (current != null) {
+            val message = current.message?.lowercase().orEmpty()
+            if (
+                message.contains("broken pipe") ||
+                message.contains("connection reset by peer") ||
+                message.contains("stream closed")
+            ) {
+                return true
+            }
+            current = current.cause
+        }
+        return false
     }
 
     private fun HttpExchange.queryParam(name: String): String? =
@@ -547,7 +678,13 @@ class BridgeHttpServer(
         return DownloadReconcileChapter(
             chapterId = payload.requiredString("chapterId"),
             titleId = payload.requiredString("titleId"),
+            titleName = payload.requiredString("titleName"),
+            sourceId = payload.requiredString("sourceId"),
+            sourcePkg = payload.requiredString("sourcePkg"),
+            sourceLang = payload.requiredString("sourceLang"),
             chapterUrl = payload.requiredString("chapterUrl"),
+            chapterName = payload.requiredString("chapterName"),
+            chapterNumber = payload.optionalDouble("chapterNumber"),
             currentStatus = payload.requiredString("currentStatus"),
             localRelativePath = payload.optionalString("localRelativePath"),
             storageKind = payload.optionalString("storageKind"),
@@ -592,8 +729,17 @@ class BridgeHttpServer(
         this[name]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
 
     private fun JsonObject.optionalInt(name: String): Int? =
-        this[name]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+        this[name]?.jsonPrimitive?.intLikeOrNull()
 
     private fun JsonObject.optionalBoolean(name: String): Boolean? =
         this[name]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
+
+    private fun JsonObject.optionalDouble(name: String): Double? =
+        this[name]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull()
+
+    private fun JsonPrimitive.intLikeOrNull(): Int? {
+        val numeric = contentOrNull?.toDoubleOrNull() ?: return null
+        if (!numeric.isFinite() || numeric % 1.0 != 0.0) return null
+        return numeric.toInt()
+    }
 }

@@ -21,7 +21,7 @@ services:
       - "3210:3210"
     volumes:
       - ./config:/app/config
-      - ./data:/app/data
+      - ./data:/app/downloads
       - ./web:/app/web
       - web_node_modules:/app/web/node_modules
 

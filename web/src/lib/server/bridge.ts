@@ -7,7 +7,8 @@ export function getBridgeBaseUrl() {
 	if (explicitUrl) {
 		return explicitUrl.replace(/\/+$/, '');
 	}
-	const port = (privateEnv.MANGARR_BRIDGE_PORT ?? DEFAULT_BRIDGE_PORT).trim() || DEFAULT_BRIDGE_PORT;
+	const port =
+		(privateEnv.MANGARR_BRIDGE_PORT ?? DEFAULT_BRIDGE_PORT).trim() || DEFAULT_BRIDGE_PORT;
 	return `http://127.0.0.1:${port}`;
 }
 

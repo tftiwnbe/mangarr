@@ -46,10 +46,10 @@ object ConfigManager {
             val defaultConfig = BridgeConfig()
             saveInternal(defaultConfig)
             current.set(defaultConfig)
-            logger.info { "Created default config at $configPath" }
+            logger.debug { "Created default config at $configPath" }
         } else {
             current.set(loadInternal())
-            logger.info { "Loaded config from $configPath" }
+            logger.debug { "Loaded config from $configPath" }
         }
     }
 
@@ -139,6 +139,43 @@ object ConfigManager {
         }
     }
 
+    fun setSourceEnabled(
+        sourceId: Long,
+        enabled: Boolean,
+    ) {
+        update { config ->
+            var changed = false
+            val updatedExtensions =
+                config.extensions.map { extension ->
+                    var extensionChanged = false
+                    val updatedSources =
+                        extension.sources.map { source ->
+                            if (source.id != sourceId) {
+                                source
+                            } else {
+                                extensionChanged = extensionChanged || source.enabled != enabled
+                                changed = changed || source.enabled != enabled
+                                source.copy(enabled = enabled)
+                            }
+                        }
+
+                    if (!extensionChanged) {
+                        extension
+                    } else {
+                        extension.copy(sources = updatedSources)
+                    }
+                }
+
+            if (!changed) {
+                config
+            } else {
+                config.copy(extensions = updatedExtensions)
+            }
+        }
+    }
+
+    fun isSourceEnabled(sourceId: Long): Boolean = config.findSourceInfo(sourceId)?.enabled ?: true
+
     fun removeSourcePreference(
         sourceId: Long,
         key: String,
@@ -190,10 +227,6 @@ object ConfigManager {
 
     fun setDownloadPath(path: String) {
         updateDownloads { it.copy(downloadPath = path.trim()) }
-    }
-
-    fun setDownloadCompressionEnabled(enabled: Boolean) {
-        updateDownloads { it.copy(compressionEnabled = enabled) }
     }
 
     fun setFailedRetryDelaySeconds(seconds: Int) {

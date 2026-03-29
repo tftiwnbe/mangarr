@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto, replaceState } from '$app/navigation';
 	import { page } from '$app/state';
-	import { onMount } from 'svelte';
-	import { SvelteSet } from 'svelte/reactivity';
+	import { onMount, tick } from 'svelte';
+	import { SvelteSet, SvelteURLSearchParams } from 'svelte/reactivity';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import {
 		ArrowsInIcon,
@@ -22,6 +22,7 @@
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import { convexApi } from '$lib/convex/api';
+	import { waitForCommand, type CommandState } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
 	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
 	import { SlidePanel } from '$lib/elements/slide-panel';
@@ -29,14 +30,22 @@
 	import { navigateBack } from '$lib/stores/nav-history';
 	import { panelOverlayOpen } from '$lib/stores/ui';
 	import { getReaderProgress, setReaderProgress } from '$lib/utils/reader-progress';
+	import {
+		formatChapterNumberValue,
+		hasDisplayableChapterNumber,
+		parseStructuredChapterName
+	} from '$lib/utils/chapter-display';
 	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
 
-	const { data } = $props<{ data: { titleId: string | null; chapterId: string | null } }>();
+	const { data } = $props<{
+		data: { titleSegment: string | null; chapterSegment: string | null };
+	}>();
 
 	type ReaderMode = 'vertical' | 'horizontal';
 
 	type ChapterItem = {
 		_id: Id<'libraryChapters'>;
+		routeSegment?: string | null;
 		libraryTitleId: Id<'libraryTitles'>;
 		chapterName: string;
 		chapterNumber?: number | null;
@@ -54,6 +63,7 @@
 
 	type ReaderTitle = {
 		_id: Id<'libraryTitles'>;
+		routeSegment?: string | null;
 		title: string;
 		sourceId: string;
 		sourceLang: string;
@@ -78,14 +88,7 @@
 		imageUrl?: string;
 	};
 
-	type CommandItem = {
-		id: string;
-		commandType: string;
-		status: string;
-		payload?: Record<string, unknown> | null;
-		result?: Record<string, unknown> | null;
-		lastErrorMessage?: string | null;
-	};
+	type CommandItem = CommandState<Record<string, unknown>>;
 
 	type CommentItem = {
 		_id: Id<'chapterComments'>;
@@ -103,14 +106,18 @@
 	const readerBackSkipPrefixes = ['/reader/'];
 
 	const client = useConvexClient();
-	const readerQuery = useQuery(
-		convexApi.library.getReaderByChapterId,
-		() => (data.chapterId ? { chapterId: data.chapterId as Id<'libraryChapters'> } : 'skip')
+	const readerQuery = useQuery(convexApi.library.getReaderByRouteSegments, () =>
+		data.titleSegment && data.chapterSegment
+			? {
+					titleRouteSegment: data.titleSegment,
+					chapterRouteSegment: data.chapterSegment
+				}
+			: 'skip'
 	);
-	const commandsQuery = useQuery(convexApi.commands.listMine, () => ({ limit: 100 }));
-	const commentsQuery = useQuery(
-		convexApi.library.listChapterComments,
-		() => (data.chapterId ? { chapterId: data.chapterId as Id<'libraryChapters'> } : 'skip')
+	const rawReaderData = $derived((readerQuery.data as ReaderQuery) ?? null);
+	const resolvedCommentChapterId = $derived(rawReaderData?.chapter?._id ?? null);
+	const commentsQuery = useQuery(convexApi.library.listChapterComments, () =>
+		resolvedCommentChapterId ? { chapterId: resolvedCommentChapterId } : 'skip'
 	);
 
 	let mode = $state<ReaderMode>('vertical');
@@ -134,18 +141,25 @@
 	let paintedPageIds = new SvelteSet<string>();
 	let fetchRequested = $state(false);
 	let initializedProgress = $state(false);
-	let progressSaveTimer = $state<ReturnType<typeof setTimeout> | null>(null);
+	let progressFlushTimer: ReturnType<typeof setTimeout> | null = null;
+	let progressSyncInFlight = $state(false);
+	let pendingServerPageIndex = $state<number | null>(null);
+	let lastSavedServerPageIndex = $state<number | null>(null);
 	let lastChapterId = $state<string | null>(null);
+	let remotePagesCommand = $state<CommandItem | null>(null);
+	let pageRetryCounts = $state<Record<string, number>>({});
+	let localPagesUnavailableForChapterId = $state<string | null>(null);
+	let reconcileRequestedForTitleId = $state<string | null>(null);
+	let scrollFrame = 0;
+	let sequentialPageCeiling = $state(0);
 
-	const readerData = $derived((readerQuery.data as ReaderQuery) ?? null);
+	const readerData = $derived(rawReaderData);
 	const title = $derived(readerData?.title ?? null);
 	const chapter = $derived(readerData?.chapter ?? null);
+	const currentChapterId = $derived(chapter?._id ?? null);
 	const chapters = $derived(readerData?.chapters ?? []);
-	const commands = $derived((commandsQuery.data ?? []) as CommandItem[]);
 	const comments = $derived((commentsQuery.data ?? []) as CommentItem[]);
-	const loadError = $derived(
-		readerQuery.error instanceof Error ? readerQuery.error.message : null
-	);
+	const loadError = $derived(readerQuery.error instanceof Error ? readerQuery.error.message : null);
 
 	const pageParamIndex = $derived.by(() => {
 		const raw = page.url.searchParams.get('page');
@@ -154,36 +168,27 @@
 		return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
 	});
 
-	const remotePagesResult = $derived.by(() => {
-		if (!chapter) return null;
-		for (const item of commands) {
-			if (item.commandType !== 'reader.pages.fetch') continue;
-			const payload = item.payload ?? {};
-			if (
-				String(payload.sourceId ?? '') !== chapter.sourceId ||
-				String(payload.chapterUrl ?? '') !== chapter.chapterUrl
-			) {
-				continue;
-			}
-			return item;
-		}
-		return null;
-	});
+	const remotePagesResult = $derived(remotePagesCommand);
 
 	const remotePages = $derived.by(() =>
-		((remotePagesResult?.result?.pages as RemotePage[] | undefined) ?? []).sort(
+		[...((remotePagesResult?.result?.pages as RemotePage[] | undefined) ?? [])].sort(
 			(left, right) => left.index - right.index
 		)
 	);
-	const isPagesLoading = $derived.by(() => {
+	const canUseDownloadedPages = $derived.by(() => {
 		if (!chapter) return false;
-		if (
+		if (localPagesUnavailableForChapterId === chapter._id) return false;
+		return (
 			chapter.downloadStatus === 'downloaded' &&
-			chapter.localRelativePath &&
-			chapter.storageKind &&
+			Boolean(chapter.localRelativePath) &&
+			Boolean(chapter.storageKind) &&
 			typeof chapter.totalPages === 'number' &&
 			chapter.totalPages > 0
-		) {
+		);
+	});
+	const isPagesLoading = $derived.by(() => {
+		if (!chapter) return false;
+		if (canUseDownloadedPages) {
 			return false;
 		}
 		return (
@@ -195,16 +200,11 @@
 		);
 	});
 
-	const pages = $derived.by(() => {
+	const pages = $derived.by((): ReaderPage[] => {
 		if (!chapter) return [] as ReaderPage[];
-		if (
-			chapter.downloadStatus === 'downloaded' &&
-			chapter.localRelativePath &&
-			chapter.storageKind &&
-			typeof chapter.totalPages === 'number' &&
-			chapter.totalPages > 0
-		) {
-			return Array.from({ length: chapter.totalPages }, (_, index) => ({
+		if (canUseDownloadedPages) {
+			const totalPages = chapter.totalPages ?? 0;
+			return Array.from({ length: totalPages }, (_, index) => ({
 				id: `local:${chapter._id}:${index}`,
 				pageIndex: index,
 				kind: 'local' as const,
@@ -219,21 +219,40 @@
 		}));
 	});
 
-	const currentPage = $derived(pages[currentPageIndex] ?? null);
+	const currentPage = $derived((pages[currentPageIndex] ?? null) as ReaderPage | null);
 	const prevChapterId = $derived.by(() => {
-		if (!chapter || chapters.length === 0) return null;
-		const index = chapters.findIndex((item) => item._id === chapter._id);
+		if (!currentChapterId || chapters.length === 0) return null;
+		const index = chapters.findIndex((item) => item._id === currentChapterId);
 		if (index <= 0) return null;
 		return chapters[index - 1]?._id ?? null;
 	});
 	const nextChapterId = $derived.by(() => {
-		if (!chapter || chapters.length === 0) return null;
-		const index = chapters.findIndex((item) => item._id === chapter._id);
+		if (!currentChapterId || chapters.length === 0) return null;
+		const index = chapters.findIndex((item) => item._id === currentChapterId);
 		if (index < 0 || index >= chapters.length - 1) return null;
 		return chapters[index + 1]?._id ?? null;
 	});
+	const prevChapter = $derived.by(() =>
+		prevChapterId ? (chapters.find((item) => item._id === prevChapterId) ?? null) : null
+	);
+	const nextChapter = $derived.by(() =>
+		nextChapterId ? (chapters.find((item) => item._id === nextChapterId) ?? null) : null
+	);
 	const canonicalTitlePath = $derived.by(() =>
-		title ? buildTitlePath(title._id, title.title) : '/library'
+		title ? buildTitlePath(String(title._id), title.title, title.routeSegment ?? null) : '/library'
+	);
+	const canonicalReaderPath = $derived.by(() =>
+		title && chapter
+			? buildReaderPath({
+					titleId: title._id,
+					titleName: title.title,
+					titleRouteSegment: title.routeSegment ?? null,
+					chapterId: chapter._id,
+					chapterName: chapter.chapterName,
+					chapterNumber: chapter.chapterNumber ?? null,
+					chapterRouteSegment: chapter.routeSegment ?? null
+				})
+			: null
 	);
 	const sortedComments = $derived.by(() => {
 		const rows = [...comments];
@@ -250,29 +269,87 @@
 
 	function resolvePageUrl(item: ReaderPage): string {
 		if (!chapter) return '';
+		const retryCount = pageRetryCounts[item.id] ?? 0;
 		if (item.kind === 'local' && chapter.localRelativePath && chapter.storageKind) {
-			const params = new URLSearchParams({
+			const params = new SvelteURLSearchParams({
 				path: chapter.localRelativePath,
-				storage: chapter.storageKind,
 				index: String(item.index)
 			});
 			return `/api/internal/bridge/library/page?${params.toString()}`;
 		}
 
-		const params = new URLSearchParams({
+		const params = new SvelteURLSearchParams({
 			sourceId: chapter.sourceId,
 			chapterUrl: chapter.chapterUrl,
 			index: String(item.index)
 		});
+		if (retryCount > 0) {
+			params.set('retry', String(retryCount));
+		}
 		return `/api/internal/bridge/reader/page?${params.toString()}`;
 	}
 
-	function markPageLoaded(id: string) {
+	function markPageLoaded(id: string, pageIndex: number) {
 		loadedPageIds.add(id);
+		if (mode === 'vertical') {
+			sequentialPageCeiling = Math.max(sequentialPageCeiling, pageIndex + 1);
+		}
 	}
 
 	function markPagePainted(id: string) {
 		paintedPageIds.add(id);
+	}
+
+	function handlePageError(item: ReaderPage) {
+		if (item.kind === 'local') {
+			if (chapter) {
+				localPagesUnavailableForChapterId = chapter._id;
+				if (title && reconcileRequestedForTitleId !== title._id) {
+					reconcileRequestedForTitleId = title._id;
+					void fetch('/api/internal/bridge/downloads/reconcile', {
+						method: 'POST',
+						headers: {
+							'content-type': 'application/json'
+						},
+						body: JSON.stringify({ titleId: title._id })
+					}).finally(() => {
+						if (reconcileRequestedForTitleId === title._id) {
+							reconcileRequestedForTitleId = null;
+						}
+					});
+				}
+			}
+			return;
+		}
+		const retries = pageRetryCounts[item.id] ?? 0;
+		if (retries >= 2) return;
+		pageRetryCounts = {
+			...pageRetryCounts,
+			[item.id]: retries + 1
+		};
+	}
+
+	function pageDistanceFromCurrent(pageIndex: number) {
+		return Math.abs(pageIndex - currentPageIndex);
+	}
+
+	function pageRequestUnlocked(readerPage: ReaderPage): boolean {
+		if (mode !== 'vertical') return true;
+		return readerPage.pageIndex <= sequentialPageCeiling;
+	}
+
+	function pageLoadingMode(readerPage: ReaderPage): 'eager' | 'lazy' {
+		if (mode !== 'vertical') {
+			return pageDistanceFromCurrent(readerPage.pageIndex) <= 1 ? 'eager' : 'lazy';
+		}
+		return readerPage.pageIndex <= sequentialPageCeiling ? 'eager' : 'lazy';
+	}
+
+	function pageFetchPriority(readerPage: ReaderPage): 'high' | 'auto' {
+		if (mode !== 'vertical') {
+			return pageDistanceFromCurrent(readerPage.pageIndex) <= 1 ? 'high' : 'auto';
+		}
+		return readerPage.pageIndex <= sequentialPageCeiling ? 'high' : 'auto';
 	}
 
 	function jumpToPage(pageIndex: number) {
@@ -287,11 +364,51 @@
 		}
 	}
 
-	function openChapter(chapterId: Id<'libraryChapters'> | null) {
-		if (!title || !chapterId) return;
+	function chapterListLabel(item: ChapterItem): string {
+		if (hasDisplayableChapterNumber(item.chapterNumber)) {
+			return $_('chapter.chapterShort', {
+				values: { number: formatChapterNumberValue(item.chapterNumber) }
+			});
+		}
+		const parsed = parseStructuredChapterName(item.chapterName);
+		if (!parsed) return item.chapterName;
+		const parts: string[] = [];
+		if (parsed.volumeNumber) {
+			parts.push($_('chapter.volumeShort', { values: { number: parsed.volumeNumber } }));
+		}
+		if (parsed.chapterNumber) {
+			parts.push($_('chapter.chapterShort', { values: { number: parsed.chapterNumber } }));
+		}
+		return parts.join(' · ') || item.chapterName;
+	}
+
+	function chapterListDetail(item: ChapterItem): string | null {
+		const raw = item.chapterName.trim();
+		if (!raw) return null;
+		if (hasDisplayableChapterNumber(item.chapterNumber)) {
+			const chapterShort = $_('chapter.chapterShort', {
+				values: { number: formatChapterNumberValue(item.chapterNumber) }
+			});
+			return raw === chapterShort ? null : raw;
+		}
+		return parseStructuredChapterName(raw)?.detail ?? null;
+	}
+
+	function openChapter(target: ChapterItem | null) {
+		if (!title || !target) return;
 		showChapterPanel = false;
 		showCommentsPanel = false;
-		void goto(buildReaderPath({ titleId: title._id, chapterId }));
+		void goto(
+			buildReaderPath({
+				titleId: title._id,
+				titleName: title.title,
+				titleRouteSegment: title.routeSegment ?? null,
+				chapterId: target._id,
+				chapterName: target.chapterName,
+				chapterNumber: target.chapterNumber ?? null,
+				chapterRouteSegment: target.routeSegment ?? null
+			})
+		);
 	}
 
 	function prevPage() {
@@ -304,6 +421,44 @@
 
 	function formatTimestamp(timestamp: number): string {
 		return new Date(timestamp).toLocaleString();
+	}
+
+	function scheduleServerProgressFlush(delayMs = 900) {
+		if (progressFlushTimer) {
+			clearTimeout(progressFlushTimer);
+		}
+		progressFlushTimer = setTimeout(() => {
+			void flushServerProgress();
+		}, delayMs);
+	}
+
+	async function flushServerProgress() {
+		if (!chapter || progressSyncInFlight) return;
+		const activeChapterId = chapter._id;
+		const pageIndex = pendingServerPageIndex;
+		if (pageIndex === null || pageIndex === lastSavedServerPageIndex) {
+			return;
+		}
+
+		progressSyncInFlight = true;
+		try {
+			await client.mutation(convexApi.library.upsertChapterProgress, {
+				chapterId: activeChapterId,
+				pageIndex
+			});
+			if (chapter?._id !== activeChapterId) {
+				return;
+			}
+			lastSavedServerPageIndex = pageIndex;
+			if (pendingServerPageIndex === pageIndex) {
+				pendingServerPageIndex = null;
+			}
+		} finally {
+			progressSyncInFlight = false;
+			if (pendingServerPageIndex !== null && pendingServerPageIndex !== lastSavedServerPageIndex) {
+				scheduleServerProgressFlush(500);
+			}
+		}
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
@@ -392,22 +547,57 @@
 	});
 
 	$effect(() => {
+		if (!canonicalReaderPath) return;
+		if (page.url.pathname !== canonicalReaderPath) {
+			void goto(canonicalReaderPath, { replaceState: true, noScroll: true });
+		}
+	});
+
+	$effect(() => {
 		if (!chapter || fetchRequested) return;
-		if (chapter.downloadStatus === 'downloaded' && chapter.totalPages) return;
+		if (canUseDownloadedPages) return;
 		if (remotePagesResult?.status === 'running' || remotePagesResult?.status === 'queued') return;
 		if (remotePages.length > 0) return;
+		const requestKey = `${chapter.sourceId}::${chapter.chapterUrl}`;
 		fetchRequested = true;
-		void client
-			.mutation(convexApi.commands.enqueue, {
-				commandType: 'reader.pages.fetch',
-				payload: {
+		remotePagesCommand = {
+			id: requestKey,
+			commandType: 'reader.pages.fetch',
+			status: 'queued'
+		};
+		void (async () => {
+			try {
+				const { commandId } = await client.mutation(convexApi.commands.enqueueReaderPagesFetch, {
 					sourceId: chapter.sourceId,
 					chapterUrl: chapter.chapterUrl
+				});
+				const command = await waitForCommand<CommandItem>(client, commandId, {
+					timeoutMs: 15_000,
+					pollIntervalMs: 250,
+					onUpdate: (next) => {
+						if (`${chapter.sourceId}::${chapter.chapterUrl}` === requestKey) {
+							remotePagesCommand = next;
+						}
+					}
+				});
+				if (`${chapter.sourceId}::${chapter.chapterUrl}` === requestKey) {
+					remotePagesCommand = command;
 				}
-			})
-			.catch(() => {
-				fetchRequested = false;
-			});
+			} catch (error) {
+				if (`${chapter.sourceId}::${chapter.chapterUrl}` === requestKey) {
+					remotePagesCommand = {
+						id: requestKey,
+						commandType: 'reader.pages.fetch',
+						status: 'failed',
+						lastErrorMessage: error instanceof Error ? error.message : $_('reader.noPages')
+					};
+				}
+			} finally {
+				if (`${chapter.sourceId}::${chapter.chapterUrl}` === requestKey) {
+					fetchRequested = false;
+				}
+			}
+		})();
 	});
 
 	$effect(() => {
@@ -419,47 +609,95 @@
 		const preferredIndex = pages.findIndex((item) => item.pageIndex === preferredPage);
 		currentPageIndex = preferredIndex >= 0 ? preferredIndex : 0;
 		initializedProgress = true;
+		if (mode === 'vertical' && preferredIndex > 0) {
+			void tick().then(() => {
+				window.requestAnimationFrame(() => {
+					const node = document.querySelector(
+						`[data-reader-page-index="${preferredPage}"]`
+					) as HTMLElement | null;
+					node?.scrollIntoView({ behavior: 'auto', block: 'start' });
+				});
+			});
+		}
 	});
 
 	$effect(() => {
-		const currentChapterId = chapter?._id ?? null;
+		if (!initializedProgress || !chapter || !pages[currentPageIndex]) return;
+		if (typeof window === 'undefined') return;
+		const pageIndex = pages[currentPageIndex].pageIndex;
+		const currentParam = page.url.searchParams.get('page');
+		if (currentParam === String(pageIndex)) return;
+		const nextUrl = new URL(page.url);
+		nextUrl.searchParams.set('page', String(pageIndex));
+		replaceState(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`, page.state);
+	});
+
+	$effect(() => {
+		const serverPage = readerData?.progress?.pageIndex ?? null;
+		lastSavedServerPageIndex = serverPage;
+	});
+
+	$effect(() => {
 		if (currentChapterId === null) {
 			lastChapterId = null;
 			fetchRequested = false;
+			remotePagesCommand = null;
 			initializedProgress = false;
 			currentPageIndex = 0;
+			sequentialPageCeiling = 0;
+			progressSyncInFlight = false;
+			pendingServerPageIndex = null;
+			lastSavedServerPageIndex = null;
 			loadedPageIds.clear();
 			paintedPageIds.clear();
+			pageRetryCounts = {};
+			localPagesUnavailableForChapterId = null;
 			return;
 		}
 
 		if (lastChapterId !== currentChapterId) {
 			lastChapterId = currentChapterId;
 			fetchRequested = false;
+			remotePagesCommand = null;
 			initializedProgress = false;
 			currentPageIndex = 0;
+			sequentialPageCeiling = 0;
+			progressSyncInFlight = false;
+			pendingServerPageIndex = null;
+			lastSavedServerPageIndex =
+				readerData?.progress?.pageIndex ?? getReaderProgress(currentChapterId) ?? null;
 			loadedPageIds.clear();
 			paintedPageIds.clear();
+			pageRetryCounts = {};
+			localPagesUnavailableForChapterId = null;
+		}
+	});
+
+	$effect(() => {
+		if (mode !== 'vertical' || pages.length === 0) return;
+		const targetCeiling = Math.min(
+			Math.max(currentPageIndex + 1, 0),
+			Math.max(pages.length - 1, 0)
+		);
+		if (targetCeiling > sequentialPageCeiling) {
+			sequentialPageCeiling = targetCeiling;
 		}
 	});
 
 	$effect(() => {
 		if (!chapter || !pages[currentPageIndex]) return;
-		if (progressSaveTimer) {
-			clearTimeout(progressSaveTimer);
-		}
 		const pageIndex = pages[currentPageIndex].pageIndex;
 		setReaderProgress(chapter._id, pageIndex);
-		progressSaveTimer = setTimeout(() => {
-			void client.mutation(convexApi.library.upsertChapterProgress, {
-				chapterId: chapter._id,
-				pageIndex
-			});
-		}, 300);
+		if (pageIndex === lastSavedServerPageIndex) {
+			pendingServerPageIndex = null;
+			return;
+		}
+		pendingServerPageIndex = pageIndex;
+		scheduleServerProgressFlush();
 
 		return () => {
-			if (progressSaveTimer) {
-				clearTimeout(progressSaveTimer);
+			if (progressFlushTimer) {
+				clearTimeout(progressFlushTimer);
 			}
 		};
 	});
@@ -495,17 +733,26 @@
 				currentPageIndex = bestIndex;
 			}
 		};
+		const handleScroll = () => {
+			if (scrollFrame) return;
+			scrollFrame = window.requestAnimationFrame(() => {
+				scrollFrame = 0;
+				syncScroll();
+			});
+		};
 
 		syncTouch();
 		syncScroll();
 		media.addEventListener('change', syncTouch);
-		window.addEventListener('scroll', syncScroll, { passive: true });
+		window.addEventListener('scroll', handleScroll, { passive: true });
 		return () => {
 			document.documentElement.classList.remove('reader-mode');
 			document.body.classList.remove('reader-mode');
 			media.removeEventListener('change', syncTouch);
-			window.removeEventListener('scroll', syncScroll);
-			if (progressSaveTimer) clearTimeout(progressSaveTimer);
+			window.removeEventListener('scroll', handleScroll);
+			if (scrollFrame) window.cancelAnimationFrame(scrollFrame);
+			if (progressFlushTimer) clearTimeout(progressFlushTimer);
+			void flushServerProgress();
 		};
 	});
 </script>
@@ -576,7 +823,12 @@
 
 			{#if pages.length > 0}
 				<div class="mx-2 hidden items-center gap-0.5 md:flex">
-					<Button variant="ghost" size="icon-sm" onclick={() => openChapter(prevChapterId)} disabled={!prevChapterId}>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						onclick={() => openChapter(prevChapter)}
+						disabled={!prevChapter}
+					>
 						<SkipBackIcon size={16} />
 					</Button>
 					<Button variant="ghost" size="icon-sm" onclick={() => (showChapterPanel = true)}>
@@ -590,9 +842,16 @@
 						size="icon-sm"
 						onclick={() => (mode = mode === 'vertical' ? 'horizontal' : 'vertical')}
 					>
-						{#if mode === 'vertical'}<ArrowsOutIcon size={16} />{:else}<ArrowsInIcon size={16} />{/if}
+						{#if mode === 'vertical'}<ArrowsOutIcon size={16} />{:else}<ArrowsInIcon
+								size={16}
+							/>{/if}
 					</Button>
-					<Button variant="ghost" size="icon-sm" onclick={() => openChapter(nextChapterId)} disabled={!nextChapterId}>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						onclick={() => openChapter(nextChapter)}
+						disabled={!nextChapter}
+					>
 						<SkipForwardIcon size={16} />
 					</Button>
 				</div>
@@ -643,21 +902,28 @@
 		{#if mode === 'vertical'}
 			<div class="flex flex-col pt-10 md:mx-auto md:max-w-3xl">
 				{#each pages as readerPage (readerPage.id)}
-					<div data-reader-page-index={readerPage.pageIndex} class="relative">
+					<div
+						data-reader-page-index={readerPage.pageIndex}
+						class="relative"
+						style="content-visibility: auto; contain-intrinsic-size: 1000px 1500px;"
+					>
 						{#if !paintedPageIds.has(readerPage.id)}
 							<div class="aspect-[2/3] w-full bg-[var(--void-1)]"></div>
 						{/if}
 						<img
-							src={resolvePageUrl(readerPage)}
+							src={pageRequestUnlocked(readerPage) ? resolvePageUrl(readerPage) : undefined}
 							alt="{$_('reader.page')} {readerPage.pageIndex + 1}"
+							loading={pageLoadingMode(readerPage)}
+							fetchpriority={pageFetchPriority(readerPage)}
 							decoding="async"
 							class="bg-[var(--void-1)] object-contain {paintedPageIds.has(readerPage.id)
 								? 'w-full'
 								: 'absolute inset-0 opacity-0'}"
 							onload={() => {
-								markPageLoaded(readerPage.id);
+								markPageLoaded(readerPage.id, readerPage.pageIndex);
 								markPagePainted(readerPage.id);
 							}}
+							onerror={() => handlePageError(readerPage)}
 						/>
 					</div>
 				{/each}
@@ -667,11 +933,23 @@
 				<img
 					src={resolvePageUrl(currentPage)}
 					alt="{$_('reader.page')} {currentPage.pageIndex + 1}"
+					loading="eager"
 					class="max-h-svh w-auto max-w-full bg-[var(--void-1)] object-contain"
+					onerror={() => handlePageError(currentPage)}
 				/>
 				{#if isTouchDevice}
-					<button type="button" class="absolute inset-y-0 left-0 z-20 w-1/3" aria-label={$_('reader.prevPage')} onclick={prevPage}></button>
-					<button type="button" class="absolute inset-y-0 right-0 z-20 w-1/3" aria-label={$_('reader.nextPage')} onclick={nextPage}></button>
+					<button
+						type="button"
+						class="absolute inset-y-0 left-0 z-20 w-1/3"
+						aria-label={$_('reader.prevPage')}
+						onclick={prevPage}
+					></button>
+					<button
+						type="button"
+						class="absolute inset-y-0 right-0 z-20 w-1/3"
+						aria-label={$_('reader.nextPage')}
+						onclick={nextPage}
+					></button>
 				{/if}
 			</div>
 		{/if}
@@ -681,14 +959,14 @@
 				<p class="text-xs text-[var(--text-ghost)]">{chapter.chapterName}</p>
 			{/if}
 			<div class="flex items-center gap-3">
-				{#if prevChapterId}
-					<Button variant="outline" size="sm" onclick={() => openChapter(prevChapterId)}>
+				{#if prevChapter}
+					<Button variant="outline" size="sm" onclick={() => openChapter(prevChapter)}>
 						<CaretLeftIcon size={14} />
 						{$_('reader.prevChapter')}
 					</Button>
 				{/if}
-				{#if nextChapterId}
-					<Button variant="outline" size="sm" onclick={() => openChapter(nextChapterId)}>
+				{#if nextChapter}
+					<Button variant="outline" size="sm" onclick={() => openChapter(nextChapter)}>
 						{$_('reader.nextChapter')}
 						<CaretRightIcon size={14} />
 					</Button>
@@ -707,7 +985,12 @@
 				: 'pointer-events-none translate-y-full'}"
 		>
 			<div class="flex h-11 items-center justify-between px-2">
-				<Button variant="ghost" size="icon-sm" onclick={() => openChapter(prevChapterId)} disabled={!prevChapterId}>
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					onclick={() => openChapter(prevChapter)}
+					disabled={!prevChapter}
+				>
 					<SkipBackIcon size={16} />
 				</Button>
 				<div class="flex items-center gap-1">
@@ -722,10 +1005,17 @@
 						size="icon-sm"
 						onclick={() => (mode = mode === 'vertical' ? 'horizontal' : 'vertical')}
 					>
-						{#if mode === 'vertical'}<ArrowsOutIcon size={16} />{:else}<ArrowsInIcon size={16} />{/if}
+						{#if mode === 'vertical'}<ArrowsOutIcon size={16} />{:else}<ArrowsInIcon
+								size={16}
+							/>{/if}
 					</Button>
 				</div>
-				<Button variant="ghost" size="icon-sm" onclick={() => openChapter(nextChapterId)} disabled={!nextChapterId}>
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					onclick={() => openChapter(nextChapter)}
+					disabled={!nextChapter}
+				>
 					<SkipForwardIcon size={16} />
 				</Button>
 			</div>
@@ -733,23 +1023,36 @@
 	{/if}
 </div>
 
-<SlidePanel open={showChapterPanel} title={$_('reader.chapters')} onclose={() => (showChapterPanel = false)}>
+<SlidePanel
+	open={showChapterPanel}
+	title={$_('reader.chapters')}
+	onclose={() => (showChapterPanel = false)}
+>
 	<div class="flex flex-col">
 		{#if chapters.length === 0}
 			<p class="py-8 text-center text-xs text-[var(--text-ghost)]">{$_('common.noResults')}</p>
 		{:else}
 			{#each chapters as item (item._id)}
-				{@const isCurrent = chapter?._id === item._id}
+				{@const isCurrent = currentChapterId === item._id}
 				<button
 					type="button"
 					class="flex items-center justify-between gap-3 px-2 py-2.5 text-left text-xs transition-colors {isCurrent
 						? 'bg-[var(--void-3)] text-[var(--text)]'
 						: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
-					onclick={() => openChapter(item._id)}
+					onclick={() => openChapter(item)}
 				>
-					<p class="min-w-0 flex-1 truncate">{item.chapterName}</p>
+					<div class="min-w-0 flex-1">
+						<p class="truncate">{chapterListLabel(item)}</p>
+						{#if chapterListDetail(item)}
+							<p class="mt-0.5 truncate text-[11px] text-[var(--text-dim)]">
+								{chapterListDetail(item)}
+							</p>
+						{/if}
+					</div>
 					{#if item.chapterNumber != null}
-						<span class="shrink-0 text-[10px] text-[var(--text-ghost)] tabular-nums">{item.chapterNumber}</span>
+						<span class="shrink-0 text-[10px] text-[var(--text-ghost)] tabular-nums"
+							>{item.chapterNumber}</span
+						>
 					{/if}
 				</button>
 			{/each}
@@ -757,7 +1060,11 @@
 	</div>
 </SlidePanel>
 
-<SlidePanel open={showCommentsPanel} title={$_('reader.comments')} onclose={() => (showCommentsPanel = false)}>
+<SlidePanel
+	open={showCommentsPanel}
+	title={$_('reader.comments')}
+	onclose={() => (showCommentsPanel = false)}
+>
 	<div class="flex flex-col gap-4">
 		<div class="flex flex-col gap-2">
 			<textarea
@@ -771,7 +1078,9 @@
 				</p>
 				<div class="flex items-center gap-1.5">
 					{#if editingCommentId}
-						<Button variant="ghost" size="sm" onclick={startNewComment}>{$_('common.cancel')}</Button>
+						<Button variant="ghost" size="sm" onclick={startNewComment}
+							>{$_('common.cancel')}</Button
+						>
 					{/if}
 					<Button variant="ghost" size="sm" onclick={saveComment} disabled={commentSubmitting}>
 						{#if commentSubmitting}
@@ -820,7 +1129,11 @@
 						</div>
 						<p class="text-xs whitespace-pre-wrap text-[var(--text-soft)]">{comment.message}</p>
 						<div class="flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
-							<button type="button" class="transition-colors hover:text-[var(--text-muted)]" onclick={() => startEditComment(comment)}>
+							<button
+								type="button"
+								class="transition-colors hover:text-[var(--text-muted)]"
+								onclick={() => startEditComment(comment)}
+							>
 								{$_('common.edit')}
 							</button>
 							<button

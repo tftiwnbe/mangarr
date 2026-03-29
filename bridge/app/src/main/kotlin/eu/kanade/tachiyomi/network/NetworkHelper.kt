@@ -19,7 +19,11 @@ import java.net.CookieHandler
 import java.net.CookieManager
 import java.net.CookiePolicy
 import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.Paths
 import java.util.concurrent.TimeUnit
+import java.util.logging.Level
+import java.util.logging.Logger
 
 @kotlinx.serialization.ExperimentalSerializationApi
 class NetworkHelper(
@@ -28,6 +32,7 @@ class NetworkHelper(
     val cookieStore = PersistentCookieStore(context)
 
     init {
+        configureOkHttpLeakTracing()
         CookieHandler.setDefault(
             CookieManager(cookieStore, CookiePolicy.ACCEPT_ALL),
         )
@@ -41,6 +46,10 @@ class NetworkHelper(
     val userAgentFlow = userAgent.asStateFlow()
 
     fun defaultUserAgentProvider(): String = userAgent.value
+
+    private val httpCacheDirectory by lazy {
+        resolveHttpCacheDirectory(context).also { Files.createDirectories(it) }.toFile()
+    }
 
     private val baseClientBuilder: OkHttpClient.Builder
         get() {
@@ -71,7 +80,7 @@ class NetworkHelper(
                     )
                     .cache(
                         Cache(
-                            directory = Files.createTempDirectory("tachidesk_network_cache").toFile(),
+                            directory = httpCacheDirectory,
                             maxSize = 5L * 1024 * 1024, // 5 MiB
                         ),
                     ).addInterceptor(UncaughtExceptionInterceptor())
@@ -107,4 +116,25 @@ class NetworkHelper(
     val client by lazy { baseClientBuilder.build() }
 
     val cloudflareClient by lazy { client }
+
+    private fun resolveHttpCacheDirectory(context: Context): Path {
+        val configuredDataDir = System.getProperty("mangarr.data.dir")?.trim().orEmpty()
+        if (configuredDataDir.isNotEmpty()) {
+            return Paths.get(configuredDataDir).resolve("cache/http").toAbsolutePath().normalize()
+        }
+
+        return context.cacheDir.toPath().resolve("http").toAbsolutePath().normalize()
+    }
+
+    private fun configureOkHttpLeakTracing() {
+        val enabled =
+            System.getenv("MANGARR_OKHTTP_LEAK_TRACE")?.trim()?.lowercase()?.let {
+                it == "1" || it == "true" || it == "yes" || it == "on"
+            } ?: true
+        if (!enabled) {
+            return
+        }
+
+        Logger.getLogger(OkHttpClient::class.java.name).level = Level.FINE
+    }
 }

@@ -13,8 +13,12 @@ export const GET: RequestHandler = async (event) => {
 	const upstream = new URL('assets/library/cover', 'http://bridge.internal/');
 	upstream.searchParams.set('path', path);
 
-	return proxyBridgeRequest(event, `${upstream.pathname.slice(1)}?${upstream.searchParams.toString()}`, {
-		requireAdmin: false,
-		timeoutMs: 30000
-	});
+	return proxyBridgeRequest(
+		event,
+		`${upstream.pathname.slice(1)}?${upstream.searchParams.toString()}`,
+		{
+			requireAdmin: false,
+			timeoutMs: 30000
+		}
+	);
 };

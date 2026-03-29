@@ -8,11 +8,13 @@ data class BridgeSnapshot(
     val configured: Boolean,
     val running: Boolean,
     val ready: Boolean,
+    val degraded: Boolean,
     val status: String,
     val bridgeId: String,
     val port: Int,
     val restartCount: Int,
     val lastStartupError: String? = null,
+    val lastStartupWarning: String? = null,
 )
 
 class BridgeState(
@@ -26,11 +28,13 @@ class BridgeState(
                 configured = configured,
                 running = false,
                 ready = false,
+                degraded = false,
                 status = if (configured) "starting" else "error",
                 bridgeId = bridgeId,
                 port = port,
                 restartCount = 0,
                 lastStartupError = if (configured) null else "Convex bridge config is incomplete",
+                lastStartupWarning = null,
             ),
         )
 
@@ -38,31 +42,72 @@ class BridgeState(
 
     fun setRunning() {
         update {
-            it.copy(running = true, status = if (it.ready) "ready" else "starting", lastStartupError = null)
+            it.copy(
+                running = true,
+                degraded = false,
+                status = if (it.ready) "ready" else "starting",
+                lastStartupError = null,
+                lastStartupWarning = null,
+            )
         }
     }
 
     fun setReady() {
         update {
-            it.copy(running = true, ready = true, status = "ready", lastStartupError = null)
+            it.copy(
+                running = true,
+                ready = true,
+                degraded = false,
+                status = "ready",
+                lastStartupError = null,
+                lastStartupWarning = null,
+            )
+        }
+    }
+
+    fun setDegraded(message: String) {
+        update {
+            it.copy(
+                running = true,
+                ready = true,
+                degraded = true,
+                status = "degraded",
+                lastStartupError = null,
+                lastStartupWarning = message,
+            )
         }
     }
 
     fun setStopped() {
         update {
-            it.copy(running = false, ready = false, status = "stopped")
+            it.copy(running = false, ready = false, degraded = false, status = "stopped")
         }
     }
 
     fun setError(message: String) {
         update {
-            it.copy(running = false, ready = false, status = "error", lastStartupError = message)
+            it.copy(
+                running = it.running,
+                ready = false,
+                degraded = false,
+                status = "error",
+                lastStartupError = message,
+                lastStartupWarning = null,
+            )
         }
     }
 
     fun restarted() {
         update {
-            it.copy(restartCount = it.restartCount + 1, running = true, ready = false, status = "starting")
+            it.copy(
+                restartCount = it.restartCount + 1,
+                running = true,
+                ready = false,
+                degraded = false,
+                status = "starting",
+                lastStartupError = null,
+                lastStartupWarning = null,
+            )
         }
     }
 

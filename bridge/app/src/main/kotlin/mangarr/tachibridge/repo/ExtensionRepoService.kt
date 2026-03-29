@@ -9,6 +9,11 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import okhttp3.Request
 import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.Path
+import kotlin.io.path.exists
+import kotlin.io.path.readText
+import kotlin.io.path.writeText
 
 private val logger = KotlinLogging.logger {}
 
@@ -34,10 +39,17 @@ data class ExtensionRepoSource(
     val supportsLatest: Boolean? = null,
 )
 
+@Serializable
+private data class ExtensionRepoCacheSnapshot(
+    val url: String,
+    val entries: List<ExtensionRepoEntry>,
+)
+
 @kotlinx.serialization.ExperimentalSerializationApi
 class ExtensionRepoService(
     private val networkHelper: NetworkHelper,
     initialRepoIndexUrl: String,
+    private val cachePath: Path,
     private val json: Json = Json { ignoreUnknownKeys = true },
 ) {
     @Volatile
@@ -45,6 +57,10 @@ class ExtensionRepoService(
 
     @Volatile
     private var cachedIndex: List<ExtensionRepoEntry>? = null
+
+    init {
+        loadPersistedIndex()
+    }
 
     fun fetchIndex(forceRefresh: Boolean = false): List<ExtensionRepoEntry> {
         if (!forceRefresh && cachedIndex != null) {
@@ -70,6 +86,7 @@ class ExtensionRepoService(
                 }
 
         cachedIndex = entries
+        persistIndex(currentUrl, entries)
         logger.info { "Fetched ${entries.size} extensions from repository" }
         return entries
     }
@@ -83,6 +100,7 @@ class ExtensionRepoService(
         validateRepoIndexUrl(url)
         repoIndexUrl = url
         cachedIndex = null // Clear cache when URL changes
+        clearPersistedIndex()
         logger.info { "Updated repository index URL to: $url" }
     }
 
@@ -99,6 +117,48 @@ class ExtensionRepoService(
 
         if (!url.endsWith(".json")) {
             throw InvalidRepoIndexUrlException("Extensions index URL must point to a JSON file.")
+        }
+    }
+
+    private fun loadPersistedIndex() {
+        if (repoIndexUrl.isBlank() || !cachePath.exists()) {
+            return
+        }
+
+        runCatching {
+            val snapshot =
+                json.decodeFromString(
+                    ExtensionRepoCacheSnapshot.serializer(),
+                    cachePath.readText(),
+                )
+            if (snapshot.url == repoIndexUrl) {
+                cachedIndex = snapshot.entries
+                logger.info { "Loaded ${snapshot.entries.size} cached repository entries from disk" }
+            }
+        }.onFailure { error ->
+            logger.warn(error) { "Failed to read persisted repository cache" }
+        }
+    }
+
+    private fun persistIndex(url: String, entries: List<ExtensionRepoEntry>) {
+        runCatching {
+            Files.createDirectories(cachePath.parent)
+            cachePath.writeText(
+                json.encodeToString(
+                    ExtensionRepoCacheSnapshot.serializer(),
+                    ExtensionRepoCacheSnapshot(url = url, entries = entries),
+                ),
+            )
+        }.onFailure { error ->
+            logger.warn(error) { "Failed to persist repository cache" }
+        }
+    }
+
+    private fun clearPersistedIndex() {
+        runCatching {
+            Files.deleteIfExists(cachePath)
+        }.onFailure { error ->
+            logger.warn(error) { "Failed to clear persisted repository cache" }
         }
     }
 }

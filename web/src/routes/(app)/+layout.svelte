@@ -4,13 +4,7 @@
 	import { onMount } from 'svelte';
 
 	import { StarField } from '$lib/elements/starfield';
-	import {
-		BookIcon,
-		CompassIcon,
-		DownloadIcon,
-		PuzzlePieceIcon,
-		GearIcon
-	} from 'phosphor-svelte';
+	import { BookIcon, CompassIcon, DownloadIcon, PuzzlePieceIcon, GearIcon } from 'phosphor-svelte';
 	import { _ } from '$lib/i18n';
 	import { loadContentLanguages } from '$lib/stores/content-languages';
 	import { pushNavHistory } from '$lib/stores/nav-history';

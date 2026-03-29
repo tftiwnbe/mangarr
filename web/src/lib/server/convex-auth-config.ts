@@ -4,7 +4,7 @@ export const DEFAULT_CONVEX_AUTH_ISSUER = 'https://auth.mangarr.local/convex';
 export const DEFAULT_CONVEX_AUTH_APPLICATION_ID = 'mangarr-web';
 export const DEFAULT_TOKEN_TTL_SECONDS = 5 * 60;
 export const DEFAULT_KEY_ID = 'mangarr-20260310';
-export const DEFAULT_PRIVATE_JWK = {
+export const DEVELOPMENT_PRIVATE_JWK = {
 	kty: 'EC',
 	crv: 'P-256',
 	x: 'wQ_V3WF3zt9VDJAjCxSurV-qo9bDqjfE6j4_76Q8JkU',
@@ -28,8 +28,8 @@ export function getConvexAuthRuntimeConfig(): ConvexAuthRuntimeConfig {
 		return cachedConfig;
 	}
 
-	const privateJwk = parsePrivateJwk();
-	const keyId = DEFAULT_KEY_ID;
+	const privateJwk = parsePrivateJwk(process.env.MANGARR_CONVEX_AUTH_PRIVATE_JWK);
+	const keyId = process.env.MANGARR_CONVEX_AUTH_KEY_ID || DEFAULT_KEY_ID;
 	const publicJwk: JWK = {
 		kty: 'EC',
 		crv: 'P-256',
@@ -41,9 +41,10 @@ export function getConvexAuthRuntimeConfig(): ConvexAuthRuntimeConfig {
 	};
 
 	cachedConfig = {
-		issuer: DEFAULT_CONVEX_AUTH_ISSUER,
-		applicationId: DEFAULT_CONVEX_AUTH_APPLICATION_ID,
-		tokenTtlSeconds: DEFAULT_TOKEN_TTL_SECONDS,
+		issuer: process.env.MANGARR_CONVEX_AUTH_ISSUER || DEFAULT_CONVEX_AUTH_ISSUER,
+		applicationId:
+			process.env.MANGARR_CONVEX_AUTH_APPLICATION_ID || DEFAULT_CONVEX_AUTH_APPLICATION_ID,
+		tokenTtlSeconds: parseTokenTtlSeconds(process.env.MANGARR_CONVEX_AUTH_TOKEN_TTL_SECONDS),
 		keyId,
 		privateJwk: {
 			...publicJwk,
@@ -55,6 +56,45 @@ export function getConvexAuthRuntimeConfig(): ConvexAuthRuntimeConfig {
 	return cachedConfig;
 }
 
-function parsePrivateJwk(): JWK & { x: string; y: string; d: string } {
-	return DEFAULT_PRIVATE_JWK;
+function parsePrivateJwk(value: string | undefined) {
+	if (!value) {
+		return isProductionLike() ? failMissingPrivateJwk() : DEVELOPMENT_PRIVATE_JWK;
+	}
+
+	try {
+		const parsed = JSON.parse(value) as Partial<typeof DEVELOPMENT_PRIVATE_JWK>;
+		if (
+			typeof parsed.x === 'string' &&
+			typeof parsed.y === 'string' &&
+			typeof parsed.d === 'string'
+		) {
+			return {
+				kty: 'EC',
+				crv: 'P-256',
+				x: parsed.x,
+				y: parsed.y,
+				d: parsed.d
+			};
+		}
+	} catch {
+		if (isProductionLike()) {
+			failMissingPrivateJwk();
+		}
+	}
+
+	return DEVELOPMENT_PRIVATE_JWK;
+}
+
+function parseTokenTtlSeconds(value: string | undefined) {
+	const parsed = Number.parseInt(value || '', 10);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TOKEN_TTL_SECONDS;
+}
+
+function isProductionLike() {
+	const mode = (process.env.NODE_ENV || process.env.MANGARR_APP_MODE || '').toLowerCase();
+	return mode === 'production' || mode === 'prod';
+}
+
+function failMissingPrivateJwk(): never {
+	throw new Error('MANGARR_CONVEX_AUTH_PRIVATE_JWK must be configured for production runtime');
 }

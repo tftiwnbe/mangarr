@@ -1,8 +1,8 @@
-const ISO6391_RE = /^[a-z]{2}$/;
+const LANGUAGE_CODE_RE = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/;
 
 /**
- * Reduce extension language tags to a compact "main language" code.
- * Examples: zh-hans -> zh, pt-BR -> pt, multi/all -> multi.
+ * Normalize extension language tags while preserving script/region variants.
+ * Examples: zh_hans -> zh-hans, pt-BR -> pt-br, multi/all -> multi.
  */
 export function normalizeContentLanguageCode(raw: string | null | undefined): string | null {
 	if (!raw) return null;
@@ -11,10 +11,8 @@ export function normalizeContentLanguageCode(raw: string | null | undefined): st
 	if (lowered === 'multi' || lowered === 'all') return 'multi';
 
 	const normalized = lowered.replace(/_/g, '-');
-	const base = normalized.split('-')[0];
-	if (base === 'multi' || base === 'all') return 'multi';
-	if (!ISO6391_RE.test(base)) return null;
-	return base;
+	if (!LANGUAGE_CODE_RE.test(normalized)) return null;
+	return normalized;
 }
 
 export function sortContentLanguageCodes(langs: Iterable<string>): string[] {

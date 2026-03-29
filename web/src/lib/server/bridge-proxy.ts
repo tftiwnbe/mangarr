@@ -30,13 +30,18 @@ export async function proxyBridgeRequest(
 	}
 
 	const upstreamUrl = new URL(path, `${getBridgeBaseUrl()}/`).toString();
+	const timeoutSignal = AbortSignal.timeout(init.timeoutMs ?? 15_000);
+	const signal =
+		typeof AbortSignal.any === 'function'
+			? AbortSignal.any([event.request.signal, timeoutSignal])
+			: timeoutSignal;
 	let upstream: Response;
 	try {
 		upstream = await fetch(upstreamUrl, {
 			method: init.method ?? 'GET',
 			headers: buildBridgeInternalHeaders(init.headers),
 			body: init.body,
-			signal: AbortSignal.timeout(init.timeoutMs ?? 15_000)
+			signal
 		});
 	} catch {
 		throw error(502, 'Bridge internal API is unavailable');
