@@ -22,6 +22,8 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.concurrent.TimeUnit
+import java.util.logging.Level
+import java.util.logging.Logger
 
 @kotlinx.serialization.ExperimentalSerializationApi
 class NetworkHelper(
@@ -30,6 +32,7 @@ class NetworkHelper(
     val cookieStore = PersistentCookieStore(context)
 
     init {
+        configureOkHttpLeakTracing()
         CookieHandler.setDefault(
             CookieManager(cookieStore, CookiePolicy.ACCEPT_ALL),
         )
@@ -121,5 +124,17 @@ class NetworkHelper(
         }
 
         return context.cacheDir.toPath().resolve("http").toAbsolutePath().normalize()
+    }
+
+    private fun configureOkHttpLeakTracing() {
+        val enabled =
+            System.getenv("MANGARR_OKHTTP_LEAK_TRACE")?.trim()?.lowercase()?.let {
+                it == "1" || it == "true" || it == "yes" || it == "on"
+            } ?: true
+        if (!enabled) {
+            return
+        }
+
+        Logger.getLogger(OkHttpClient::class.java.name).level = Level.FINE
     }
 }
