@@ -15,6 +15,12 @@ import kotlin.streams.asSequence
 
 object BytecodeEditor {
     private val logger = KotlinLogging.logger {}
+    private const val LIBGROUP_CLASS = "eu/kanade/tachiyomi/multisrc/libgroup/LibGroup"
+    private const val LIBGROUP_TOKEN_METHOD = "isUserTokenValid"
+    private const val LIBGROUP_TOKEN_DESC = "(Ljava/lang/String;)Z"
+    private const val LIBGROUP_PATCH_OWNER = "mangarr/tachibridge/loader/LibGroupPatches"
+    private const val LIBGROUP_PATCH_NAME = "isUserTokenValid"
+    private const val LIBGROUP_PATCH_DESC = "(Ljava/lang/Object;Ljava/lang/String;)Z"
 
     fun fixAndroidClasses(jarFile: Path) {
         FileSystems.newFileSystem(jarFile, null as ClassLoader?)?.use {
@@ -81,9 +87,11 @@ object BytecodeEditor {
 
     private fun transform(pair: Pair<Path, ByteArray>): Pair<Path, ByteArray> {
         val cr = ClassReader(pair.second)
-        val cw = ClassWriter(cr, 0)
+        val cw = ClassWriter(cr, ClassWriter.COMPUTE_MAXS or ClassWriter.COMPUTE_FRAMES)
         cr.accept(
             object : ClassVisitor(Opcodes.ASM5, cw) {
+                private var className: String? = null
+
                 override fun visitField(
                     access: Int,
                     name: String?,
@@ -104,6 +112,7 @@ object BytecodeEditor {
                     interfaces: Array<out String>?,
                 ) {
                     logger.trace { "Visiting $name: $signature: $superName" }
+                    className = name
                     super.visit(version, access, name, signature, superName, interfaces)
                 }
 
@@ -123,6 +132,9 @@ object BytecodeEditor {
                             signature,
                             exceptions,
                         )
+                    if (className == LIBGROUP_CLASS && name == LIBGROUP_TOKEN_METHOD && desc == LIBGROUP_TOKEN_DESC) {
+                        return createLibGroupTokenPatch(mv)
+                    }
                     return object : MethodVisitor(Opcodes.ASM5, mv) {
                         override fun visitTypeInsn(
                             opcode: Int,
@@ -185,6 +197,78 @@ object BytecodeEditor {
         )
         return pair.first to cw.toByteArray()
     }
+
+    private fun createLibGroupTokenPatch(mv: MethodVisitor): MethodVisitor =
+        object : MethodVisitor(Opcodes.ASM5, mv) {
+            override fun visitCode() {
+                super.visitCode()
+                mv.visitVarInsn(Opcodes.ALOAD, 0)
+                mv.visitVarInsn(Opcodes.ALOAD, 1)
+                mv.visitMethodInsn(
+                    Opcodes.INVOKESTATIC,
+                    LIBGROUP_PATCH_OWNER,
+                    LIBGROUP_PATCH_NAME,
+                    LIBGROUP_PATCH_DESC,
+                    false,
+                )
+                mv.visitInsn(Opcodes.IRETURN)
+            }
+
+            override fun visitInsn(opcode: Int) {}
+
+            override fun visitVarInsn(
+                opcode: Int,
+                `var`: Int,
+            ) {}
+
+            override fun visitFieldInsn(
+                opcode: Int,
+                owner: String?,
+                name: String?,
+                descriptor: String?,
+            ) {}
+
+            override fun visitMethodInsn(
+                opcode: Int,
+                owner: String?,
+                name: String?,
+                descriptor: String?,
+                isInterface: Boolean,
+            ) {}
+
+            override fun visitTypeInsn(
+                opcode: Int,
+                type: String?,
+            ) {}
+
+            override fun visitIntInsn(
+                opcode: Int,
+                operand: Int,
+            ) {}
+
+            override fun visitLdcInsn(value: Any?) {}
+
+            override fun visitJumpInsn(
+                opcode: Int,
+                label: org.objectweb.asm.Label?,
+            ) {}
+
+            override fun visitLabel(label: org.objectweb.asm.Label?) {}
+
+            override fun visitTryCatchBlock(
+                start: org.objectweb.asm.Label?,
+                end: org.objectweb.asm.Label?,
+                handler: org.objectweb.asm.Label?,
+                type: String?,
+            ) {}
+
+            override fun visitMaxs(
+                maxStack: Int,
+                maxLocals: Int,
+            ) {
+                super.visitMaxs(0, 0)
+            }
+        }
 
     private fun write(pair: Pair<Path, ByteArray>) {
         Files
