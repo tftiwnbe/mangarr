@@ -361,6 +361,9 @@ class BridgeService(
                 }
             } catch (error: Exception) {
                 logger.warn(error) { "Search failed for source ${source.id}" }
+                if (selectedSourceId != null) {
+                    throw error
+                }
             }
         }
 

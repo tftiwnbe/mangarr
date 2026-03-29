@@ -4,9 +4,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -25,25 +22,28 @@ import eu.kanade.tachiyomi.network.HttpException
 import mangarr.tachibridge.config.ConfigManager
 import mangarr.tachibridge.logging.EventLogger
 import mangarr.tachibridge.logging.LogContext
+import java.util.concurrent.atomic.AtomicInteger
 
 private val events = EventLogger.named(
     "mangarr.tachibridge.runtime.BridgeCommandRunner",
     "component" to "bridge_command_runner",
 )
 
-private val parallelizableCommandTypes =
-    setOf(
-        "extensions.repo.search",
-        "sources.preferences.fetch",
+private val interactiveCapabilities =
+    listOf(
+        "extensions.repo",
+        "extensions.install",
+        "sources.preferences",
         "explore.search",
-        "explore.popular",
-        "explore.latest",
+        "explore.feed",
         "explore.title.fetch",
-        "explore.chapters.fetch",
-        "library.cover.cache",
         "reader.pages.fetch",
+        "library.chapters.sync",
+        "library.cover.cache",
+        "library.import",
     )
 private const val DOWNLOAD_COMMAND_CONCURRENCY = 2
+private const val INTERACTIVE_COMMAND_CONCURRENCY = 2
 private const val DOWNLOAD_PROGRESS_UPDATE_INTERVAL_MS = 1_250L
 private const val DOWNLOAD_LEASE_RENEW_INTERVAL_MS = 5_000L
 
@@ -64,6 +64,8 @@ class BridgeCommandRunner(
     private val leaseDurationMs: Long,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val activeInteractiveCommands = AtomicInteger(0)
+    private val activeDownloadCommands = AtomicInteger(0)
     private var job: Job? = null
     @Volatile
     private var snapshot =
@@ -102,33 +104,16 @@ class BridgeCommandRunner(
         snapshot = snapshot.copy(lastPollAt = now)
 
         try {
-            val leased =
-                client.leaseCommands(
-                    client.payload(
-                        buildJsonObject {
-                            put("bridgeId", bridgeId)
-                            put(
-                                "capabilities",
-                                kotlinx.serialization.json.buildJsonArray {
-                                    add(JsonPrimitive("extensions.repo"))
-                                    add(JsonPrimitive("extensions.install"))
-                                    add(JsonPrimitive("sources.preferences"))
-                                    add(JsonPrimitive("explore.search"))
-                                    add(JsonPrimitive("explore.feed"))
-                                    add(JsonPrimitive("explore.title.fetch"))
-                                    add(JsonPrimitive("reader.pages.fetch"))
-                                    add(JsonPrimitive("library.chapters.sync"))
-                                    add(JsonPrimitive("library.cover.cache"))
-                                    add(JsonPrimitive("library.import"))
-                                    add(JsonPrimitive("downloads.chapter"))
-                                },
-                            )
-                            put("now", now)
-                            put("limit", 4)
-                            put("leaseDurationMs", leaseDurationMs)
-                        },
-                    ),
-                )
+            val leased = mutableListOf<LeaseCommand>()
+            val interactiveSlots = (INTERACTIVE_COMMAND_CONCURRENCY - activeInteractiveCommands.get()).coerceAtLeast(0)
+            if (interactiveSlots > 0) {
+                leased += leaseCommands(client, now, interactiveCapabilities, interactiveSlots)
+            }
+
+            val downloadSlots = (DOWNLOAD_COMMAND_CONCURRENCY - activeDownloadCommands.get()).coerceAtLeast(0)
+            if (downloadSlots > 0) {
+                leased += leaseCommands(client, now, listOf("downloads.chapter"), downloadSlots)
+            }
 
             if (leased.isNotEmpty()) {
                 events.debug(
@@ -139,7 +124,7 @@ class BridgeCommandRunner(
                 )
             }
 
-            executeLeasedCommands(client, leased)
+            dispatchLeasedCommands(client, leased)
 
             snapshot = snapshot.copy(lastSuccessAt = now, lastError = null)
         } catch (error: Exception) {
@@ -151,6 +136,33 @@ class BridgeCommandRunner(
             )
             snapshot = snapshot.copy(lastError = error.message ?: "Unknown command error")
         }
+    }
+
+    private fun leaseCommands(
+        client: ConvexBridgeClient,
+        now: Long,
+        capabilities: List<String>,
+        limit: Int,
+    ): List<LeaseCommand> {
+        if (limit <= 0 || capabilities.isEmpty()) {
+            return emptyList()
+        }
+        return client.leaseCommands(
+            client.payload(
+                buildJsonObject {
+                    put("bridgeId", bridgeId)
+                    put(
+                        "capabilities",
+                        kotlinx.serialization.json.buildJsonArray {
+                            capabilities.forEach { capability -> add(JsonPrimitive(capability)) }
+                        },
+                    )
+                    put("now", now)
+                    put("limit", limit)
+                    put("leaseDurationMs", leaseDurationMs)
+                },
+            ),
+        )
     }
 
     private suspend fun recoverDownloadStateOnStartup() {
@@ -184,42 +196,27 @@ class BridgeCommandRunner(
         }
     }
 
-    private suspend fun executeLeasedCommands(
+    private fun dispatchLeasedCommands(
         client: ConvexBridgeClient,
         leased: List<LeaseCommand>,
     ) {
         if (leased.isEmpty()) {
             return
         }
-
-        if (leased.all { it.commandType in parallelizableCommandTypes }) {
-            executeWithConcurrency(client, leased, leased.size)
-            return
-        }
-
-        if (leased.all { it.commandType == "downloads.chapter" }) {
-            executeWithConcurrency(client, leased, DOWNLOAD_COMMAND_CONCURRENCY)
-            return
-        }
-
         for (command in leased) {
-            handleCommand(client, command)
-        }
-    }
-
-    private suspend fun executeWithConcurrency(
-        client: ConvexBridgeClient,
-        leased: List<LeaseCommand>,
-        limit: Int,
-    ) {
-        coroutineScope {
-            val chunked = leased.chunked(limit.coerceAtLeast(1))
-            for (batch in chunked) {
-                batch.map { command ->
-                    async {
-                        handleCommand(client, command)
-                    }
-                }.awaitAll()
+            val counter =
+                if (command.commandType == "downloads.chapter") {
+                    activeDownloadCommands
+                } else {
+                    activeInteractiveCommands
+                }
+            counter.incrementAndGet()
+            scope.launch {
+                try {
+                    handleCommand(client, command)
+                } finally {
+                    counter.decrementAndGet()
+                }
             }
         }
     }
