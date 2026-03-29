@@ -320,11 +320,22 @@ class BridgeCommandRunner(
     }
 
     private fun isRetryableFailure(command: LeaseCommand, error: Exception): Boolean {
-        val httpError = error as? HttpException ?: return true
+        val httpError = error.findHttpException() ?: return true
         if (command.commandType == "downloads.chapter") {
             return httpError.code == 429 || httpError.code in 500..599
         }
         return !isPermanentHttpFailure(httpError.code)
+    }
+
+    private fun Throwable.findHttpException(): HttpException? {
+        var current: Throwable? = this
+        while (current != null) {
+            if (current is HttpException) {
+                return current
+            }
+            current = current.cause
+        }
+        return null
     }
 
     private fun isPermanentHttpFailure(code: Int): Boolean =

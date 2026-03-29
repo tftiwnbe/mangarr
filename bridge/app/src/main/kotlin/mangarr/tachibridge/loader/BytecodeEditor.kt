@@ -35,6 +35,18 @@ object BytecodeEditor {
         }
     }
 
+    fun patchInstalledJar(jarFile: Path) {
+        FileSystems.newFileSystem(jarFile, null as ClassLoader?)?.use { fs ->
+            val classPath = fs.getPath("/$LIBGROUP_CLASS.class")
+            if (!Files.exists(classPath)) {
+                return
+            }
+            getClassBytes(classPath)
+                ?.let(::patchLibGroupClass)
+                ?.let(::write)
+        }
+    }
+
     private fun getClassBytes(path: Path): Pair<Path, ByteArray>? {
         return try {
             if (path.toString().endsWith(".class")) {
@@ -191,6 +203,44 @@ object BytecodeEditor {
                             )
                         }
                     }
+                }
+            },
+            0,
+        )
+        return pair.first to cw.toByteArray()
+    }
+
+    private fun patchLibGroupClass(pair: Pair<Path, ByteArray>): Pair<Path, ByteArray> {
+        val cr = ClassReader(pair.second)
+        val cw = ClassWriter(cr, ClassWriter.COMPUTE_MAXS or ClassWriter.COMPUTE_FRAMES)
+        cr.accept(
+            object : ClassVisitor(Opcodes.ASM5, cw) {
+                private var className: String? = null
+
+                override fun visit(
+                    version: Int,
+                    access: Int,
+                    name: String?,
+                    signature: String?,
+                    superName: String?,
+                    interfaces: Array<out String>?,
+                ) {
+                    className = name
+                    super.visit(version, access, name, signature, superName, interfaces)
+                }
+
+                override fun visitMethod(
+                    access: Int,
+                    name: String,
+                    desc: String,
+                    signature: String?,
+                    exceptions: Array<String?>?,
+                ): MethodVisitor {
+                    val mv = super.visitMethod(access, name, desc, signature, exceptions)
+                    if (className == LIBGROUP_CLASS && name == LIBGROUP_TOKEN_METHOD && desc == LIBGROUP_TOKEN_DESC) {
+                        return createLibGroupTokenPatch(mv)
+                    }
+                    return mv
                 }
             },
             0,
