@@ -764,28 +764,42 @@ class BridgeService(
             chapterNumber = chapterNumber,
         )
 
-    fun cacheCover(
+    suspend fun cacheCover(
         titleId: String,
+        sourceId: String?,
         coverUrl: String?,
     ): String? {
         val normalizedUrl = coverUrl?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        val request = Request.Builder().url(normalizedUrl).get().build()
-
-        httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                logger.warn { "Failed to cache cover for title=$titleId from $normalizedUrl (${response.code})" }
+        val image =
+            runCatching {
+                sourceId
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.toLongOrNull()
+                    ?.let { parsedSourceId -> extensionManager.fetchBinary(parsedSourceId, normalizedUrl) }
+                    ?: run {
+                        val request = Request.Builder().url(normalizedUrl).get().build()
+                        httpClient.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) {
+                                logger.warn { "Failed to cache cover for title=$titleId from $normalizedUrl (${response.code})" }
+                                return null
+                            }
+                            val body = response.body ?: return null
+                            PageImagePayload(
+                                contentType = body.contentType()?.toString() ?: "application/octet-stream",
+                                bytes = body.bytes(),
+                            )
+                        }
+                    }
+            }.getOrElse { error ->
+                logger.warn(error) { "Failed to cache cover for title=$titleId from $normalizedUrl" }
                 return null
             }
-            val body = response.body ?: return null
-            return downloadStorage.cacheCover(
-                titleId = titleId,
-                image =
-                    PageImagePayload(
-                        contentType = body.contentType()?.toString() ?: "application/octet-stream",
-                        bytes = body.bytes(),
-                    ),
-            )
-        }
+
+        return downloadStorage.cacheCover(
+            titleId = titleId,
+            image = image,
+        )
     }
 
     suspend fun resolveImport(

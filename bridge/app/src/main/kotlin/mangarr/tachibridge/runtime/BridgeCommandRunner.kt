@@ -583,8 +583,9 @@ class BridgeCommandRunner(
             }
             "library.cover.cache" -> {
                 val titleId = payload.requiredString("titleId")
+                val sourceId = payload.optionalString("sourceId")
                 val coverUrl = payload.optionalString("coverUrl")
-                val coverPath = cacheLibraryCover(client, titleId, coverUrl)
+                val coverPath = cacheLibraryCover(client, titleId, sourceId, coverUrl)
                 buildJsonObject {
                     put("ok", true)
                     put("titleId", titleId)
@@ -645,7 +646,13 @@ class BridgeCommandRunner(
                         ),
                     )
 
-                val coverPath = cacheLibraryCover(client, clientResult.titleId, resolved.optionalString("coverUrl"))
+                val coverPath =
+                    cacheLibraryCover(
+                        client,
+                        clientResult.titleId,
+                        sourceId,
+                        resolved.optionalString("coverUrl"),
+                    )
 
                 val chapters = kotlinx.coroutines.runBlocking { service.fetchChapters(sourceId, titleUrl) }
                 client.upsertLibraryChapters(
@@ -802,11 +809,14 @@ class BridgeCommandRunner(
     private fun cacheLibraryCover(
         client: ConvexBridgeClient,
         titleId: String,
+        sourceId: String?,
         coverUrl: String?,
     ): String? {
         val coverPath =
             runCatching {
-                service.cacheCover(titleId, coverUrl)
+                kotlinx.coroutines.runBlocking {
+                    service.cacheCover(titleId, sourceId, coverUrl)
+                }
             }.onFailure { error ->
                 events.error(
                     "bridge.library.cover_cache_failed",

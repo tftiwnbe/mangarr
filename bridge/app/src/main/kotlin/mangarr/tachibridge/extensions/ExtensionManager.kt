@@ -6,6 +6,7 @@ import eu.kanade.tachiyomi.network.BridgeProxyContext
 import eu.kanade.tachiyomi.network.BridgeProxySettings
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.NetworkHelper
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.source.CatalogueSource
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.Source
@@ -183,7 +184,7 @@ class ExtensionManager(
 
         logger.info { "Installing: $packageName" }
 
-        val entry =
+        var entry =
             repoService.findByPackage(packageName)
                 ?: throw IllegalArgumentException("Extension not found in repo: $packageName")
 
@@ -191,33 +192,51 @@ class ExtensionManager(
             throw IllegalStateException("Already installed: $packageName")
         }
 
-        val targetFile = extensionsDir.resolve(entry.apk)
-        if (targetFile.exists()) {
-            throw IllegalStateException("APK already exists: ${targetFile.pathString}")
-        }
-
-        val downloadUrl = buildDownloadUrl(repoUrl, entry.apk)
-        val tmpFile = Files.createTempFile(extensionsDir, packageName.replace('.', '_'), ".tmp")
+        var targetFile = extensionsDir.resolve(entry.apk.substringAfterLast('/'))
+        var tmpFile = Files.createTempFile(extensionsDir, packageName.replace('.', '_'), ".tmp")
 
         val loaded =
             try {
-                // Download
-                val request = GET(downloadUrl)
-                networkHelper.client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        throw IOException("Download failed: HTTP ${response.code}")
+                var refreshed = false
+                while (true) {
+                    targetFile = extensionsDir.resolve(entry.apk.substringAfterLast('/'))
+                    if (targetFile.exists()) {
+                        throw IllegalStateException("APK already exists: ${targetFile.pathString}")
                     }
-                    response.body!!.byteStream().use { input ->
-                        Files.newOutputStream(tmpFile).use { output ->
-                            input.copyTo(output)
+                    val downloadUrl = buildDownloadUrl(repoUrl, entry.apk)
+                    try {
+                        val request = GET(downloadUrl)
+                        networkHelper.client.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) {
+                                throw IOException("Download failed: HTTP ${response.code}")
+                            }
+                            response.body!!.byteStream().use { input ->
+                                Files.newOutputStream(tmpFile).use { output ->
+                                    input.copyTo(output)
+                                }
+                            }
                         }
+                        break
+                    } catch (error: IOException) {
+                        val staleRepoEntry =
+                            !refreshed &&
+                                error.message?.contains("HTTP 404") == true
+                        if (!staleRepoEntry) {
+                            throw error
+                        }
+                        logger.info { "Refreshing repository entry for $packageName after stale APK URL: $downloadUrl" }
+                        refreshed = true
+                        entry =
+                            repoService.findByPackage(packageName, forceRefresh = true)
+                                ?: throw IllegalArgumentException("Extension not found in repo after refresh: $packageName")
+                        Files.deleteIfExists(tmpFile)
+                        tmpFile = Files.createTempFile(extensionsDir, packageName.replace('.', '_'), ".tmp")
                     }
                 }
 
-                // Convert and load
                 Files.move(tmpFile, targetFile, StandardCopyOption.REPLACE_EXISTING)
                 val result = loader.load(targetFile.pathString)
-                Files.deleteIfExists(targetFile) // Clean up APK
+                Files.deleteIfExists(targetFile)
                 result
             } catch (e: Exception) {
                 Files.deleteIfExists(targetFile)
@@ -439,6 +458,28 @@ class ExtensionManager(
                 }
                 pageCacheSupport.invalidateChapterPagesCache(source.id, normalizedUrl)
                 pageCacheSupport.fetchPageImagePayload(source, normalizedUrl, index, bypassPageCache = true)
+            }
+        }
+
+    suspend fun fetchBinary(
+        sourceId: Long,
+        url: String,
+    ): PageImagePayload =
+        withSource<Source, PageImagePayload>(sourceId) { source ->
+            val normalizedUrl = normalizeSourceUrl(source, url)
+            val response =
+                if (source is eu.kanade.tachiyomi.source.online.HttpSource) {
+                    networkHelper.client.newCall(GET(normalizedUrl, source.headers)).awaitSuccess()
+                } else {
+                    networkHelper.client.newCall(GET(normalizedUrl)).awaitSuccess()
+                }
+
+            response.use { imageResponse ->
+                val body = imageResponse.body ?: error("Binary response body is empty")
+                PageImagePayload(
+                    contentType = body.contentType()?.toString() ?: "application/octet-stream",
+                    bytes = body.bytes(),
+                )
             }
         }
 
@@ -712,6 +753,8 @@ class ExtensionManager(
         repoUrl: String,
         apkName: String,
     ): String =
+        apkName.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+            ?:
         runCatching {
             val uri = java.net.URI(repoUrl)
             val parent = uri.resolve(".")

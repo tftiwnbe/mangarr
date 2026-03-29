@@ -21,6 +21,22 @@ object BytecodeEditor {
     private const val TOKEN_PATCH_NAME = "isTokenValid"
     private const val TOKEN_PATCH_DESC = "(Ljava/lang/Object;Ljava/lang/String;)Z"
 
+    private class SafeClassWriter(
+        classReader: ClassReader,
+        flags: Int,
+    ) : ClassWriter(classReader, flags) {
+        override fun getCommonSuperClass(
+            type1: String,
+            type2: String,
+        ): String =
+            runCatching { super.getCommonSuperClass(type1, type2) }.getOrElse {
+                logger.debug(it) {
+                    "Falling back to java/lang/Object while rewriting bytecode for $type1 and $type2"
+                }
+                "java/lang/Object"
+            }
+    }
+
     fun fixAndroidClasses(jarFile: Path) {
         FileSystems.newFileSystem(jarFile, null as ClassLoader?)?.use {
             Files
@@ -99,7 +115,7 @@ object BytecodeEditor {
 
     private fun transform(pair: Pair<Path, ByteArray>): Pair<Path, ByteArray> {
         val cr = ClassReader(pair.second)
-        val cw = ClassWriter(cr, ClassWriter.COMPUTE_MAXS or ClassWriter.COMPUTE_FRAMES)
+        val cw = SafeClassWriter(cr, ClassWriter.COMPUTE_MAXS or ClassWriter.COMPUTE_FRAMES)
         cr.accept(
             object : ClassVisitor(Opcodes.ASM5, cw) {
                 private var className: String? = null
@@ -212,7 +228,7 @@ object BytecodeEditor {
 
     private fun patchTokenValidationClass(pair: Pair<Path, ByteArray>): Pair<Path, ByteArray> {
         val cr = ClassReader(pair.second)
-        val cw = ClassWriter(cr, ClassWriter.COMPUTE_MAXS or ClassWriter.COMPUTE_FRAMES)
+        val cw = SafeClassWriter(cr, ClassWriter.COMPUTE_MAXS or ClassWriter.COMPUTE_FRAMES)
         cr.accept(
             object : ClassVisitor(Opcodes.ASM5, cw) {
                 override fun visitMethod(

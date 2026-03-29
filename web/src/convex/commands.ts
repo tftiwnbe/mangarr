@@ -21,8 +21,6 @@ const STATUS = {
 type CommandStatus = (typeof STATUS)[keyof typeof STATUS];
 const REUSABLE_STATUSES = new Set<CommandStatus>([
 	STATUS.QUEUED,
-	STATUS.LEASED,
-	STATUS.RUNNING,
 	STATUS.SUCCEEDED
 ]);
 
