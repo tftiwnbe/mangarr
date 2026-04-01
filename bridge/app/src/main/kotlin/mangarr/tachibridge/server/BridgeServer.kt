@@ -502,8 +502,8 @@ class BridgeServer(
             throw e
         }
 
-        if (!initSignal.await(15, TimeUnit.SECONDS)) {
-            val failure = initFailure ?: IllegalStateException("KCEF did not finish initialization within 15 seconds")
+        if (!initSignal.await(60, TimeUnit.SECONDS)) {
+            val failure = initFailure ?: IllegalStateException("KCEF did not finish initialization within 60 seconds")
             kcefEvents.error("bridge.kcef.init_incomplete", "KCEF initialization did not complete", failure)
             throw IllegalStateException("KCEF initialization did not complete", failure)
         }
