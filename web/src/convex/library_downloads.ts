@@ -25,6 +25,7 @@ const MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER = 16;
 const RESERVED_RUNNING_DOWNLOAD_SLOTS = 2;
 const MAX_ENQUEUED_DOWNLOADS_PER_TITLE_REQUEST = 24;
 const ACTIVE_DOWNLOAD_RECOVERY_SCAN_LIMIT = 2_000;
+const DOWNLOAD_COMMAND_PRIORITY_BASE = 250;
 
 type DownloadTaskStatus = (typeof DOWNLOAD_TASK_STATUS)[keyof typeof DOWNLOAD_TASK_STATUS];
 
@@ -314,7 +315,7 @@ export const requestMissingDownloads = mutation({
 				title,
 				requestedByUserId: userId,
 				trigger: 'retry',
-				priority: 100 + priorityOffset,
+				priority: DOWNLOAD_COMMAND_PRIORITY_BASE + priorityOffset,
 				now
 			});
 			if (queued.alreadyQueued) {
@@ -633,6 +634,9 @@ async function runDownloadCycleForUser(
 	}
 ) {
 	const cyclePlan = await selectDownloadCycleCandidatesForUser(ctx, args);
+	if (cyclePlan.hasInFlightDownloads) {
+		return { checked: cyclePlan.checkedProfiles, enqueued: 0 };
+	}
 	let remainingCapacity = await remainingQueuedDownloadCapacityForUser(ctx, args.userId);
 	if (remainingCapacity <= 0) {
 		return { checked: cyclePlan.checkedProfiles, enqueued: 0 };
@@ -655,7 +659,7 @@ async function runDownloadCycleForUser(
 				title: entry.title,
 				requestedByUserId: args.userId,
 				trigger: 'watch',
-				priority: 100 + entry.enqueued,
+				priority: DOWNLOAD_COMMAND_PRIORITY_BASE + entry.enqueued,
 				now: args.now
 			});
 			if (queued.alreadyQueued) {
@@ -767,6 +771,18 @@ async function selectDownloadCycleCandidatesForUser(
 		.sort((left, right) => right.updatedAt - left.updatedAt)
 		.slice(0, args.limit);
 	const activeProfiles = profiles.filter((profile) => !profile.paused);
+	const [queuedInFlight, downloadingInFlight] = await Promise.all([
+		loadDownloadTasksForUserStatus(ctx, args.userId, DOWNLOAD_TASK_STATUS.QUEUED, 1),
+		loadDownloadTasksForUserStatus(ctx, args.userId, DOWNLOAD_TASK_STATUS.DOWNLOADING, 1)
+	]);
+	const hasInFlightDownloads = queuedInFlight.length > 0 || downloadingInFlight.length > 0;
+	if (hasInFlightDownloads) {
+		return {
+			checkedProfiles: activeProfiles.length,
+			hasInFlightDownloads,
+			entries: []
+		};
+	}
 	const titleIds = [...new Set(activeProfiles.map((profile) => String(profile.libraryTitleId)))];
 	const [titles, missingChapters, failedChapters, queuedTasks] = await Promise.all([
 		Promise.all(
@@ -816,6 +832,7 @@ async function selectDownloadCycleCandidatesForUser(
 
 	return {
 		checkedProfiles: activeProfiles.length,
+		hasInFlightDownloads,
 		entries: activeProfiles
 			.map((profile) => {
 				const title = titleById.get(String(profile.libraryTitleId));
@@ -897,6 +914,7 @@ async function requeueRecoveredTask(
 	if (command && command.status !== 'queued') {
 		await ctx.db.patch(command._id, {
 			status: 'queued',
+			priority: Math.max(command.priority, DOWNLOAD_COMMAND_PRIORITY_BASE),
 			runAfter: now,
 			leaseOwnerBridgeId: undefined,
 			leaseExpiresAt: undefined,

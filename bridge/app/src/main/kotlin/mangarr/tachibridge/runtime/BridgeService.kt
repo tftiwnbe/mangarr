@@ -31,6 +31,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Base64
+import java.util.regex.Pattern
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.exists
@@ -43,6 +44,7 @@ private const val MANGADEX_PACKAGE = "eu.kanade.tachiyomi.extension.all.mangadex
 private val DOWNLOAD_PAGE_RETRY_DELAYS_MS = listOf(0L, 2_000L, 5_000L, 15_000L)
 private val SOURCE_REQUEST_RETRY_DELAYS_MS = listOf(0L, 1_500L, 4_000L)
 private const val DOWNLOAD_PAGE_CONCURRENCY = 2
+private val HTTP_ERROR_PATTERN = Pattern.compile("HTTP error\\s+(\\d{3})")
 
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 class BridgeService(
@@ -280,13 +282,12 @@ class BridgeService(
     suspend fun saveSourcePreferences(sourceId: String, entries: List<Pair<String, JsonElement>>): JsonObject {
         extensionManager.awaitReady()
         val parsedSourceId = sourceId.toLong()
-        for ((key, value) in entries) {
-            extensionManager.setPreference(
-                parsedSourceId,
-                key,
-                json.encodeToString(JsonElement.serializer(), value),
-            )
-        }
+        extensionManager.setPreferences(
+            parsedSourceId,
+            entries.map { (key, value) ->
+                key to json.encodeToString(JsonElement.serializer(), value)
+            },
+        )
 
         return buildJsonObject {
             put("ok", true)
@@ -361,6 +362,9 @@ class BridgeService(
                 }
             } catch (error: Exception) {
                 logger.warn(error) { "Search failed for source ${source.id}" }
+                if (selectedSourceId != null) {
+                    throw error
+                }
             }
         }
 
@@ -762,28 +766,42 @@ class BridgeService(
             chapterNumber = chapterNumber,
         )
 
-    fun cacheCover(
+    suspend fun cacheCover(
         titleId: String,
+        sourceId: String?,
         coverUrl: String?,
     ): String? {
         val normalizedUrl = coverUrl?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        val request = Request.Builder().url(normalizedUrl).get().build()
-
-        httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                logger.warn { "Failed to cache cover for title=$titleId from $normalizedUrl (${response.code})" }
+        val image =
+            runCatching {
+                sourceId
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.toLongOrNull()
+                    ?.let { parsedSourceId -> extensionManager.fetchBinary(parsedSourceId, normalizedUrl) }
+                    ?: run {
+                        val request = Request.Builder().url(normalizedUrl).get().build()
+                        httpClient.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) {
+                                logger.warn { "Failed to cache cover for title=$titleId from $normalizedUrl (${response.code})" }
+                                return null
+                            }
+                            val body = response.body ?: return null
+                            PageImagePayload(
+                                contentType = body.contentType()?.toString() ?: "application/octet-stream",
+                                bytes = body.bytes(),
+                            )
+                        }
+                    }
+            }.getOrElse { error ->
+                logger.warn(error) { "Failed to cache cover for title=$titleId from $normalizedUrl" }
                 return null
             }
-            val body = response.body ?: return null
-            return downloadStorage.cacheCover(
-                titleId = titleId,
-                image =
-                    PageImagePayload(
-                        contentType = body.contentType()?.toString() ?: "application/octet-stream",
-                        bytes = body.bytes(),
-                    ),
-            )
-        }
+
+        return downloadStorage.cacheCover(
+            titleId = titleId,
+            image = image,
+        )
     }
 
     suspend fun resolveImport(
@@ -963,8 +981,30 @@ class BridgeService(
         when (error) {
             is HttpException -> error.code == 429 || error.code in 500..599
             is java.io.IOException -> true
-            else -> false
+            else -> {
+                val statusCode = parseHttpStatusCode(error)
+                when {
+                    statusCode == null -> false
+                    statusCode == 429 || statusCode in 500..599 -> true
+                    else -> false
+                }
+            }
         }
+
+    private fun parseHttpStatusCode(error: Throwable): Int? {
+        var current: Throwable? = error
+        while (current != null) {
+            val message = current.message
+            if (!message.isNullOrBlank()) {
+                val match = HTTP_ERROR_PATTERN.matcher(message)
+                if (match.find()) {
+                    return match.group(1)?.toIntOrNull()
+                }
+            }
+            current = current.cause
+        }
+        return null
+    }
 
     private fun fetchMangaDexPopularFeed(
         sourceId: String,

@@ -30,7 +30,9 @@ export {
 	listChapterComments,
 	listMine,
 	listTitleChapters,
+	markChaptersReadThrough,
 	resetChapterProgress,
+	resetTitleProgress,
 	updateChapterComment,
 	upsertChapterProgress
 } from './library_reader';

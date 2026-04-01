@@ -20,6 +20,7 @@ import {
 	buildChapterRouteSegments,
 	buildTitleRouteSegments,
 	findOwnedTitleByRouteSegment,
+	sortLibraryChaptersInReadingOrder,
 	summarizeDownloadStats,
 	summarizeOfflineReadiness
 } from './library_reader_support';
@@ -235,21 +236,36 @@ export const listTitleChapters = query({
 	},
 	handler: async (ctx, args) => {
 		const title = await requireOwnedTitle(ctx, args.titleId);
-		const chapters = await ctx.db
-			.query('libraryChapters')
-			.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
-			.collect();
+		const [chapters, progressRows] = await Promise.all([
+			ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+				.collect(),
+			ctx.db
+				.query('chapterProgress')
+				.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.collect()
+		]);
 		const chapterRouteSegments = buildChapterRouteSegments(chapters);
+		const progressByChapterId = new Map(
+			progressRows.map((row) => [String(row.chapterId), row] as const)
+		);
 
-		return chapters
-			.sort((left, right) => left.sequence - right.sequence)
-			.map((chapter) => ({
+		return sortLibraryChaptersInReadingOrder(chapters).map((chapter) => {
+			const progress = progressByChapterId.get(String(chapter._id)) ?? null;
+			return {
 				...chapter,
 				title: title.title,
 				routeSegment:
 					chapterRouteSegments.get(String(chapter._id)) ??
-					buildChapterRouteBase(chapter.chapterName, chapter.chapterNumber ?? null)
-			}));
+					buildChapterRouteBase(chapter.chapterName, chapter.chapterNumber ?? null),
+				isRead: progress !== null,
+				progressPageIndex: progress?.pageIndex ?? null,
+				progressUpdatedAt: progress?.updatedAt ?? null
+			};
+		});
 	}
 });
 

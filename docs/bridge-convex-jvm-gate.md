@@ -15,15 +15,15 @@ Current runtime architecture is:
 - web server -> bridge HTTP control/data routes (internal),
 - bridge -> Convex via HTTP OpenAPI client with service authentication.
 
-The Node `worker/` service is no longer the active orchestration runtime.
+An earlier orchestration design is no longer the active runtime.
 
 ## Goal
 
 Verify whether the official Convex Kotlin client can be used directly from the current
 `bridge/` runtime, which is a plain Kotlin/JVM server.
 
-This gate was required before removing the Node `worker/` service and migrating bridge
-to a direct `bridge -> Convex` architecture.
+This gate was required before finalizing the direct `bridge -> Convex`
+architecture used today.
 
 ## Inputs
 
