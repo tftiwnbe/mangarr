@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { BookIcon, CheckIcon, DownloadIcon, SpinnerIcon } from 'phosphor-svelte';
+	import { BookIcon, CheckIcon, DownloadIcon, SpinnerIcon, XIcon } from 'phosphor-svelte';
 
 	import { Button } from '$lib/elements/button';
 	import { _ } from '$lib/i18n';
@@ -173,10 +173,12 @@
 						<Button
 							variant="ghost"
 							size="sm"
+							title={$_('title.markAsUnread')}
+							aria-label={$_('title.markAsUnread')}
 							onclick={() => onResetChapterProgress(chapter._id)}
 							disabled={progressActionChapterId === chapter._id}
 						>
-							{$_('title.markAsUnread')}
+							<XIcon size={13} />
 						</Button>
 					{:else}
 						<Button
