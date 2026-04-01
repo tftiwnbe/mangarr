@@ -120,6 +120,31 @@ build target="all":
         ;; \
     esac
 
+# Prepare runtime artifacts outside Docker for faster image assembly
+[group('build')]
+artifacts:
+    @echo "Preparing runtime artifacts..."
+    rm -rf .artifacts
+    mkdir -p .artifacts
+    cd web && pnpm run build
+    ./scripts/prepare-web-runtime-artifact.sh .artifacts/web-runtime.tgz
+    if [ ! -f "bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ./bridge/AndroidCompat/getAndroid.sh; fi
+    cd bridge && ./gradlew shadowJar --no-daemon
+    ./scripts/prepare-bridge-runtime-artifact.sh .artifacts/bridge-runtime.tgz
+
+# Build the production image from prebuilt local artifacts
+[group('build')]
+docker-fast image="mangarr-local-fast":
+    @echo "Building runtime image from local artifacts..."
+    just artifacts
+    rm -rf .artifacts/ci-context
+    mkdir -p .artifacts/ci-context/web-runtime .artifacts/ci-context/bridge-runtime
+    cp Dockerfile.ci .artifacts/ci-context/Dockerfile.ci
+    tar -xzf .artifacts/web-runtime.tgz -C .artifacts/ci-context/web-runtime
+    tar -xzf .artifacts/bridge-runtime.tgz -C .artifacts/ci-context/bridge-runtime
+    docker build --target mangarr-base -t mangarr-base:local .
+    docker build -f .artifacts/ci-context/Dockerfile.ci --build-arg MANGARR_BASE_IMAGE=mangarr-base:local -t {{ image }} .artifacts/ci-context
+
 # Format code
 [group('quality')]
 format target="all":

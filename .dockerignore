@@ -4,6 +4,11 @@
 docs
 README.md
 LICENSE
+*.bak
+config.bak
+data.bak
+web-ref
+server-ref
 **/__pycache__
 **/*.py[cod]
 **/*.so
@@ -34,3 +39,4 @@ bridge/**/build
 dist
 build
 .playwright*
+.artifacts
