@@ -1,0 +1,16 @@
+# syntax=docker/dockerfile:1.7
+
+ARG MANGARR_BASE_IMAGE=ghcr.io/tftiwnbe/mangarr-base:edge
+FROM ${MANGARR_BASE_IMAGE} AS mangarr-base
+
+WORKDIR /app
+
+RUN mkdir -p /app/bin /app/config /app/downloads /app/web
+
+COPY web-runtime/app/web /app/web
+COPY bridge-runtime/app/bin/tachibridge.jar /app/bin/tachibridge.jar
+
+EXPOSE 3737
+
+ENTRYPOINT ["tini", "--"]
+CMD ["/usr/local/bin/mangarr-startup"]

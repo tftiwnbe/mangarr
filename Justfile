@@ -120,6 +120,60 @@ build target="all":
         ;; \
     esac
 
+# Prepare runtime artifacts outside Docker for faster image assembly
+[group('build')]
+artifacts:
+    @echo "Preparing runtime artifacts..."
+    rm -rf .artifacts
+    mkdir -p .artifacts
+    cd web && pnpm run build
+    bash -uec ' \
+      tmpdir="$(mktemp -d)"; \
+      trap '"'"'rm -rf "$tmpdir"'"'"' EXIT; \
+      runtime_root="$tmpdir/app/web"; \
+      mkdir -p "$runtime_root/src/lib/server" "$runtime_root/src/lib" "$runtime_root/.svelte-kit"; \
+      cp web/package.json "$runtime_root/package.json"; \
+      cp web/pnpm-lock.yaml "$runtime_root/pnpm-lock.yaml"; \
+      cp web/pnpm-workspace.yaml "$runtime_root/pnpm-workspace.yaml"; \
+      cp web/convex.json "$runtime_root/convex.json"; \
+      cp web/server.js "$runtime_root/server.js"; \
+      cp web/tsconfig.json "$runtime_root/tsconfig.json"; \
+      cp web/.svelte-kit/tsconfig.json "$runtime_root/.svelte-kit/tsconfig.json"; \
+      cp -R web/build "$runtime_root/build"; \
+      cp -R web/src/convex "$runtime_root/src/convex"; \
+      cp -R web/src/lib/utils "$runtime_root/src/lib/utils"; \
+      cp web/src/lib/server/convex-auth-config.ts "$runtime_root/src/lib/server/convex-auth-config.ts"; \
+      (cd "$runtime_root" && pnpm install --frozen-lockfile --prod --prefer-offline); \
+      tar -C "$tmpdir" -czf .artifacts/web-runtime.tgz app \
+    '
+    if [ ! -f "bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ./bridge/AndroidCompat/getAndroid.sh; fi
+    cd bridge && ./gradlew shadowJar --no-daemon
+    bash -uec ' \
+      tmpdir="$(mktemp -d)"; \
+      trap '"'"'rm -rf "$tmpdir"'"'"' EXIT; \
+      mkdir -p "$tmpdir/app/bin"; \
+      jar_path="$(find bridge/app/build -maxdepth 1 -type f -name "tachibridge-*.jar" | head -n1)"; \
+      if [ -z "$jar_path" ]; then \
+        echo "tachibridge shadowJar not found under bridge/app/build" >&2; \
+        exit 1; \
+      fi; \
+      cp "$jar_path" "$tmpdir/app/bin/tachibridge.jar"; \
+      tar -C "$tmpdir" -czf .artifacts/bridge-runtime.tgz app \
+    '
+
+# Build the production image from prebuilt local artifacts
+[group('build')]
+docker-fast image="mangarr-local-fast":
+    @echo "Building runtime image from local artifacts..."
+    just artifacts
+    rm -rf .artifacts/ci-context
+    mkdir -p .artifacts/ci-context/web-runtime .artifacts/ci-context/bridge-runtime
+    cp Dockerfile.ci .artifacts/ci-context/Dockerfile.ci
+    tar -xzf .artifacts/web-runtime.tgz -C .artifacts/ci-context/web-runtime
+    tar -xzf .artifacts/bridge-runtime.tgz -C .artifacts/ci-context/bridge-runtime
+    docker build --target mangarr-base -t mangarr-base:local .
+    docker build -f .artifacts/ci-context/Dockerfile.ci --build-arg MANGARR_BASE_IMAGE=mangarr-base:local -t {{ image }} .artifacts/ci-context
+
 # Format code
 [group('quality')]
 format target="all":
@@ -274,7 +328,7 @@ verify-prod tmp_root="/tmp/mangarr-predeploy" port="3837":
     docker compose -p mangarr-predeploy -f "{{ tmp_root }}/compose.verify.yaml" down --remove-orphans >/dev/null 2>&1 || true
     docker compose -p mangarr-predeploy -f "{{ tmp_root }}/compose.verify.yaml" up -d --build
     for i in $(seq 1 24); do \
-      if curl -fsS "http://127.0.0.1:{{ port }}/login" >/dev/null; then break; fi; \
+      if curl -fsS "http://127.0.0.1:{{ port }}/login" >/dev/null 2>/dev/null; then break; fi; \
       sleep 5; \
       if [ "$i" -eq 24 ]; then echo "Production-like smoke check timed out waiting for web startup" >&2; exit 1; fi; \
     done

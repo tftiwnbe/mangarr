@@ -5,6 +5,31 @@ import { sveltekit } from '@sveltejs/kit/vite';
 
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],
+	build: {
+		rollupOptions: {
+			output: {
+				manualChunks(id) {
+					if (!id.includes('node_modules')) {
+						return;
+					}
+					if (id.includes('/convex/') || id.includes('/convex-svelte/')) {
+						return 'convex';
+					}
+					if (
+						id.includes('/bits-ui/') ||
+						id.includes('/runed/') ||
+						id.includes('/svelte-toolbelt/')
+					) {
+						return 'ui-kit';
+					}
+					if (id.includes('/phosphor-svelte/')) {
+						return 'icons';
+					}
+					return 'vendor';
+				}
+			}
+		}
+	},
 	test: {
 		expect: { requireAssertions: true },
 		projects: [
