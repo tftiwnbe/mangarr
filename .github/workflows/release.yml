@@ -162,6 +162,7 @@ jobs:
       - name: Download runtime artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: "*-runtime"
           path: .artifacts/downloads
 
       - name: Expand runtime artifacts
