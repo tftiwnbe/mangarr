@@ -34,6 +34,8 @@ Images:
 - `ghcr.io/tftiwnbe/mangarr:edge`
 - `ghcr.io/tftiwnbe/mangarr:latest`
 
+Current published runtime images target `linux/amd64`, which is also the supported container path for the embedded KCEF runtime.
+
 ## Docs
 
 - [Deploy](docs/deploy.md)

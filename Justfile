@@ -274,7 +274,7 @@ verify-prod tmp_root="/tmp/mangarr-predeploy" port="3837":
     docker compose -p mangarr-predeploy -f "{{ tmp_root }}/compose.verify.yaml" down --remove-orphans >/dev/null 2>&1 || true
     docker compose -p mangarr-predeploy -f "{{ tmp_root }}/compose.verify.yaml" up -d --build
     for i in $(seq 1 24); do \
-      if curl -fsS "http://127.0.0.1:{{ port }}/login" >/dev/null; then break; fi; \
+      if curl -fsS "http://127.0.0.1:{{ port }}/login" >/dev/null 2>/dev/null; then break; fi; \
       sleep 5; \
       if [ "$i" -eq 24 ]; then echo "Production-like smoke check timed out waiting for web startup" >&2; exit 1; fi; \
     done
