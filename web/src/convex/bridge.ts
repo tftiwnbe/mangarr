@@ -13,6 +13,7 @@ export const reportHeartbeat = mutation({
 			v.literal('stopped'),
 			v.literal('starting'),
 			v.literal('ready'),
+			v.literal('degraded'),
 			v.literal('error')
 		),
 		port: v.optional(v.float64()),

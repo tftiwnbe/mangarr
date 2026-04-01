@@ -12,6 +12,7 @@ services:
         condition: service_started
 
   mangarr:
+    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile

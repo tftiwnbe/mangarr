@@ -258,6 +258,7 @@ verify-prod tmp_root="/tmp/mangarr-predeploy" port="3837":
     printf '%s\n' \
       'services:' \
       '  mangarr:' \
+      '    platform: linux/amd64' \
       '    build:' \
       '      context: /Users/wnbe/Lab/mangarr' \
       '      dockerfile: Dockerfile' \

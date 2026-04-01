@@ -302,8 +302,50 @@ seed_convex_env_var "MANGARR_CONVEX_AUTH_PRIVATE_JWK" "${MANGARR_CONVEX_AUTH_PRI
 KCEF_LIBRARY_DIR="${KCEF_INSTALL_DIR:-${MANGARR_BRIDGE_DATA_DIR:-/app/config/bridge}/bin/kcef}"
 KCEF_CACHE_DIR="${MANGARR_BRIDGE_DATA_DIR:-/app/config/bridge}/cache/kcef"
 JAVA_LIBRARY_PATH="${KCEF_LIBRARY_DIR}:/usr/lib/jni:/opt/java/openjdk/lib/server:/opt/java/openjdk/lib:/usr/lib:/lib"
+export KCEF_LIBRARY_DIR
+export KCEF_CACHE_DIR
 export LD_LIBRARY_PATH="${KCEF_LIBRARY_DIR}:/usr/lib/jni:/opt/java/openjdk/lib/server:/opt/java/openjdk/lib:${LD_LIBRARY_PATH:-}"
 export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:+${JAVA_TOOL_OPTIONS} }-Djava.library.path=${JAVA_LIBRARY_PATH}"
+export CHROME_DEVEL_SANDBOX="${KCEF_LIBRARY_DIR}/chrome-sandbox"
+
+sync_kcef_runtime_files() {
+  local src="${KCEF_LIBRARY_DIR}"
+  local dest="/opt/java/openjdk/lib"
+  [ -d "${src}" ] || return 0
+
+  mkdir -p "${dest}"
+
+  local name
+  for name in \
+    cef_server \
+    chrome-sandbox \
+    libcef.so \
+    libjcef.so \
+    libEGL.so \
+    libGLESv2.so \
+    libvk_swiftshader.so \
+    libvulkan.so.1 \
+    vk_swiftshader_icd.json \
+    resources.pak \
+    chrome_100_percent.pak \
+    chrome_200_percent.pak \
+    icudtl.dat \
+    v8_context_snapshot.bin
+  do
+    if [ -e "${src}/${name}" ]; then
+      ln -sfn "${src}/${name}" "${dest}/${name}"
+    fi
+  done
+
+  if [ -f "${src}/chrome-sandbox" ]; then
+    chown root:root "${src}/chrome-sandbox" 2>/dev/null || true
+    chmod 4755 "${src}/chrome-sandbox" 2>/dev/null || true
+  fi
+
+  if [ -d "${src}/locales" ]; then
+    ln -sfn "${src}/locales" "${dest}/locales"
+  fi
+}
 
 if command -v dbus-daemon >/dev/null 2>&1; then
   mkdir -p /run/dbus
@@ -323,10 +365,51 @@ if [ "${MANGARR_KCEF_ENABLED}" = "true" ] || [ "${MANGARR_KCEF_ENABLED}" = "1" ]
 
   mkdir -p "${KCEF_CACHE_DIR}"
   find "${KCEF_CACHE_DIR}" -maxdepth 1 -name 'Singleton*' -delete 2>/dev/null || true
-  if [ -f "${KCEF_LIBRARY_DIR}/jcef_helper" ]; then
-    ln -sf "${KCEF_LIBRARY_DIR}/jcef_helper" /opt/java/openjdk/lib/jcef_helper
-    chmod +x "${KCEF_LIBRARY_DIR}/jcef_helper" /opt/java/openjdk/lib/jcef_helper 2>/dev/null || true
+  (
+    for _ in $(seq 1 180); do
+      sync_kcef_runtime_files
+      sleep 1
+    done
+  ) &
+  rm -f /opt/java/openjdk/lib/jcef_helper
+  cat <<'JCEF_HELPER' >/opt/java/openjdk/lib/jcef_helper
+#!/bin/sh
+TARGET="${KCEF_LIBRARY_DIR}/jcef_helper"
+DEST="/opt/java/openjdk/lib"
+for _ in \$(seq 1 120); do
+  if [ -x "\${TARGET}" ]; then
+    mkdir -p "\${DEST}"
+    for name in \
+      cef_server \
+      chrome-sandbox \
+      libcef.so \
+      libjcef.so \
+      libEGL.so \
+      libGLESv2.so \
+      libvk_swiftshader.so \
+      libvulkan.so.1 \
+      vk_swiftshader_icd.json \
+      resources.pak \
+      chrome_100_percent.pak \
+      chrome_200_percent.pak \
+      icudtl.dat \
+      v8_context_snapshot.bin
+    do
+      if [ -e "${KCEF_LIBRARY_DIR}/\${name}" ]; then
+        ln -sfn "${KCEF_LIBRARY_DIR}/\${name}" "\${DEST}/\${name}"
+      fi
+    done
+    if [ -d "${KCEF_LIBRARY_DIR}/locales" ]; then
+      ln -sfn "${KCEF_LIBRARY_DIR}/locales" "\${DEST}/locales"
+    fi
+    exec "\${TARGET}" "\$@"
   fi
+  sleep 1
+done
+echo "jcef_helper did not become available at \${TARGET}" >&2
+exit 127
+JCEF_HELPER
+  chmod +x /opt/java/openjdk/lib/jcef_helper
 fi
 
 (java -jar "${TACHIBRIDGE_JAR_PATH}" --port "${MANGARR_BRIDGE_PORT}" --data-dir "${MANGARR_BRIDGE_DATA_DIR:-/app/config/bridge}") \
