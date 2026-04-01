@@ -22,12 +22,15 @@ import eu.kanade.tachiyomi.network.HttpException
 import mangarr.tachibridge.config.ConfigManager
 import mangarr.tachibridge.logging.EventLogger
 import mangarr.tachibridge.logging.LogContext
+import java.util.regex.Pattern
 import java.util.concurrent.atomic.AtomicInteger
 
 private val events = EventLogger.named(
     "mangarr.tachibridge.runtime.BridgeCommandRunner",
     "component" to "bridge_command_runner",
 )
+
+private val HTTP_ERROR_PATTERN = Pattern.compile("HTTP error\\s+(\\d{3})")
 
 private val interactiveCapabilities =
     listOf(
@@ -272,11 +275,12 @@ class BridgeCommandRunner(
                 )
             } catch (error: Exception) {
                 val retryable = isRetryableFailure(command, error)
+                val httpError = error.findHttpException()
                 val retryDelayMs =
                     if (retryable && command.commandType == "downloads.chapter") {
                         maxOf(
                             ConfigManager.config.downloads.failedRetryDelaySeconds * 1000L,
-                            ((error as? HttpException)?.retryAfterSeconds ?: 0L) * 1000L,
+                            (httpError?.retryAfterSeconds ?: 0L) * 1000L,
                         )
                     } else {
                         5_000L
@@ -297,7 +301,7 @@ class BridgeCommandRunner(
                         "retryDelayMs" to retryDelayMs,
                         "throwable_class" to error::class.simpleName,
                         "throwable_message" to error.message,
-                        "httpCode" to (error as? HttpException)?.code,
+                        "httpCode" to httpError?.code,
                     )
                 }
                 client.failCommand(
@@ -330,9 +334,22 @@ class BridgeCommandRunner(
             if (current is HttpException) {
                 return current
             }
+            parseHttpStatusCode(current.message)?.let { return HttpException(it) }
             current = current.cause
         }
         return null
+    }
+
+    private fun parseHttpStatusCode(message: String?): Int? {
+        if (message.isNullOrBlank()) {
+            return null
+        }
+        val match = HTTP_ERROR_PATTERN.matcher(message)
+        return if (match.find()) {
+            match.group(1)?.toIntOrNull()
+        } else {
+            null
+        }
     }
 
     private fun isPermanentHttpFailure(code: Int): Boolean =
@@ -654,18 +671,39 @@ class BridgeCommandRunner(
                         resolved.optionalString("coverUrl"),
                     )
 
-                val chapters = kotlinx.coroutines.runBlocking { service.fetchChapters(sourceId, titleUrl) }
-                client.upsertLibraryChapters(
-                    client.payload(
-                        buildJsonObject {
-                            put("titleId", clientResult.titleId)
-                            put("sourceId", sourceId)
-                            put("titleUrl", titleUrl)
-                            put("chapters", chapters["chapters"] ?: error("Missing chapters payload"))
-                            put("now", System.currentTimeMillis())
-                        },
-                    ),
-                )
+                val chapters =
+                    try {
+                        kotlinx.coroutines.runBlocking { service.fetchChapters(sourceId, titleUrl) }
+                    } catch (error: Exception) {
+                        val httpError = error.findHttpException()
+                        if (httpError != null && isPermanentHttpFailure(httpError.code)) {
+                            events.warn(
+                                "bridge.library.import.chapter_sync_blocked",
+                                "Initial chapter sync was blocked by a permanent source failure",
+                                "titleId" to clientResult.titleId,
+                                "sourceId" to sourceId,
+                                "titleUrl" to titleUrl,
+                                "httpCode" to httpError.code,
+                                "message" to (error.message ?: "Unknown chapter sync failure"),
+                            )
+                            null
+                        } else {
+                            throw error
+                        }
+                    }
+                if (chapters != null) {
+                    client.upsertLibraryChapters(
+                        client.payload(
+                            buildJsonObject {
+                                put("titleId", clientResult.titleId)
+                                put("sourceId", sourceId)
+                                put("titleUrl", titleUrl)
+                                put("chapters", chapters["chapters"] ?: error("Missing chapters payload"))
+                                put("now", System.currentTimeMillis())
+                            },
+                        ),
+                    )
+                }
 
                 buildJsonObject {
                     put("ok", true)
@@ -675,7 +713,8 @@ class BridgeCommandRunner(
                     put("genre", resolved.optionalString("genre"))
                     put("status", resolved.optionalInt("status") ?: 0)
                     put("localCoverPath", coverPath)
-                    put("chapterCount", chapters["chapters"]?.jsonArray?.size ?: 0)
+                    put("chapterCount", chapters?.get("chapters")?.jsonArray?.size ?: 0)
+                    put("chapterSyncBlocked", chapters == null)
                 }
             }
             "downloads.chapter" -> {

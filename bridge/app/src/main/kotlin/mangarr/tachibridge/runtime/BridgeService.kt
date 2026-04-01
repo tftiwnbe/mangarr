@@ -31,6 +31,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Base64
+import java.util.regex.Pattern
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.exists
@@ -43,6 +44,7 @@ private const val MANGADEX_PACKAGE = "eu.kanade.tachiyomi.extension.all.mangadex
 private val DOWNLOAD_PAGE_RETRY_DELAYS_MS = listOf(0L, 2_000L, 5_000L, 15_000L)
 private val SOURCE_REQUEST_RETRY_DELAYS_MS = listOf(0L, 1_500L, 4_000L)
 private const val DOWNLOAD_PAGE_CONCURRENCY = 2
+private val HTTP_ERROR_PATTERN = Pattern.compile("HTTP error\\s+(\\d{3})")
 
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 class BridgeService(
@@ -979,8 +981,30 @@ class BridgeService(
         when (error) {
             is HttpException -> error.code == 429 || error.code in 500..599
             is java.io.IOException -> true
-            else -> false
+            else -> {
+                val statusCode = parseHttpStatusCode(error)
+                when {
+                    statusCode == null -> false
+                    statusCode == 429 || statusCode in 500..599 -> true
+                    else -> false
+                }
+            }
         }
+
+    private fun parseHttpStatusCode(error: Throwable): Int? {
+        var current: Throwable? = error
+        while (current != null) {
+            val message = current.message
+            if (!message.isNullOrBlank()) {
+                val match = HTTP_ERROR_PATTERN.matcher(message)
+                if (match.find()) {
+                    return match.group(1)?.toIntOrNull()
+                }
+            }
+            current = current.cause
+        }
+        return null
+    }
 
     private fun fetchMangaDexPopularFeed(
         sourceId: String,
