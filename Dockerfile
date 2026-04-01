@@ -402,8 +402,8 @@ if [ "${MANGARR_KCEF_ENABLED}" = "true" ] || [ "${MANGARR_KCEF_ENABLED}" = "1" ]
 TARGET="${KCEF_LIBRARY_DIR}/jcef_helper"
 DEST="/opt/java/openjdk/lib"
 for _ in $(seq 1 120); do
-  if [ -x "\${TARGET}" ]; then
-    mkdir -p "\${DEST}"
+  if [ -x "${TARGET}" ]; then
+    mkdir -p "${DEST}"
     for name in \
       cef_server \
       chrome-sandbox \
@@ -420,18 +420,18 @@ for _ in $(seq 1 120); do
       icudtl.dat \
       v8_context_snapshot.bin
     do
-      if [ -e "${KCEF_LIBRARY_DIR}/\${name}" ]; then
-        ln -sfn "${KCEF_LIBRARY_DIR}/\${name}" "\${DEST}/\${name}"
+      if [ -e "${KCEF_LIBRARY_DIR}/${name}" ]; then
+        ln -sfn "${KCEF_LIBRARY_DIR}/${name}" "${DEST}/${name}"
       fi
     done
     if [ -d "${KCEF_LIBRARY_DIR}/locales" ]; then
-      ln -sfn "${KCEF_LIBRARY_DIR}/locales" "\${DEST}/locales"
+      ln -sfn "${KCEF_LIBRARY_DIR}/locales" "${DEST}/locales"
     fi
-    exec "\${TARGET}" "$@"
+    exec "${TARGET}" "$@"
   fi
   sleep 1
 done
-echo "jcef_helper did not become available at \${TARGET}" >&2
+echo "jcef_helper did not become available at ${TARGET}" >&2
 exit 127
 JCEF_HELPER
   chmod +x /opt/java/openjdk/lib/jcef_helper
