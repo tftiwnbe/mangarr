@@ -165,15 +165,14 @@ ADMIN_KEY="$("/app/convex/generate_key" "${INSTANCE_NAME}" "${INSTANCE_SECRET}" 
 if [ "${MANGARR_APP_MODE:-prod}" = "dev" ]; then
   echo "[startup] Convex dev admin key: ${ADMIN_KEY}"
 fi
-PUBLIC_URLS="$(node - "${MANGARR_PUBLIC_URL}" "${CONVEX_PORT:-3210}" <<'URLS_EOF'
-const [input, convexPort] = process.argv.slice(2);
+PUBLIC_URLS="$(node - "${MANGARR_PUBLIC_URL}" <<'URLS_EOF'
+const [input] = process.argv.slice(2);
 const site = new URL(input);
 site.pathname = '/';
 site.search = '';
 site.hash = '';
 const siteOrigin = site.toString().replace(/\/$/, '');
-const convex = new URL(siteOrigin);
-convex.port = convexPort;
+const convex = new URL('/convex', siteOrigin);
 process.stdout.write(`${siteOrigin}\n${convex.toString().replace(/\/$/, '')}\n`);
 URLS_EOF
 )"
@@ -296,7 +295,7 @@ seed_convex_env_var "MANGARR_CONVEX_AUTH_APPLICATION_ID" "${MANGARR_CONVEX_AUTH_
 seed_convex_env_var "MANGARR_CONVEX_AUTH_KEY_ID" "${MANGARR_CONVEX_AUTH_KEY_ID}"
 seed_convex_env_var "MANGARR_CONVEX_AUTH_PRIVATE_JWK" "${MANGARR_CONVEX_AUTH_PRIVATE_JWK}"
 
-(cd /app/web && pnpm exec convex dev --once --typecheck disable --codegen disable) \
+(cd /app/web && ([ -x node_modules/.bin/svelte-kit ] && pnpm exec svelte-kit sync >/dev/null || true) && pnpm exec convex dev --once --typecheck disable --codegen disable) \
   > >(pipe_component_output "setup" "${SETUP_LOG_FILE}" "" "stdout") \
   2> >(pipe_component_output "setup" "${SETUP_LOG_FILE}" "stderr" "stderr")
 
@@ -324,6 +323,10 @@ if [ "${MANGARR_KCEF_ENABLED}" = "true" ] || [ "${MANGARR_KCEF_ENABLED}" = "1" ]
 
   mkdir -p "${KCEF_CACHE_DIR}"
   find "${KCEF_CACHE_DIR}" -maxdepth 1 -name 'Singleton*' -delete 2>/dev/null || true
+  if [ -f "${KCEF_LIBRARY_DIR}/jcef_helper" ]; then
+    ln -sf "${KCEF_LIBRARY_DIR}/jcef_helper" /opt/java/openjdk/lib/jcef_helper
+    chmod +x "${KCEF_LIBRARY_DIR}/jcef_helper" /opt/java/openjdk/lib/jcef_helper 2>/dev/null || true
+  fi
 fi
 
 (java -jar "${TACHIBRIDGE_JAR_PATH}" --port "${MANGARR_BRIDGE_PORT}" --data-dir "${MANGARR_BRIDGE_DATA_DIR:-/app/config/bridge}") \
@@ -337,7 +340,7 @@ if [ "${MANGARR_APP_MODE:-prod}" = "dev" ]; then
     > >(pipe_component_output "web" "${WEB_LOG_FILE}" "" "stdout") \
     2> >(pipe_component_output "web" "${WEB_LOG_FILE}" "stderr" "stderr") &
 else
-  (cd /app/web && node build) \
+  (cd /app/web && node server.js) \
     > >(pipe_component_output "web" "${WEB_LOG_FILE}" "" "stdout") \
     2> >(pipe_component_output "web" "${WEB_LOG_FILE}" "stderr" "stderr") &
 fi
@@ -371,6 +374,7 @@ COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile --prod
 COPY web /app/web
 COPY --from=web-build /app/web/build /app/web/build
+COPY --from=web-build /app/web/.svelte-kit /app/web/.svelte-kit
 
 WORKDIR /app
 RUN mkdir -p /app/bin /app/config /app/downloads

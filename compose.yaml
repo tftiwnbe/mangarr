@@ -5,7 +5,6 @@ services:
       - MANGARR_PUBLIC_URL=https://mangarr.hmphin.space
     ports:
       - "3737:3737"
-      - "3210:3210"
     volumes:
       - ./config:/app/config
       - ./data:/app/downloads
