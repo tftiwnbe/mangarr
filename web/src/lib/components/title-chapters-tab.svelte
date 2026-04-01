@@ -15,6 +15,8 @@
 		chapterNumber?: number | null;
 		scanlator?: string | null;
 		dateUpload?: number | null;
+		isRead?: boolean;
+		progressPageIndex?: number | null;
 		downloadStatus: 'missing' | 'queued' | 'downloading' | 'downloaded' | 'failed';
 		lastErrorMessage?: string | null;
 	};
@@ -28,6 +30,10 @@
 		onRetryHydration: () => void;
 		onOpenChapter: (chapter: ChapterRow) => void;
 		onDownloadChapter: (chapterId: string) => void;
+		onMarkChapterRead: (chapterId: string) => void;
+		onResetChapterProgress: (chapterId: string) => void;
+		onMarkPreviousRead: (chapterId: string) => void;
+		progressActionChapterId?: string | null;
 	};
 
 	let {
@@ -38,7 +44,11 @@
 		downloadingChapterIds,
 		onRetryHydration,
 		onOpenChapter,
-		onDownloadChapter
+		onDownloadChapter,
+		onMarkChapterRead,
+		onResetChapterProgress,
+		onMarkPreviousRead,
+		progressActionChapterId = null
 	}: Props = $props();
 
 	function formatDate(value?: number | null): string {
@@ -94,6 +104,11 @@
 		if (chapter.downloadStatus === 'failed') return $_('downloads.failed');
 		return null;
 	}
+
+	function chapterReadState(chapter: ChapterRow): string | null {
+		if (!chapter.isRead) return null;
+		return $_('title.markAsRead');
+	}
 </script>
 
 {#if titleChapters.length === 0}
@@ -112,11 +127,15 @@
 		{#each titleChapters as chapter (chapter._id)}
 			{@const detail = chapterDetail(chapter)}
 			{@const downloadState = chapterDownloadState(chapter)}
+			{@const readState = chapterReadState(chapter)}
 			<div
-				class="flex items-center gap-4 py-3"
+				class="flex items-center gap-4 py-3 {chapter.isRead
+					? 'opacity-80'
+					: ''}"
 				data-testid="chapter-row"
 				data-chapter-id={chapter._id}
 				data-download-status={chapter.downloadStatus}
+				data-read={chapter.isRead ? 'true' : 'false'}
 			>
 				<div class="min-w-0 flex-1">
 					<button
@@ -142,12 +161,43 @@
 							<span class="text-[var(--void-5)]">·</span>
 							<span>{downloadState}</span>
 						{/if}
+						{#if readState}
+							<span class="text-[var(--void-5)]">·</span>
+							<span>{readState}</span>
+						{/if}
 					</div>
 					{#if chapter.lastErrorMessage}
 						<p class="mt-1 text-[11px] text-[var(--error)]">{chapter.lastErrorMessage}</p>
 					{/if}
 				</div>
 				<div class="flex shrink-0 items-center gap-2">
+					{#if chapter.isRead}
+						<Button
+							variant="ghost"
+							size="sm"
+							onclick={() => onResetChapterProgress(chapter._id)}
+							disabled={progressActionChapterId === chapter._id}
+						>
+							{$_('title.markAsUnread')}
+						</Button>
+					{:else}
+						<Button
+							variant="ghost"
+							size="sm"
+							onclick={() => onMarkChapterRead(chapter._id)}
+							disabled={progressActionChapterId === chapter._id}
+						>
+							{$_('title.markAsRead')}
+						</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							onclick={() => onMarkPreviousRead(chapter._id)}
+							disabled={progressActionChapterId === chapter._id}
+						>
+							{$_('title.markPreviousRead')}
+						</Button>
+					{/if}
 					{#if chapter.downloadStatus === 'downloaded'}
 						<CheckIcon size={13} class="text-[var(--void-7)]" />
 					{:else}

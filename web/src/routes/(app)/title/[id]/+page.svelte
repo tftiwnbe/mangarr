@@ -21,6 +21,7 @@
 	import TitleSourcePanel from '$lib/components/title-source-panel.svelte';
 	import { waitForCommand } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
+	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
@@ -43,6 +44,9 @@
 		chapterNumber?: number | null;
 		scanlator?: string | null;
 		dateUpload?: number | null;
+		isRead?: boolean;
+		progressPageIndex?: number | null;
+		progressUpdatedAt?: number | null;
 		downloadStatus: 'missing' | 'queued' | 'downloading' | 'downloaded' | 'failed';
 		lastErrorMessage?: string | null;
 	};
@@ -215,6 +219,9 @@
 	let lastMetadataKey = $state('');
 	let browserOnline = $state(true);
 	let coverCacheRequested = $state(false);
+	let progressActionChapterId = $state<string | null>(null);
+	let resetProgressDialogOpen = $state(false);
+	let resettingTitleProgress = $state(false);
 
 	onMount(() => {
 		if (typeof navigator !== 'undefined') {
@@ -742,6 +749,65 @@
 			actionError = error instanceof Error ? error.message : 'Unable to queue chapter download';
 		} finally {
 			downloadingChapterIds = downloadingChapterIds.filter((id) => id !== chapterId);
+		}
+	}
+
+	async function markChapterRead(chapterId: Id<'libraryChapters'>) {
+		if (progressActionChapterId === chapterId) return;
+		progressActionChapterId = chapterId;
+		actionError = null;
+		try {
+			await client.mutation(convexApi.library.markChapterRead, { chapterId });
+		} catch (error) {
+			actionError = error instanceof Error ? error.message : $_('title.markAsRead');
+		} finally {
+			progressActionChapterId = null;
+		}
+	}
+
+	async function resetChapterReadProgress(chapterId: Id<'libraryChapters'>) {
+		if (progressActionChapterId === chapterId) return;
+		progressActionChapterId = chapterId;
+		actionError = null;
+		try {
+			await client.mutation(convexApi.library.resetChapterProgress, { chapterId });
+		} catch (error) {
+			actionError = error instanceof Error ? error.message : $_('title.markAsUnread');
+		} finally {
+			progressActionChapterId = null;
+		}
+	}
+
+	async function markPreviousChaptersRead(chapterId: Id<'libraryChapters'>) {
+		if (!title || progressActionChapterId === chapterId) return;
+		progressActionChapterId = chapterId;
+		actionError = null;
+		try {
+			await client.mutation(convexApi.library.markChaptersReadThrough, {
+				titleId: title._id,
+				chapterId
+			});
+		} catch (error) {
+			actionError = error instanceof Error ? error.message : $_('title.markPreviousRead');
+		} finally {
+			progressActionChapterId = null;
+		}
+	}
+
+	async function resetTitleReadProgress() {
+		if (!title || resettingTitleProgress) return;
+		resettingTitleProgress = true;
+		actionError = null;
+		try {
+			await client.mutation(convexApi.library.resetTitleProgress, {
+				titleId: title._id
+			});
+			resetProgressDialogOpen = false;
+		} catch (error) {
+			actionError =
+				error instanceof Error ? error.message : $_('title.resetProgressFailed');
+		} finally {
+			resettingTitleProgress = false;
 		}
 	}
 
@@ -1369,6 +1435,13 @@
 							onOpenChapter={(chapter) => openChapter(chapter as ChapterRow)}
 							onDownloadChapter={(chapterId) =>
 								void downloadChapter(chapterId as Id<'libraryChapters'>)}
+							onMarkChapterRead={(chapterId) =>
+								void markChapterRead(chapterId as Id<'libraryChapters'>)}
+							onResetChapterProgress={(chapterId) =>
+								void resetChapterReadProgress(chapterId as Id<'libraryChapters'>)}
+							onMarkPreviousRead={(chapterId) =>
+								void markPreviousChaptersRead(chapterId as Id<'libraryChapters'>)}
+							{progressActionChapterId}
 						/>
 					{:else}
 						<TitleCommentsTab loading={titleCommentsQuery.isLoading} {titleComments} />
@@ -1490,6 +1563,18 @@
 					{/if}
 					<span>{updatesEnabled ? $_('downloads.enabled') : $_('downloads.disabled')}</span>
 				</button>
+			</div>
+
+			<div class="flex flex-col gap-2">
+				<span class="text-label">{$_('title.resetProgress')}</span>
+				<Button
+					variant="outline"
+					size="sm"
+					onclick={() => (resetProgressDialogOpen = true)}
+					disabled={readingProgressCount === 0 || resettingTitleProgress}
+				>
+					{$_('title.resetProgress')}
+				</Button>
 			</div>
 
 			<div class="flex flex-col gap-3">
@@ -1691,3 +1776,17 @@
 		</div>
 	</SlidePanel>
 {/if}
+
+<ConfirmDialog
+	open={resetProgressDialogOpen}
+	title={$_('title.resetProgressConfirmTitle')}
+	description={$_('title.resetProgressConfirmDescription')}
+	confirmLabel={$_('title.resetProgress')}
+	cancelLabel={$_('common.cancel')}
+	variant="danger"
+	loading={resettingTitleProgress}
+	onConfirm={() => void resetTitleReadProgress()}
+	onCancel={() => {
+		if (!resettingTitleProgress) resetProgressDialogOpen = false;
+	}}
+/>

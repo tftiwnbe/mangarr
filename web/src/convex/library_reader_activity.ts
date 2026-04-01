@@ -3,6 +3,7 @@ import { v } from 'convex/values';
 import { mutation } from './_generated/server';
 import {
 	getOwnedChapterProgressRow,
+	requireOwnedTitle,
 	requireOwnedChapter,
 	requireOwnedChapterComment
 } from './library_shared';
@@ -57,6 +58,123 @@ export const resetChapterProgress = mutation({
 			await ctx.db.delete(existing._id);
 		}
 		return { ok: true };
+	}
+});
+
+export const markChapterRead = mutation({
+	args: {
+		chapterId: v.id('libraryChapters')
+	},
+	handler: async (ctx, args) => {
+		const chapter = await requireOwnedChapter(ctx, args.chapterId);
+		const now = Date.now();
+		const existing = await getOwnedChapterProgressRow(ctx, chapter._id);
+		if (existing) {
+			await ctx.db.patch(existing._id, {
+				pageIndex: Math.max(existing.pageIndex, 0),
+				updatedAt: now
+			});
+		} else {
+			await ctx.db.insert('chapterProgress', {
+				ownerUserId: chapter.ownerUserId,
+				libraryTitleId: chapter.libraryTitleId,
+				chapterId: chapter._id,
+				pageIndex: 0,
+				createdAt: now,
+				updatedAt: now
+			});
+		}
+		await ctx.db.patch(chapter.libraryTitleId, {
+			lastReadAt: now,
+			updatedAt: now
+		});
+		return { ok: true };
+	}
+});
+
+export const markChaptersReadThrough = mutation({
+	args: {
+		titleId: v.id('libraryTitles'),
+		chapterId: v.id('libraryChapters')
+	},
+	handler: async (ctx, args) => {
+		const title = await requireOwnedTitle(ctx, args.titleId);
+		const targetChapter = await requireOwnedChapter(ctx, args.chapterId);
+		if (targetChapter.libraryTitleId !== title._id) {
+			throw new Error('Chapter does not belong to this title');
+		}
+
+		const [chapters, progressRows] = await Promise.all([
+			ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+				.collect(),
+			ctx.db
+				.query('chapterProgress')
+				.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.collect()
+		]);
+
+		const now = Date.now();
+		const progressByChapterId = new Map(progressRows.map((row) => [String(row.chapterId), row] as const));
+		const chaptersToMark = chapters
+			.filter((chapter) => chapter.sequence <= targetChapter.sequence)
+			.sort((left, right) => left.sequence - right.sequence);
+
+		for (const chapter of chaptersToMark) {
+			const existing = progressByChapterId.get(String(chapter._id));
+			if (existing) {
+				await ctx.db.patch(existing._id, {
+					pageIndex: Math.max(existing.pageIndex, 0),
+					updatedAt: now
+				});
+				continue;
+			}
+
+			await ctx.db.insert('chapterProgress', {
+				ownerUserId: title.ownerUserId,
+				libraryTitleId: title._id,
+				chapterId: chapter._id,
+				pageIndex: 0,
+				createdAt: now,
+				updatedAt: now
+			});
+		}
+
+		await ctx.db.patch(title._id, {
+			lastReadAt: now,
+			updatedAt: now
+		});
+
+		return { ok: true, markedChapters: chaptersToMark.length };
+	}
+});
+
+export const resetTitleProgress = mutation({
+	args: {
+		titleId: v.id('libraryTitles')
+	},
+	handler: async (ctx, args) => {
+		const title = await requireOwnedTitle(ctx, args.titleId);
+		const progressRows = await ctx.db
+			.query('chapterProgress')
+			.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+			)
+			.collect();
+
+		for (const row of progressRows) {
+			await ctx.db.delete(row._id);
+		}
+
+		await ctx.db.patch(title._id, {
+			lastReadAt: undefined,
+			updatedAt: Date.now()
+		});
+
+		return { ok: true, clearedChapters: progressRows.length };
 	}
 });
 
