@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { slide } from 'svelte/transition';
-	import { useConvexClient, useQuery } from 'convex-svelte';
 	import {
 		ArrowsClockwiseIcon,
 		CaretDownIcon,
@@ -16,8 +15,6 @@
 		XIcon
 	} from 'phosphor-svelte';
 
-	import { convexApi } from '$lib/convex/api';
-	import { waitForCommand } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { Switch } from '$lib/elements/switch';
@@ -77,8 +74,17 @@
 		items: InstalledExtension[];
 	};
 
-	const client = useConvexClient();
-	const repository = useQuery(convexApi.extensions.getRepository, () => ({}));
+	type RepositoryState = {
+		url?: string;
+		configured?: boolean;
+		languages?: string[];
+		extensionCount?: number;
+	};
+
+	type SourcePreferenceEntry = {
+		key: string;
+		value: unknown;
+	};
 
 	let activeTab = $state<TabValue>('installed');
 	let loading = $state(true);
@@ -96,6 +102,7 @@
 	let renderMoreRaf = 0;
 	let availableAutoloadDone = $state(false);
 
+	let repository = $state<RepositoryState | null>(null);
 	let installedExtensions = $state<InstalledExtension[]>([]);
 	let availableExtensions = $state<RepoItem[]>([]);
 
@@ -229,8 +236,17 @@
 	}
 
 	function getExtensionIcon(pkg: string, icon?: string | null) {
-		if (icon) return icon;
-		const repoUrl = repository.data?.url?.trim() ?? '';
+		const target = icon ?? deriveRepositoryIconUrl(pkg);
+		if (!target) return null;
+		const params = new URLSearchParams({
+			pkg,
+			url: target
+		});
+		return `/api/extensions/icon?${params.toString()}`;
+	}
+
+	function deriveRepositoryIconUrl(pkg: string) {
+		const repoUrl = repository?.url?.trim() ?? '';
 		if (!repoUrl) return null;
 		const separatorIndex = repoUrl.lastIndexOf('/');
 		const base = separatorIndex >= 0 ? repoUrl.slice(0, separatorIndex) : repoUrl;
@@ -263,8 +279,9 @@
 		error = null;
 		availableAutoloadDone = false;
 		try {
+			await loadRepository();
 			await loadInstalledExtensions();
-			if (repository.data?.configured || repository.data?.url) {
+			if (repository?.configured || repository?.url) {
 				await loadAvailableExtensions();
 			} else {
 				availableExtensions = [];
@@ -284,18 +301,15 @@
 		}));
 	}
 
+	async function loadRepository() {
+		repository = await fetchJson<RepositoryState>('/api/extensions/repository');
+	}
+
 	async function loadAvailableExtensions() {
 		availableLoading = true;
 		try {
-			const { commandId } = await client.mutation(convexApi.commands.enqueueRepositorySearch, {
-				query: '',
-				limit: 5000
-			});
-			const command = await waitForCommand(client, commandId, {
-				timeoutMs: 30_000,
-				pollIntervalMs: 300
-			});
-			const items = ((command.result?.items ?? []) as RepoItem[]).filter(Boolean);
+			const result = await fetchJson<{ items?: RepoItem[] }>('/api/extensions/available?limit=5000');
+			const items = (result.items ?? []).filter(Boolean);
 			availableExtensions = items
 				.filter((item) => !isInstalled(item.pkg))
 				.map((item) => ({
@@ -321,7 +335,7 @@
 	});
 
 	$effect(() => {
-		const repositoryReady = Boolean(repository.data?.configured || repository.data?.url);
+		const repositoryReady = Boolean(repository?.configured || repository?.url);
 		if (!repositoryReady) return;
 		if (availableAutoloadDone) return;
 		if (loading || refreshing || availableLoading) return;
@@ -336,12 +350,10 @@
 		installingPkg = pkg;
 		error = null;
 		try {
-			const { commandId } = await client.mutation(convexApi.commands.enqueueExtensionInstall, {
-				pkg
-			});
-			await waitForCommand(client, commandId, {
-				timeoutMs: 30_000,
-				pollIntervalMs: 300
+			await fetchJson<{ ok: boolean }>('/api/extensions/install', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ pkg })
 			});
 			await Promise.all([loadInstalledExtensions(), loadAvailableExtensions()]);
 			activeTab = 'installed';
@@ -357,12 +369,10 @@
 		uninstallingPkg = pkg;
 		error = null;
 		try {
-			const { commandId } = await client.mutation(convexApi.commands.enqueueExtensionUninstall, {
-				pkg
-			});
-			await waitForCommand(client, commandId, {
-				timeoutMs: 30_000,
-				pollIntervalMs: 300
+			await fetchJson<{ ok: boolean }>('/api/extensions/uninstall', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ pkg })
 			});
 			if (expandedPkg === pkg) expandedPkg = null;
 			await Promise.all([loadInstalledExtensions(), loadAvailableExtensions()]);
@@ -426,17 +436,10 @@
 		pendingPreferenceChanges.clear();
 		advancedOpen = false;
 		try {
-			const { commandId } = await client.mutation(
-				convexApi.commands.enqueueSourcePreferencesFetch,
-				{
-					sourceId
-				}
+			const bundle = await fetchJson<PreferenceBundle>(
+				`/api/extensions/source-preferences?sourceId=${encodeURIComponent(sourceId)}`
 			);
-			const command = await waitForCommand(client, commandId, {
-				timeoutMs: 30_000,
-				pollIntervalMs: 300
-			});
-			sourceSettingsData = mapSourcePreferencesBundle(command.result as PreferenceBundle);
+			sourceSettingsData = mapSourcePreferencesBundle(bundle);
 			authImportText = serializeImportedStorage(sourceSettingsData);
 		} catch (cause) {
 			sourceSettingsError =
@@ -472,13 +475,16 @@
 		sourceSettingsSaving = true;
 		sourceSettingsError = null;
 		try {
-			const { commandId } = await client.mutation(convexApi.commands.enqueueSourcePreferencesSave, {
-				sourceId: sourceSettingsData.source_id,
-				entries: buildPreferenceEntries(pendingPreferenceChanges.entries())
-			});
-			await waitForCommand(client, commandId, {
-				timeoutMs: 30_000,
-				pollIntervalMs: 300
+			const entries = buildPreferenceEntries(
+				pendingPreferenceChanges.entries()
+			) as SourcePreferenceEntry[];
+			await fetchJson<{ ok: boolean }>('/api/extensions/source-preferences', {
+				method: 'PUT',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					sourceId: sourceSettingsData.source_id,
+					entries
+				})
 			});
 			await openSourceSettings(sourceSettingsData.source_id);
 		} catch (cause) {
@@ -487,6 +493,17 @@
 		} finally {
 			sourceSettingsSaving = false;
 		}
+	}
+
+	async function saveImportedStorageEntries(sourceId: string, entries: SourcePreferenceEntry[]) {
+		await fetchJson<{ ok: boolean }>('/api/extensions/source-preferences', {
+			method: 'PUT',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				sourceId,
+				entries
+			})
+		});
 	}
 
 	async function importAuthStorage() {
@@ -505,14 +522,10 @@
 				throw new Error('No imported keys yet. Paste JSON map to import.');
 			}
 			const deletes = existingKeys.map((key) => [key, deletePreferenceValue()] as const);
-			const { commandId } = await client.mutation(convexApi.commands.enqueueSourcePreferencesSave, {
-				sourceId: sourceSettingsData.source_id,
-				entries: buildPreferenceEntries([...deletes, ...Object.entries(mapped)])
-			});
-			await waitForCommand(client, commandId, {
-				timeoutMs: 30_000,
-				pollIntervalMs: 300
-			});
+			await saveImportedStorageEntries(
+				sourceSettingsData.source_id,
+				buildPreferenceEntries([...deletes, ...Object.entries(mapped)]) as SourcePreferenceEntry[]
+			);
 			await openSourceSettings(sourceSettingsData.source_id);
 			authImportSuccess =
 				Object.keys(mapped).length === 0
@@ -784,7 +797,7 @@
 		<div class="flex items-center justify-center py-20">
 			<SpinnerIcon size={16} class="animate-spin text-[var(--text-ghost)]" />
 		</div>
-	{:else if !repository.data?.configured}
+	{:else if !repository?.configured}
 		<div class="flex flex-col items-center gap-5 py-20 text-center">
 			<div class="flex h-16 w-16 items-center justify-center bg-[var(--void-2)]">
 				<CheckIcon size={24} class="text-[var(--text-muted)]" />
