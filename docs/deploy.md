@@ -5,6 +5,7 @@
 The production example in [compose.yaml](../compose.yaml) is intentionally simple:
 
 - published image only
+- fixed `linux/amd64` runtime platform
 - `./config:/app/config`
 - `./data:/app/downloads`
 - one required public URL setting
@@ -23,6 +24,12 @@ Default example values:
 The container expects:
 
 - `3737` exposed for the web app and internal Convex proxy
+
+## Architecture Note
+
+The shipped compose examples pin Mangarr to `linux/amd64`.
+
+That is intentional. Current upstream CEF/JCEF loading on Linux `arm64` is not reliable enough for the embedded KCEF runtime, so the supported container path for bridge + KCEF is the `amd64` image, even on arm64 hosts via Docker emulation.
 
 ## Persistent Data
 
