@@ -22,11 +22,13 @@ import java.nio.file.Path
 import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.io.path.Path
 import kotlin.io.path.relativeTo
+import java.util.concurrent.ConcurrentHashMap
 
 class PackageTools(
     private val directories: ExtensionsDirectories,
 ) {
     private val logger = KotlinLogging.logger {}
+    private val patchedJarTimestamps = ConcurrentHashMap<String, Long>()
 
     fun dex2jar(
         dexFile: String,
@@ -123,6 +125,7 @@ class PackageTools(
         className: String,
     ): Any {
         try {
+            ensurePatchedJar(jarPath)
             jarLoaderMap.remove(jarPath)?.close()
             logger.debug { "Loading jar with path: $jarPath" }
             val classLoader = jarLoaderMap[jarPath] ?: URLClassLoader(arrayOf<URL>(Path(jarPath).toUri().toURL()))
@@ -135,6 +138,17 @@ class PackageTools(
             logger.error(e) { "Failed to load jar with path: $jarPath" }
             throw e
         }
+    }
+
+    private fun ensurePatchedJar(jarPath: String) {
+        val path = Path(jarPath)
+        val modifiedAt = Files.getLastModifiedTime(path).toMillis()
+        val knownModifiedAt = patchedJarTimestamps[jarPath]
+        if (knownModifiedAt == modifiedAt) {
+            return
+        }
+        BytecodeEditor.patchInstalledJar(path)
+        patchedJarTimestamps[jarPath] = Files.getLastModifiedTime(path).toMillis()
     }
 
     fun unloadJar(jarPath: String) {

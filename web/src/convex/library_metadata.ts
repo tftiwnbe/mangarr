@@ -4,7 +4,7 @@ import { v } from 'convex/values';
 import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
 
-const REUSABLE_COMMAND_STATUSES = new Set(['queued', 'leased', 'running', 'succeeded']);
+const REUSABLE_COMMAND_STATUSES = new Set(['queued', 'succeeded']);
 
 export const getExploreTitlePreview = query({
 	args: {
@@ -588,6 +588,7 @@ async function ensureCoverCacheForTitle(
 		requestedByUserId: title.ownerUserId,
 		payload: {
 			titleId: title._id,
+			sourceId: title.sourceId,
 			coverUrl
 		},
 		idempotencyKey,

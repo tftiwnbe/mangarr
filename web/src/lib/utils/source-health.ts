@@ -20,6 +20,8 @@ export function sourceHealthScopeForCommandType(commandType: string): SourceHeal
 			return 'feed';
 		case 'explore.search':
 			return 'search';
+		case 'library.import':
+		case 'library.chapters.sync':
 		case 'explore.title.fetch':
 		case 'explore.chapters.fetch':
 			return 'title';

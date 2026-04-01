@@ -13,6 +13,8 @@ describe('source health', () => {
 		expect(sourceHealthScopeForCommandType('explore.popular')).toBe('feed');
 		expect(sourceHealthScopeForCommandType('explore.search')).toBe('search');
 		expect(sourceHealthScopeForCommandType('explore.title.fetch')).toBe('title');
+		expect(sourceHealthScopeForCommandType('library.import')).toBe('title');
+		expect(sourceHealthScopeForCommandType('library.chapters.sync')).toBe('title');
 		expect(sourceHealthScopeForCommandType('downloads.chapter')).toBeNull();
 	});
 

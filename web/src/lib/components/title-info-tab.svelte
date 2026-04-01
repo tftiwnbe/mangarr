@@ -30,6 +30,10 @@
 		sourcesLabel,
 		updatesEnabled
 	}: Props = $props();
+
+	const uniqueGenres = $derived(
+		Array.from(new Set(genres.map((genre) => genre.trim()).filter((genre) => genre.length > 0)))
+	);
 </script>
 
 <div class="flex flex-col gap-8">
@@ -56,9 +60,9 @@
 		<p class="text-sm text-[var(--text-ghost)]">{$_('title.noDescription')}</p>
 	{/if}
 
-	{#if genres.length > 0}
+	{#if uniqueGenres.length > 0}
 		<div class="flex flex-wrap gap-2">
-			{#each genres as genre (genre)}
+			{#each uniqueGenres as genre (genre)}
 				<span class="bg-[var(--void-2)] px-2.5 py-1 text-[11px] text-[var(--text-ghost)]">
 					{genre}
 				</span>

@@ -37,7 +37,7 @@ data class OkResponse(
 @Serializable
 data class FailResponse(
     val ok: Boolean,
-    val retried: Boolean,
+    val retried: Boolean = false,
 )
 
 @Serializable

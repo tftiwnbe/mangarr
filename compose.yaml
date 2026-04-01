@@ -1,25 +1,12 @@
 services:
   mangarr:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: mangarr-runtime
+    image: ghcr.io/tftiwnbe/mangarr:latest
     environment:
-      - MANGARR_PUBLIC_HOST=${MANGARR_PUBLIC_HOST:-127.0.0.1}
-      - MANGARR_PUBLIC_SCHEME=${MANGARR_PUBLIC_SCHEME:-http}
+      - MANGARR_PUBLIC_URL=https://mangarr.hmphin.space
     ports:
-      - "${MANGARR_WEB_PORT:-3737}:3737"
+      - "3737:3737"
+      - "3210:3210"
     volumes:
-      - ${MANGARR_CONFIG_DIR:-./config}:/app/config
-      - ${MANGARR_DOWNLOADS_HOST_DIR:-./data}:/app/downloads
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "curl -fsS http://127.0.0.1:3737/login >/dev/null && curl -fsS http://127.0.0.1:3212/health >/dev/null"
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 45s
+      - ./config:/app/config
+      - ./data:/app/downloads
     restart: unless-stopped

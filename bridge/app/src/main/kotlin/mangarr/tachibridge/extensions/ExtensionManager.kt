@@ -6,6 +6,7 @@ import eu.kanade.tachiyomi.network.BridgeProxyContext
 import eu.kanade.tachiyomi.network.BridgeProxySettings
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.NetworkHelper
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.source.CatalogueSource
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.Source
@@ -38,6 +39,7 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.IOException
 import java.net.SocketTimeoutException
+import java.net.URI
 import java.net.URLEncoder
 import java.nio.file.Files
 import java.nio.file.Path
@@ -60,13 +62,10 @@ class ExtensionManager(
         const val DELETE_PREFERENCE_MARKER = "__mangarr_delete_preference__"
     }
 
-    private val libGroupRetryDelaysMs = listOf(0L, 2_000L, 6_000L)
-
     private val sourceMap = ConcurrentHashMap<Long, Source>()
     private val sourceToPackage = ConcurrentHashMap<Long, String>()
     private val appliedPreferenceHashes = ConcurrentHashMap<Long, Int>()
-    private val libGroupSupport = ExtensionManagerLibGroupSupport(networkHelper, sourceToPackage, libGroupRetryDelaysMs)
-    private val pageCacheSupport = ExtensionManagerPageCacheSupport(networkHelper, chapterPagesCache, libGroupSupport)
+    private val pageCacheSupport = ExtensionManagerPageCacheSupport(networkHelper, chapterPagesCache)
     private val initialization = CompletableDeferred<Unit>()
     private val initLock = Mutex()
 
@@ -185,7 +184,7 @@ class ExtensionManager(
 
         logger.info { "Installing: $packageName" }
 
-        val entry =
+        var entry =
             repoService.findByPackage(packageName)
                 ?: throw IllegalArgumentException("Extension not found in repo: $packageName")
 
@@ -193,33 +192,51 @@ class ExtensionManager(
             throw IllegalStateException("Already installed: $packageName")
         }
 
-        val targetFile = extensionsDir.resolve(entry.apk)
-        if (targetFile.exists()) {
-            throw IllegalStateException("APK already exists: ${targetFile.pathString}")
-        }
-
-        val downloadUrl = buildDownloadUrl(repoUrl, entry.apk)
-        val tmpFile = Files.createTempFile(extensionsDir, packageName.replace('.', '_'), ".tmp")
+        var targetFile = extensionsDir.resolve(entry.apk.substringAfterLast('/'))
+        var tmpFile = Files.createTempFile(extensionsDir, packageName.replace('.', '_'), ".tmp")
 
         val loaded =
             try {
-                // Download
-                val request = GET(downloadUrl)
-                networkHelper.client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        throw IOException("Download failed: HTTP ${response.code}")
+                var refreshed = false
+                while (true) {
+                    targetFile = extensionsDir.resolve(entry.apk.substringAfterLast('/'))
+                    if (targetFile.exists()) {
+                        throw IllegalStateException("APK already exists: ${targetFile.pathString}")
                     }
-                    response.body!!.byteStream().use { input ->
-                        Files.newOutputStream(tmpFile).use { output ->
-                            input.copyTo(output)
+                    val downloadUrl = buildDownloadUrl(repoUrl, entry.apk)
+                    try {
+                        val request = GET(downloadUrl)
+                        networkHelper.client.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) {
+                                throw IOException("Download failed: HTTP ${response.code}")
+                            }
+                            response.body!!.byteStream().use { input ->
+                                Files.newOutputStream(tmpFile).use { output ->
+                                    input.copyTo(output)
+                                }
+                            }
                         }
+                        break
+                    } catch (error: IOException) {
+                        val staleRepoEntry =
+                            !refreshed &&
+                                error.message?.contains("HTTP 404") == true
+                        if (!staleRepoEntry) {
+                            throw error
+                        }
+                        logger.info { "Refreshing repository entry for $packageName after stale APK URL: $downloadUrl" }
+                        refreshed = true
+                        entry =
+                            repoService.findByPackage(packageName, forceRefresh = true)
+                                ?: throw IllegalArgumentException("Extension not found in repo after refresh: $packageName")
+                        Files.deleteIfExists(tmpFile)
+                        tmpFile = Files.createTempFile(extensionsDir, packageName.replace('.', '_'), ".tmp")
                     }
                 }
 
-                // Convert and load
                 Files.move(tmpFile, targetFile, StandardCopyOption.REPLACE_EXISTING)
                 val result = loader.load(targetFile.pathString)
-                Files.deleteIfExists(targetFile) // Clean up APK
+                Files.deleteIfExists(targetFile)
                 result
             } catch (e: Exception) {
                 Files.deleteIfExists(targetFile)
@@ -375,44 +392,9 @@ class ExtensionManager(
         mangaUrl: String,
     ): TitleResponse =
         withSource<Source, TitleResponse>(sourceId) { source ->
-            var normalizedUrl = libGroupSupport.normalizeSourceUrl(source, mangaUrl)
-            if (libGroupSupport.isLibGroupSource(source)) {
-                val fallback = libGroupSupport.fetchLibGroupMangaDetailsFallback(source, normalizedUrl)
-                if (fallback != null) {
-                    return@withSource TitleResponse
-                        .newBuilder()
-                        .setTitle(convertManga(fallback, fallbackUrl = normalizedUrl))
-                        .build()
-                }
-            }
-            var manga = SManga.create().apply { url = normalizedUrl }
-            val result =
-                try {
-                    source.getMangaDetails(manga)
-                } catch (error: Exception) {
-                    logger.warn(error) {
-                        "LibGroup getMangaDetails failed for source=${source.id} url=$normalizedUrl"
-                    }
-                    val resolvedUrl = libGroupSupport.resolveLibGroupCanonicalUrl(source, normalizedUrl, error)
-                    if (resolvedUrl != null) {
-                        normalizedUrl = resolvedUrl
-                        manga = SManga.create().apply { url = normalizedUrl }
-                        logger.info {
-                            "Retrying LibGroup details with canonical url source=${source.id} url=$normalizedUrl"
-                        }
-                        source.getMangaDetails(manga)
-                    } else {
-                        val fallback = libGroupSupport.fetchLibGroupMangaDetailsFallback(source, normalizedUrl)
-                        if (fallback != null) {
-                            logger.info {
-                                "Using LibGroup details fallback for source=${source.id} url=$normalizedUrl"
-                            }
-                            fallback
-                        } else {
-                            throw libGroupSupport.decorateLibGroupError(source, error)
-                        }
-                    }
-                }
+            val normalizedUrl = normalizeSourceUrl(source, mangaUrl)
+            val manga = SManga.create().apply { url = normalizedUrl }
+            val result = source.getMangaDetails(manga)
             TitleResponse
                 .newBuilder()
                 .setTitle(convertManga(result, fallbackUrl = normalizedUrl))
@@ -424,36 +406,9 @@ class ExtensionManager(
         mangaUrl: String,
     ): ChaptersListResponse =
         withSource<Source, ChaptersListResponse>(sourceId) { source ->
-            var normalizedUrl = libGroupSupport.normalizeSourceUrl(source, mangaUrl)
-            if (libGroupSupport.isLibGroupSource(source)) {
-                val fallback = libGroupSupport.fetchLibGroupChapterListFallback(source, normalizedUrl)
-                if (!fallback.isNullOrEmpty()) {
-                    return@withSource ChaptersListResponse
-                        .newBuilder()
-                        .addAllChapters(fallback.map { convertChapter(it) })
-                        .build()
-                }
-            }
-            var manga = SManga.create().apply { url = normalizedUrl }
-            val chapters =
-                try {
-                    source.getChapterList(manga).reversed()
-                } catch (error: Exception) {
-                    val resolvedUrl = libGroupSupport.resolveLibGroupCanonicalUrl(source, normalizedUrl, error)
-                    if (resolvedUrl != null) {
-                        normalizedUrl = resolvedUrl
-                        manga = SManga.create().apply { url = normalizedUrl }
-                        try {
-                            source.getChapterList(manga).reversed()
-                        } catch (resolvedError: Exception) {
-                            libGroupSupport.fetchLibGroupChapterListFallback(source, normalizedUrl)
-                                ?: throw libGroupSupport.decorateLibGroupError(source, resolvedError)
-                        }
-                    } else {
-                        libGroupSupport.fetchLibGroupChapterListFallback(source, normalizedUrl)
-                            ?: throw libGroupSupport.decorateLibGroupError(source, error)
-                    }
-                }
+            val normalizedUrl = normalizeSourceUrl(source, mangaUrl)
+            val manga = SManga.create().apply { url = normalizedUrl }
+            val chapters = source.getChapterList(manga).reversed()
             ChaptersListResponse
                 .newBuilder()
                 .addAllChapters(chapters.map { convertChapter(it) })
@@ -465,7 +420,7 @@ class ExtensionManager(
         chapterUrl: String,
     ): PagesListResponse =
         withSource<Source, PagesListResponse>(sourceId) { source ->
-            val normalizedUrl = libGroupSupport.normalizeSourceUrl(source, chapterUrl)
+            val normalizedUrl = normalizeSourceUrl(source, chapterUrl)
             val pages = pageCacheSupport.loadPagesForChapter(source, normalizedUrl)
             val resolvedPages = mutableListOf<Page>()
             for ((index, page) in pages.withIndex()) {
@@ -491,7 +446,7 @@ class ExtensionManager(
         index: Int,
     ): PageImagePayload =
         withSource<Source, PageImagePayload>(sourceId) { source ->
-            val normalizedUrl = libGroupSupport.normalizeSourceUrl(source, chapterUrl)
+            val normalizedUrl = normalizeSourceUrl(source, chapterUrl)
             try {
                 pageCacheSupport.fetchPageImagePayload(source, normalizedUrl, index, bypassPageCache = false)
             } catch (error: Exception) {
@@ -503,6 +458,28 @@ class ExtensionManager(
                 }
                 pageCacheSupport.invalidateChapterPagesCache(source.id, normalizedUrl)
                 pageCacheSupport.fetchPageImagePayload(source, normalizedUrl, index, bypassPageCache = true)
+            }
+        }
+
+    suspend fun fetchBinary(
+        sourceId: Long,
+        url: String,
+    ): PageImagePayload =
+        withSource<Source, PageImagePayload>(sourceId) { source ->
+            val normalizedUrl = normalizeSourceUrl(source, url)
+            val response =
+                if (source is eu.kanade.tachiyomi.source.online.HttpSource) {
+                    networkHelper.client.newCall(GET(normalizedUrl, source.headers)).awaitSuccess()
+                } else {
+                    networkHelper.client.newCall(GET(normalizedUrl)).awaitSuccess()
+                }
+
+            response.use { imageResponse ->
+                val body = imageResponse.body ?: error("Binary response body is empty")
+                PageImagePayload(
+                    contentType = body.contentType()?.toString() ?: "application/octet-stream",
+                    bytes = body.bytes(),
+                )
             }
         }
 
@@ -584,48 +561,27 @@ class ExtensionManager(
                 .build()
         }
 
-    suspend fun setPreference(
+    suspend fun setPreferences(
         sourceId: Long,
-        key: String,
-        value: String,
+        entries: List<Pair<String, String>>,
     ) {
-        if (isDeletePreferencePayload(value)) {
-            ConfigManager.removeSourcePreference(sourceId, key)
+        val packageName =
+            sourceToPackage[sourceId]
+                ?: error("Source $sourceId not found")
 
-            val source = sourceMap[sourceId]
-            if (source is ConfigurableSource) {
-                source
-                    .getSourcePreferences()
-                    .edit()
-                    .remove(key)
-                    .apply()
+        for ((key, value) in entries) {
+            if (isDeletePreferencePayload(value)) {
+                ConfigManager.removeSourcePreference(sourceId, key)
+                logger.debug { "Removed preference: source=$sourceId key=$key" }
+                continue
             }
-            appliedPreferenceHashes[sourceId] = ConfigManager.config.sourcePreferencesFor(sourceId).hashCode()
 
-            logger.debug { "Removed preference: source=$sourceId key=$key" }
-            return
+            val prefValue = parseStoredPreferenceValue(value)
+            ConfigManager.setSourcePreference(sourceId, key, prefValue)
+            logger.debug { "Set preference: source=$sourceId key=$key" }
         }
 
-        val prefValue = parseStoredPreferenceValue(value)
-        ConfigManager.setSourcePreference(sourceId, key, prefValue)
-
-        // Apply immediately
-        val source = sourceMap[sourceId]
-        if (source is ConfigurableSource) {
-            val editor = source.getSourcePreferences().edit()
-            when (prefValue) {
-                is PreferenceValue.BooleanValue -> editor.putBoolean(key, prefValue.value)
-                is PreferenceValue.IntValue -> editor.putInt(key, prefValue.value)
-                is PreferenceValue.LongValue -> editor.putLong(key, prefValue.value)
-                is PreferenceValue.FloatValue -> editor.putFloat(key, prefValue.value)
-                is PreferenceValue.StringSetValue -> editor.putStringSet(key, prefValue.value)
-                is PreferenceValue.StringValue -> editor.putString(key, prefValue.value)
-            }
-            editor.apply()
-        }
-        appliedPreferenceHashes[sourceId] = ConfigManager.config.sourcePreferencesFor(sourceId).hashCode()
-
-        logger.debug { "Set preference: source=$sourceId key=$key" }
+        reloadExtension(packageName)
     }
 
     private fun isDeletePreferencePayload(raw: String): Boolean {
@@ -681,7 +637,6 @@ class ExtensionManager(
 
         if (source is ConfigurableSource) {
             applyPreferences(source)
-            syncRuntimePreferences(source)
         }
 
         val packageName = sourceToPackage[sourceId]
@@ -739,44 +694,58 @@ class ExtensionManager(
         appliedPreferenceHashes[source.id] = prefsHash
     }
 
-    private fun syncRuntimePreferences(source: ConfigurableSource) {
-        if (!libGroupSupport.isLibGroupSource(source)) return
+    private suspend fun reloadExtension(packageName: String) {
+        val ext =
+            ConfigManager.config.findExtension(packageName)
+                ?: error("Extension not found: $packageName")
 
-        val sourcePrefs = source.getSourcePreferences()
-        val apiDomain = sourcePrefs.getString("MangaLibApiDomain", null)?.trim().orEmpty()
-        if (apiDomain.isNotBlank()) {
-            setSourceField(source, "apiDomain", apiDomain)
+        ext.sources.forEach { source ->
+            sourceMap.remove(source.id)
+            sourceToPackage.remove(source.id)
+            appliedPreferenceHashes.remove(source.id)
+            chapterPagesCache.keys.removeIf { key -> key.startsWith("${source.id}::") }
         }
 
-        val siteDomain = sourcePrefs.getString("Домен", null)?.trim().orEmpty()
-        if (siteDomain.isNotBlank()) {
-            setSourceField(source, "domain", siteDomain)
-            setSourceField(source, "baseUrl", siteDomain)
-        }
+        val jarPath =
+            ext.jarName?.let { extensionsDir.resolve(it) }
+                ?: extensionsDir.resolve("${ext.packageName}-v${ext.version}.jar")
+
+        loader.unloadJar(jarPath)
+        loadExtension(ext)
     }
 
-    private fun setSourceField(
+    private fun normalizeSourceUrl(
         source: Source,
-        fieldName: String,
-        value: String,
-    ) {
-        var currentClass: Class<*>? = source.javaClass
-        while (currentClass != null) {
-            val field =
-                runCatching { currentClass.getDeclaredField(fieldName) }
-                    .getOrNull()
-            if (field != null) {
-                runCatching {
-                    field.isAccessible = true
-                    field.set(source, value)
-                }.onFailure {
-                    logger.debug(it) {
-                        "Failed to sync field '$fieldName' for ${source.javaClass.name}"
-                    }
-                }
-                return
+        rawUrl: String,
+    ): String {
+        val trimmed = rawUrl.trim()
+        if (trimmed.isBlank() || source !is eu.kanade.tachiyomi.source.online.HttpSource) {
+            return trimmed
+        }
+
+        val candidate = runCatching { URI(trimmed) }.getOrNull() ?: return trimmed
+        if (!candidate.isAbsolute) {
+            return trimmed
+        }
+
+        val baseUri = runCatching { URI(source.baseUrl.trim()) }.getOrNull() ?: return trimmed
+        if (!baseUri.isAbsolute) {
+            return trimmed
+        }
+        if (!candidate.host.equals(baseUri.host, ignoreCase = true)) {
+            return trimmed
+        }
+
+        return buildString {
+            append(candidate.rawPath.orEmpty().ifBlank { "/" })
+            candidate.rawQuery?.takeIf { it.isNotBlank() }?.let {
+                append('?')
+                append(it)
             }
-            currentClass = currentClass.superclass
+            candidate.rawFragment?.takeIf { it.isNotBlank() }?.let {
+                append('#')
+                append(it)
+            }
         }
     }
 
@@ -784,6 +753,8 @@ class ExtensionManager(
         repoUrl: String,
         apkName: String,
     ): String =
+        apkName.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+            ?:
         runCatching {
             val uri = java.net.URI(repoUrl)
             val parent = uri.resolve(".")

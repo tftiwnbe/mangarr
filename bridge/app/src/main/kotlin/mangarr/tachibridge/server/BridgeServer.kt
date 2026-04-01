@@ -193,7 +193,6 @@ class BridgeServer(
                 )
             bridgeState.setRunning()
             heartbeatReporter.start()
-            commandRunner.start()
             httpServer.start()
             events.info(
                 "bridge.runtime.started",
@@ -311,6 +310,8 @@ class BridgeServer(
                         "bridgeId" to config.runtime.bridgeId,
                         "phase" to "warmup",
                     )
+                } finally {
+                    commandRunner.start()
                 }
             }
 

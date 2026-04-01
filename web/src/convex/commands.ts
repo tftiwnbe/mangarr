@@ -19,12 +19,7 @@ const STATUS = {
 } as const;
 
 type CommandStatus = (typeof STATUS)[keyof typeof STATUS];
-const REUSABLE_STATUSES = new Set<CommandStatus>([
-	STATUS.QUEUED,
-	STATUS.LEASED,
-	STATUS.RUNNING,
-	STATUS.SUCCEEDED
-]);
+const REUSABLE_STATUSES = new Set<CommandStatus>([STATUS.QUEUED, STATUS.SUCCEEDED]);
 
 function targetCapabilityFor(commandType: string) {
 	switch (commandType) {
@@ -473,6 +468,10 @@ export const lease = mutation({
 			.flat()
 			.sort((left, right) => {
 				if (left.priority !== right.priority) return left.priority - right.priority;
+				if (left.commandType !== right.commandType) {
+					if (left.commandType === 'downloads.chapter') return 1;
+					if (right.commandType === 'downloads.chapter') return -1;
+				}
 				if (left.runAfter !== right.runAfter) return left.runAfter - right.runAfter;
 				return left.createdAt - right.createdAt;
 			})
