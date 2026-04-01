@@ -202,7 +202,6 @@
 	let selectedCollectionIds = $state<string[]>([]);
 	let sourceManagementError = $state<string | null>(null);
 	let sourceStatusRefreshing = $state(false);
-	let offlinePreparing = $state(false);
 	let sourceMatchesOpen = $state(false);
 	let sourceMatchesLoading = $state(false);
 	let sourceMatchesAttempted = $state(false);
@@ -217,6 +216,7 @@
 	let lastSourceNormalizationSignature = $state('');
 	let lastSyncedPreferenceSignature = $state('');
 	let lastMetadataKey = $state('');
+	let lastOfflinePreparationKey = $state('');
 	let browserOnline = $state(true);
 	let coverCacheRequested = $state(false);
 	let progressActionChapterId = $state<string | null>(null);
@@ -546,6 +546,7 @@
 		metadataRequested = false;
 		readinessRequested = false;
 		coverCacheRequested = false;
+		lastOfflinePreparationKey = '';
 		chapterHydrationStatus = 'idle';
 	});
 
@@ -621,6 +622,30 @@
 		})();
 	});
 
+	$effect(() => {
+		if (!browserOnline || !title) return;
+		const key = `${title._id}:${title.updatedAt}:${title.chapterStats.total}:${title.offlineReadiness.metadataReady}:${title.offlineReadiness.cachedCover}`;
+		if (lastOfflinePreparationKey === key) return;
+		lastOfflinePreparationKey = key;
+		if (
+			title.offlineReadiness.metadataReady &&
+			title.offlineReadiness.cachedCover &&
+			title.chapterStats.total > 0
+		) {
+			return;
+		}
+		void (async () => {
+			try {
+				await client.mutation(convexApi.library.ensureTitlesOfflineReady, {
+					titleIds: [title._id],
+					limit: 1
+				});
+			} catch {
+				// Leave the current readiness state as-is until title state changes.
+			}
+		})();
+	});
+
 	const isChapterHydrating = $derived(
 		Boolean(title) &&
 			titleChapters.length === 0 &&
@@ -683,22 +708,6 @@
 			actionError = error instanceof Error ? error.message : $_('title.sourceRefreshFailed');
 		} finally {
 			sourceStatusRefreshing = false;
-		}
-	}
-
-	async function prepareOffline() {
-		if (!title || offlinePreparing) return;
-		offlinePreparing = true;
-		actionError = null;
-		try {
-			await client.mutation(convexApi.library.ensureTitlesOfflineReady, {
-				titleIds: [title._id],
-				limit: 1
-			});
-		} catch (error) {
-			actionError = error instanceof Error ? error.message : $_('title.offlinePrepareFailed');
-		} finally {
-			offlinePreparing = false;
 		}
 	}
 
@@ -1296,13 +1305,6 @@
 						offlineLabel={offlineReadinessSummary.label}
 						offlineDetail={offlineReadinessSummary.detail}
 						headingLabel={$_('title.readingSource')}
-						prepareOfflineLabel={$_('title.prepareOffline')}
-						refreshSourceLabel={$_('title.refreshSource')}
-						{browserOnline}
-						{offlinePreparing}
-						{sourceStatusRefreshing}
-						onPrepareOffline={prepareOffline}
-						onRefreshSource={refreshSourceState}
 					/>
 				</div>
 
@@ -1548,6 +1550,22 @@
 					{/if}
 					<span>{updatesEnabled ? $_('downloads.enabled') : $_('downloads.disabled')}</span>
 				</button>
+			</div>
+
+			<div class="flex flex-col gap-2">
+				<span class="text-label">{$_('title.sourceMaintenance')}</span>
+				<p class="text-xs text-[var(--text-ghost)]">
+					{$_('title.sourceMaintenanceDescription')}
+				</p>
+				<Button
+					variant="outline"
+					size="sm"
+					onclick={() => void refreshSourceState()}
+					disabled={sourceStatusRefreshing}
+					loading={sourceStatusRefreshing}
+				>
+					{$_('title.refreshSource')}
+				</Button>
 			</div>
 
 			<div class="flex flex-col gap-2">
