@@ -94,6 +94,7 @@
 	let togglingSourceId = $state<string | null>(null);
 	let renderLimit = $state(60);
 	let renderMoreRaf = 0;
+	let availableAutoloadDone = $state(false);
 
 	let installedExtensions = $state<InstalledExtension[]>([]);
 	let availableExtensions = $state<RepoItem[]>([]);
@@ -260,6 +261,7 @@
 	async function refreshPage() {
 		refreshing = true;
 		error = null;
+		availableAutoloadDone = false;
 		try {
 			await loadInstalledExtensions();
 			if (repository.data?.configured || repository.data?.url) {
@@ -316,6 +318,18 @@
 		void filteredAvailable.length;
 		void renderLimit;
 		scheduleRenderMore();
+	});
+
+	$effect(() => {
+		const repositoryReady = Boolean(repository.data?.configured || repository.data?.url);
+		if (!repositoryReady) return;
+		if (availableAutoloadDone) return;
+		if (loading || refreshing || availableLoading) return;
+		if (availableExtensions.length > 0) return;
+		availableAutoloadDone = true;
+		void loadAvailableExtensions().catch((cause) => {
+			error = cause instanceof Error ? cause.message : 'Failed to load extensions';
+		});
 	});
 
 	async function handleInstall(pkg: string) {
