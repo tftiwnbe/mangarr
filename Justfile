@@ -75,7 +75,7 @@ dev-docker-down:
 [group('runtime')]
 docker:
     @echo "Starting docker compose stack..."
-    docker compose up --build
+    docker compose up
 
 # Build web and bridge
 [group('runtime')]
@@ -255,15 +255,31 @@ verify-prod tmp_root="/tmp/mangarr-predeploy" port="3837":
     @echo "Running production-like verification with fresh host volumes..."
     rm -rf "{{ tmp_root }}"
     mkdir -p "{{ tmp_root }}/config" "{{ tmp_root }}/downloads"
-    MANGARR_CONFIG_DIR="{{ tmp_root }}/config" MANGARR_DOWNLOADS_HOST_DIR="{{ tmp_root }}/downloads" MANGARR_WEB_PORT="{{ port }}" docker compose -p mangarr-predeploy down --remove-orphans >/dev/null 2>&1 || true
-    MANGARR_CONFIG_DIR="{{ tmp_root }}/config" MANGARR_DOWNLOADS_HOST_DIR="{{ tmp_root }}/downloads" MANGARR_WEB_PORT="{{ port }}" docker compose -p mangarr-predeploy up -d --build
+    printf '%s\n' \
+      'services:' \
+      '  mangarr:' \
+      '    build:' \
+      '      context: /Users/wnbe/Lab/mangarr' \
+      '      dockerfile: Dockerfile' \
+      '      target: mangarr-runtime' \
+      '    environment:' \
+      '      - MANGARR_PUBLIC_URL=http://127.0.0.1:{{ port }}' \
+      '    ports:' \
+      '      - "{{ port }}:3737"' \
+      '      - "3310:3210"' \
+      '    volumes:' \
+      '      - {{ tmp_root }}/config:/app/config' \
+      '      - {{ tmp_root }}/downloads:/app/downloads' \
+      > "{{ tmp_root }}/compose.verify.yaml"
+    docker compose -p mangarr-predeploy -f "{{ tmp_root }}/compose.verify.yaml" down --remove-orphans >/dev/null 2>&1 || true
+    docker compose -p mangarr-predeploy -f "{{ tmp_root }}/compose.verify.yaml" up -d --build
     for i in $(seq 1 24); do \
       if curl -fsS "http://127.0.0.1:{{ port }}/login" >/dev/null; then break; fi; \
       sleep 5; \
       if [ "$i" -eq 24 ]; then echo "Production-like smoke check timed out waiting for web startup" >&2; exit 1; fi; \
     done
-    MANGARR_CONFIG_DIR="{{ tmp_root }}/config" MANGARR_DOWNLOADS_HOST_DIR="{{ tmp_root }}/downloads" MANGARR_WEB_PORT="{{ port }}" docker compose -p mangarr-predeploy ps
-    MANGARR_CONFIG_DIR="{{ tmp_root }}/config" MANGARR_DOWNLOADS_HOST_DIR="{{ tmp_root }}/downloads" MANGARR_WEB_PORT="{{ port }}" docker compose -p mangarr-predeploy down --remove-orphans
+    docker compose -p mangarr-predeploy -f "{{ tmp_root }}/compose.verify.yaml" ps
+    docker compose -p mangarr-predeploy -f "{{ tmp_root }}/compose.verify.yaml" down --remove-orphans
 
 # Tail current runtime logs from the dev container
 [group('runtime')]
