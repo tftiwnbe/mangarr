@@ -306,6 +306,7 @@ export KCEF_LIBRARY_DIR
 export KCEF_CACHE_DIR
 export LD_LIBRARY_PATH="${KCEF_LIBRARY_DIR}:/usr/lib/jni:/opt/java/openjdk/lib/server:/opt/java/openjdk/lib:${LD_LIBRARY_PATH:-}"
 export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:+${JAVA_TOOL_OPTIONS} }-Djava.library.path=${JAVA_LIBRARY_PATH}"
+export CHROME_DEVEL_SANDBOX="${KCEF_LIBRARY_DIR}/chrome-sandbox"
 
 sync_kcef_runtime_files() {
   local src="${KCEF_LIBRARY_DIR}"
@@ -316,7 +317,6 @@ sync_kcef_runtime_files() {
 
   local name
   for name in \
-    jcef_helper \
     cef_server \
     chrome-sandbox \
     libcef.so \
@@ -336,6 +336,11 @@ sync_kcef_runtime_files() {
       ln -sfn "${src}/${name}" "${dest}/${name}"
     fi
   done
+
+  if [ -f "${src}/chrome-sandbox" ]; then
+    chown root:root "${src}/chrome-sandbox" 2>/dev/null || true
+    chmod 4755 "${src}/chrome-sandbox" 2>/dev/null || true
+  fi
 
   if [ -d "${src}/locales" ]; then
     ln -sfn "${src}/locales" "${dest}/locales"
@@ -366,6 +371,7 @@ if [ "${MANGARR_KCEF_ENABLED}" = "true" ] || [ "${MANGARR_KCEF_ENABLED}" = "1" ]
       sleep 1
     done
   ) &
+  rm -f /opt/java/openjdk/lib/jcef_helper
   cat <<'JCEF_HELPER' >/opt/java/openjdk/lib/jcef_helper
 #!/bin/sh
 TARGET="${KCEF_LIBRARY_DIR}/jcef_helper"
@@ -374,7 +380,6 @@ for _ in \$(seq 1 120); do
   if [ -x "\${TARGET}" ]; then
     mkdir -p "\${DEST}"
     for name in \
-      jcef_helper \
       cef_server \
       chrome-sandbox \
       libcef.so \
