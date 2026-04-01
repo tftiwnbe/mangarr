@@ -266,7 +266,6 @@ verify-prod tmp_root="/tmp/mangarr-predeploy" port="3837":
       '      - MANGARR_PUBLIC_URL=http://127.0.0.1:{{ port }}' \
       '    ports:' \
       '      - "{{ port }}:3737"' \
-      '      - "3310:3210"' \
       '    volumes:' \
       '      - {{ tmp_root }}/config:/app/config' \
       '      - {{ tmp_root }}/downloads:/app/downloads' \

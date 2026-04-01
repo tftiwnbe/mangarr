@@ -16,7 +16,7 @@ It starts:
 
 ## Common Commands
 
-The main entry points are in [/Users/wnbe/Lab/mangarr/Justfile](/Users/wnbe/Lab/mangarr/Justfile):
+The main entry points are in [Justfile](../Justfile):
 
 ```bash
 just dev-docker
