@@ -18,12 +18,11 @@ docker compose up -d
 Default example values:
 
 - web app on `https://mangarr.hmphin.space`
-- Convex on the same host, derived automatically on port `3210`
+- Convex proxied internally at `https://mangarr.hmphin.space/convex`
 
 The container expects:
 
-- `3737` exposed for the web app
-- `3210` exposed for the self-hosted Convex endpoint used by the browser client
+- `3737` exposed for the web app and internal Convex proxy
 
 ## Persistent Data
 
@@ -48,7 +47,7 @@ Back up:
 - the runtime generates a per-instance Convex JWT signing key inside `config/convex/` on first boot
 - logs are written to `config/logs/system/` and `config/logs/bridge/`
 - the public web URL is configured with `MANGARR_PUBLIC_URL`
-- the public Convex URL is derived automatically from that same host on port `3210`
+- the public Convex URL is derived automatically as `${MANGARR_PUBLIC_URL}/convex`
 
 ## Restore
 
