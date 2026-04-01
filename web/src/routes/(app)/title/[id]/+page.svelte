@@ -752,19 +752,6 @@
 		}
 	}
 
-	async function markChapterRead(chapterId: Id<'libraryChapters'>) {
-		if (progressActionChapterId === chapterId) return;
-		progressActionChapterId = chapterId;
-		actionError = null;
-		try {
-			await client.mutation(convexApi.library.markChapterRead, { chapterId });
-		} catch (error) {
-			actionError = error instanceof Error ? error.message : $_('title.markAsRead');
-		} finally {
-			progressActionChapterId = null;
-		}
-	}
-
 	async function resetChapterReadProgress(chapterId: Id<'libraryChapters'>) {
 		if (progressActionChapterId === chapterId) return;
 		progressActionChapterId = chapterId;
@@ -1435,8 +1422,6 @@
 							onOpenChapter={(chapter) => openChapter(chapter as ChapterRow)}
 							onDownloadChapter={(chapterId) =>
 								void downloadChapter(chapterId as Id<'libraryChapters'>)}
-							onMarkChapterRead={(chapterId) =>
-								void markChapterRead(chapterId as Id<'libraryChapters'>)}
 							onResetChapterProgress={(chapterId) =>
 								void resetChapterReadProgress(chapterId as Id<'libraryChapters'>)}
 							onMarkPreviousRead={(chapterId) =>

@@ -53,41 +53,45 @@ export const resetChapterProgress = mutation({
 	},
 	handler: async (ctx, args) => {
 		const chapter = await requireOwnedChapter(ctx, args.chapterId);
-		const existing = await getOwnedChapterProgressRow(ctx, chapter._id);
-		if (existing) {
-			await ctx.db.delete(existing._id);
-		}
-		return { ok: true };
-	}
-});
+		const title = await requireOwnedTitle(ctx, chapter.libraryTitleId);
+		const [chapters, progressRows] = await Promise.all([
+			ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+				.collect(),
+			ctx.db
+				.query('chapterProgress')
+				.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.collect()
+		]);
 
-export const markChapterRead = mutation({
-	args: {
-		chapterId: v.id('libraryChapters')
-	},
-	handler: async (ctx, args) => {
-		const chapter = await requireOwnedChapter(ctx, args.chapterId);
-		const now = Date.now();
-		const existing = await getOwnedChapterProgressRow(ctx, chapter._id);
-		if (existing) {
-			await ctx.db.patch(existing._id, {
-				pageIndex: Math.max(existing.pageIndex, 0),
-				updatedAt: now
-			});
-		} else {
-			await ctx.db.insert('chapterProgress', {
-				ownerUserId: chapter.ownerUserId,
-				libraryTitleId: chapter.libraryTitleId,
-				chapterId: chapter._id,
-				pageIndex: 0,
-				createdAt: now,
-				updatedAt: now
-			});
+		const chapterIdsToClear = new Set(
+			chapters
+				.filter((row) => row.sequence >= chapter.sequence)
+				.map((row) => String(row._id))
+		);
+		const progressRowsToDelete = progressRows.filter((row) =>
+			chapterIdsToClear.has(String(row.chapterId))
+		);
+
+		for (const row of progressRowsToDelete) {
+			await ctx.db.delete(row._id);
 		}
-		await ctx.db.patch(chapter.libraryTitleId, {
-			lastReadAt: now,
-			updatedAt: now
+
+		const remainingProgressRows = progressRows.filter(
+			(row) => !chapterIdsToClear.has(String(row.chapterId))
+		);
+
+		await ctx.db.patch(title._id, {
+			lastReadAt:
+				remainingProgressRows.length > 0
+					? Math.max(...remainingProgressRows.map((row) => row.updatedAt))
+					: undefined,
+			updatedAt: Date.now()
 		});
+
 		return { ok: true };
 	}
 });

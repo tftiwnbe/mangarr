@@ -30,7 +30,6 @@
 		onRetryHydration: () => void;
 		onOpenChapter: (chapter: ChapterRow) => void;
 		onDownloadChapter: (chapterId: string) => void;
-		onMarkChapterRead: (chapterId: string) => void;
 		onResetChapterProgress: (chapterId: string) => void;
 		onMarkPreviousRead: (chapterId: string) => void;
 		progressActionChapterId?: string | null;
@@ -45,7 +44,6 @@
 		onRetryHydration,
 		onOpenChapter,
 		onDownloadChapter,
-		onMarkChapterRead,
 		onResetChapterProgress,
 		onMarkPreviousRead,
 		progressActionChapterId = null
@@ -184,18 +182,12 @@
 						<Button
 							variant="ghost"
 							size="sm"
-							onclick={() => onMarkChapterRead(chapter._id)}
+							title={$_('title.markPreviousRead')}
+							aria-label={$_('title.markPreviousRead')}
 							disabled={progressActionChapterId === chapter._id}
-						>
-							{$_('title.markAsRead')}
-						</Button>
-						<Button
-							variant="ghost"
-							size="sm"
 							onclick={() => onMarkPreviousRead(chapter._id)}
-							disabled={progressActionChapterId === chapter._id}
 						>
-							{$_('title.markPreviousRead')}
+							<CheckIcon size={13} />
 						</Button>
 					{/if}
 					{#if chapter.downloadStatus === 'downloaded'}

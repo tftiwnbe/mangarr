@@ -30,7 +30,6 @@ export {
 	listChapterComments,
 	listMine,
 	listTitleChapters,
-	markChapterRead,
 	markChaptersReadThrough,
 	resetChapterProgress,
 	resetTitleProgress,
