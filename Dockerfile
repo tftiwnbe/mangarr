@@ -1,14 +1,19 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.7
 
 FROM ghcr.io/get-convex/convex-backend:latest AS convex-backend
 
 FROM node:24-alpine AS web-base
 WORKDIR /app/web
 
-RUN corepack enable
+ENV PNPM_HOME=/pnpm \
+    PNPM_STORE_DIR=/pnpm/store
+
+RUN corepack enable && \
+    mkdir -p "${PNPM_STORE_DIR}"
 
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=mangarr-pnpm-store,target=/pnpm/store,sharing=locked \
+    pnpm install --frozen-lockfile --prefer-offline
 
 
 FROM web-base AS web-dev
@@ -25,12 +30,16 @@ WORKDIR /app/web
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
-    PORT=3737
+    PORT=3737 \
+    PNPM_HOME=/pnpm \
+    PNPM_STORE_DIR=/pnpm/store
 
-RUN corepack enable
+RUN corepack enable && \
+    mkdir -p "${PNPM_STORE_DIR}"
 
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile --prod
+RUN --mount=type=cache,id=mangarr-pnpm-store,target=/pnpm/store,sharing=locked \
+    pnpm install --frozen-lockfile --prod --prefer-offline
 
 COPY --from=web-build /app/web/build ./build
 
@@ -42,7 +51,7 @@ CMD ["node", "build"]
 FROM eclipse-temurin:21-jre AS java-runtime
 
 
-FROM eclipse-temurin:21-jdk AS bridge-build
+FROM eclipse-temurin:21-jdk AS bridge-base
 WORKDIR /app/bridge
 
 RUN apt-get update && \
@@ -51,11 +60,27 @@ RUN apt-get update && \
 
 COPY bridge/gradlew /app/bridge/gradlew
 COPY bridge/gradle /app/bridge/gradle
+COPY bridge/settings.gradle.kts /app/bridge/settings.gradle.kts
+COPY bridge/build.gradle.kts /app/bridge/build.gradle.kts
+COPY bridge/gradle.properties /app/bridge/gradle.properties
+COPY bridge/AndroidCompat/build.gradle.kts /app/bridge/AndroidCompat/build.gradle.kts
+COPY bridge/AndroidCompat/Config/build.gradle.kts /app/bridge/AndroidCompat/Config/build.gradle.kts
+COPY bridge/app/build.gradle.kts /app/bridge/app/build.gradle.kts
 
 RUN chmod +x ./gradlew
 
 RUN --mount=type=cache,id=mangarr-gradle-wrapper,target=/root/.gradle/wrapper,sharing=locked \
     ./gradlew --no-daemon --version
+
+RUN mkdir -p /app/bridge/AndroidCompat /app/bridge/AndroidCompat/Config /app/bridge/app
+
+RUN --mount=type=cache,id=mangarr-gradle-wrapper,target=/root/.gradle/wrapper,sharing=locked \
+    --mount=type=cache,id=mangarr-gradle-caches,target=/root/.gradle/caches,sharing=locked \
+    --mount=type=cache,id=mangarr-gradle-project,target=/app/bridge/.gradle,sharing=locked \
+    ./gradlew --no-daemon :app:dependencies >/dev/null
+
+
+FROM bridge-base AS bridge-build
 
 COPY bridge ./
 
@@ -450,14 +475,24 @@ CMD ["/usr/local/bin/mangarr-startup"]
 
 
 FROM mangarr-base AS mangarr-runtime
-ENV MANGARR_APP_MODE=prod
+ENV MANGARR_APP_MODE=prod \
+    PNPM_HOME=/pnpm \
+    PNPM_STORE_DIR=/pnpm/store
 
 WORKDIR /app/web
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile --prod
-COPY web /app/web
+RUN mkdir -p "${PNPM_STORE_DIR}" && \
+    corepack enable
+RUN --mount=type=cache,id=mangarr-pnpm-store,target=/pnpm/store,sharing=locked \
+    pnpm install --frozen-lockfile --prod --prefer-offline
+COPY web/convex.json /app/web/convex.json
+COPY web/server.js /app/web/server.js
+COPY web/tsconfig.json /app/web/tsconfig.json
+COPY web/src/convex /app/web/src/convex
+COPY web/src/lib/utils /app/web/src/lib/utils
+COPY web/src/lib/server/convex-auth-config.ts /app/web/src/lib/server/convex-auth-config.ts
 COPY --from=web-build /app/web/build /app/web/build
-COPY --from=web-build /app/web/.svelte-kit /app/web/.svelte-kit
+COPY --from=web-build /app/web/.svelte-kit/tsconfig.json /app/web/.svelte-kit/tsconfig.json
 
 WORKDIR /app
 RUN mkdir -p /app/bin /app/config /app/downloads

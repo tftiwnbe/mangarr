@@ -86,3 +86,5 @@ Published images:
 
 - `ghcr.io/tftiwnbe/mangarr:edge`
 - `ghcr.io/tftiwnbe/mangarr:latest`
+
+Both published channels currently target `linux/amd64`.

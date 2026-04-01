@@ -62,8 +62,14 @@ jobs:
           java-version: "21"
           cache: gradle
 
+      - name: Restore Android compatibility stub cache
+        uses: actions/cache@v4
+        with:
+          path: bridge/app/lib/android.jar
+          key: ${{ runner.os }}-androidcompat-${{ hashFiles('bridge/AndroidCompat/getAndroid.sh', 'bridge/AndroidCompat/build.gradle.kts', 'bridge/app/build.gradle.kts') }}
+
       - name: Prepare Android compatibility stubs
-        run: bash ./bridge/AndroidCompat/getAndroid.sh
+        run: test -f bridge/app/lib/android.jar || bash ./bridge/AndroidCompat/getAndroid.sh
 
       - name: Run bridge lint
         run: cd bridge && ./gradlew ktlintCheck --no-daemon
