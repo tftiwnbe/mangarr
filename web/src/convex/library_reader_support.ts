@@ -8,6 +8,14 @@ import {
 } from '../lib/utils/route-segments';
 import { DOWNLOAD_STATUS } from './library_shared_access';
 
+type ChapterOrderItem = {
+	_id: GenericId<'libraryChapters'>;
+	sequence: number;
+	chapterNumber?: number | null;
+	dateUpload?: number | null;
+	chapterName?: string | null;
+};
+
 export function buildTitleRouteSegments<
 	T extends { _id: GenericId<'libraryTitles'>; title: string }
 >(titles: readonly T[]) {
@@ -30,6 +38,49 @@ export function buildChapterRouteSegments<
 		getId: (chapter) => String(chapter._id),
 		getBase: (chapter) => buildChapterRouteBase(chapter.chapterName, chapter.chapterNumber ?? null)
 	});
+}
+
+function compareNullableNumbers(left: number | null, right: number | null) {
+	if (left === right) return 0;
+	if (left === null) return 1;
+	if (right === null) return -1;
+	return left - right;
+}
+
+export function compareLibraryChaptersInReadingOrder<T extends ChapterOrderItem>(
+	left: T,
+	right: T
+) {
+	const chapterNumberComparison = compareNullableNumbers(
+		typeof left.chapterNumber === 'number' && Number.isFinite(left.chapterNumber)
+			? left.chapterNumber
+			: null,
+		typeof right.chapterNumber === 'number' && Number.isFinite(right.chapterNumber)
+			? right.chapterNumber
+			: null
+	);
+	if (chapterNumberComparison !== 0) return chapterNumberComparison;
+
+	if (left.sequence !== right.sequence) {
+		return left.sequence - right.sequence;
+	}
+
+	const dateUploadComparison = compareNullableNumbers(
+		typeof left.dateUpload === 'number' && Number.isFinite(left.dateUpload) ? left.dateUpload : null,
+		typeof right.dateUpload === 'number' && Number.isFinite(right.dateUpload)
+			? right.dateUpload
+			: null
+	);
+	if (dateUploadComparison !== 0) return dateUploadComparison;
+
+	const nameComparison = (left.chapterName ?? '').localeCompare(right.chapterName ?? '');
+	if (nameComparison !== 0) return nameComparison;
+
+	return String(left._id).localeCompare(String(right._id));
+}
+
+export function sortLibraryChaptersInReadingOrder<T extends ChapterOrderItem>(chapters: readonly T[]) {
+	return [...chapters].sort(compareLibraryChaptersInReadingOrder);
 }
 
 export async function findOwnedTitleByRouteSegment(

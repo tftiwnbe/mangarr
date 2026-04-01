@@ -20,6 +20,7 @@ import {
 	buildChapterRouteSegments,
 	buildTitleRouteSegments,
 	findOwnedTitleByRouteSegment,
+	sortLibraryChaptersInReadingOrder,
 	summarizeDownloadStats,
 	summarizeOfflineReadiness
 } from './library_reader_support';
@@ -250,8 +251,7 @@ export const listTitleChapters = query({
 		const chapterRouteSegments = buildChapterRouteSegments(chapters);
 		const progressByChapterId = new Map(progressRows.map((row) => [String(row.chapterId), row] as const));
 
-		return chapters
-			.sort((left, right) => left.sequence - right.sequence)
+		return sortLibraryChaptersInReadingOrder(chapters)
 			.map((chapter) => {
 				const progress = progressByChapterId.get(String(chapter._id)) ?? null;
 				return {

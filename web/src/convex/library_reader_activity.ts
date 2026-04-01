@@ -7,6 +7,7 @@ import {
 	requireOwnedChapter,
 	requireOwnedChapterComment
 } from './library_shared';
+import { sortLibraryChaptersInReadingOrder } from './library_reader_support';
 
 export const upsertChapterProgress = mutation({
 	args: {
@@ -67,29 +68,56 @@ export const resetChapterProgress = mutation({
 				.collect()
 		]);
 
-		const chapterIdsToClear = new Set(
-			chapters
-				.filter((row) => row.sequence >= chapter.sequence)
-				.map((row) => String(row._id))
-		);
-		const progressRowsToDelete = progressRows.filter((row) =>
-			chapterIdsToClear.has(String(row.chapterId))
+		const orderedChapters = sortLibraryChaptersInReadingOrder(chapters);
+		const chapterIndex = orderedChapters.findIndex((row) => String(row._id) === String(chapter._id));
+		if (chapterIndex < 0) {
+			throw new Error('Chapter order could not be resolved');
+		}
+
+		const chaptersToRemainRead = orderedChapters.slice(0, chapterIndex);
+		const chapterIdsToRemainRead = new Set(chaptersToRemainRead.map((row) => String(row._id)));
+		const progressRowsToDelete = progressRows.filter(
+			(row) => !chapterIdsToRemainRead.has(String(row.chapterId))
 		);
 
 		for (const row of progressRowsToDelete) {
 			await ctx.db.delete(row._id);
 		}
 
-		const remainingProgressRows = progressRows.filter(
-			(row) => !chapterIdsToClear.has(String(row.chapterId))
+		const remainingProgressByChapterId = new Map(
+			progressRows
+				.filter((row) => chapterIdsToRemainRead.has(String(row.chapterId)))
+				.map((row) => [String(row.chapterId), row] as const)
 		);
+		const now = Date.now();
+		let createdRemainingRows = 0;
+
+		for (const remainingChapter of chaptersToRemainRead) {
+			if (remainingProgressByChapterId.has(String(remainingChapter._id))) continue;
+			await ctx.db.insert('chapterProgress', {
+				ownerUserId: title.ownerUserId,
+				libraryTitleId: title._id,
+				chapterId: remainingChapter._id,
+				pageIndex: 0,
+				createdAt: now,
+				updatedAt: now
+			});
+			createdRemainingRows += 1;
+		}
+
+		const remainingProgressRows = [...remainingProgressByChapterId.values()];
+
+		const latestRemainingProgressAt =
+			remainingProgressRows.length > 0
+				? Math.max(...remainingProgressRows.map((row) => row.updatedAt))
+				: undefined;
 
 		await ctx.db.patch(title._id, {
 			lastReadAt:
-				remainingProgressRows.length > 0
-					? Math.max(...remainingProgressRows.map((row) => row.updatedAt))
+				remainingProgressRows.length + createdRemainingRows > 0
+					? Math.max(latestRemainingProgressAt ?? now, now)
 					: undefined,
-			updatedAt: Date.now()
+			updatedAt: now
 		});
 
 		return { ok: true };
@@ -123,9 +151,15 @@ export const markChaptersReadThrough = mutation({
 
 		const now = Date.now();
 		const progressByChapterId = new Map(progressRows.map((row) => [String(row.chapterId), row] as const));
-		const chaptersToMark = chapters
-			.filter((chapter) => chapter.sequence <= targetChapter.sequence)
-			.sort((left, right) => left.sequence - right.sequence);
+		const orderedChapters = sortLibraryChaptersInReadingOrder(chapters);
+		const chapterIndex = orderedChapters.findIndex(
+			(chapter) => String(chapter._id) === String(targetChapter._id)
+		);
+		if (chapterIndex < 0) {
+			throw new Error('Chapter order could not be resolved');
+		}
+		const chaptersToMark = orderedChapters.slice(0, chapterIndex + 1);
+		const chapterIdsToMark = new Set(chaptersToMark.map((chapter) => String(chapter._id)));
 
 		for (const chapter of chaptersToMark) {
 			const existing = progressByChapterId.get(String(chapter._id));
@@ -145,6 +179,11 @@ export const markChaptersReadThrough = mutation({
 				createdAt: now,
 				updatedAt: now
 			});
+		}
+
+		for (const row of progressRows) {
+			if (chapterIdsToMark.has(String(row.chapterId))) continue;
+			await ctx.db.delete(row._id);
 		}
 
 		await ctx.db.patch(title._id, {
