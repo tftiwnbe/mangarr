@@ -2,7 +2,7 @@
 
 ## Compose
 
-The production example in [/Users/wnbe/Lab/mangarr/compose.yaml](/Users/wnbe/Lab/mangarr/compose.yaml) is intentionally simple:
+The production example in [compose.yaml](../compose.yaml) is intentionally simple:
 
 - published image only
 - `./config:/app/config`

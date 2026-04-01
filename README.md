@@ -11,9 +11,9 @@ Mangarr is a self-hosted manga manager built around a SvelteKit web app, a self-
 
 ## Screenshots
 
-![First admin setup](/Users/wnbe/Lab/mangarr/docs/screenshots/first-admin.png)
+![First admin setup](docs/screenshots/first-admin.png)
 
-![Setup wizard](/Users/wnbe/Lab/mangarr/docs/screenshots/setup-wizard.png)
+![Setup wizard](docs/screenshots/setup-wizard.png)
 
 ## Quick Start
 
@@ -36,9 +36,9 @@ Images:
 
 ## Docs
 
-- [Deploy](/Users/wnbe/Lab/mangarr/docs/deploy.md)
-- [Development](/Users/wnbe/Lab/mangarr/docs/development.md)
-- [Integration API](/Users/wnbe/Lab/mangarr/docs/integration-api.md)
+- [Deploy](docs/deploy.md)
+- [Development](docs/development.md)
+- [Integration API](docs/integration-api.md)
 
 ## Project Layout
 
@@ -51,10 +51,14 @@ Images:
 
 Mangarr builds on ideas and implementation work from the Tachiyomi ecosystem.
 
-- [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server)
-- [Mihon](https://github.com/mihonapp/mihon)
-- `AndroidCompat` from the TachiWeb-Server line by [@null-dev](https://github.com/null-dev)
+- The server-side foundation and extension-oriented workflow were heavily influenced by the earlier TachiWeb and Tachidesk line of projects.
+- Large parts of the bridge-side extension runtime and self-hosted source workflow were adapted from or directly inspired by [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server).
+- The `AndroidCompat` module was originally developed by [@null-dev](https://github.com/null-dev) and remains an important part of making extension code run on the JVM side.
+- [Keiyoushi Extensions](https://github.com/keiyoushi/extensions) provides the extension catalog Mangarr uses through its bridge runtime.
+- The broader extension author community made the source ecosystem this project depends on possible in the first place.
+
+Please keep the original upstream licenses and attribution in mind when reusing or redistributing derivative work.
 
 ## License
 
-Mangarr is licensed under the GNU Affero General Public License v3.0. See [LICENSE](/Users/wnbe/Lab/mangarr/LICENSE).
+Mangarr is licensed under the GNU Affero General Public License v3.0. See [LICENSE](LICENSE).
