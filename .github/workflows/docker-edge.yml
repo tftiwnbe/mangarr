@@ -4,6 +4,18 @@ on:
   push:
     branches:
       - main
+    paths:
+      - ".dockerignore"
+      - ".github/workflows/docker-edge.yml"
+      - ".github/workflows/release.yml"
+      - "Dockerfile"
+      - "Dockerfile.ci"
+      - "Justfile"
+      - "bridge/**"
+      - "compose.yaml"
+      - "compose.dev.yaml"
+      - "scripts/**"
+      - "web/**"
   workflow_dispatch:
 
 concurrency:
@@ -15,13 +27,137 @@ permissions:
   packages: write
 
 jobs:
-  publish:
-    name: publish
+  web-runtime:
+    name: web-runtime
     runs-on: ubuntu-latest
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install web dependencies
+        run: cd web && pnpm install --frozen-lockfile
+
+      - name: Build web client
+        run: cd web && pnpm run build
+
+      - name: Prepare web runtime artifact
+        run: ./scripts/prepare-web-runtime-artifact.sh "$RUNNER_TEMP/web-runtime.tgz"
+
+      - name: Upload web runtime artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-runtime
+          path: ${{ runner.temp }}/web-runtime.tgz
+          if-no-files-found: error
+
+  bridge-runtime:
+    name: bridge-runtime
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Restore Android compatibility stub cache
+        uses: actions/cache@v4
+        with:
+          path: bridge/app/lib/android.jar
+          key: ${{ runner.os }}-androidcompat-${{ hashFiles('bridge/AndroidCompat/getAndroid.sh', 'bridge/AndroidCompat/build.gradle.kts', 'bridge/app/build.gradle.kts') }}
+
+      - name: Prepare Android compatibility stubs
+        run: test -f bridge/app/lib/android.jar || bash ./bridge/AndroidCompat/getAndroid.sh
+
+      - name: Build bridge runtime
+        run: cd bridge && ./gradlew shadowJar --no-daemon
+
+      - name: Prepare bridge runtime artifact
+        run: ./scripts/prepare-bridge-runtime-artifact.sh "$RUNNER_TEMP/bridge-runtime.tgz"
+
+      - name: Upload bridge runtime artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridge-runtime
+          path: ${{ runner.temp }}/bridge-runtime.tgz
+          if-no-files-found: error
+
+  base:
+    name: base
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push runtime base image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: mangarr-base
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          tags: |
+            ghcr.io/${{ github.repository }}-base:edge
+            ghcr.io/${{ github.repository }}-base:sha-${{ github.sha }}
+          cache-from: type=gha,scope=docker-edge-base-amd64
+          cache-to: type=gha,scope=docker-edge-base-amd64,mode=max
+
+  publish:
+    name: publish
+    runs-on: ubuntu-latest
+    needs:
+      - web-runtime
+      - bridge-runtime
+      - base
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download runtime artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: .artifacts/downloads
+
+      - name: Expand runtime artifacts
+        run: |
+          rm -rf .artifacts/ci-context
+          mkdir -p .artifacts/ci-context/web-runtime .artifacts/ci-context/bridge-runtime
+          cp Dockerfile.ci .artifacts/ci-context/Dockerfile.ci
+          tar -xzf .artifacts/downloads/web-runtime/web-runtime.tgz -C .artifacts/ci-context/web-runtime
+          tar -xzf .artifacts/downloads/bridge-runtime/bridge-runtime.tgz -C .artifacts/ci-context/bridge-runtime
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -45,12 +181,14 @@ jobs:
       - name: Build and push edge image
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: ./Dockerfile
+          context: .artifacts/ci-context
+          file: .artifacts/ci-context/Dockerfile.ci
           platforms: linux/amd64
           push: true
+          provenance: false
+          build-args: |
+            MANGARR_BASE_IMAGE=ghcr.io/${{ github.repository }}-base:sha-${{ github.sha }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          provenance: false
-          cache-from: type=gha,scope=docker-edge-amd64
-          cache-to: type=gha,scope=docker-edge-amd64,mode=max
+          cache-from: type=gha,scope=docker-edge-app-amd64
+          cache-to: type=gha,scope=docker-edge-app-amd64,mode=max
