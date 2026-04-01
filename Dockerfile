@@ -297,6 +297,7 @@ filter_bridge_stdout() {
 /app/convex/convex-local-backend --instance-name "${INSTANCE_NAME}" --instance-secret "${INSTANCE_SECRET}" --port "${CONVEX_PORT:-3210}" --site-proxy-port "${CONVEX_SITE_PROXY_PORT:-3211}" --convex-origin "${PUBLIC_CONVEX_URL}" --convex-site "${CONVEX_SITE_ORIGIN:-http://127.0.0.1:3211}" --beacon-tag mangarr --disable-beacon --local-storage "${CONVEX_STORAGE_DIR}" "${CONVEX_SQLITE_PATH}" \
   > >(pipe_component_output "convex" "${CONVEX_LOG_FILE}" "" "stdout") \
   2> >(filter_convex_stderr "${CONVEX_LOG_FILE}" "${CONVEX_NOISE_LOG_FILE}") &
+CONVEX_PID=$!
 
 cleanup() {
   jobs -p | xargs -r kill 2>/dev/null || true
@@ -440,6 +441,7 @@ fi
 (java -jar "${TACHIBRIDGE_JAR_PATH}" --port "${MANGARR_BRIDGE_PORT}" --data-dir "${MANGARR_BRIDGE_DATA_DIR:-/app/config/bridge}") \
   > >(filter_bridge_stdout "${BRIDGE_CONSOLE_LOG_FILE}" "${BRIDGE_NOISE_LOG_FILE}") \
   2> >(filter_bridge_stderr "${BRIDGE_CONSOLE_LOG_FILE}" "${BRIDGE_NOISE_LOG_FILE}") &
+BRIDGE_PID=$!
 
 wait_for_http "Bridge runtime" "http://127.0.0.1:${MANGARR_BRIDGE_PORT}/health"
 
@@ -452,12 +454,13 @@ else
     > >(pipe_component_output "web" "${WEB_LOG_FILE}" "" "stdout") \
     2> >(pipe_component_output "web" "${WEB_LOG_FILE}" "stderr" "stderr") &
 fi
+WEB_PID=$!
 
 wait_for_http "Web app" "http://127.0.0.1:${PORT:-3737}"
 startup_note "Mangarr ready: web=${MANGARR_PUBLIC_ORIGIN} convex=${PUBLIC_CONVEX_URL} bridge=${MANGARR_BRIDGE_INTERNAL_URL}"
 startup_note "Logs: setup=${SETUP_LOG_FILE} web=${WEB_LOG_FILE} bridge=${BRIDGE_CONSOLE_LOG_FILE} convex=${CONVEX_LOG_FILE}"
 
-wait -n
+wait -n "${CONVEX_PID}" "${BRIDGE_PID}" "${WEB_PID}"
 EOF
 RUN chmod +x /usr/local/bin/mangarr-startup
 
