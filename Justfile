@@ -127,10 +127,39 @@ artifacts:
     rm -rf .artifacts
     mkdir -p .artifacts
     cd web && pnpm run build
-    ./scripts/prepare-web-runtime-artifact.sh .artifacts/web-runtime.tgz
+    bash -uec ' \
+      tmpdir="$(mktemp -d)"; \
+      trap '"'"'rm -rf "$tmpdir"'"'"' EXIT; \
+      runtime_root="$tmpdir/app/web"; \
+      mkdir -p "$runtime_root/src/lib/server" "$runtime_root/src/lib" "$runtime_root/.svelte-kit"; \
+      cp web/package.json "$runtime_root/package.json"; \
+      cp web/pnpm-lock.yaml "$runtime_root/pnpm-lock.yaml"; \
+      cp web/pnpm-workspace.yaml "$runtime_root/pnpm-workspace.yaml"; \
+      cp web/convex.json "$runtime_root/convex.json"; \
+      cp web/server.js "$runtime_root/server.js"; \
+      cp web/tsconfig.json "$runtime_root/tsconfig.json"; \
+      cp web/.svelte-kit/tsconfig.json "$runtime_root/.svelte-kit/tsconfig.json"; \
+      cp -R web/build "$runtime_root/build"; \
+      cp -R web/src/convex "$runtime_root/src/convex"; \
+      cp -R web/src/lib/utils "$runtime_root/src/lib/utils"; \
+      cp web/src/lib/server/convex-auth-config.ts "$runtime_root/src/lib/server/convex-auth-config.ts"; \
+      (cd "$runtime_root" && pnpm install --frozen-lockfile --prod --prefer-offline); \
+      tar -C "$tmpdir" -czf .artifacts/web-runtime.tgz app \
+    '
     if [ ! -f "bridge/app/lib/android.jar" ]; then echo "android.jar not found, fetching..."; ./bridge/AndroidCompat/getAndroid.sh; fi
     cd bridge && ./gradlew shadowJar --no-daemon
-    ./scripts/prepare-bridge-runtime-artifact.sh .artifacts/bridge-runtime.tgz
+    bash -uec ' \
+      tmpdir="$(mktemp -d)"; \
+      trap '"'"'rm -rf "$tmpdir"'"'"' EXIT; \
+      mkdir -p "$tmpdir/app/bin"; \
+      jar_path="$(find bridge/app/build -maxdepth 1 -type f -name "tachibridge-*.jar" | head -n1)"; \
+      if [ -z "$jar_path" ]; then \
+        echo "tachibridge shadowJar not found under bridge/app/build" >&2; \
+        exit 1; \
+      fi; \
+      cp "$jar_path" "$tmpdir/app/bin/tachibridge.jar"; \
+      tar -C "$tmpdir" -czf .artifacts/bridge-runtime.tgz app \
+    '
 
 # Build the production image from prebuilt local artifacts
 [group('build')]
