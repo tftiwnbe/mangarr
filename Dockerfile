@@ -401,7 +401,7 @@ if [ "${MANGARR_KCEF_ENABLED}" = "true" ] || [ "${MANGARR_KCEF_ENABLED}" = "1" ]
 #!/bin/sh
 TARGET="${KCEF_LIBRARY_DIR}/jcef_helper"
 DEST="/opt/java/openjdk/lib"
-for _ in \$(seq 1 120); do
+for _ in $(seq 1 120); do
   if [ -x "\${TARGET}" ]; then
     mkdir -p "\${DEST}"
     for name in \
@@ -427,7 +427,7 @@ for _ in \$(seq 1 120); do
     if [ -d "${KCEF_LIBRARY_DIR}/locales" ]; then
       ln -sfn "${KCEF_LIBRARY_DIR}/locales" "\${DEST}/locales"
     fi
-    exec "\${TARGET}" "\$@"
+    exec "\${TARGET}" "$@"
   fi
   sleep 1
 done
