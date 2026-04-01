@@ -1,5 +1,6 @@
 services:
   mangarr:
+    platform: linux/amd64
     image: ghcr.io/tftiwnbe/mangarr:latest
     environment:
       - MANGARR_PUBLIC_URL=https://mangarr.hmphin.space
