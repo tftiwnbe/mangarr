@@ -66,7 +66,9 @@ export function compareLibraryChaptersInReadingOrder<T extends ChapterOrderItem>
 	}
 
 	const dateUploadComparison = compareNullableNumbers(
-		typeof left.dateUpload === 'number' && Number.isFinite(left.dateUpload) ? left.dateUpload : null,
+		typeof left.dateUpload === 'number' && Number.isFinite(left.dateUpload)
+			? left.dateUpload
+			: null,
 		typeof right.dateUpload === 'number' && Number.isFinite(right.dateUpload)
 			? right.dateUpload
 			: null
@@ -79,7 +81,9 @@ export function compareLibraryChaptersInReadingOrder<T extends ChapterOrderItem>
 	return String(left._id).localeCompare(String(right._id));
 }
 
-export function sortLibraryChaptersInReadingOrder<T extends ChapterOrderItem>(chapters: readonly T[]) {
+export function sortLibraryChaptersInReadingOrder<T extends ChapterOrderItem>(
+	chapters: readonly T[]
+) {
 	return [...chapters].sort(compareLibraryChaptersInReadingOrder);
 }
 

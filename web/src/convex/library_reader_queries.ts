@@ -249,22 +249,23 @@ export const listTitleChapters = query({
 				.collect()
 		]);
 		const chapterRouteSegments = buildChapterRouteSegments(chapters);
-		const progressByChapterId = new Map(progressRows.map((row) => [String(row.chapterId), row] as const));
+		const progressByChapterId = new Map(
+			progressRows.map((row) => [String(row.chapterId), row] as const)
+		);
 
-		return sortLibraryChaptersInReadingOrder(chapters)
-			.map((chapter) => {
-				const progress = progressByChapterId.get(String(chapter._id)) ?? null;
-				return {
-					...chapter,
-					title: title.title,
-					routeSegment:
-						chapterRouteSegments.get(String(chapter._id)) ??
-						buildChapterRouteBase(chapter.chapterName, chapter.chapterNumber ?? null),
-					isRead: progress !== null,
-					progressPageIndex: progress?.pageIndex ?? null,
-					progressUpdatedAt: progress?.updatedAt ?? null
-				};
-			});
+		return sortLibraryChaptersInReadingOrder(chapters).map((chapter) => {
+			const progress = progressByChapterId.get(String(chapter._id)) ?? null;
+			return {
+				...chapter,
+				title: title.title,
+				routeSegment:
+					chapterRouteSegments.get(String(chapter._id)) ??
+					buildChapterRouteBase(chapter.chapterName, chapter.chapterNumber ?? null),
+				isRead: progress !== null,
+				progressPageIndex: progress?.pageIndex ?? null,
+				progressUpdatedAt: progress?.updatedAt ?? null
+			};
+		});
 	}
 });
 

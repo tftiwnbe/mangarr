@@ -800,8 +800,7 @@
 			});
 			resetProgressDialogOpen = false;
 		} catch (error) {
-			actionError =
-				error instanceof Error ? error.message : $_('title.resetProgressFailed');
+			actionError = error instanceof Error ? error.message : $_('title.resetProgressFailed');
 		} finally {
 			resettingTitleProgress = false;
 		}

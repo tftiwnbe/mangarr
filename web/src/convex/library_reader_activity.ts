@@ -69,7 +69,9 @@ export const resetChapterProgress = mutation({
 		]);
 
 		const orderedChapters = sortLibraryChaptersInReadingOrder(chapters);
-		const chapterIndex = orderedChapters.findIndex((row) => String(row._id) === String(chapter._id));
+		const chapterIndex = orderedChapters.findIndex(
+			(row) => String(row._id) === String(chapter._id)
+		);
 		if (chapterIndex < 0) {
 			throw new Error('Chapter order could not be resolved');
 		}
@@ -150,7 +152,9 @@ export const markChaptersReadThrough = mutation({
 		]);
 
 		const now = Date.now();
-		const progressByChapterId = new Map(progressRows.map((row) => [String(row.chapterId), row] as const));
+		const progressByChapterId = new Map(
+			progressRows.map((row) => [String(row.chapterId), row] as const)
+		);
 		const orderedChapters = sortLibraryChaptersInReadingOrder(chapters);
 		const chapterIndex = orderedChapters.findIndex(
 			(chapter) => String(chapter._id) === String(targetChapter._id)

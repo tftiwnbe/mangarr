@@ -127,9 +127,7 @@
 			{@const downloadState = chapterDownloadState(chapter)}
 			{@const readState = chapterReadState(chapter)}
 			<div
-				class="flex items-center gap-4 py-3 {chapter.isRead
-					? 'opacity-80'
-					: ''}"
+				class="flex items-center gap-4 py-3 {chapter.isRead ? 'opacity-80' : ''}"
 				data-testid="chapter-row"
 				data-chapter-id={chapter._id}
 				data-download-status={chapter.downloadStatus}

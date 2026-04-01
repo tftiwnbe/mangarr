@@ -19,10 +19,7 @@ const STATUS = {
 } as const;
 
 type CommandStatus = (typeof STATUS)[keyof typeof STATUS];
-const REUSABLE_STATUSES = new Set<CommandStatus>([
-	STATUS.QUEUED,
-	STATUS.SUCCEEDED
-]);
+const REUSABLE_STATUSES = new Set<CommandStatus>([STATUS.QUEUED, STATUS.SUCCEEDED]);
 
 function targetCapabilityFor(commandType: string) {
 	switch (commandType) {

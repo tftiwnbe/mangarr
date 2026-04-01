@@ -32,13 +32,7 @@
 	}: Props = $props();
 
 	const uniqueGenres = $derived(
-		Array.from(
-			new Set(
-				genres
-					.map((genre) => genre.trim())
-					.filter((genre) => genre.length > 0)
-			)
-		)
+		Array.from(new Set(genres.map((genre) => genre.trim()).filter((genre) => genre.length > 0)))
 	);
 </script>
 
