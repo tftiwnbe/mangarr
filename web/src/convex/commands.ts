@@ -318,16 +318,17 @@ export const enqueueExploreChaptersFetch = mutation({
 export const enqueueReaderPagesFetch = mutation({
 	args: {
 		sourceId: v.string(),
-		chapterUrl: v.string()
+		chapterUrl: v.string(),
+		chapterName: v.optional(v.string())
 	},
 	handler: (ctx, args) =>
 		enqueueCommand(ctx, {
 			commandType: 'reader.pages.fetch',
 			payload: {
 				sourceId: args.sourceId,
-				chapterUrl: args.chapterUrl
-			},
-			idempotencyKey: `reader.pages.fetch:${args.sourceId}:${args.chapterUrl}`
+				chapterUrl: args.chapterUrl,
+				chapterName: args.chapterName
+			}
 		})
 });
 

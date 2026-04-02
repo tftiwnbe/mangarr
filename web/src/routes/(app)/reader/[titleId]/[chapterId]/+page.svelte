@@ -281,6 +281,7 @@
 		const params = new SvelteURLSearchParams({
 			sourceId: chapter.sourceId,
 			chapterUrl: chapter.chapterUrl,
+			chapterName: chapter.chapterName,
 			index: String(item.index)
 		});
 		if (retryCount > 0) {
@@ -569,7 +570,8 @@
 			try {
 				const { commandId } = await client.mutation(convexApi.commands.enqueueReaderPagesFetch, {
 					sourceId: chapter.sourceId,
-					chapterUrl: chapter.chapterUrl
+					chapterUrl: chapter.chapterUrl,
+					chapterName: chapter.chapterName
 				});
 				const command = await waitForCommand<CommandItem>(client, commandId, {
 					timeoutMs: 15_000,

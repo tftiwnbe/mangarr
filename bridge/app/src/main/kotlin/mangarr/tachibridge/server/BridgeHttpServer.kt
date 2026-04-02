@@ -140,6 +140,7 @@ class BridgeHttpServer(
 
             val sourceId = exchange.queryParam("sourceId")
             val chapterUrl = exchange.queryParam("chapterUrl")
+            val chapterName = exchange.queryParam("chapterName")
             val index = exchange.queryParam("index")?.toIntOrNull()
             if (sourceId.isNullOrBlank() || chapterUrl.isNullOrBlank() || index == null || index < 0) {
                 sendJson(exchange, 400, buildJsonObject { put("message", "Missing sourceId, chapterUrl, or index") })
@@ -148,7 +149,7 @@ class BridgeHttpServer(
 
             try {
                 val image = kotlinx.coroutines.runBlocking {
-                    bridgeService.fetchPageImage(sourceId, chapterUrl, index)
+                    bridgeService.fetchPageImage(sourceId, chapterUrl, chapterName, index)
                 }
                 sendBytes(exchange, 200, image.bytes, image.contentType)
             } catch (error: Exception) {

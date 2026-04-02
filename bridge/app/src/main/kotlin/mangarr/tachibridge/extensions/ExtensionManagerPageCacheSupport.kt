@@ -37,8 +37,11 @@ internal class ExtensionManagerPageCacheSupport(
 		return ""
 	}
 
-	suspend fun loadPagesForChapter(source: Source, normalizedUrl: String): List<SourcePage> =
-		loadPagesForChapter(source, normalizedUrl, bypassCache = false)
+	suspend fun loadPagesForChapter(
+		source: Source,
+		normalizedUrl: String,
+		chapterName: String? = null,
+	): List<SourcePage> = loadPagesForChapter(source, normalizedUrl, chapterName, bypassCache = false)
 
 	fun invalidateChapterPagesCache(sourceId: Long, chapterUrl: String) {
 		chapterPagesCache.remove(chapterPagesCacheKey(sourceId, chapterUrl))
@@ -47,10 +50,11 @@ internal class ExtensionManagerPageCacheSupport(
 	suspend fun fetchPageImagePayload(
 		source: Source,
 		normalizedUrl: String,
+		chapterName: String?,
 		index: Int,
 		bypassPageCache: Boolean,
 	): PageImagePayload {
-		val pages = loadPagesForChapter(source, normalizedUrl, bypassPageCache)
+		val pages = loadPagesForChapter(source, normalizedUrl, chapterName, bypassPageCache)
 		val page = pages.getOrNull(index) ?: error("Page index out of bounds: $index")
 
 		val resolvedPageImageUrl = resolvePageImageUrl(source, page)
@@ -144,6 +148,7 @@ internal class ExtensionManagerPageCacheSupport(
 	private suspend fun loadPagesForChapter(
 		source: Source,
 		normalizedUrl: String,
+		chapterName: String?,
 		bypassCache: Boolean,
 	): List<SourcePage> =
 		chapterPagesCache[chapterPagesCacheKey(source.id, normalizedUrl)]
@@ -151,7 +156,11 @@ internal class ExtensionManagerPageCacheSupport(
 			?.takeUnless { bypassCache }
 			?.pages
 			?: run {
-				val chapter = SChapter.create().apply { url = normalizedUrl }
+				val chapter =
+					SChapter.create().apply {
+						url = normalizedUrl
+						name = chapterName?.trim()?.ifBlank { normalizedUrl } ?: normalizedUrl
+					}
 				val pages = source.getPageList(chapter)
 
 				chapterPagesCache[chapterPagesCacheKey(source.id, normalizedUrl)] =

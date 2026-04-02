@@ -440,7 +440,7 @@ class BridgeService(
         }
     }
 
-    suspend fun fetchPages(sourceId: String, chapterUrl: String): JsonObject {
+    suspend fun fetchPages(sourceId: String, chapterUrl: String, chapterName: String? = null): JsonObject {
         extensionManager.awaitReady()
         if (!ConfigManager.isSourceEnabled(sourceId.toLong())) {
             error("Source is disabled: $sourceId")
@@ -452,7 +452,7 @@ class BridgeService(
                 requestKind = "pages",
                 requestKey = chapterUrl,
             ) {
-                extensionManager.getPagesList(parsedSourceId, chapterUrl)
+                extensionManager.getPagesList(parsedSourceId, chapterUrl, chapterName)
             }
         return buildJsonObject {
             put("ok", true)
@@ -471,7 +471,12 @@ class BridgeService(
         }
     }
 
-    suspend fun fetchPageImage(sourceId: String, chapterUrl: String, index: Int): PageImagePayload {
+    suspend fun fetchPageImage(
+        sourceId: String,
+        chapterUrl: String,
+        chapterName: String? = null,
+        index: Int,
+    ): PageImagePayload {
         extensionManager.awaitReady()
         val cacheKey = "$sourceId::$chapterUrl::$index"
         val now = System.currentTimeMillis()
@@ -495,7 +500,7 @@ class BridgeService(
                 return@withLock PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
             }
 
-            val payload = fetchPageImageWithRetry(sourceId.toLong(), chapterUrl, index)
+            val payload = fetchPageImageWithRetry(sourceId.toLong(), chapterUrl, chapterName, index)
             val cached =
                 CachedReaderPage(
                     contentType = payload.contentType,
@@ -527,7 +532,7 @@ class BridgeService(
                 requestKind = "pages",
                 requestKey = chapterUrl,
             ) {
-                extensionManager.getPagesList(parsedSourceId, chapterUrl)
+                extensionManager.getPagesList(parsedSourceId, chapterUrl, chapterName)
             }
         val totalPages = pages.pagesList.size
         val workspace =
@@ -553,7 +558,7 @@ class BridgeService(
                             if (index >= totalPages) {
                                 return@launch
                             }
-                            val image = fetchPageImageWithRetry(sourceId.toLong(), chapterUrl, index)
+                            val image = fetchPageImageWithRetry(sourceId.toLong(), chapterUrl, chapterName, index)
                             downloadStorage.writePage(workspace, index, image)
                             onProgress(completedPages.incrementAndGet(), totalPages)
                         }
@@ -576,6 +581,7 @@ class BridgeService(
     private suspend fun fetchPageImageWithRetry(
         sourceId: Long,
         chapterUrl: String,
+        chapterName: String?,
         index: Int,
     ): PageImagePayload {
         var lastError: Exception? = null
@@ -592,7 +598,7 @@ class BridgeService(
             }
 
             try {
-                return extensionManager.getPageImage(sourceId, chapterUrl, index)
+                return extensionManager.getPageImage(sourceId, chapterUrl, chapterName, index)
             } catch (error: Exception) {
                 lastError = error
                 if (!shouldRetryPageFetch(error) || attemptIndex == DOWNLOAD_PAGE_RETRY_DELAYS_MS.lastIndex) {

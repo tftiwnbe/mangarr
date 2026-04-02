@@ -418,10 +418,11 @@ class ExtensionManager(
     suspend fun getPagesList(
         sourceId: Long,
         chapterUrl: String,
+        chapterName: String? = null,
     ): PagesListResponse =
         withSource<Source, PagesListResponse>(sourceId) { source ->
             val normalizedUrl = normalizeSourceUrl(source, chapterUrl)
-            val pages = pageCacheSupport.loadPagesForChapter(source, normalizedUrl)
+            val pages = pageCacheSupport.loadPagesForChapter(source, normalizedUrl, chapterName)
             val resolvedPages = mutableListOf<Page>()
             for ((index, page) in pages.withIndex()) {
                 val pageUrl = safeString { page.url }
@@ -443,12 +444,19 @@ class ExtensionManager(
     suspend fun getPageImage(
         sourceId: Long,
         chapterUrl: String,
+        chapterName: String? = null,
         index: Int,
     ): PageImagePayload =
         withSource<Source, PageImagePayload>(sourceId) { source ->
             val normalizedUrl = normalizeSourceUrl(source, chapterUrl)
             try {
-                pageCacheSupport.fetchPageImagePayload(source, normalizedUrl, index, bypassPageCache = false)
+                pageCacheSupport.fetchPageImagePayload(
+                    source,
+                    normalizedUrl,
+                    chapterName,
+                    index,
+                    bypassPageCache = false,
+                )
             } catch (error: Exception) {
                 if (!pageCacheSupport.shouldRefreshChapterPagesCache(error)) {
                     throw error
@@ -457,7 +465,13 @@ class ExtensionManager(
                     "Refreshing cached chapter pages for source=${source.id} chapter=$normalizedUrl index=$index"
                 }
                 pageCacheSupport.invalidateChapterPagesCache(source.id, normalizedUrl)
-                pageCacheSupport.fetchPageImagePayload(source, normalizedUrl, index, bypassPageCache = true)
+                pageCacheSupport.fetchPageImagePayload(
+                    source,
+                    normalizedUrl,
+                    chapterName,
+                    index,
+                    bypassPageCache = true,
+                )
             }
         }
 
