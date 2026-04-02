@@ -194,8 +194,7 @@ export const enqueueExtensionInstall = mutation({
 	handler: (ctx, args) =>
 		enqueueCommand(ctx, {
 			commandType: 'extensions.install',
-			payload: { pkg: args.pkg.trim() },
-			idempotencyKey: `extensions.install:${args.pkg.trim()}`
+			payload: { pkg: args.pkg.trim() }
 		})
 });
 
@@ -206,8 +205,7 @@ export const enqueueExtensionUninstall = mutation({
 	handler: (ctx, args) =>
 		enqueueCommand(ctx, {
 			commandType: 'extensions.uninstall',
-			payload: { pkg: args.pkg.trim() },
-			idempotencyKey: `extensions.uninstall:${args.pkg.trim()}`
+			payload: { pkg: args.pkg.trim() }
 		})
 });
 
