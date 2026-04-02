@@ -188,6 +188,7 @@ class BridgeServer(
                     heartbeatReporter = heartbeatReporter,
                     commandRunner = commandRunner,
                     bridgeService = bridgeService,
+                    networkHelper = networkHelper,
                     bridgeClient = convexClient,
                     bridgeId = config.runtime.bridgeId,
                 )

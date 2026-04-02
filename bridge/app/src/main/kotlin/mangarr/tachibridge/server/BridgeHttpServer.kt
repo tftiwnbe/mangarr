@@ -2,6 +2,8 @@ package mangarr.tachibridge.server
 
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.NetworkHelper
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -24,6 +26,7 @@ import mangarr.tachibridge.runtime.BridgeState
 import mangarr.tachibridge.runtime.ConvexBridgeClient
 import mangarr.tachibridge.runtime.DownloadReconcileChapter
 import java.net.URLDecoder
+import java.net.URL
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.io.IOException
@@ -40,6 +43,7 @@ class BridgeHttpServer(
     private val heartbeatReporter: BridgeHeartbeatReporter,
     private val commandRunner: BridgeCommandRunner,
     private val bridgeService: BridgeService,
+    private val networkHelper: NetworkHelper,
     private val bridgeClient: ConvexBridgeClient?,
     private val bridgeId: String,
 ) {
@@ -206,6 +210,78 @@ class BridgeHttpServer(
             } catch (error: Exception) {
                 logger.warn(error) { "Failed to serve cached library cover path=$localCoverPath" }
                 sendJson(exchange, 404, buildJsonObject { put("message", "Library cover asset is unavailable") })
+            }
+        }
+
+        server.createContext("/assets/remote/cover") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+            if (exchange.requestMethod.uppercase() != "GET") {
+                sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+                return@createContext
+            }
+
+            val target = exchange.queryParam("url")
+            if (target.isNullOrBlank()) {
+                sendJson(exchange, 400, buildJsonObject { put("message", "Missing url") })
+                return@createContext
+            }
+
+            val parsedUrl =
+                try {
+                    URL(target)
+                } catch (_: Exception) {
+                    null
+                }
+            if (parsedUrl == null || (parsedUrl.protocol != "http" && parsedUrl.protocol != "https")) {
+                sendJson(exchange, 400, buildJsonObject { put("message", "Invalid url") })
+                return@createContext
+            }
+
+            val refererOrigin =
+                if (parsedUrl.host == "uploads.mangadex.org" || parsedUrl.host.endsWith(".mangadex.org")) {
+                    "https://mangadex.org"
+                } else {
+                    "${parsedUrl.protocol}://${parsedUrl.host}"
+                }
+
+            try {
+                val request =
+                    GET(
+                        target,
+                        headers =
+                            okhttp3.Headers
+                                .Builder()
+                                .add("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+                                .add("Origin", refererOrigin)
+                                .add("Referer", "$refererOrigin/")
+                                .add("User-Agent", "Mozilla/5.0 (compatible; MangarrCoverProxy/1.0)")
+                                .build(),
+                    )
+                networkHelper.client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        sendJson(exchange, response.code, buildJsonObject { put("message", "Remote cover is unavailable") })
+                        return@createContext
+                    }
+                    val body = response.body?.bytes()
+                    if (body == null) {
+                        sendJson(exchange, 502, buildJsonObject { put("message", "Remote cover is unavailable") })
+                        return@createContext
+                    }
+                    val contentType = response.body?.contentType()?.toString() ?: "image/jpeg"
+                    val cacheControl = response.header("cache-control") ?: "public, max-age=86400, stale-while-revalidate=604800"
+                    sendBytes(
+                        exchange,
+                        200,
+                        body,
+                        contentType,
+                        extraHeaders = mapOf("cache-control" to cacheControl),
+                    )
+                }
+            } catch (error: Exception) {
+                logger.warn(error) { "Failed to serve remote cover url=$target" }
+                sendJson(exchange, 502, buildJsonObject { put("message", "Remote cover is unavailable") })
             }
         }
 
