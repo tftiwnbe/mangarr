@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.network.interceptor
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.BridgeProxyContext
+import eu.kanade.tachiyomi.network.toBridgeProxySettings
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.network.parseAs
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -13,6 +14,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import mangarr.tachibridge.config.ConfigManager
 import mangarr.tachibridge.config.FlareSolverrConfigProvider
 import okhttp3.Cookie
 import okhttp3.HttpUrl
@@ -26,6 +28,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.jsoup.parser.Parser
 import uy.kohesive.injekt.injectLazy
 import java.io.IOException
+import java.net.Proxy
 import java.net.URLEncoder
 import java.net.SocketTimeoutException
 import kotlin.time.Duration.Companion.seconds
@@ -202,6 +205,7 @@ object CFClearance {
         val timeout = flareConfig.timeoutSeconds.seconds
         return network.client
             .newBuilder()
+            .proxy(Proxy.NO_PROXY)
             .callTimeout(timeout.plus(10.seconds).toJavaDuration())
             .readTimeout(timeout.plus(5.seconds).toJavaDuration())
             .build()
@@ -345,7 +349,7 @@ object CFClearance {
     }
 
     private fun buildFlareSolverProxy(originalRequest: Request): String? {
-        val proxySettings = BridgeProxyContext.current() ?: return null
+        val proxySettings = BridgeProxyContext.current() ?: ConfigManager.config.proxy.toBridgeProxySettings()
         if (!proxySettings.isConfigured()) return null
 
         val requestHost = originalRequest.url.host

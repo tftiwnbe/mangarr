@@ -1,5 +1,7 @@
 package eu.kanade.tachiyomi.network
 
+import mangarr.tachibridge.config.BridgeConfig
+import mangarr.tachibridge.config.ConfigManager
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Proxy
@@ -68,6 +70,16 @@ data class BridgeProxySettings(
     }
 }
 
+fun BridgeConfig.Proxy.toBridgeProxySettings(): BridgeProxySettings =
+    BridgeProxySettings(
+        hostname = hostname,
+        port = port,
+        username = username,
+        password = password,
+        ignoredAddresses = ignoredAddresses,
+        bypassLocalAddresses = bypassLocalAddresses,
+    )
+
 object BridgeProxyContext {
     private val current = ThreadLocal<BridgeProxySettings?>()
 
@@ -97,8 +109,8 @@ class BridgeProxySelector(
     override fun select(uri: URI?): MutableList<Proxy> {
         if (uri == null) return mutableListOf(Proxy.NO_PROXY)
 
-        val context = BridgeProxyContext.current()
-        if (context == null || !context.isConfigured()) {
+        val context = BridgeProxyContext.current() ?: ConfigManager.config.proxy.toBridgeProxySettings()
+        if (!context.isConfigured()) {
             return delegateSelect(uri)
         }
 
