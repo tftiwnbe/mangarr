@@ -114,7 +114,10 @@ export function normalizeImportedStoragePayload(
 	for (const [key, value] of Object.entries(raw)) {
 		const normalizedKey = key.trim();
 		if (!normalizedKey) continue;
-		const parsed = parsePossiblyStringifiedJson(value);
+		const parsed = normalizePreferenceValue(
+			normalizedKey,
+			parsePossiblyStringifiedJson(value)
+		);
 		if (
 			typeof parsed === 'string' ||
 			typeof parsed === 'number' ||
@@ -129,21 +132,29 @@ export function normalizeImportedStoragePayload(
 	try {
 		const maybeTokenStore = buildLibGroupTokenStorePayload(raw);
 		for (const [key, value] of Object.entries(maybeTokenStore)) {
+			const normalizedValue = normalizePreferenceValue(key, value);
 			if (
-				typeof value === 'string' ||
-				typeof value === 'number' ||
-				typeof value === 'boolean' ||
-				value === null
+				typeof normalizedValue === 'string' ||
+				typeof normalizedValue === 'number' ||
+				typeof normalizedValue === 'boolean' ||
+				normalizedValue === null
 			) {
-				out[key] = value;
+				out[key] = normalizedValue;
 			} else {
-				out[key] = JSON.stringify(value);
+				out[key] = JSON.stringify(normalizedValue);
 			}
 		}
 	} catch {
 		/* not a LibGroup payload */
 	}
 	return out;
+}
+
+export function normalizePreferenceValue(key: string, value: unknown): unknown {
+	if (key === 'bearer_token' && typeof value === 'string') {
+		return value.replace(/^Bearer\s+/i, '').trim();
+	}
+	return value;
 }
 
 export function getHiddenStorageKeys(data: SourcePreferencesResolved | null): string[] {
@@ -234,7 +245,7 @@ function buildLibGroupTokenStorePayload(raw: Record<string, unknown>): Record<st
 		throw new Error('Invalid token payload. token_type, access_token, expires_in are required.');
 	}
 	return {
-		bearer_token: `${tokenType} ${accessToken}`.trim(),
+		bearer_token: accessToken,
 		user_id: String(Math.trunc(userId)),
 		expires_in: String(Math.trunc(expiresIn * 1_000)),
 		TokenStore: {
