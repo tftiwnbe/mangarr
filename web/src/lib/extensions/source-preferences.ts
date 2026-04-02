@@ -129,7 +129,16 @@ export function normalizeImportedStoragePayload(
 	try {
 		const maybeTokenStore = buildLibGroupTokenStorePayload(raw);
 		for (const [key, value] of Object.entries(maybeTokenStore)) {
-			out[key] = JSON.stringify(value);
+			if (
+				typeof value === 'string' ||
+				typeof value === 'number' ||
+				typeof value === 'boolean' ||
+				value === null
+			) {
+				out[key] = value;
+			} else {
+				out[key] = JSON.stringify(value);
+			}
 		}
 	} catch {
 		/* not a LibGroup payload */
@@ -225,6 +234,9 @@ function buildLibGroupTokenStorePayload(raw: Record<string, unknown>): Record<st
 		throw new Error('Invalid token payload. token_type, access_token, expires_in are required.');
 	}
 	return {
+		bearer_token: `${tokenType} ${accessToken}`.trim(),
+		user_id: String(Math.trunc(userId)),
+		expires_in: String(Math.trunc(expiresIn * 1_000)),
 		TokenStore: {
 			auth: { id: userId },
 			token: {
