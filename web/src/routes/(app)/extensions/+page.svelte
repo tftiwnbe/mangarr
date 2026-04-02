@@ -308,7 +308,9 @@
 	async function loadAvailableExtensions() {
 		availableLoading = true;
 		try {
-			const result = await fetchJson<{ items?: RepoItem[] }>('/api/extensions/available?limit=5000');
+			const result = await fetchJson<{ items?: RepoItem[] }>(
+				'/api/extensions/available?limit=5000'
+			);
 			const items = (result.items ?? []).filter(Boolean);
 			availableExtensions = items
 				.filter((item) => !isInstalled(item.pkg))
