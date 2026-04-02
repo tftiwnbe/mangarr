@@ -236,7 +236,6 @@ object CFClearance {
         val cookies: List<FlareSolverCookie>? = null,
         val returnOnlyCookies: Boolean? = null,
         val proxy: String? = null,
-        val headers: Map<String, String>? = null,
         val postData: String? = null,
     )
 
@@ -290,12 +289,8 @@ object CFClearance {
                             originalRequest.url.toString(),
                             session = flareConfig.sessionName,
                             sessionTtlMinutes = flareConfig.sessionTtlMinutes,
-                            cookies =
-                                network.cookieStore.get(originalRequest.url).map {
-                                    FlareSolverCookie(it.name, it.value)
-                                },
+                            cookies = buildFlareSolverCookies(originalRequest),
                             proxy = buildFlareSolverProxy(originalRequest),
-                            headers = buildFlareSolverHeaders(originalRequest),
                             returnOnlyCookies = onlyCookies,
                             maxTimeout = timeout.inWholeMilliseconds.toInt(),
                         ),
@@ -372,22 +367,18 @@ object CFClearance {
     private fun encodeProxyPart(value: String): String =
         URLEncoder.encode(value, Charsets.UTF_8).replace("+", "%20")
 
-    private fun buildFlareSolverHeaders(originalRequest: Request): Map<String, String>? {
-        val blockedHeaders =
-            setOf(
-                "host",
-                "content-length",
-            )
-
-        val headers = linkedMapOf<String, String>()
-        for (name in originalRequest.headers.names()) {
-            if (name.lowercase() in blockedHeaders) continue
-            val value = originalRequest.header(name)?.trim().orEmpty()
-            if (value.isNotEmpty()) {
-                headers[name] = value
-            }
-        }
-        return headers.takeIf { it.isNotEmpty() }
+    private fun buildFlareSolverCookies(originalRequest: Request): List<FlareSolverCookie>? {
+        return network.cookieStore.get(originalRequest.url)
+            .asSequence()
+            .filter { it.matches(originalRequest.url) }
+            .sortedWith(
+                compareByDescending<Cookie> { it.hostOnly }
+                    .thenByDescending { it.domain.length }
+                    .thenByDescending { it.path?.length ?: 0 },
+            ).distinctBy { it.name }
+            .map { FlareSolverCookie(it.name, it.value) }
+            .toList()
+            .takeIf { it.isNotEmpty() }
     }
 
     fun requestWithFlareSolverr(
