@@ -6,6 +6,7 @@ import { proxyBridgeRequest } from '$lib/server/bridge-proxy';
 export const GET: RequestHandler = async (event) => {
 	const sourceId = event.url.searchParams.get('sourceId')?.trim();
 	const chapterUrl = event.url.searchParams.get('chapterUrl')?.trim();
+	const chapterName = event.url.searchParams.get('chapterName')?.trim();
 	const index = event.url.searchParams.get('index')?.trim();
 
 	if (!sourceId || !chapterUrl || !index) {
@@ -15,6 +16,9 @@ export const GET: RequestHandler = async (event) => {
 	const upstream = new URL('assets/page', 'http://bridge.internal/');
 	upstream.searchParams.set('sourceId', sourceId);
 	upstream.searchParams.set('chapterUrl', chapterUrl);
+	if (chapterName) {
+		upstream.searchParams.set('chapterName', chapterName);
+	}
 	upstream.searchParams.set('index', index);
 
 	return proxyBridgeRequest(

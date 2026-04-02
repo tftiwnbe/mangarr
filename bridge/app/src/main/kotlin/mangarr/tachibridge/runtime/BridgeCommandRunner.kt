@@ -574,7 +574,8 @@ class BridgeCommandRunner(
             "reader.pages.fetch" -> {
                 val sourceId = payload.requiredString("sourceId")
                 val chapterUrl = payload.requiredString("chapterUrl")
-                kotlinx.coroutines.runBlocking { service.fetchPages(sourceId, chapterUrl) }
+                val chapterName = payload.optionalString("chapterName")
+                kotlinx.coroutines.runBlocking { service.fetchPages(sourceId, chapterUrl, chapterName) }
             }
             "library.chapters.sync" -> {
                 val titleId = payload.requiredString("titleId")
