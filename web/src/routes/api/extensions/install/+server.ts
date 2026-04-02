@@ -76,6 +76,9 @@ export const POST: RequestHandler = async (event) => {
 							enabled: false
 						})
 					});
+					if (toggleResponse.status === 404) {
+						continue;
+					}
 					if (!toggleResponse.ok) {
 						throw error(toggleResponse.status, `Failed to disable source ${source.name}`);
 					}

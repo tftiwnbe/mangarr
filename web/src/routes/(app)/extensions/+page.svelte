@@ -422,7 +422,13 @@
 					: item
 			);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Failed to update source';
+			const message = cause instanceof Error ? cause.message : 'Failed to update source';
+			if (message === 'Source not found') {
+				await loadInstalledExtensions();
+				error = null;
+			} else {
+				error = message;
+			}
 		} finally {
 			togglingSourceId = null;
 		}

@@ -404,6 +404,11 @@ class BridgeHttpServer(
                 )
                 sendJson(exchange, 200, result)
             } catch (error: Exception) {
+                if (error is IllegalStateException && error.message?.startsWith("Source not found:") == true) {
+                    logger.info { "Ignoring stale source toggle for missing source $sourceId ($pkg)" }
+                    sendJson(exchange, 404, buildJsonObject { put("message", "Source not found") })
+                    return@createContext
+                }
                 logger.warn(error) { "Failed to toggle source $sourceId for $pkg" }
                 sendJson(exchange, 502, buildJsonObject { put("message", "Unable to update source state") })
             }
