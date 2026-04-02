@@ -105,7 +105,10 @@ export const GET: RequestHandler = async (event) => {
 };
 
 function buildIconResponse(body: Buffer, contentType: string) {
-	const payload = body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer;
+	const payload = body.buffer.slice(
+		body.byteOffset,
+		body.byteOffset + body.byteLength
+	) as ArrayBuffer;
 	return new Response(payload, {
 		status: 200,
 		headers: {

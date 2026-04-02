@@ -39,7 +39,10 @@ export const PUT: RequestHandler = async (event) => {
 
 	let payload: { sourceId?: string; entries?: SourcePreferenceEntry[] };
 	try {
-		payload = (await event.request.json()) as { sourceId?: string; entries?: SourcePreferenceEntry[] };
+		payload = (await event.request.json()) as {
+			sourceId?: string;
+			entries?: SourcePreferenceEntry[];
+		};
 	} catch {
 		throw error(400, 'Request body must be valid JSON');
 	}

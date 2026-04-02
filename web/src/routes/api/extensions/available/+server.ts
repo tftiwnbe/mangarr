@@ -10,7 +10,9 @@ export const GET: RequestHandler = async (event) => {
 
 	const query = event.url.searchParams.get('query')?.trim() ?? '';
 	const limitRaw = Number(event.url.searchParams.get('limit') ?? '5000');
-	const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(Math.floor(limitRaw), 5000)) : 5000;
+	const limit = Number.isFinite(limitRaw)
+		? Math.max(1, Math.min(Math.floor(limitRaw), 5000))
+		: 5000;
 
 	const enqueued = await client.mutation(convexApi.commands.enqueueRepositorySearch, {
 		query,

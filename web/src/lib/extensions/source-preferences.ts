@@ -114,10 +114,7 @@ export function normalizeImportedStoragePayload(
 	for (const [key, value] of Object.entries(raw)) {
 		const normalizedKey = key.trim();
 		if (!normalizedKey) continue;
-		const parsed = normalizePreferenceValue(
-			normalizedKey,
-			parsePossiblyStringifiedJson(value)
-		);
+		const parsed = normalizePreferenceValue(normalizedKey, parsePossiblyStringifiedJson(value));
 		if (
 			typeof parsed === 'string' ||
 			typeof parsed === 'number' ||
