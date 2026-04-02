@@ -719,7 +719,7 @@ class ExtensionManager(
                 is PreferenceValue.StringValue -> editor.putString(key, value.value)
             }
         }
-        editor.apply()
+        check(editor.commit()) { "Failed to persist source preferences for ${source.id}" }
         appliedPreferenceHashes[source.id] = prefsHash
         return true
     }
