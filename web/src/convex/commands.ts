@@ -218,8 +218,7 @@ export const enqueueSourcePreferencesFetch = mutation({
 	handler: (ctx, args) =>
 		enqueueCommand(ctx, {
 			commandType: 'sources.preferences.fetch',
-			payload: { sourceId: args.sourceId.trim() },
-			idempotencyKey: `sources.preferences.fetch:${args.sourceId.trim()}`
+			payload: { sourceId: args.sourceId.trim() }
 		})
 });
 
