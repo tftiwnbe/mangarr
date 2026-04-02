@@ -8,6 +8,7 @@ import eu.kanade.tachiyomi.network.interceptor.UserAgentInterceptor
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import mangarr.tachibridge.config.ConfigManager
 import mangarr.tachibridge.config.FlareSolverrConfigProvider
 import okhttp3.Authenticator
 import okhttp3.Cache
@@ -63,7 +64,8 @@ class NetworkHelper(
                     .proxySelector(BridgeProxySelector())
                     .proxyAuthenticator(
                         Authenticator { _, response ->
-                            val proxySettings = BridgeProxyContext.current()
+                            val proxySettings =
+                                BridgeProxyContext.current() ?: ConfigManager.config.proxy.toBridgeProxySettings()
                             val username = proxySettings?.username?.trim().orEmpty()
                         if (username.isBlank()) {
                             return@Authenticator null
