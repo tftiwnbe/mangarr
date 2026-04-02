@@ -22,10 +22,24 @@ describe('source preferences', () => {
 	it('normalizes nested imported storage into string payloads', () => {
 		expect(
 			normalizeImportedStoragePayload({
-				TokenStore: { auth: { id: 7 }, token: { access_token: 'abc' } }
+				token: { token_type: 'Bearer', access_token: 'abc', expires_in: 2592000, timestamp: 123 },
+				auth: { id: 7 }
 			})
 		).toEqual({
-			TokenStore: JSON.stringify({ auth: { id: 7 }, token: { access_token: 'abc' } })
+			token: JSON.stringify({
+				token_type: 'Bearer',
+				access_token: 'abc',
+				expires_in: 2592000,
+				timestamp: 123
+			}),
+			auth: JSON.stringify({ id: 7 }),
+			bearer_token: 'Bearer abc',
+			user_id: '7',
+			expires_in: '2592000000',
+			TokenStore: JSON.stringify({
+				auth: { id: 7 },
+				token: { token_type: 'Bearer', access_token: 'abc', expires_in: 2592000, timestamp: 123 }
+			})
 		});
 	});
 });

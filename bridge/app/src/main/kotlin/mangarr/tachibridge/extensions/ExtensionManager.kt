@@ -629,7 +629,18 @@ class ExtensionManager(
                 factoryClassName = ext.factoryClassName,
             )
 
-        val sources = loader.instantiate(metadata, jarPath)
+        var sources = loader.instantiate(metadata, jarPath)
+
+        // Some sources read preferences in their constructor and cache them into fields.
+        // Apply persisted prefs once, then re-instantiate so constructor-time values pick up.
+        val shouldReinstantiate =
+            sources.any { source ->
+                source is ConfigurableSource && primePreferences(source)
+            }
+        if (shouldReinstantiate) {
+            loader.unloadJar(jarPath)
+            sources = loader.instantiate(metadata, jarPath)
+        }
 
         sources.forEach { source ->
             sourceMap[source.id] = source
@@ -683,14 +694,18 @@ class ExtensionManager(
     }
 
     private suspend fun applyPreferences(source: ConfigurableSource) {
+        primePreferences(source)
+    }
+
+    private suspend fun primePreferences(source: ConfigurableSource): Boolean {
         val prefs = ConfigManager.config.sourcePreferencesFor(source.id)
         val prefsHash = prefs.hashCode()
         if (appliedPreferenceHashes[source.id] == prefsHash) {
-            return
+            return false
         }
         if (prefs.isEmpty()) {
             appliedPreferenceHashes[source.id] = prefsHash
-            return
+            return false
         }
 
         val editor = source.getSourcePreferences().edit()
@@ -706,6 +721,7 @@ class ExtensionManager(
         }
         editor.apply()
         appliedPreferenceHashes[source.id] = prefsHash
+        return true
     }
 
     private suspend fun reloadExtension(packageName: String) {
