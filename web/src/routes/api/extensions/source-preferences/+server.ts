@@ -2,6 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
 import { waitForCommand } from '$lib/client/commands';
+import { normalizePreferenceValue } from '$lib/extensions/source-preferences';
 import { convexApi } from '$lib/server/convex-api';
 import { commandFailure, requireAdminConvexClient } from '$lib/server/extensions-admin';
 
@@ -52,10 +53,14 @@ export const PUT: RequestHandler = async (event) => {
 	if (entries.some((entry) => !entry || typeof entry.key !== 'string')) {
 		throw error(400, 'entries must be an array of { key, value } objects');
 	}
+	const normalizedEntries = entries.map((entry) => ({
+		key: entry.key,
+		value: normalizePreferenceValue(entry.key, entry.value)
+	}));
 
 	const enqueued = await client.mutation(convexApi.commands.enqueueSourcePreferencesSave, {
 		sourceId,
-		entries
+		entries: normalizedEntries
 	});
 
 	try {
