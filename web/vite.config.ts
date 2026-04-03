@@ -5,6 +5,16 @@ import { sveltekit } from '@sveltejs/kit/vite';
 
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],
+	server: {
+		proxy: {
+			'/convex': {
+				target: process.env.CONVEX_URL || 'http://127.0.0.1:3210',
+				changeOrigin: true,
+				rewrite: (path) => path.replace(/^\/convex/, ''),
+				ws: true
+			}
+		}
+	},
 	build: {
 		rollupOptions: {
 			output: {

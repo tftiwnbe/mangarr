@@ -7,7 +7,6 @@ import {
 	getOwnedChapterProgressRow,
 	listCollectionsForTitle,
 	listVariantsForTitle,
-	loadOwnerChaptersByTitleId,
 	loadOwnerCollectionIdsByTitleId,
 	loadOwnerCollectionMap,
 	loadOwnerUserStatusMap,
@@ -33,31 +32,23 @@ export const listMine = query({
 			return [];
 		}
 		const userId = identity.subject as GenericId<'users'>;
-		const [
-			titles,
-			statusById,
-			collectionById,
-			collectionIdsByTitleId,
-			variantCountsByTitleId,
-			{ byTitleId: chaptersByTitleId }
-		] = await Promise.all([
-			ctx.db
-				.query('libraryTitles')
-				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
-				.collect(),
-			loadOwnerUserStatusMap(ctx, userId),
-			loadOwnerCollectionMap(ctx, userId),
-			loadOwnerCollectionIdsByTitleId(ctx, userId),
-			loadOwnerVariantCountsByTitleId(ctx, userId),
-			loadOwnerChaptersByTitleId(ctx, userId)
-		]);
+		const [titles, statusById, collectionById, collectionIdsByTitleId, variantCountsByTitleId] =
+			await Promise.all([
+				ctx.db
+					.query('libraryTitles')
+					.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+					.collect(),
+				loadOwnerUserStatusMap(ctx, userId),
+				loadOwnerCollectionMap(ctx, userId),
+				loadOwnerCollectionIdsByTitleId(ctx, userId),
+				loadOwnerVariantCountsByTitleId(ctx, userId)
+			]);
 		const titleRouteSegments = buildTitleRouteSegments(titles);
 
 		return [...titles]
 			.filter((title) => title.listedInLibrary !== false)
 			.sort((left, right) => right.updatedAt - left.updatedAt)
 			.map((title) => {
-				const chapters = chaptersByTitleId.get(String(title._id)) ?? [];
 				const collectionIds = collectionIdsByTitleId.get(String(title._id)) ?? [];
 
 				return {
@@ -75,8 +66,8 @@ export const listMine = query({
 						)
 						.sort((left, right) => left.position - right.position),
 					variantsCount: variantCountsByTitleId.get(String(title._id)) ?? 0,
-					chapterStats: summarizeDownloadStats(chapters),
-					offlineReadiness: summarizeOfflineReadiness(title, chapters)
+					chapterStats: summarizeDownloadStats([]),
+					offlineReadiness: summarizeOfflineReadiness(title, [])
 				};
 			});
 	}
