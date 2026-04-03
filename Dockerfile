@@ -307,7 +307,11 @@ trap cleanup EXIT INT TERM
 wait_for_http "Convex backend" "http://127.0.0.1:${CONVEX_PORT:-3210}/version"
 
 if [ "${MANGARR_APP_MODE:-prod}" = "dev" ]; then
-  [ -d /app/web/node_modules/.pnpm ] || (cd /app/web && pnpm install --frozen-lockfile --force)
+  if [ ! -d /app/web/node_modules/.pnpm ] || \
+     [ ! -x /app/web/node_modules/.bin/convex ] || \
+     [ ! -x /app/web/node_modules/.bin/vite ]; then
+    (cd /app/web && pnpm install --frozen-lockfile --force)
+  fi
 fi
 
 seed_convex_env_var() {
