@@ -117,6 +117,8 @@
 	const client = useConvexClient();
 	const library = useQuery(convexApi.library.listMine, () => ({}));
 	const hiddenLibraryTitles = useQuery(convexApi.library.listHiddenMine, () => ({}));
+	const collectionsQuery = useQuery(convexApi.library.listCollections, () => ({}));
+	const totalCountQuery = useQuery(convexApi.library.getMineTotalCount, () => ({}));
 
 	let searchQuery = $state('');
 	let selectedCollectionId = $state<string | null>(null);
@@ -198,16 +200,29 @@
 	);
 
 	const collections = $derived.by(() => {
-		const seen = new SvelteMap<string, LibraryCollectionResource>();
+		// Use backend query for accurate counts across all titles
+		if (collectionsQuery.data) {
+			return collectionsQuery.data
+				.filter((col) => col.titlesCount > 0)
+				.map((col) => ({
+					id: String(col.id),
+					name: col.name,
+					titlesCount: col.titlesCount
+				}));
+		}
+		// Fallback to local data if backend query not loaded yet
+		const seen = new SvelteMap<string, LibraryCollectionResource & { titlesCount: number }>();
 		for (const title of titles) {
 			for (const collection of title.collections) {
 				if (!seen.has(collection.id)) {
-					seen.set(collection.id, collection);
+					seen.set(collection.id, { ...collection, titlesCount: 0 });
 				}
 			}
 		}
 		return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
 	});
+
+	const listedTitlesCount = $derived(totalCountQuery.data?.listedCount ?? titles.length);
 
 	const allUserStatuses = $derived.by(() => {
 		const seen = new SvelteMap<string, RawUserStatus>();
@@ -467,12 +482,6 @@
 		return null;
 	}
 
-	function collectionCount(collectionId: string): number {
-		return titles.filter((title) =>
-			title.collections.some((collection) => collection.id === collectionId)
-		).length;
-	}
-
 	function toggleReadingStatus(id: string) {
 		activeReadingStatusIds = activeReadingStatusIds.includes(id)
 			? activeReadingStatusIds.filter((value) => value !== id)
@@ -568,7 +577,7 @@
 					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 				onclick={() => (selectedCollectionId = null)}
 			>
-				{$_('common.all')} · {titles.length}
+				{$_('common.all')} · {listedTitlesCount}
 			</button>
 			{#each collections as collection (collection.id)}
 				<button
@@ -579,7 +588,7 @@
 						: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 					onclick={() => (selectedCollectionId = collection.id)}
 				>
-					{collection.name} · {collectionCount(collection.id)}
+					{collection.name} · {collection.titlesCount}
 				</button>
 			{/each}
 		</div>

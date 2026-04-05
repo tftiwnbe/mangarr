@@ -125,6 +125,34 @@ export const listHiddenMine = query({
 	}
 });
 
+export const getMineTotalCount = query({
+	args: {},
+	handler: async (ctx) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return { listedCount: 0, totalCount: 0 };
+		}
+
+		const ownerUserId = identity.subject as GenericId<'users'>;
+		const titles = await ctx.db
+			.query('libraryTitles')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+			.collect();
+
+		let listedCount = 0;
+		for (const title of titles) {
+			if (title.listedInLibrary !== false) {
+				listedCount += 1;
+			}
+		}
+
+		return {
+			listedCount,
+			totalCount: titles.length
+		};
+	}
+});
+
 export const getMineVisibilitySummary = query({
 	args: {
 		limit: v.optional(v.float64())
