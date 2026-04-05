@@ -81,11 +81,18 @@
 	};
 
 	const client = useConvexClient();
-	const dashboardQuery = useQuery(convexApi.library.getDownloadDashboard, () => ({
-		watchedLimit: 30,
-		activeLimit: 100,
-		recentLimit: 40
-	}));
+	const dashboardQuery = useQuery(
+		convexApi.library.getDownloadDashboard,
+		() => ({
+			watchedLimit: 30,
+			activeLimit: 100,
+			recentLimit: 40
+		}),
+		{
+			// Poll every 2 seconds when there are active downloads
+			throttleMs: 2000
+		}
+	);
 
 	let activeTab = $state<TabValue>('active');
 	let runningAction = $state<string | null>(null);
@@ -111,6 +118,71 @@
 	);
 	const isLoading = $derived(dashboardQuery.isLoading);
 	const numberFormatter = new Intl.NumberFormat();
+
+	// Group active tasks by title for better progress visualization
+	type TitleProgress = {
+		titleId: string;
+		title: string;
+		coverUrl: string | null;
+		localCoverPath: string | null;
+		tasks: DashboardTask[];
+		totalTasks: number;
+		completedTasks: number;
+		downloadingTasks: number;
+		queuedTasks: number;
+		failedTasks: number;
+		overallProgress: number;
+		totalBytes: number;
+	};
+
+	const groupedActiveTasks = $derived.by(() => {
+		const grouped = new Map<string, TitleProgress>();
+
+		for (const task of dashboard.activeTasks) {
+			const titleId = task.titleId as string;
+			if (!grouped.has(titleId)) {
+				grouped.set(titleId, {
+					titleId,
+					title: task.title,
+					coverUrl: task.coverUrl,
+					localCoverPath: task.localCoverPath,
+					tasks: [],
+					totalTasks: 0,
+					completedTasks: 0,
+					downloadingTasks: 0,
+					queuedTasks: 0,
+					failedTasks: 0,
+					overallProgress: 0,
+					totalBytes: 0
+				});
+			}
+
+			const group = grouped.get(titleId)!;
+			group.tasks.push(task);
+			group.totalTasks++;
+
+			if (task.status === 'downloading') group.downloadingTasks++;
+			else if (task.status === 'queued') group.queuedTasks++;
+			else if (task.status === 'failed') group.failedTasks++;
+
+			group.totalBytes += task.fileSizeBytes ?? 0;
+		}
+
+		// Calculate overall progress for each title
+		for (const group of grouped.values()) {
+			const totalProgress = group.tasks.reduce((sum, task) => sum + task.progressPercent, 0);
+			group.overallProgress = group.totalTasks > 0
+				? Math.round(totalProgress / group.totalTasks)
+				: 0;
+		}
+
+		return Array.from(grouped.values()).sort((a, b) => {
+			// Prioritize downloading over queued
+			if (a.downloadingTasks > 0 && b.downloadingTasks === 0) return -1;
+			if (b.downloadingTasks > 0 && a.downloadingTasks === 0) return 1;
+			return b.totalTasks - a.totalTasks;
+		});
+	});
 
 	const tabs: { key: TabValue; labelKey: string }[] = [
 		{ key: 'active', labelKey: 'downloads.active' },
@@ -368,7 +440,7 @@
 	}
 
 	function tabCount(key: TabValue) {
-		if (key === 'active') return dashboard.activeTasks.length;
+		if (key === 'active') return groupedActiveTasks.length;
 		if (key === 'history') return dashboard.recentTasks.length;
 		return dashboard.watchedTitles.length;
 	}
@@ -577,13 +649,81 @@
 				{/each}
 			</div>
 		{/if}
+	{:else if activeTab === 'active'}
+		{#if groupedActiveTasks.length === 0}
+			<div class="flex flex-col items-center py-20">
+				<p class="text-sm text-[var(--text-ghost)]">{$_('downloads.noActive')}</p>
+			</div>
+		{:else}
+			<div class="flex flex-col gap-1">
+				{#each groupedActiveTasks as group (group.titleId)}
+					<div class="group flex gap-3 py-2">
+						<a href={buildTitlePath(group.titleId as Id<'libraryTitles'>, group.title)} class="shrink-0">
+							<LazyImage
+								src={coverSrc(group)}
+								alt={group.title}
+								class="h-16 w-11 border border-[var(--line)]"
+							/>
+						</a>
+						<a href={buildTitlePath(group.titleId as Id<'libraryTitles'>, group.title)} class="min-w-0 flex-1">
+							<div class="flex items-baseline justify-between gap-2">
+								<p class="line-clamp-1 text-sm text-[var(--text)]">{group.title}</p>
+								<span class="shrink-0 text-sm text-[var(--text)] tabular-nums">
+									{group.overallProgress}%
+								</span>
+							</div>
+							<div class="mt-0.5 flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
+								{#if group.downloadingTasks > 0}
+									<span class="text-[var(--text-muted)]">
+										{group.downloadingTasks} {$_('downloads.downloading').toLowerCase()}
+									</span>
+								{/if}
+								{#if group.queuedTasks > 0}
+									<span>
+										{group.queuedTasks} {$_('downloads.queued').toLowerCase()}
+									</span>
+								{/if}
+								{#if group.failedTasks > 0}
+									<span class="text-[var(--error)]">
+										{group.failedTasks} {$_('downloads.failed').toLowerCase()}
+									</span>
+								{/if}
+								<span>{group.totalTasks} {group.totalTasks === 1 ? 'chapter' : 'chapters'}</span>
+								{#if group.totalBytes > 0}
+									<span>{formatBytes(group.totalBytes)}</span>
+								{/if}
+							</div>
+							<div class="mt-2 h-0.5 w-full overflow-hidden bg-[var(--void-4)]">
+								<div
+									class="h-full bg-[var(--text-muted)] transition-[width] duration-300 {group.downloadingTasks > 0 ? 'shadow-[0_0_6px_rgba(228,228,231,0.4)] animate-pulse' : ''}"
+									style="width: {group.overallProgress}%"
+								></div>
+							</div>
+						</a>
+						<div class="flex shrink-0 items-center gap-1 self-center">
+							<button
+								type="button"
+								class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text-muted)]"
+								onclick={() => void retryMissingForTitle(group.titleId as Id<'libraryTitles'>)}
+								disabled={taskActionLoading('retry-title', group.titleId)}
+								title={$_('downloads.retry')}
+							>
+								{#if taskActionLoading('retry-title', group.titleId)}
+									<SpinnerIcon size={13} class="animate-spin" />
+								{:else}
+									{$_('downloads.retry')}
+								{/if}
+							</button>
+						</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
 	{:else}
 		{@const tasks = getTasksList(activeTab)}
 		{#if tasks.length === 0}
 			<div class="flex flex-col items-center py-20">
-				<p class="text-sm text-[var(--text-ghost)]">
-					{activeTab === 'active' ? $_('downloads.noActive') : $_('downloads.noHistory')}
-				</p>
+				<p class="text-sm text-[var(--text-ghost)]">{$_('downloads.noHistory')}</p>
 			</div>
 		{:else}
 			<div class="flex flex-col gap-1">
