@@ -7,7 +7,6 @@ import {
 	DEFAULT_COLLECTIONS,
 	DEFAULT_USER_STATUSES,
 	loadOwnerUserStatusMap,
-	loadOwnerVariantCountsByTitleId,
 	markTitleListedInLibrary,
 	mergeOwnedTitles,
 	requireOwnedCollection,
@@ -460,7 +459,7 @@ export const listMergeCandidates = query({
 		const title = await requireOwnedTitle(ctx, args.titleId);
 		const limit = Math.max(1, Math.min(Math.floor(args.limit ?? 12), 50));
 		const search = args.query?.trim().toLowerCase() ?? '';
-		const [titles, variants, statusById, variantCountsByTitleId] = await Promise.all([
+		const [titles, variants, statusById] = await Promise.all([
 			ctx.db
 				.query('libraryTitles')
 				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', title.ownerUserId))
@@ -471,8 +470,7 @@ export const listMergeCandidates = query({
 					q.eq('ownerUserId', title.ownerUserId)
 				)
 				.collect(),
-			loadOwnerUserStatusMap(ctx, title.ownerUserId),
-			loadOwnerVariantCountsByTitleId(ctx, title.ownerUserId)
+			loadOwnerUserStatusMap(ctx, title.ownerUserId)
 		]);
 		const variantsByTitleId = new Map<string, typeof variants>();
 		for (const variant of variants) {
@@ -546,7 +544,7 @@ export const listMergeCandidates = query({
 				sourcePkg: candidate.sourcePkg,
 				sourceLang: candidate.sourceLang,
 				titleUrl: candidate.titleUrl,
-				variantsCount: variantCountsByTitleId.get(String(candidate._id)) ?? 0,
+				variantsCount: (variantsByTitleId.get(String(candidate._id)) ?? []).length,
 				userStatus: candidate.userStatusId
 					? (statusById.get(String(candidate.userStatusId)) ?? null)
 					: null,
