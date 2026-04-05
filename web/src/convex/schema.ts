@@ -324,6 +324,20 @@ export default defineSchema({
 			'updatedAt'
 		]),
 
+	sourceHealth: defineTable({
+		sourceId: v.string(),
+		scope: v.union(v.literal('feed'), v.literal('search'), v.literal('title')),
+		requestedByUserId: v.id('users'),
+		state: v.union(v.literal('cooldown'), v.literal('degraded')),
+		message: v.string(),
+		retryAfter: v.optional(v.float64()),
+		permanent: v.boolean(),
+		commandType: v.string(),
+		updatedAt: v.float64()
+	})
+		.index('by_source_id_scope_user', ['sourceId', 'scope', 'requestedByUserId'])
+		.index('by_user_updated_at', ['requestedByUserId', 'updatedAt']),
+
 	commands: defineTable({
 		commandType: v.string(),
 		targetCapability: v.string(),

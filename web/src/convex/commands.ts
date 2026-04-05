@@ -21,6 +21,90 @@ const STATUS = {
 type CommandStatus = (typeof STATUS)[keyof typeof STATUS];
 const REUSABLE_STATUSES = new Set<CommandStatus>([STATUS.QUEUED, STATUS.SUCCEEDED]);
 
+async function upsertSourceHealthFailure(
+	ctx: MutationCtx,
+	command: {
+		commandType: string;
+		requestedByUserId?: GenericId<'users'>;
+		payload: unknown;
+		runAfter: number;
+		status: string;
+	},
+	errorMessage: string,
+	now: number
+) {
+	const scope = sourceHealthScopeForCommandType(command.commandType);
+	if (!scope || !command.requestedByUserId) return;
+
+	const sourceId =
+		typeof (command.payload as { sourceId?: unknown } | null)?.sourceId === 'string'
+			? ((command.payload as { sourceId: string }).sourceId ?? '').trim()
+			: '';
+	if (!sourceId) return;
+
+	const state = command.status === STATUS.QUEUED && command.runAfter > now ? 'cooldown' : 'degraded';
+	const permanent = isPermanentSourceFailure(errorMessage);
+	const retryAfter = state === 'cooldown' ? command.runAfter : undefined;
+
+	const existing = await ctx.db
+		.query('sourceHealth')
+		.withIndex('by_source_id_scope_user', (q) =>
+			q
+				.eq('sourceId', sourceId)
+				.eq('scope', scope)
+				.eq('requestedByUserId', command.requestedByUserId!)
+		)
+		.unique();
+
+	if (existing) {
+		await ctx.db.patch(existing._id, { state, message: errorMessage, retryAfter, permanent, commandType: command.commandType, updatedAt: now });
+	} else {
+		await ctx.db.insert('sourceHealth', {
+			sourceId,
+			scope,
+			requestedByUserId: command.requestedByUserId,
+			state,
+			message: errorMessage,
+			retryAfter,
+			permanent,
+			commandType: command.commandType,
+			updatedAt: now
+		});
+	}
+}
+
+async function clearSourceHealth(
+	ctx: MutationCtx,
+	command: {
+		commandType: string;
+		requestedByUserId?: GenericId<'users'>;
+		payload: unknown;
+	}
+) {
+	const scope = sourceHealthScopeForCommandType(command.commandType);
+	if (!scope || !command.requestedByUserId) return;
+
+	const sourceId =
+		typeof (command.payload as { sourceId?: unknown } | null)?.sourceId === 'string'
+			? ((command.payload as { sourceId: string }).sourceId ?? '').trim()
+			: '';
+	if (!sourceId) return;
+
+	const existing = await ctx.db
+		.query('sourceHealth')
+		.withIndex('by_source_id_scope_user', (q) =>
+			q
+				.eq('sourceId', sourceId)
+				.eq('scope', scope)
+				.eq('requestedByUserId', command.requestedByUserId!)
+		)
+		.unique();
+
+	if (existing) {
+		await ctx.db.delete(existing._id);
+	}
+}
+
 function targetCapabilityFor(commandType: string) {
 	switch (commandType) {
 		case 'extensions.repo.sync':
@@ -582,6 +666,7 @@ export const complete = mutation({
 			completedAt: args.now,
 			updatedAt: args.now
 		});
+		await clearSourceHealth(ctx, command);
 		return { ok: true };
 	}
 });
@@ -605,10 +690,11 @@ export const fail = mutation({
 		const shouldRetry = args.retryable !== false && command.attemptCount < command.maxAttempts;
 		const retryDelayMs = Math.max(1_000, Math.floor(args.retryDelayMs ?? 5_000));
 		const nextStatus: CommandStatus = shouldRetry ? STATUS.QUEUED : STATUS.DEAD;
+		const nextRunAfter = shouldRetry ? args.now + retryDelayMs : command.runAfter;
 
 		await ctx.db.patch(args.commandId, {
 			status: nextStatus,
-			runAfter: shouldRetry ? args.now + retryDelayMs : command.runAfter,
+			runAfter: nextRunAfter,
 			lastErrorMessage: args.message,
 			progress: undefined,
 			leaseOwnerBridgeId: undefined,
@@ -616,6 +702,13 @@ export const fail = mutation({
 			completedAt: shouldRetry ? undefined : args.now,
 			updatedAt: args.now
 		});
+
+		await upsertSourceHealthFailure(
+			ctx,
+			{ ...command, status: nextStatus, runAfter: nextRunAfter },
+			args.message,
+			args.now
+		);
 
 		return { ok: true, retried: shouldRetry };
 	}
@@ -663,78 +756,36 @@ export const listSourceHealth = query({
 			return [];
 		}
 
-		const now = Date.now();
+		const userId = identity.subject as GenericId<'users'>;
 		const sourceIdSet = new Set(requestedSourceIds);
-		const rows = await ctx.db
-			.query('commands')
-			.withIndex('by_requested_by_user_id_created_at', (q) =>
-				q.eq('requestedByUserId', identity.subject as GenericId<'users'>)
+
+		// Query the dedicated sourceHealth table — O(sourceIds × scopes) lookups
+		// instead of scanning up to 200 recent commands.
+		const scopes = ['feed', 'search', 'title'] as const;
+		const rows = await Promise.all(
+			requestedSourceIds.flatMap((sourceId) =>
+				scopes.map((scope) =>
+					ctx.db
+						.query('sourceHealth')
+						.withIndex('by_source_id_scope_user', (q) =>
+							q.eq('sourceId', sourceId).eq('scope', scope).eq('requestedByUserId', userId)
+						)
+						.unique()
+				)
 			)
-			.order('desc')
-			.take(200);
+		);
 
-		const handledKeys = new Set<string>();
-		const entries: Array<{
-			sourceId: string;
-			scope: 'feed' | 'search' | 'title';
-			state: 'cooldown' | 'degraded';
-			message: string;
-			retryAfter: number | null;
-			permanent: boolean;
-			updatedAt: number;
-		}> = [];
-
-		for (const row of rows) {
-			const scope = sourceHealthScopeForCommandType(row.commandType);
-			if (!scope) continue;
-
-			const sourceId =
-				typeof (row.payload as { sourceId?: unknown } | null)?.sourceId === 'string'
-					? ((row.payload as { sourceId: string }).sourceId ?? '').trim()
-					: '';
-			if (!sourceId || !sourceIdSet.has(sourceId)) continue;
-
-			const handledKey = `${scope}:${sourceId}`;
-			if (handledKeys.has(handledKey)) continue;
-
-			if (
-				row.status === STATUS.SUCCEEDED ||
-				row.status === STATUS.RUNNING ||
-				row.status === STATUS.LEASED ||
-				(row.status === STATUS.QUEUED && !row.lastErrorMessage)
-			) {
-				handledKeys.add(handledKey);
-				continue;
-			}
-
-			if (row.status === STATUS.QUEUED && row.lastErrorMessage && row.runAfter > now) {
-				entries.push({
-					sourceId,
-					scope,
-					state: 'cooldown',
-					message: row.lastErrorMessage,
-					retryAfter: row.runAfter,
-					permanent: false,
-					updatedAt: row.updatedAt
-				});
-				handledKeys.add(handledKey);
-				continue;
-			}
-
-			if (row.status === STATUS.DEAD && row.lastErrorMessage) {
-				entries.push({
-					sourceId,
-					scope,
-					state: 'degraded',
-					message: row.lastErrorMessage,
-					retryAfter: null,
-					permanent: isPermanentSourceFailure(row.lastErrorMessage),
-					updatedAt: row.updatedAt
-				});
-				handledKeys.add(handledKey);
-			}
-		}
-
-		return entries;
+		return rows
+			.filter((row): row is NonNullable<typeof row> => row !== null)
+			.filter((row) => sourceIdSet.has(row.sourceId))
+			.map((row) => ({
+				sourceId: row.sourceId,
+				scope: row.scope,
+				state: row.state,
+				message: row.message,
+				retryAfter: row.retryAfter ?? null,
+				permanent: row.permanent,
+				updatedAt: row.updatedAt
+			}));
 	}
 });
