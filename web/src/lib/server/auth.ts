@@ -238,7 +238,11 @@ export async function loginWithCredentials(
 		now
 	});
 	if (rateCheck.limited) {
-		return { ok: false as const, field: 'rate', message: 'Too many failed login attempts. Try again later.' };
+		return {
+			ok: false as const,
+			field: 'rate',
+			message: 'Too many failed login attempts. Try again later.'
+		};
 	}
 
 	const usernameResult = normalizeUsername(input.username);
@@ -373,4 +377,3 @@ async function fetchSessionByToken(sessionToken: string): Promise<SessionLookup>
 		now: Date.now()
 	}) as Promise<SessionLookup>;
 }
-
