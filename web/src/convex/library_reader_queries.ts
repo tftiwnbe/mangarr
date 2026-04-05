@@ -5,21 +5,19 @@ import { query } from './_generated/server';
 import { buildChapterRouteBase, buildTitleRouteBase } from '../lib/utils/route-segments';
 import {
 	getOwnedChapterProgressRow,
-	listCollectionsForTitle,
-	listVariantsForTitle,
 	loadOwnerChaptersByTitleId,
 	loadOwnerCollectionIdsByTitleId,
 	loadOwnerCollectionMap,
 	loadOwnerUserStatusMap,
 	loadOwnerVariantCountsByTitleId,
 	requireOwnedChapter,
-	requireOwnedTitle,
-	resolveOwnedTitleUserStatus
+	requireOwnedTitle
 } from './library_shared';
 import {
 	buildChapterRouteSegments,
 	buildTitleRouteSegments,
 	findOwnedTitleByRouteSegment,
+	loadTitleOverviewContext,
 	resolveOwnerTitleRouteSegment,
 	sortLibraryChaptersInReadingOrder,
 	summarizeDownloadStats,
@@ -289,32 +287,9 @@ export const getMineOverviewByRouteSegment = query({
 			return null;
 		}
 
-		const [routeSegment, chapters, userStatus, collections, variants, progressRows, downloadProfile] =
-			await Promise.all([
-				resolveOwnerTitleRouteSegment(ctx, title),
-				ctx.db
-					.query('libraryChapters')
-					.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
-					.collect(),
-				resolveOwnedTitleUserStatus(ctx, title),
-				listCollectionsForTitle(ctx, title),
-				listVariantsForTitle(ctx, title),
-				ctx.db
-					.query('chapterProgress')
-					.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
-						q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-					)
-					.collect(),
-				ctx.db
-					.query('downloadProfiles')
-					.withIndex('by_owner_user_id_library_title_id', (q) =>
-						q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-					)
-					.unique()
-			]);
-
-		const latestProgress =
-			[...progressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
+		const ctx_ = loadTitleOverviewContext(ctx, title);
+		const { routeSegment, chapterStats, readingProgress, downloadProfileData, offlineReadiness,
+			userStatus, collections, variants } = await ctx_;
 
 		return {
 			...title,
@@ -324,28 +299,10 @@ export const getMineOverviewByRouteSegment = query({
 			collections,
 			preferredVariantId: title.preferredVariantId ?? null,
 			variants,
-			chapterStats: summarizeDownloadStats(chapters),
-			readingProgress: {
-				startedChapters: progressRows.length,
-				latest: latestProgress
-					? {
-							chapterId: latestProgress.chapterId,
-							pageIndex: latestProgress.pageIndex,
-							updatedAt: latestProgress.updatedAt
-						}
-					: null
-			},
-			downloadProfile: downloadProfile
-				? {
-						enabled: downloadProfile.enabled,
-						paused: downloadProfile.paused,
-						autoDownload: downloadProfile.autoDownload,
-						lastCheckedAt: downloadProfile.lastCheckedAt ?? null,
-						lastSuccessAt: downloadProfile.lastSuccessAt ?? null,
-						lastError: downloadProfile.lastError ?? null
-					}
-				: null,
-			offlineReadiness: summarizeOfflineReadiness(title, chapters)
+			chapterStats,
+			readingProgress,
+			downloadProfile: downloadProfileData,
+			offlineReadiness
 		};
 	}
 });
@@ -356,47 +313,29 @@ export const getMineById = query({
 	},
 	handler: async (ctx, args) => {
 		const title = await requireOwnedTitle(ctx, args.titleId);
-		const [
-			routeSegment,
-			chapters,
-			userStatus,
-			collections,
-			variants,
-			progressRows,
-			titleComments,
-			downloadProfile
-		] = await Promise.all([
-			resolveOwnerTitleRouteSegment(ctx, title),
-			ctx.db
-				.query('libraryChapters')
-				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
-				.collect(),
-			resolveOwnedTitleUserStatus(ctx, title),
-			listCollectionsForTitle(ctx, title),
-			listVariantsForTitle(ctx, title),
-			ctx.db
-				.query('chapterProgress')
-				.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
-					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-				)
-				.collect(),
+		const [ctx_, titleComments] = await Promise.all([
+			loadTitleOverviewContext(ctx, title),
 			ctx.db
 				.query('chapterComments')
 				.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
 					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
 				)
-				.collect(),
-			ctx.db
-				.query('downloadProfiles')
-				.withIndex('by_owner_user_id_library_title_id', (q) =>
-					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-				)
-				.unique()
+				.collect()
 		]);
 
+		const {
+			routeSegment,
+			chapters,
+			userStatus,
+			collections,
+			variants,
+			chapterStats,
+			readingProgress,
+			downloadProfileData,
+			offlineReadiness
+		} = ctx_;
+
 		const chapterById = new Map(chapters.map((chapter) => [chapter._id, chapter]));
-		const latestProgress =
-			[...progressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
 
 		return {
 			...title,
@@ -406,18 +345,8 @@ export const getMineById = query({
 			collections,
 			preferredVariantId: title.preferredVariantId ?? null,
 			variants,
-			chapterStats: summarizeDownloadStats(chapters),
-			readingProgress: {
-				startedChapters: progressRows.length,
-				latest:
-					latestProgress && chapterById.has(latestProgress.chapterId)
-						? {
-								chapterId: latestProgress.chapterId,
-								pageIndex: latestProgress.pageIndex,
-								updatedAt: latestProgress.updatedAt
-							}
-						: null
-			},
+			chapterStats,
+			readingProgress,
 			titleComments: titleComments
 				.sort((left, right) => right.updatedAt - left.updatedAt)
 				.map((comment) => {
@@ -433,18 +362,9 @@ export const getMineById = query({
 						updatedAt: comment.updatedAt
 					};
 				}),
-			downloadProfile: downloadProfile
-				? {
-						enabled: downloadProfile.enabled,
-						paused: downloadProfile.paused,
-						autoDownload: downloadProfile.autoDownload,
-						lastCheckedAt: downloadProfile.lastCheckedAt ?? null,
-						lastSuccessAt: downloadProfile.lastSuccessAt ?? null,
-						lastError: downloadProfile.lastError ?? null
-					}
-				: null,
+			downloadProfile: downloadProfileData,
 			chapters: chapters.sort((left, right) => right.sequence - left.sequence),
-			offlineReadiness: summarizeOfflineReadiness(title, chapters)
+			offlineReadiness
 		};
 	}
 });
@@ -455,32 +375,16 @@ export const getMineOverviewById = query({
 	},
 	handler: async (ctx, args) => {
 		const title = await requireOwnedTitle(ctx, args.titleId);
-		const [routeSegment, chapters, userStatus, collections, variants, progressRows, downloadProfile] =
-			await Promise.all([
-				resolveOwnerTitleRouteSegment(ctx, title),
-				ctx.db
-					.query('libraryChapters')
-					.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
-					.collect(),
-				resolveOwnedTitleUserStatus(ctx, title),
-				listCollectionsForTitle(ctx, title),
-				listVariantsForTitle(ctx, title),
-				ctx.db
-					.query('chapterProgress')
-					.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
-						q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-					)
-					.collect(),
-				ctx.db
-					.query('downloadProfiles')
-					.withIndex('by_owner_user_id_library_title_id', (q) =>
-						q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-					)
-					.unique()
-			]);
-
-		const latestProgress =
-			[...progressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
+		const {
+			routeSegment,
+			chapterStats,
+			readingProgress,
+			downloadProfileData,
+			offlineReadiness,
+			userStatus,
+			collections,
+			variants
+		} = await loadTitleOverviewContext(ctx, title);
 
 		return {
 			...title,
@@ -490,28 +394,10 @@ export const getMineOverviewById = query({
 			collections,
 			preferredVariantId: title.preferredVariantId ?? null,
 			variants,
-			chapterStats: summarizeDownloadStats(chapters),
-			readingProgress: {
-				startedChapters: progressRows.length,
-				latest: latestProgress
-					? {
-							chapterId: latestProgress.chapterId,
-							pageIndex: latestProgress.pageIndex,
-							updatedAt: latestProgress.updatedAt
-						}
-					: null
-			},
-			downloadProfile: downloadProfile
-				? {
-						enabled: downloadProfile.enabled,
-						paused: downloadProfile.paused,
-						autoDownload: downloadProfile.autoDownload,
-						lastCheckedAt: downloadProfile.lastCheckedAt ?? null,
-						lastSuccessAt: downloadProfile.lastSuccessAt ?? null,
-						lastError: downloadProfile.lastError ?? null
-					}
-				: null,
-			offlineReadiness: summarizeOfflineReadiness(title, chapters)
+			chapterStats,
+			readingProgress,
+			downloadProfile: downloadProfileData,
+			offlineReadiness
 		};
 	}
 });
