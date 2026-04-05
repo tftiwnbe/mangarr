@@ -23,6 +23,7 @@ export {
 	getMineImportedSourceLookup,
 	getMineOverviewById,
 	getMineOverviewByRouteSegment,
+	getMineTotalCount,
 	getMineVisibilitySummary,
 	listHiddenMine,
 	getMineChapterById,
