@@ -2,12 +2,7 @@ import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
 
 import { query } from './_generated/server';
-import {
-	cleanExtensionLabel,
-	DOWNLOAD_STATUS,
-	humanizeSourcePkg,
-	loadOwnerChaptersByTitleId
-} from './library_shared';
+import { cleanExtensionLabel, humanizeSourcePkg } from './library_shared';
 
 const DOWNLOAD_TASK_STATUS = {
 	QUEUED: 'queued',
@@ -47,7 +42,6 @@ export const getDownloadDashboard = query({
 			titles,
 			profileRows,
 			installedExtensions,
-			{ byTitleId: chaptersByTitleId },
 			queuedTaskRows,
 			downloadingTaskRows,
 			completedTaskRows,
@@ -63,7 +57,6 @@ export const getDownloadDashboard = query({
 				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
 				.collect(),
 			ctx.db.query('installedExtensions').collect(),
-			loadOwnerChaptersByTitleId(ctx, ownerUserId),
 			ctx.db
 				.query('downloadTasks')
 				.withIndex('by_owner_user_id_status_updated_at', (q) =>
@@ -117,41 +110,12 @@ export const getDownloadDashboard = query({
 			profileRows.map((profile) => [profile.libraryTitleId as string, profile] as const)
 		);
 
-		const chapterStatsByTitleId = new Map<
-			string,
-			{
-				total: number;
-				downloaded: number;
-				downloadedBytes: number;
-				lastDownloadedAt: number | null;
-			}
-		>();
+		// Build chapter stats from denormalized counts on title rows — no chapter scan needed.
 		let downloadedChapters = 0;
 		let totalDownloadedBytes = 0;
-
 		for (const title of titles) {
-			const chapters = chaptersByTitleId.get(String(title._id)) ?? [];
-
-			let downloaded = 0;
-			let downloadedBytes = 0;
-			let lastDownloadedAt: number | null = null;
-			for (const chapter of chapters) {
-				if (chapter.downloadStatus !== DOWNLOAD_STATUS.DOWNLOADED) continue;
-				downloaded += 1;
-				downloadedBytes += chapter.fileSizeBytes ?? 0;
-				const downloadedAt = chapter.downloadedAt ?? chapter.updatedAt;
-				lastDownloadedAt =
-					lastDownloadedAt === null ? downloadedAt : Math.max(lastDownloadedAt, downloadedAt);
-			}
-
-			downloadedChapters += downloaded;
-			totalDownloadedBytes += downloadedBytes;
-			chapterStatsByTitleId.set(title._id as string, {
-				total: chapters.length,
-				downloaded,
-				downloadedBytes,
-				lastDownloadedAt
-			});
+			downloadedChapters += title.downloadedChapterCount ?? 0;
+			totalDownloadedBytes += title.downloadedChapterBytes ?? 0;
 		}
 
 		const activeTaskRows = [...queuedTaskRows, ...downloadingTaskRows].sort(
@@ -171,13 +135,8 @@ export const getDownloadDashboard = query({
 			.map((title) => {
 				const titleId = String(title._id);
 				const profile = profileByTitleId.get(titleId) ?? null;
-				const stats = chapterStatsByTitleId.get(titleId) ?? {
-					total: 0,
-					downloaded: 0,
-					downloadedBytes: 0,
-					lastDownloadedAt: null
-				};
-				if (!profile && stats.downloaded === 0) {
+				const downloadedCount = title.downloadedChapterCount ?? 0;
+				if (!profile && downloadedCount === 0) {
 					return null;
 				}
 
@@ -186,7 +145,7 @@ export const getDownloadDashboard = query({
 					sourceNamesByPkg.get(title.sourcePkg) ??
 					humanizeSourcePkg(title.sourcePkg);
 				const queuedTasks = queuedTaskCountByTitleId.get(titleId) ?? 0;
-				const updatedAt = profile?.updatedAt ?? stats.lastDownloadedAt ?? title.updatedAt;
+				const updatedAt = profile?.updatedAt ?? title.updatedAt;
 
 				return {
 					titleId,
@@ -196,10 +155,10 @@ export const getDownloadDashboard = query({
 					enabled: profile?.enabled ?? false,
 					paused: profile?.paused ?? false,
 					autoDownload: profile?.autoDownload ?? true,
-					downloadedChapters: stats.downloaded,
-					totalChapters: stats.total,
+					downloadedChapters: downloadedCount,
+					totalChapters: title.chapterCount ?? 0,
 					queuedTasks,
-					downloadedBytes: stats.downloadedBytes,
+					downloadedBytes: title.downloadedChapterBytes ?? 0,
 					variantSources: [`${sourceName}${title.sourceLang ? ` [${title.sourceLang}]` : ''}`],
 					updatedAt
 				};

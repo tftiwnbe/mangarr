@@ -6,6 +6,7 @@ import {
 	loadInstalledSourceCatalog,
 	pickVariantNormalizationAssignments,
 	refreshTitleChapterStats,
+	refreshTitleVariantCount,
 	requireOwnedTitle,
 	requireOwnedVariant,
 	setTitlePreferredVariant,
@@ -106,6 +107,7 @@ export const linkVariant = mutation({
 			await ctx.db.patch(title._id, { updatedAt: now });
 		}
 
+		await refreshTitleVariantCount(ctx, title, now);
 		return { ok: true, variantId, alreadyLinked: false };
 	}
 });
@@ -174,6 +176,7 @@ export const removeVariant = mutation({
 		await ctx.db.delete(variant._id);
 		const now = Date.now();
 		await refreshTitleChapterStats(ctx, title._id, now);
+		await refreshTitleVariantCount(ctx, title, now);
 		const nextPreferredVariantId =
 			title.preferredVariantId === variant._id ? undefined : title.preferredVariantId;
 		const preferredVariantId = await setTitlePreferredVariant(

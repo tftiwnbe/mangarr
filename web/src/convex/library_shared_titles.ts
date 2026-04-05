@@ -435,6 +435,7 @@ export async function refreshTitleChapterStats(
 	let downloading = 0;
 	let downloaded = 0;
 	let failed = 0;
+	let downloadedBytes = 0;
 	for (const chapter of chapters) {
 		switch (chapter.downloadStatus) {
 			case DOWNLOAD_STATUS.QUEUED:
@@ -445,6 +446,7 @@ export async function refreshTitleChapterStats(
 				break;
 			case DOWNLOAD_STATUS.DOWNLOADED:
 				downloaded++;
+				downloadedBytes += chapter.fileSizeBytes ?? 0;
 				break;
 			case DOWNLOAD_STATUS.FAILED:
 				failed++;
@@ -455,9 +457,30 @@ export async function refreshTitleChapterStats(
 	await ctx.db.patch(libraryTitleId, {
 		chapterCount: chapters.length,
 		downloadedChapterCount: downloaded,
+		downloadedChapterBytes: downloadedBytes,
 		queuedChapterCount: queued,
 		downloadingChapterCount: downloading,
 		failedChapterCount: failed,
 		updatedAt: now
 	});
+}
+
+/**
+ * Recompute variant count for a title and persist it as a denormalized
+ * field on the libraryTitles row.  Call this whenever variants are added or
+ * removed.
+ */
+export async function refreshTitleVariantCount(
+	ctx: MutationCtx,
+	title: { _id: GenericId<'libraryTitles'>; ownerUserId: GenericId<'users'> },
+	now: number
+) {
+	const variants = await ctx.db
+		.query('titleVariants')
+		.withIndex('by_owner_user_id_library_title_id', (q) =>
+			q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+		)
+		.collect();
+
+	await ctx.db.patch(title._id, { variantCount: variants.length, updatedAt: now });
 }

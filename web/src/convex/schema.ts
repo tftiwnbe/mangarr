@@ -127,9 +127,11 @@ export default defineSchema({
 		localCoverPath: v.optional(v.string()),
 		chapterCount: v.optional(v.float64()),
 		downloadedChapterCount: v.optional(v.float64()),
+		downloadedChapterBytes: v.optional(v.float64()),
 		queuedChapterCount: v.optional(v.float64()),
 		downloadingChapterCount: v.optional(v.float64()),
 		failedChapterCount: v.optional(v.float64()),
+		variantCount: v.optional(v.float64()),
 		createdAt: v.float64(),
 		updatedAt: v.float64(),
 		lastReadAt: v.optional(v.float64())
