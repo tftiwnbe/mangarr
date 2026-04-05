@@ -7,6 +7,7 @@ import {
 } from '../lib/utils/source-health';
 import { mutation, query, type MutationCtx } from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
+import type { CommandPayloadMap, CommandType } from './command_payloads';
 
 const STATUS = {
 	QUEUED: 'queued',
@@ -183,11 +184,11 @@ function stableKeySegment(value: unknown): string {
 	return String(value);
 }
 
-async function enqueueCommand(
+async function enqueueCommand<T extends CommandType>(
 	ctx: MutationCtx,
 	args: {
-		commandType: string;
-		payload: unknown;
+		commandType: T;
+		payload: CommandPayloadMap[T];
 		idempotencyKey?: string;
 		priority?: number;
 		maxAttempts?: number;
@@ -248,7 +249,12 @@ export const enqueue = mutation({
 		priority: v.optional(v.float64()),
 		maxAttempts: v.optional(v.float64())
 	},
-	handler: (ctx, args) => enqueueCommand(ctx, args)
+	handler: (ctx, args) =>
+		enqueueCommand(ctx, {
+			...args,
+			commandType: args.commandType as CommandType,
+			payload: args.payload as CommandPayloadMap[CommandType]
+		})
 });
 
 export const enqueueRepositorySync = mutation({

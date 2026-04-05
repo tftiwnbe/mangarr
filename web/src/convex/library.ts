@@ -12,6 +12,7 @@ import {
 	refreshTitleChapterStats,
 	requireOwnedTitle
 } from './library_shared';
+import { insertCommand } from './command_payloads';
 import { pickBestMergeCandidate } from './title_identity';
 
 export {
@@ -130,9 +131,8 @@ export const requestChapterSync = mutation({
 			throw new Error('Library title has no linked source variant');
 		}
 		const now = Date.now();
-		const commandId = await ctx.db.insert('commands', {
+		const commandId = await insertCommand(ctx, {
 			commandType: 'library.chapters.sync',
-			targetCapability: 'library.chapters.sync',
 			requestedByUserId: identity.subject as GenericId<'users'>,
 			payload: {
 				titleId: title._id,
@@ -140,13 +140,10 @@ export const requestChapterSync = mutation({
 				titleUrl: preferredVariant.titleUrl
 			},
 			idempotencyKey: `library.chapters.sync:${String(title._id)}:${now}`,
-			status: 'queued',
 			priority: 100,
-			runAfter: now,
-			attemptCount: 0,
 			maxAttempts: 3,
-			createdAt: now,
-			updatedAt: now
+			runAfter: now,
+			now
 		});
 
 		return { commandId };

@@ -4,6 +4,7 @@ import { v } from 'convex/values';
 import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import { buildTitleRouteBase } from '../lib/utils/route-segments';
 import { requireBridgeIdentity } from './bridge_auth';
+import { insertCommand } from './command_payloads';
 
 const REUSABLE_COMMAND_STATUSES = new Set(['queued', 'succeeded']);
 
@@ -129,9 +130,8 @@ export const beginTitleOpen = mutation({
 			};
 		}
 
-		const commandId = await ctx.db.insert('commands', {
+		const commandId = await insertCommand(ctx, {
 			commandType: 'library.import',
-			targetCapability: 'library.import',
 			requestedByUserId: ownerUserId,
 			payload: {
 				canonicalKey: args.canonicalKey,
@@ -141,13 +141,10 @@ export const beginTitleOpen = mutation({
 				titleUrl: args.titleUrl
 			},
 			idempotencyKey,
-			status: 'queued',
 			priority: 100,
-			runAfter: now,
-			attemptCount: 0,
 			maxAttempts: 3,
-			createdAt: now,
-			updatedAt: now
+			runAfter: now,
+			now
 		});
 
 		return {
@@ -448,22 +445,18 @@ async function ensureMetadataForTitle(
 		return existingCommand._id;
 	}
 
-	return ctx.db.insert('commands', {
+	return insertCommand(ctx, {
 		commandType: 'explore.title.fetch',
-		targetCapability: 'explore.title.fetch',
 		requestedByUserId: userId,
 		payload: {
 			sourceId: title.sourceId,
 			titleUrl: title.titleUrl
 		},
 		idempotencyKey,
-		status: 'queued',
 		priority: 90,
-		runAfter: now,
-		attemptCount: 0,
 		maxAttempts: 3,
-		createdAt: now,
-		updatedAt: now
+		runAfter: now,
+		now
 	});
 }
 
@@ -544,23 +537,15 @@ async function ensureChapterSyncForTitle(
 		return existingCommand._id;
 	}
 
-	return ctx.db.insert('commands', {
+	return insertCommand(ctx, {
 		commandType: 'library.chapters.sync',
-		targetCapability: 'library.chapters.sync',
 		requestedByUserId: title.ownerUserId,
-		payload: {
-			titleId: title._id,
-			sourceId,
-			titleUrl
-		},
+		payload: { titleId: title._id, sourceId, titleUrl },
 		idempotencyKey,
-		status: 'queued',
 		priority: 95,
-		runAfter: now,
-		attemptCount: 0,
 		maxAttempts: 3,
-		createdAt: now,
-		updatedAt: now
+		runAfter: now,
+		now
 	});
 }
 
@@ -591,23 +576,15 @@ async function ensureCoverCacheForTitle(
 		return existingCommand._id;
 	}
 
-	return ctx.db.insert('commands', {
+	return insertCommand(ctx, {
 		commandType: 'library.cover.cache',
-		targetCapability: 'library.cover.cache',
 		requestedByUserId: title.ownerUserId,
-		payload: {
-			titleId: title._id,
-			sourceId: title.sourceId,
-			coverUrl
-		},
+		payload: { titleId: title._id, sourceId: title.sourceId, coverUrl },
 		idempotencyKey,
-		status: 'queued',
 		priority: 80,
-		runAfter: now,
-		attemptCount: 0,
 		maxAttempts: 3,
-		createdAt: now,
-		updatedAt: now
+		runAfter: now,
+		now
 	});
 }
 
