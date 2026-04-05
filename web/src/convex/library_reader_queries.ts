@@ -288,8 +288,16 @@ export const getMineOverviewByRouteSegment = query({
 		}
 
 		const ctx_ = loadTitleOverviewContext(ctx, title);
-		const { routeSegment, chapterStats, readingProgress, downloadProfileData, offlineReadiness,
-			userStatus, collections, variants } = await ctx_;
+		const {
+			routeSegment,
+			chapterStats,
+			readingProgress,
+			downloadProfileData,
+			offlineReadiness,
+			userStatus,
+			collections,
+			variants
+		} = await ctx_;
 
 		return {
 			...title,

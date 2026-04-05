@@ -42,7 +42,8 @@ async function upsertSourceHealthFailure(
 			: '';
 	if (!sourceId) return;
 
-	const state = command.status === STATUS.QUEUED && command.runAfter > now ? 'cooldown' : 'degraded';
+	const state =
+		command.status === STATUS.QUEUED && command.runAfter > now ? 'cooldown' : 'degraded';
 	const permanent = isPermanentSourceFailure(errorMessage);
 	const retryAfter = state === 'cooldown' ? command.runAfter : undefined;
 
@@ -57,7 +58,14 @@ async function upsertSourceHealthFailure(
 		.unique();
 
 	if (existing) {
-		await ctx.db.patch(existing._id, { state, message: errorMessage, retryAfter, permanent, commandType: command.commandType, updatedAt: now });
+		await ctx.db.patch(existing._id, {
+			state,
+			message: errorMessage,
+			retryAfter,
+			permanent,
+			commandType: command.commandType,
+			updatedAt: now
+		});
 	} else {
 		await ctx.db.insert('sourceHealth', {
 			sourceId,
