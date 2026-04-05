@@ -19,11 +19,11 @@ export const runRetentionPass = internalMutation({
 		try {
 			const oldCommands = await ctx.db
 				.query('commands')
-				.withIndex('by_created_at')
+				.withIndex('by_created_at', (q) => q.lt('createdAt', commandCutoff))
 				.order('asc')
 				.take(limit);
 			for (const command of oldCommands) {
-				if (deletedCommands >= limit || command.createdAt > commandCutoff) break;
+				if (deletedCommands >= limit) break;
 				if (!terminalCommandStatuses.has(command.status)) continue;
 				await ctx.db.delete(command._id);
 				deletedCommands += 1;
@@ -38,11 +38,13 @@ export const runRetentionPass = internalMutation({
 				if (deletedDownloadTasks >= limit) break;
 				const rows = await ctx.db
 					.query('downloadTasks')
-					.withIndex('by_status_updated_at', (q) => q.eq('status', status))
+					.withIndex('by_status_updated_at', (q) =>
+						q.eq('status', status).lt('updatedAt', downloadTaskCutoff)
+					)
 					.order('asc')
 					.take(limit);
 				for (const row of rows) {
-					if (deletedDownloadTasks >= limit || row.updatedAt > downloadTaskCutoff) break;
+					if (deletedDownloadTasks >= limit) break;
 					await ctx.db.delete(row._id);
 					deletedDownloadTasks += 1;
 				}
@@ -55,11 +57,11 @@ export const runRetentionPass = internalMutation({
 		try {
 			const exploreRows = await ctx.db
 				.query('exploreTitleDetailsCache')
-				.withIndex('by_fetched_at')
+				.withIndex('by_fetched_at', (q) => q.lt('fetchedAt', exploreCacheCutoff))
 				.order('asc')
 				.take(limit);
 			for (const row of exploreRows) {
-				if (deletedExploreCacheRows >= limit || row.fetchedAt > exploreCacheCutoff) break;
+				if (deletedExploreCacheRows >= limit) break;
 				await ctx.db.delete(row._id);
 				deletedExploreCacheRows += 1;
 			}

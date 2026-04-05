@@ -36,7 +36,8 @@ export const listMine = query({
 			await Promise.all([
 				ctx.db
 					.query('libraryTitles')
-					.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+					.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', userId))
+					.order('desc')
 					.collect(),
 				loadOwnerUserStatusMap(ctx, userId),
 				loadOwnerCollectionMap(ctx, userId),
@@ -45,9 +46,8 @@ export const listMine = query({
 			]);
 		const titleRouteSegments = buildTitleRouteSegments(titles);
 
-		return [...titles]
+		return titles
 			.filter((title) => title.listedInLibrary !== false)
-			.sort((left, right) => right.updatedAt - left.updatedAt)
 			.map((title) => {
 				const collectionIds = collectionIdsByTitleId.get(String(title._id)) ?? [];
 

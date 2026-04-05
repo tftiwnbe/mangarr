@@ -43,12 +43,7 @@ export const cancelQueuedChapterDownload = mutation({
 			throw new Error('Only queued downloads can be cancelled');
 		}
 
-		const identity = await ctx.auth.getUserIdentity();
-		if (!identity) {
-			throw new Error('Not authenticated');
-		}
-
-		const userId = identity.subject as GenericId<'users'>;
+		const userId = chapter.ownerUserId;
 		const activeTask = await findActiveDownloadTaskForChapter(ctx, userId, chapter._id);
 		if (!activeTask || activeTask.status !== DOWNLOAD_TASK_STATUS.QUEUED) {
 			throw new Error('Active queued download task not found');
@@ -102,7 +97,7 @@ export const requestChapterDownload = mutation({
 			throw new Error('Library title not found');
 		}
 
-		const userId = await requireViewerUserId(ctx);
+		const userId = chapter.ownerUserId;
 		const now = Date.now();
 		await markTitleListedInLibrary(ctx, title, now);
 		const queued = await queueDownloadAttempt(ctx, {
