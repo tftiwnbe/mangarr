@@ -795,31 +795,45 @@ async function selectDownloadCycleCandidatesForUser(
 		};
 	}
 	const titleIds = [...new Set(activeProfiles.map((profile) => String(profile.libraryTitleId)))];
-	const [titles, missingChapters, failedChapters, queuedTasks] = await Promise.all([
+	const [titles, queuedTasks] = await Promise.all([
 		Promise.all(
 			titleIds.map(async (titleId) => {
 				const title = await ctx.db.get(titleId as GenericId<'libraryTitles'>);
 				return title && title.ownerUserId === args.userId ? title : null;
 			})
 		),
-		ctx.db
-			.query('libraryChapters')
-			.withIndex('by_owner_user_id_download_status', (q) =>
-				q.eq('ownerUserId', args.userId).eq('downloadStatus', DOWNLOAD_STATUS.MISSING)
-			)
-			.collect(),
-		ctx.db
-			.query('libraryChapters')
-			.withIndex('by_owner_user_id_download_status', (q) =>
-				q.eq('ownerUserId', args.userId).eq('downloadStatus', DOWNLOAD_STATUS.FAILED)
-			)
-			.collect(),
 		loadDownloadTasksForUserStatus(
 			ctx,
 			args.userId,
 			DOWNLOAD_TASK_STATUS.QUEUED,
 			MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER + 64
 		)
+	]);
+
+	// Load chapters only for titles with active download profiles to avoid timeout
+	const [missingChapters, failedChapters] = await Promise.all([
+		Promise.all(
+			titleIds.map(async (titleId) =>
+				ctx.db
+					.query('libraryChapters')
+					.withIndex('by_library_title_id_download_status', (q) =>
+						q.eq('libraryTitleId', titleId as GenericId<'libraryTitles'>)
+						 .eq('downloadStatus', DOWNLOAD_STATUS.MISSING)
+					)
+					.collect()
+			)
+		).then((results) => results.flat()),
+		Promise.all(
+			titleIds.map(async (titleId) =>
+				ctx.db
+					.query('libraryChapters')
+					.withIndex('by_library_title_id_download_status', (q) =>
+						q.eq('libraryTitleId', titleId as GenericId<'libraryTitles'>)
+						 .eq('downloadStatus', DOWNLOAD_STATUS.FAILED)
+					)
+					.collect()
+			)
+		).then((results) => results.flat())
 	]);
 	const titleById = new Map(
 		titles
