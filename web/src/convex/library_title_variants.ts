@@ -5,6 +5,7 @@ import {
 	applyVariantSnapshotToTitle,
 	loadInstalledSourceCatalog,
 	pickVariantNormalizationAssignments,
+	refreshTitleChapterStats,
 	requireOwnedTitle,
 	requireOwnedVariant,
 	setTitlePreferredVariant,
@@ -171,13 +172,15 @@ export const removeVariant = mutation({
 		}
 
 		await ctx.db.delete(variant._id);
+		const now = Date.now();
+		await refreshTitleChapterStats(ctx, title._id, now);
 		const nextPreferredVariantId =
 			title.preferredVariantId === variant._id ? undefined : title.preferredVariantId;
 		const preferredVariantId = await setTitlePreferredVariant(
 			ctx,
 			title._id,
 			nextPreferredVariantId,
-			Date.now()
+			now
 		);
 
 		return {

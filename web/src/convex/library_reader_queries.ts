@@ -20,7 +20,6 @@ import {
 	loadTitleOverviewContext,
 	resolveOwnerTitleRouteSegment,
 	sortLibraryChaptersInReadingOrder,
-	summarizeDownloadStats,
 	summarizeOfflineReadiness
 } from './library_reader_support';
 
@@ -66,12 +65,19 @@ export const listMine = query({
 						)
 						.sort((left, right) => left.position - right.position),
 					variantsCount: variantCountsByTitleId.get(String(title._id)) ?? 0,
-					// Chapter stats are not loaded at the list level to avoid fetching all
-					// 100k+ chapter documents for the user.  The title detail view loads them
-					// on demand.  TODO: denormalize counts onto libraryTitles so the list can
-					// show accurate stats without a bulk chapter load.
-					chapterStats: summarizeDownloadStats([]),
-					offlineReadiness: summarizeOfflineReadiness(title, [])
+					// Chapter stats are served from denormalized counts on the title row —
+					// no chapter scan needed here.
+					chapterStats: {
+						total: title.chapterCount ?? 0,
+						queued: title.queuedChapterCount ?? 0,
+						downloading: title.downloadingChapterCount ?? 0,
+						downloaded: title.downloadedChapterCount ?? 0,
+						failed: title.failedChapterCount ?? 0
+					},
+					offlineReadiness: summarizeOfflineReadiness(title, {
+						total: title.chapterCount ?? 0,
+						downloaded: title.downloadedChapterCount ?? 0
+					})
 				};
 			});
 	}
