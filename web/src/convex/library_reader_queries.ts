@@ -668,23 +668,32 @@ export const listTitleComments = query({
 });
 
 export const listAllMineChapters = query({
-	args: {},
-	handler: async (ctx) => {
+	args: {
+		limit: v.optional(v.float64())
+	},
+	handler: async (ctx, args) => {
 		const identity = await ctx.auth.getUserIdentity();
 		if (!identity) {
 			return [];
 		}
 		const userId = identity.subject as GenericId<'users'>;
-		const [titles, { chapters }] = await Promise.all([
-			ctx.db
-				.query('libraryTitles')
-				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
-				.collect(),
-			loadOwnerChaptersByTitleId(ctx, userId)
-		]);
+		const limit = Math.min(Math.max(100, Math.floor(args.limit ?? 2000)), 10000);
+
+		// Load chapters directly with limit to avoid memory issues
+		const chapters = await ctx.db
+			.query('libraryChapters')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+			.take(limit);
+
+		// Load only the titles that are referenced by these chapters
+		const titleIds = [...new Set(chapters.map((c) => String(c.libraryTitleId)))];
+		const titles = await Promise.all(
+			titleIds.map((id) => ctx.db.get(id as GenericId<'libraryTitles'>))
+		);
+
 		const titleById = new Map(
-			[...titles]
-				.sort((left, right) => right.updatedAt - left.updatedAt)
+			titles
+				.filter((t): t is NonNullable<typeof t> => t !== null)
 				.map((title) => [String(title._id), title] as const)
 		);
 
