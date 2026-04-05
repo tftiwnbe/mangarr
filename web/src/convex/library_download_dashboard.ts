@@ -38,20 +38,8 @@ export const getDownloadDashboard = query({
 		const activeLimit = Math.max(1, Math.min(Math.floor(args.activeLimit ?? 20), 100));
 		const recentLimit = Math.max(1, Math.min(Math.floor(args.recentLimit ?? 20), 100));
 
-		const [
-			titles,
-			profileRows,
-			installedExtensions,
-			queuedTaskRows,
-			downloadingTaskRows,
-			completedTaskRows,
-			failedTaskRows,
-			cancelledTaskRows
-		] = await Promise.all([
-			ctx.db
-				.query('libraryTitles')
-				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
-				.take(500),
+		// Load profiles first to ensure we load all titles with profiles
+		const [profileRows, installedExtensions, queuedTaskRows, downloadingTaskRows, completedTaskRows, failedTaskRows, cancelledTaskRows] = await Promise.all([
 			ctx.db
 				.query('downloadProfiles')
 				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
@@ -94,7 +82,28 @@ export const getDownloadDashboard = query({
 				.take(recentLimit)
 		]);
 
-		titles.sort((left, right) => right.updatedAt - left.updatedAt);
+		// Load all titles that have download profiles, plus recent titles
+		const profileTitleIds = new Set(profileRows.map((p) => String(p.libraryTitleId)));
+		const [profileTitles, recentTitles] = await Promise.all([
+			Promise.all(
+				Array.from(profileTitleIds).map((titleId) =>
+					ctx.db.get(titleId as GenericId<'libraryTitles'>)
+				)
+			),
+			ctx.db
+				.query('libraryTitles')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+				.take(500)
+		]);
+
+		// Combine and deduplicate titles
+		const titleMap = new Map<string, typeof recentTitles[number]>();
+		for (const title of [...profileTitles.filter((t): t is NonNullable<typeof t> => t !== null), ...recentTitles]) {
+			if (!titleMap.has(String(title._id))) {
+				titleMap.set(String(title._id), title);
+			}
+		}
+		const titles = Array.from(titleMap.values()).sort((left, right) => right.updatedAt - left.updatedAt);
 
 		const sourceNamesById = new Map<string, string>();
 		const sourceNamesByPkg = new Map<string, string>();
