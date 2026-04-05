@@ -1,11 +1,17 @@
 import type { GenericId } from 'convex/values';
 
+import type { Doc } from './_generated/dataModel';
 import type { QueryCtx } from './_generated/server';
 import {
 	buildChapterRouteBase,
 	buildTitleRouteBase,
 	buildUniqueRouteSegmentMap
 } from '../lib/utils/route-segments';
+import {
+	listCollectionsForTitle,
+	listVariantsForTitle,
+	resolveOwnedTitleUserStatus
+} from './library_shared_titles';
 import { DOWNLOAD_STATUS } from './library_shared_access';
 
 const ROUTE_COLLISION_DELIMITER = '~';
@@ -235,5 +241,71 @@ export function summarizeOfflineReadiness(
 		fullyDownloaded: downloadStats.total > 0 && downloadStats.downloaded === downloadStats.total,
 		missingCoverCache:
 			!cachedCover && typeof title.coverUrl === 'string' && title.coverUrl.trim().length > 0
+	};
+}
+
+/**
+ * Load the common context needed by getMineById / getMineOverviewById /
+ * getMineOverviewByRouteSegment in a single parallel batch.
+ */
+export async function loadTitleOverviewContext(ctx: QueryCtx, title: Doc<'libraryTitles'>) {
+	const [routeSegment, chapters, userStatus, collections, variants, progressRows, downloadProfile] =
+		await Promise.all([
+			resolveOwnerTitleRouteSegment(ctx, title),
+			ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+				.collect(),
+			resolveOwnedTitleUserStatus(ctx, title),
+			listCollectionsForTitle(ctx, title),
+			listVariantsForTitle(ctx, title),
+			ctx.db
+				.query('chapterProgress')
+				.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.collect(),
+			ctx.db
+				.query('downloadProfiles')
+				.withIndex('by_owner_user_id_library_title_id', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.unique()
+		]);
+
+	const latestProgress =
+		[...progressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
+
+	return {
+		routeSegment,
+		chapters,
+		userStatus,
+		collections,
+		variants,
+		progressRows,
+		latestProgress,
+		downloadProfile,
+		chapterStats: summarizeDownloadStats(chapters),
+		offlineReadiness: summarizeOfflineReadiness(title, chapters),
+		readingProgress: {
+			startedChapters: progressRows.length,
+			latest: latestProgress
+				? {
+						chapterId: latestProgress.chapterId,
+						pageIndex: latestProgress.pageIndex,
+						updatedAt: latestProgress.updatedAt
+					}
+				: null
+		},
+		downloadProfileData: downloadProfile
+			? {
+					enabled: downloadProfile.enabled,
+					paused: downloadProfile.paused,
+					autoDownload: downloadProfile.autoDownload,
+					lastCheckedAt: downloadProfile.lastCheckedAt ?? null,
+					lastSuccessAt: downloadProfile.lastSuccessAt ?? null,
+					lastError: downloadProfile.lastError ?? null
+				}
+			: null
 	};
 }
