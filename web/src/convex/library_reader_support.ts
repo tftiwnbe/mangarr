@@ -8,6 +8,8 @@ import {
 } from '../lib/utils/route-segments';
 import { DOWNLOAD_STATUS } from './library_shared_access';
 
+const ROUTE_COLLISION_DELIMITER = '~';
+
 type ChapterOrderItem = {
 	_id: GenericId<'libraryChapters'>;
 	sequence: number;
@@ -87,21 +89,67 @@ export function sortLibraryChaptersInReadingOrder<T extends ChapterOrderItem>(
 	return [...chapters].sort(compareLibraryChaptersInReadingOrder);
 }
 
+/**
+ * Resolve the route segment for a single title without loading the full library.
+ * Loads only the titles that share the same routeBase (slug) — typically 1,
+ * occasionally a handful on collision — to compute the disambiguation suffix.
+ */
+export async function resolveOwnerTitleRouteSegment(
+	ctx: QueryCtx,
+	title: { _id: GenericId<'libraryTitles'>; ownerUserId: GenericId<'users'>; title: string }
+): Promise<string> {
+	const base = buildTitleRouteBase(title.title);
+	const candidates = await ctx.db
+		.query('libraryTitles')
+		.withIndex('by_owner_user_id_route_base', (q) =>
+			q.eq('ownerUserId', title.ownerUserId).eq('routeBase', base)
+		)
+		.collect();
+
+	// Fall back to full scan for legacy rows that don't have routeBase yet.
+	const pool =
+		candidates.length > 0
+			? candidates
+			: await ctx.db
+					.query('libraryTitles')
+					.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', title.ownerUserId))
+					.collect();
+
+	const segments = buildTitleRouteSegments(pool);
+	return segments.get(String(title._id)) ?? base;
+}
+
+/**
+ * Look up a single owned title by its URL route segment.
+ * Uses the routeBase index to avoid loading the full library;
+ * only titles sharing the same slug are fetched.
+ */
 export async function findOwnedTitleByRouteSegment(
 	ctx: QueryCtx,
 	ownerUserId: GenericId<'users'>,
 	routeSegment: string
 ) {
-	const titles = await ctx.db
+	const delimIdx = routeSegment.lastIndexOf(ROUTE_COLLISION_DELIMITER);
+	const base = delimIdx >= 0 ? routeSegment.slice(0, delimIdx) : routeSegment;
+
+	const candidates = await ctx.db
 		.query('libraryTitles')
-		.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+		.withIndex('by_owner_user_id_route_base', (q) =>
+			q.eq('ownerUserId', ownerUserId).eq('routeBase', base)
+		)
 		.collect();
-	const routeSegments = buildTitleRouteSegments(titles);
-	return (
-		titles.find(
-			(title: (typeof titles)[number]) => routeSegments.get(String(title._id)) === routeSegment
-		) ?? null
-	);
+
+	// Fall back to full scan for legacy rows that don't have routeBase yet.
+	const pool =
+		candidates.length > 0
+			? candidates
+			: await ctx.db
+					.query('libraryTitles')
+					.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+					.collect();
+
+	const segments = buildTitleRouteSegments(pool);
+	return pool.find((t) => segments.get(String(t._id)) === routeSegment) ?? null;
 }
 
 export function summarizeDownloadStats(

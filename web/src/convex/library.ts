@@ -2,6 +2,7 @@ import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
 
 import { mutation, type MutationCtx } from './_generated/server';
+import { buildTitleRouteBase } from '../lib/utils/route-segments';
 import { requireBridgeIdentity } from './bridge_auth';
 import {
 	applyVariantSnapshotToTitle,
@@ -499,6 +500,7 @@ async function importForUserCore(
 		ownerUserId: args.userId,
 		canonicalKey: args.canonicalKey,
 		title: args.title,
+		routeBase: buildTitleRouteBase(args.title),
 		sourcePkg: args.sourcePkg,
 		sourceLang: args.sourceLang,
 		sourceId: args.sourceId,

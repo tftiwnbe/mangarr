@@ -2,6 +2,7 @@ import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
 
 import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
+import { buildTitleRouteBase } from '../lib/utils/route-segments';
 import { requireBridgeIdentity } from './bridge_auth';
 
 const REUSABLE_COMMAND_STATUSES = new Set(['queued', 'succeeded']);
@@ -367,6 +368,7 @@ export const upsertTitleMetadataFromBridge = mutation({
 			matchingTitleIds.add(String(title._id));
 			await ctx.db.patch(title._id, {
 				title: args.title,
+				routeBase: buildTitleRouteBase(args.title),
 				sourcePkg: sourcePkg ?? title.sourcePkg,
 				sourceLang: sourceLang ?? title.sourceLang,
 				author,
@@ -667,6 +669,7 @@ async function applyVariantSnapshotToTitle(
 ) {
 	await ctx.db.patch(titleId, {
 		title: args.title,
+		routeBase: buildTitleRouteBase(args.title),
 		sourceId: args.sourceId,
 		sourcePkg: args.sourcePkg,
 		sourceLang: args.sourceLang,

@@ -101,6 +101,7 @@ export default defineSchema({
 		ownerUserId: v.id('users'),
 		canonicalKey: v.string(),
 		title: v.string(),
+		routeBase: v.optional(v.string()),
 		sourcePkg: v.string(),
 		sourceLang: v.string(),
 		sourceId: v.string(),
@@ -123,6 +124,7 @@ export default defineSchema({
 		.index('by_owner_user_id', ['ownerUserId'])
 		.index('by_owner_user_id_canonical_key', ['ownerUserId', 'canonicalKey'])
 		.index('by_owner_user_id_updated_at', ['ownerUserId', 'updatedAt'])
+		.index('by_owner_user_id_route_base', ['ownerUserId', 'routeBase'])
 		.index('by_source_id_title_url', ['sourceId', 'titleUrl']),
 
 	libraryUserStatuses: defineTable({

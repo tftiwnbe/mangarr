@@ -1,6 +1,7 @@
 import type { GenericId } from 'convex/values';
 
 import type { MutationCtx, QueryCtx } from './_generated/server';
+import { buildTitleRouteBase } from '../lib/utils/route-segments';
 import { loadInstalledSourceCatalog, variantInstalledSourceRecord } from './library_shared_sources';
 import { pickNumber, pickString } from './library_shared_values';
 
@@ -398,6 +399,7 @@ export async function applyVariantSnapshotToTitle(
 ) {
 	await ctx.db.patch(titleId, {
 		title: args.title,
+		routeBase: buildTitleRouteBase(args.title),
 		sourceId: args.sourceId,
 		sourcePkg: args.sourcePkg,
 		sourceLang: args.sourceLang,
