@@ -1,6 +1,8 @@
 import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
 
+import { commandPayloadValidator } from './command_payloads';
+
 export default defineSchema({
 	installation: defineTable({
 		key: v.string(),
@@ -355,7 +357,7 @@ export default defineSchema({
 		commandType: v.string(),
 		targetCapability: v.string(),
 		requestedByUserId: v.optional(v.id('users')),
-		payload: v.any(),
+		payload: commandPayloadValidator,
 		idempotencyKey: v.string(),
 		status: v.union(
 			v.literal('queued'),

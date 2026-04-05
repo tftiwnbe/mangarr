@@ -4,6 +4,7 @@ import { v } from 'convex/values';
 import { internalMutation, mutation, type MutationCtx, type QueryCtx } from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
 import { markTitleListedInLibrary, refreshTitleChapterStats } from './library_shared';
+import { insertCommand } from './command_payloads';
 export { getDownloadDashboard } from './library_download_dashboard';
 
 const DOWNLOAD_STATUS = {
@@ -501,9 +502,8 @@ async function queueDownloadAttempt(
 		updatedAt: args.now
 	});
 
-	const commandId = await ctx.db.insert('commands', {
+	const commandId = await insertCommand(ctx, {
 		commandType: 'downloads.chapter',
-		targetCapability: 'downloads.chapter',
 		requestedByUserId: args.requestedByUserId,
 		payload: {
 			chapterId: args.chapter._id,
@@ -519,13 +519,10 @@ async function queueDownloadAttempt(
 			chapterNumber: args.chapter.chapterNumber
 		},
 		idempotencyKey: `downloads.chapter:${String(args.chapter._id)}:${attemptNumber}:${args.now}`,
-		status: 'queued',
 		priority: args.priority,
-		runAfter: args.now,
-		attemptCount: 0,
 		maxAttempts: 3,
-		createdAt: args.now,
-		updatedAt: args.now
+		runAfter: args.now,
+		now: args.now
 	});
 
 	await ctx.db.patch(taskId, {
