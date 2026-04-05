@@ -209,9 +209,15 @@ export const runScheduledDownloadCycles = internalMutation({
 		const limitPerUser = Math.max(1, Math.min(Math.floor(args.limitPerUser ?? 25), 100));
 		const maxUsers = Math.max(1, Math.min(Math.floor(args.maxUsers ?? 50), 500));
 		const now = Date.now();
-		const enabledProfiles = (await ctx.db.query('downloadProfiles').collect())
-			.filter((profile) => profile.enabled)
-			.sort((left, right) => right.updatedAt - left.updatedAt);
+		// Use the by_enabled_updated_at index to fetch only enabled profiles, ordered
+		// most-recently-active first.  We read up to maxUsers * 5 rows to give the
+		// dedup loop enough candidates to fill maxUsers distinct users even when a
+		// single user owns several profiles.
+		const enabledProfiles = await ctx.db
+			.query('downloadProfiles')
+			.withIndex('by_enabled_updated_at', (q) => q.eq('enabled', true))
+			.order('desc')
+			.take(maxUsers * 5);
 
 		const orderedUserIds: GenericId<'users'>[] = [];
 		const seenUserIds = new Set<string>();

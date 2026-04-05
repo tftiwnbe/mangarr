@@ -258,7 +258,8 @@ export default defineSchema({
 	})
 		.index('by_owner_user_id', ['ownerUserId'])
 		.index('by_owner_user_id_library_title_id', ['ownerUserId', 'libraryTitleId'])
-		.index('by_owner_user_id_enabled_updated_at', ['ownerUserId', 'enabled', 'updatedAt']),
+		.index('by_owner_user_id_enabled_updated_at', ['ownerUserId', 'enabled', 'updatedAt'])
+		.index('by_enabled_updated_at', ['enabled', 'updatedAt']),
 
 	downloadTasks: defineTable({
 		ownerUserId: v.id('users'),
