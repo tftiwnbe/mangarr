@@ -23,23 +23,31 @@ import {
 } from './library_reader_support';
 
 export const listMine = query({
-	args: {},
-	handler: async (ctx) => {
+	args: {
+		limit: v.optional(v.float64()),
+		offset: v.optional(v.float64())
+	},
+	handler: async (ctx, args) => {
 		const identity = await ctx.auth.getUserIdentity();
 		if (!identity) {
 			return [];
 		}
 		const userId = identity.subject as GenericId<'users'>;
-		const [titles, statusById, collectionById, collectionIdsByTitleId] = await Promise.all([
+		const limit = Math.min(Math.max(1, Math.floor(args.limit ?? 500)), 1000);
+		const offset = Math.max(0, Math.floor(args.offset ?? 0));
+
+		const [allTitles, statusById, collectionById, collectionIdsByTitleId] = await Promise.all([
 			ctx.db
 				.query('libraryTitles')
 				.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', userId))
 				.order('desc')
-				.collect(),
+				.take(limit + offset),
 			loadOwnerUserStatusMap(ctx, userId),
 			loadOwnerCollectionMap(ctx, userId),
 			loadOwnerCollectionIdsByTitleId(ctx, userId)
 		]);
+
+		const titles = allTitles.slice(offset);
 		const titleRouteSegments = buildTitleRouteSegments(titles);
 
 		return titles
@@ -81,18 +89,21 @@ export const listMine = query({
 });
 
 export const listHiddenMine = query({
-	args: {},
-	handler: async (ctx) => {
+	args: {
+		limit: v.optional(v.float64())
+	},
+	handler: async (ctx, args) => {
 		const identity = await ctx.auth.getUserIdentity();
 		if (!identity) {
 			return [];
 		}
 
 		const ownerUserId = identity.subject as GenericId<'users'>;
+		const limit = Math.min(Math.max(1, Math.floor(args.limit ?? 200)), 500);
 		const titles = await ctx.db
 			.query('libraryTitles')
 			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
-			.collect();
+			.take(limit);
 		const titleRouteSegments = buildTitleRouteSegments(titles);
 
 		return titles
@@ -115,8 +126,10 @@ export const listHiddenMine = query({
 });
 
 export const getMineVisibilitySummary = query({
-	args: {},
-	handler: async (ctx) => {
+	args: {
+		limit: v.optional(v.float64())
+	},
+	handler: async (ctx, args) => {
 		const identity = await ctx.auth.getUserIdentity();
 		if (!identity) {
 			return {
@@ -126,12 +139,13 @@ export const getMineVisibilitySummary = query({
 			};
 		}
 
+		const limit = Math.min(Math.max(1, Math.floor(args.limit ?? 500)), 1000);
 		const titles = await ctx.db
 			.query('libraryTitles')
 			.withIndex('by_owner_user_id', (q) =>
 				q.eq('ownerUserId', identity.subject as GenericId<'users'>)
 			)
-			.collect();
+			.take(limit);
 
 		let listedCount = 0;
 		let hiddenCount = 0;

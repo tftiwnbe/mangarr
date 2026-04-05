@@ -51,11 +51,11 @@ export const getDownloadDashboard = query({
 			ctx.db
 				.query('libraryTitles')
 				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
-				.collect(),
+				.take(500),
 			ctx.db
 				.query('downloadProfiles')
 				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
-				.collect(),
+				.take(100),
 			ctx.db.query('installedExtensions').collect(),
 			ctx.db
 				.query('downloadTasks')
