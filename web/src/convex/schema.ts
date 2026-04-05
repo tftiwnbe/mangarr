@@ -24,6 +24,12 @@ export default defineSchema({
 		lastLoginAt: v.optional(v.float64())
 	}).index('by_username', ['username']),
 
+	loginRateLimits: defineTable({
+		key: v.string(),
+		failureTimestamps: v.array(v.float64()),
+		updatedAt: v.float64()
+	}).index('by_key', ['key']),
+
 	browserSessions: defineTable({
 		ownerUserId: v.id('users'),
 		sessionTokenHash: v.string(),

@@ -517,3 +517,85 @@ export const updateUserPassword = mutation({
 		return { updated: true };
 	}
 });
+
+// ---------------------------------------------------------------------------
+// Login rate limiting — persisted in Convex so it survives server restarts.
+// The key is typically an IP address or username, passed by the SvelteKit layer.
+// ---------------------------------------------------------------------------
+
+const RATE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+export const checkLoginRateLimit = query({
+	args: {
+		key: v.string(),
+		maxFails: v.float64(),
+		now: v.float64()
+	},
+	handler: async (ctx, args) => {
+		const row = await ctx.db
+			.query('loginRateLimits')
+			.withIndex('by_key', (q) => q.eq('key', args.key))
+			.unique();
+
+		if (!row) {
+			return { limited: false, failureCount: 0 };
+		}
+
+		const windowStart = args.now - RATE_WINDOW_MS;
+		const recentFailures = row.failureTimestamps.filter((ts) => ts >= windowStart);
+		return {
+			limited: recentFailures.length >= args.maxFails,
+			failureCount: recentFailures.length
+		};
+	}
+});
+
+export const recordLoginFailure = mutation({
+	args: {
+		key: v.string(),
+		now: v.float64()
+	},
+	handler: async (ctx, args) => {
+		const row = await ctx.db
+			.query('loginRateLimits')
+			.withIndex('by_key', (q) => q.eq('key', args.key))
+			.unique();
+
+		const windowStart = args.now - RATE_WINDOW_MS;
+
+		if (row) {
+			const pruned = row.failureTimestamps.filter((ts) => ts >= windowStart);
+			pruned.push(args.now);
+			await ctx.db.patch(row._id, {
+				failureTimestamps: pruned,
+				updatedAt: args.now
+			});
+		} else {
+			await ctx.db.insert('loginRateLimits', {
+				key: args.key,
+				failureTimestamps: [args.now],
+				updatedAt: args.now
+			});
+		}
+	}
+});
+
+export const clearLoginFailures = mutation({
+	args: {
+		key: v.string(),
+		now: v.float64()
+	},
+	handler: async (ctx, args) => {
+		const row = await ctx.db
+			.query('loginRateLimits')
+			.withIndex('by_key', (q) => q.eq('key', args.key))
+			.unique();
+
+		if (row) {
+			await ctx.db.patch(row._id, {
+				failureTimestamps: [],
+				updatedAt: args.now
+			});
+		}
+	}
+});

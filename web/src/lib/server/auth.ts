@@ -18,9 +18,7 @@ import {
 const REMEMBERED_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const EPHEMERAL_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const SESSION_REFRESH_WINDOW_MS = 15 * 60 * 1000;
-const RATE_WINDOW_MS = 15 * 60 * 1000;
 const RATE_MAX_FAILS = 10;
-const loginFailures = new Map<string, number[]>();
 
 export type SessionUser = {
 	id: string;
@@ -231,29 +229,34 @@ export async function loginWithCredentials(
 	}
 
 	const ip = event.getClientAddress();
-	const rateLimited = checkRateLimit(ip);
-	if (rateLimited) {
-		return { ok: false as const, field: 'rate', message: rateLimited };
+	const now = Date.now();
+	const client = getConvexClient();
+
+	const rateCheck = await client.query(convexApi.auth.checkLoginRateLimit, {
+		key: ip,
+		maxFails: RATE_MAX_FAILS,
+		now
+	});
+	if (rateCheck.limited) {
+		return { ok: false as const, field: 'rate', message: 'Too many failed login attempts. Try again later.' };
 	}
 
 	const usernameResult = normalizeUsername(input.username);
 	if (!usernameResult.ok) {
-		recordFailure(ip);
+		await client.mutation(convexApi.auth.recordLoginFailure, { key: ip, now });
 		return { ok: false as const, field: 'username', message: usernameResult.message };
 	}
 
-	const client = getConvexClient();
 	const user = await client.query(convexApi.auth.getUserByUsername, {
 		username: usernameResult.value
 	});
 
 	if (!user || user.status !== 'active' || !verifyPassword(input.password, user.passwordHash)) {
-		recordFailure(ip);
+		await client.mutation(convexApi.auth.recordLoginFailure, { key: ip, now });
 		return { ok: false as const, field: 'form', message: 'Invalid username or password' };
 	}
 
 	const sessionToken = generateOpaqueToken();
-	const now = Date.now();
 	const expiresAt = now + (input.rememberMe ? REMEMBERED_SESSION_TTL_MS : EPHEMERAL_SESSION_TTL_MS);
 
 	await client.mutation(convexApi.auth.createBrowserSession, {
@@ -263,7 +266,7 @@ export async function loginWithCredentials(
 		now
 	});
 
-	clearFailures(ip);
+	await client.mutation(convexApi.auth.clearLoginFailures, { key: ip, now });
 	setSessionCookie(event.cookies, event, sessionToken, expiresAt);
 	return { ok: true as const };
 }
@@ -371,26 +374,3 @@ async function fetchSessionByToken(sessionToken: string): Promise<SessionLookup>
 	}) as Promise<SessionLookup>;
 }
 
-function checkRateLimit(ip: string) {
-	const now = Date.now();
-	const entries = (loginFailures.get(ip) ?? []).filter(
-		(timestamp) => now - timestamp < RATE_WINDOW_MS
-	);
-	loginFailures.set(ip, entries);
-
-	if (entries.length >= RATE_MAX_FAILS) {
-		return 'Too many failed login attempts. Try again later.';
-	}
-
-	return null;
-}
-
-function recordFailure(ip: string) {
-	const failures = loginFailures.get(ip) ?? [];
-	failures.push(Date.now());
-	loginFailures.set(ip, failures);
-}
-
-function clearFailures(ip: string) {
-	loginFailures.delete(ip);
-}
