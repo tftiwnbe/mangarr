@@ -2,6 +2,7 @@ import type { GenericId } from 'convex/values';
 
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { buildTitleRouteBase } from '../lib/utils/route-segments';
+import { DOWNLOAD_STATUS } from './library_shared_access';
 import { loadInstalledSourceCatalog, variantInstalledSourceRecord } from './library_shared_sources';
 import { pickNumber, pickString } from './library_shared_values';
 
@@ -412,5 +413,51 @@ export async function applyVariantSnapshotToTitle(
 		status: args.status,
 		preferredVariantId: args.preferredVariantId,
 		updatedAt: args.now
+	});
+}
+
+/**
+ * Recompute chapter download counts for a title and persist them as
+ * denormalized fields on the libraryTitles row.  Call this whenever
+ * chapters are added, removed, or their downloadStatus changes.
+ */
+export async function refreshTitleChapterStats(
+	ctx: MutationCtx,
+	libraryTitleId: GenericId<'libraryTitles'>,
+	now: number
+) {
+	const chapters = await ctx.db
+		.query('libraryChapters')
+		.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', libraryTitleId))
+		.collect();
+
+	let queued = 0;
+	let downloading = 0;
+	let downloaded = 0;
+	let failed = 0;
+	for (const chapter of chapters) {
+		switch (chapter.downloadStatus) {
+			case DOWNLOAD_STATUS.QUEUED:
+				queued++;
+				break;
+			case DOWNLOAD_STATUS.DOWNLOADING:
+				downloading++;
+				break;
+			case DOWNLOAD_STATUS.DOWNLOADED:
+				downloaded++;
+				break;
+			case DOWNLOAD_STATUS.FAILED:
+				failed++;
+				break;
+		}
+	}
+
+	await ctx.db.patch(libraryTitleId, {
+		chapterCount: chapters.length,
+		downloadedChapterCount: downloaded,
+		queuedChapterCount: queued,
+		downloadingChapterCount: downloading,
+		failedChapterCount: failed,
+		updatedAt: now
 	});
 }

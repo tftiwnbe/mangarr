@@ -224,21 +224,18 @@ export function summarizeOfflineReadiness(
 		genre?: string | null;
 		status?: number | null;
 	},
-	chapters: Array<{
-		downloadStatus: (typeof DOWNLOAD_STATUS)[keyof typeof DOWNLOAD_STATUS];
-	}>
+	chapterStats: { total: number; downloaded: number }
 ) {
-	const downloadStats = summarizeDownloadStats(chapters);
 	const metadataReady = isOfflineMetadataReady(title);
 	const cachedCover =
 		typeof title.localCoverPath === 'string' && title.localCoverPath.trim().length > 0;
 	return {
-		titlePageReady: metadataReady && downloadStats.total > 0,
+		titlePageReady: metadataReady && chapterStats.total > 0,
 		metadataReady,
 		cachedCover,
-		downloadedChapters: downloadStats.downloaded,
-		totalChapters: downloadStats.total,
-		fullyDownloaded: downloadStats.total > 0 && downloadStats.downloaded === downloadStats.total,
+		downloadedChapters: chapterStats.downloaded,
+		totalChapters: chapterStats.total,
+		fullyDownloaded: chapterStats.total > 0 && chapterStats.downloaded === chapterStats.total,
 		missingCoverCache:
 			!cachedCover && typeof title.coverUrl === 'string' && title.coverUrl.trim().length > 0
 	};
@@ -276,6 +273,8 @@ export async function loadTitleOverviewContext(ctx: QueryCtx, title: Doc<'librar
 	const latestProgress =
 		[...progressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
 
+	const chapterStats = summarizeDownloadStats(chapters);
+
 	return {
 		routeSegment,
 		chapters,
@@ -285,8 +284,8 @@ export async function loadTitleOverviewContext(ctx: QueryCtx, title: Doc<'librar
 		progressRows,
 		latestProgress,
 		downloadProfile,
-		chapterStats: summarizeDownloadStats(chapters),
-		offlineReadiness: summarizeOfflineReadiness(title, chapters),
+		chapterStats,
+		offlineReadiness: summarizeOfflineReadiness(title, chapterStats),
 		readingProgress: {
 			startedChapters: progressRows.length,
 			latest: latestProgress

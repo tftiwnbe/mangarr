@@ -3,7 +3,7 @@ import { v } from 'convex/values';
 
 import { internalMutation, mutation, type MutationCtx, type QueryCtx } from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
-import { markTitleListedInLibrary } from './library_shared';
+import { markTitleListedInLibrary, refreshTitleChapterStats } from './library_shared';
 export { getDownloadDashboard } from './library_download_dashboard';
 
 const DOWNLOAD_STATUS = {
@@ -81,6 +81,7 @@ export const cancelQueuedChapterDownload = mutation({
 			lastErrorMessage: undefined,
 			updatedAt: now
 		});
+		await refreshTitleChapterStats(ctx, chapter.libraryTitleId, now);
 
 		return { ok: true, taskId: activeTask._id };
 	}
@@ -382,6 +383,7 @@ export const setChapterDownloadState = mutation({
 			downloadedAt: args.status === DOWNLOAD_STATUS.DOWNLOADED ? args.now : chapter.downloadedAt,
 			updatedAt: args.now
 		});
+		await refreshTitleChapterStats(ctx, chapter.libraryTitleId, args.now);
 
 		const task =
 			(args.downloadTaskId ? await ctx.db.get(args.downloadTaskId) : null) ??
@@ -548,6 +550,7 @@ async function recoverActiveDownloadsInternal(
 	const activeTasks = await loadActiveDownloadTasks(ctx, ACTIVE_DOWNLOAD_RECOVERY_SCAN_LIMIT);
 	let requeuedTasks = 0;
 	let failedTasks = 0;
+	const dirtyTitleIds = new Set<string>();
 
 	for (const task of activeTasks) {
 		const chapter = await ctx.db.get(task.libraryChapterId);
@@ -579,11 +582,13 @@ async function recoverActiveDownloadsInternal(
 
 		if (hasDownloadedStorage) {
 			await finalizeRecoveredCompletedTask(ctx, task, chapter, args.now);
+			dirtyTitleIds.add(String(chapter.libraryTitleId));
 			continue;
 		}
 
 		if (shouldRequeue) {
 			await requeueRecoveredTask(ctx, task, chapter, command, args.now);
+			dirtyTitleIds.add(String(chapter.libraryTitleId));
 			requeuedTasks += 1;
 			continue;
 		}
@@ -600,8 +605,13 @@ async function recoverActiveDownloadsInternal(
 				errorMessage,
 				args.now
 			);
+			dirtyTitleIds.add(String(chapter.libraryTitleId));
 			failedTasks += 1;
 		}
+	}
+
+	for (const titleId of dirtyTitleIds) {
+		await refreshTitleChapterStats(ctx, titleId as GenericId<'libraryTitles'>, args.now);
 	}
 
 	return {
@@ -684,6 +694,9 @@ async function runDownloadCycleForUser(
 			lastError: undefined,
 			updatedAt: args.now
 		});
+		if (entry.enqueued > 0) {
+			await refreshTitleChapterStats(ctx, entry.title._id, args.now);
+		}
 	}
 
 	return { checked: cyclePlan.checkedProfiles, enqueued };

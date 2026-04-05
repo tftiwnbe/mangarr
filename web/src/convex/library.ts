@@ -9,6 +9,7 @@ import {
 	DOWNLOAD_STATUS,
 	findVariantForTitle,
 	getPreferredVariantForTitle,
+	refreshTitleChapterStats,
 	requireOwnedTitle
 } from './library_shared';
 import { pickBestMergeCandidate } from './title_identity';
@@ -287,9 +288,7 @@ export const upsertChaptersForTitle = mutation({
 		}
 
 		if (chapterRowsChanged) {
-			await ctx.db.patch(title._id, {
-				updatedAt: args.now
-			});
+			await refreshTitleChapterStats(ctx, title._id, args.now);
 		}
 
 		return { ok: true, chapterCount: args.chapters.length };
