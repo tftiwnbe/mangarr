@@ -152,13 +152,12 @@ export const deleteUserStatus = mutation({
 
 		const titles = await ctx.db
 			.query('libraryTitles')
-			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', status.ownerUserId))
+			.withIndex('by_owner_user_id_user_status_id', (q) =>
+				q.eq('ownerUserId', status.ownerUserId).eq('userStatusId', status._id)
+			)
 			.collect();
 		const now = Date.now();
 		for (const title of titles) {
-			if (title.userStatusId !== status._id) {
-				continue;
-			}
 			await ctx.db.patch(title._id, {
 				userStatusId: undefined,
 				updatedAt: now

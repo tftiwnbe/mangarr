@@ -252,29 +252,37 @@ export const upsertChaptersForTitle = mutation({
 				chapter.titleVariantId === variant._id && !seenChapterUrls.has(chapter.chapterUrl)
 		);
 
-		for (const staleChapter of staleChapters) {
-			const [progressRows, commentRows] = await Promise.all([
+		if (staleChapters.length > 0) {
+			const staleChapterIds = new Set(staleChapters.map((c) => String(c._id)));
+			// Batch-load all progress and comment rows for the title, then filter to
+			// only the stale chapters — 2 queries instead of 2 × staleChapters.length.
+			const [allProgressRows, allCommentRows] = await Promise.all([
 				ctx.db
 					.query('chapterProgress')
-					.withIndex('by_owner_user_id_chapter_id', (q) =>
-						q.eq('ownerUserId', title.ownerUserId).eq('chapterId', staleChapter._id)
+					.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+						q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
 					)
 					.collect(),
 				ctx.db
 					.query('chapterComments')
-					.withIndex('by_owner_user_id_chapter_id_updated_at', (q) =>
-						q.eq('ownerUserId', title.ownerUserId).eq('chapterId', staleChapter._id)
+					.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+						q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
 					)
 					.collect()
 			]);
-
-			for (const progress of progressRows) {
-				await ctx.db.delete(progress._id);
+			for (const progress of allProgressRows) {
+				if (staleChapterIds.has(String(progress.chapterId))) {
+					await ctx.db.delete(progress._id);
+				}
 			}
-			for (const comment of commentRows) {
-				await ctx.db.delete(comment._id);
+			for (const comment of allCommentRows) {
+				if (staleChapterIds.has(String(comment.chapterId))) {
+					await ctx.db.delete(comment._id);
+				}
 			}
-			await ctx.db.delete(staleChapter._id);
+			for (const staleChapter of staleChapters) {
+				await ctx.db.delete(staleChapter._id);
+			}
 			chapterRowsChanged = true;
 		}
 
