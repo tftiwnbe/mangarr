@@ -25,6 +25,7 @@
 		generatedAt: number | null;
 		overview: {
 			downloadedChapters: number;
+			totalChapters: number;
 			avgChapterSizeBytes: number;
 		};
 		activeTasks: DashboardTask[];
@@ -413,7 +414,9 @@
 
 	function overviewValue(key: 'downloadedChapters' | 'avgChapterSize' | 'estimatedCapacity') {
 		if (key === 'downloadedChapters') {
-			return numberFormatter.format(Math.max(0, dashboard.overview.downloadedChapters));
+			const downloaded = Math.max(0, dashboard.overview.downloadedChapters);
+			const total = Math.max(0, dashboard.overview.totalChapters);
+			return `${numberFormatter.format(downloaded)} / ${numberFormatter.format(total)}`;
 		}
 		if (key === 'avgChapterSize') {
 			return formatBytes(dashboard.overview.avgChapterSizeBytes);
