@@ -3,7 +3,7 @@ import { v } from 'convex/values';
 
 import { internalMutation, mutation, type MutationCtx, type QueryCtx } from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
-import { markTitleListedInLibrary, refreshTitleChapterStats } from './library_shared';
+import { markTitleListedInLibrary, refreshTitleChapterStats, updateTitleChapterStatsIncremental } from './library_shared';
 import { insertCommand } from './command_payloads';
 export { getDownloadDashboard } from './library_download_dashboard';
 
@@ -75,6 +75,9 @@ export const cancelQueuedChapterDownload = mutation({
 			updatedAt: now
 		});
 
+		const oldStatus = chapter.downloadStatus;
+		const oldFileSizeBytes = chapter.fileSizeBytes;
+
 		await ctx.db.patch(chapter._id, {
 			downloadStatus: DOWNLOAD_STATUS.MISSING,
 			downloadedPages: 0,
@@ -82,7 +85,17 @@ export const cancelQueuedChapterDownload = mutation({
 			lastErrorMessage: undefined,
 			updatedAt: now
 		});
-		await refreshTitleChapterStats(ctx, chapter.libraryTitleId, now);
+
+		// Update title stats incrementally to avoid OCC errors
+		await updateTitleChapterStatsIncremental(
+			ctx,
+			chapter.libraryTitleId,
+			oldStatus,
+			DOWNLOAD_STATUS.MISSING,
+			oldFileSizeBytes,
+			undefined,
+			now
+		);
 
 		return { ok: true, taskId: activeTask._id };
 	}
@@ -366,6 +379,10 @@ export const setChapterDownloadState = mutation({
 			throw new Error('Library chapter not found');
 		}
 
+		const oldStatus = chapter.downloadStatus;
+		const oldFileSizeBytes = chapter.fileSizeBytes;
+		const newFileSizeBytes = args.fileSizeBytes === undefined ? chapter.fileSizeBytes : args.fileSizeBytes;
+
 		await ctx.db.patch(chapter._id, {
 			downloadStatus: args.status,
 			downloadedPages: args.downloadedPages ?? chapter.downloadedPages,
@@ -376,7 +393,7 @@ export const setChapterDownloadState = mutation({
 					: (args.localRelativePath ?? undefined),
 			storageKind:
 				args.storageKind === undefined ? chapter.storageKind : (args.storageKind ?? undefined),
-			fileSizeBytes: args.fileSizeBytes === undefined ? chapter.fileSizeBytes : args.fileSizeBytes,
+			fileSizeBytes: newFileSizeBytes,
 			lastErrorMessage:
 				args.lastErrorMessage === undefined
 					? chapter.lastErrorMessage
@@ -384,7 +401,17 @@ export const setChapterDownloadState = mutation({
 			downloadedAt: args.status === DOWNLOAD_STATUS.DOWNLOADED ? args.now : chapter.downloadedAt,
 			updatedAt: args.now
 		});
-		await refreshTitleChapterStats(ctx, chapter.libraryTitleId, args.now);
+
+		// Use incremental update instead of full refresh to avoid OCC errors
+		await updateTitleChapterStatsIncremental(
+			ctx,
+			chapter.libraryTitleId,
+			oldStatus,
+			args.status,
+			oldFileSizeBytes,
+			newFileSizeBytes,
+			args.now
+		);
 
 		const task =
 			(args.downloadTaskId ? await ctx.db.get(args.downloadTaskId) : null) ??
@@ -473,6 +500,9 @@ async function queueDownloadAttempt(
 		};
 	}
 
+	const oldStatus = args.chapter.downloadStatus;
+	const oldFileSizeBytes = args.chapter.fileSizeBytes;
+
 	await ctx.db.patch(args.chapter._id, {
 		downloadStatus: DOWNLOAD_STATUS.QUEUED,
 		downloadedPages: 0,
@@ -480,6 +510,17 @@ async function queueDownloadAttempt(
 		lastErrorMessage: undefined,
 		updatedAt: args.now
 	});
+
+	// Update title stats incrementally to avoid OCC errors
+	await updateTitleChapterStatsIncremental(
+		ctx,
+		args.chapter.libraryTitleId,
+		oldStatus,
+		DOWNLOAD_STATUS.QUEUED,
+		oldFileSizeBytes,
+		args.chapter.fileSizeBytes,
+		args.now
+	);
 
 	const attemptNumber = await nextDownloadAttemptNumber(ctx, args.chapter._id);
 	const taskId = await ctx.db.insert('downloadTasks', {
@@ -691,9 +732,7 @@ async function runDownloadCycleForUser(
 			lastError: undefined,
 			updatedAt: args.now
 		});
-		if (entry.enqueued > 0) {
-			await refreshTitleChapterStats(ctx, entry.title._id, args.now);
-		}
+		// Stats are now updated incrementally in queueDownloadAttempt, no need for full refresh
 	}
 
 	return { checked: cyclePlan.checkedProfiles, enqueued };

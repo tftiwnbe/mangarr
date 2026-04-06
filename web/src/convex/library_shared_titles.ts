@@ -466,6 +466,72 @@ export async function refreshTitleChapterStats(
 }
 
 /**
+ * Incrementally update title chapter stats based on a status transition.
+ * This avoids OCC errors by not scanning all chapters.
+ */
+export async function updateTitleChapterStatsIncremental(
+	ctx: MutationCtx,
+	libraryTitleId: GenericId<'libraryTitles'>,
+	oldStatus: string | undefined,
+	newStatus: string,
+	oldFileSizeBytes: number | undefined,
+	newFileSizeBytes: number | undefined,
+	now: number
+) {
+	const title = await ctx.db.get(libraryTitleId);
+	if (!title) return;
+
+	let queuedDelta = 0;
+	let downloadingDelta = 0;
+	let downloadedDelta = 0;
+	let failedDelta = 0;
+	let bytesDelta = 0;
+
+	// Decrement old status
+	switch (oldStatus) {
+		case DOWNLOAD_STATUS.QUEUED:
+			queuedDelta--;
+			break;
+		case DOWNLOAD_STATUS.DOWNLOADING:
+			downloadingDelta--;
+			break;
+		case DOWNLOAD_STATUS.DOWNLOADED:
+			downloadedDelta--;
+			bytesDelta -= oldFileSizeBytes ?? 0;
+			break;
+		case DOWNLOAD_STATUS.FAILED:
+			failedDelta--;
+			break;
+	}
+
+	// Increment new status
+	switch (newStatus) {
+		case DOWNLOAD_STATUS.QUEUED:
+			queuedDelta++;
+			break;
+		case DOWNLOAD_STATUS.DOWNLOADING:
+			downloadingDelta++;
+			break;
+		case DOWNLOAD_STATUS.DOWNLOADED:
+			downloadedDelta++;
+			bytesDelta += newFileSizeBytes ?? 0;
+			break;
+		case DOWNLOAD_STATUS.FAILED:
+			failedDelta++;
+			break;
+	}
+
+	await ctx.db.patch(libraryTitleId, {
+		queuedChapterCount: Math.max(0, (title.queuedChapterCount ?? 0) + queuedDelta),
+		downloadingChapterCount: Math.max(0, (title.downloadingChapterCount ?? 0) + downloadingDelta),
+		downloadedChapterCount: Math.max(0, (title.downloadedChapterCount ?? 0) + downloadedDelta),
+		failedChapterCount: Math.max(0, (title.failedChapterCount ?? 0) + failedDelta),
+		downloadedChapterBytes: Math.max(0, (title.downloadedChapterBytes ?? 0) + bytesDelta),
+		updatedAt: now
+	});
+}
+
+/**
  * Recompute variant count for a title and persist it as a denormalized
  * field on the libraryTitles row.  Call this whenever variants are added or
  * removed.

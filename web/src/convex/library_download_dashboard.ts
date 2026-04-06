@@ -25,6 +25,7 @@ export const getDownloadDashboard = query({
 				generatedAt: null,
 				overview: {
 					downloadedChapters: 0,
+					totalChapters: 0,
 					avgChapterSizeBytes: 0
 				},
 				activeTasks: [],
@@ -121,9 +122,11 @@ export const getDownloadDashboard = query({
 
 		// Build chapter stats from denormalized counts on title rows — no chapter scan needed.
 		let downloadedChapters = 0;
+		let totalChapters = 0;
 		let totalDownloadedBytes = 0;
 		for (const title of titles) {
 			downloadedChapters += title.downloadedChapterCount ?? 0;
+			totalChapters += title.chapterCount ?? 0;
 			totalDownloadedBytes += title.downloadedChapterBytes ?? 0;
 		}
 
@@ -185,6 +188,7 @@ export const getDownloadDashboard = query({
 			generatedAt: Date.now(),
 			overview: {
 				downloadedChapters,
+				totalChapters,
 				avgChapterSizeBytes:
 					downloadedChapters > 0 ? Math.round(totalDownloadedBytes / downloadedChapters) : 0
 			},
