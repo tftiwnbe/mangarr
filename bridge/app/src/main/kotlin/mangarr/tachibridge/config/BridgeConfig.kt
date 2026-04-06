@@ -25,6 +25,12 @@ data class BridgeConfig(
         val downloadPath: String = "",
         @SerialName("failed_retry_delay_seconds")
         val failedRetryDelaySeconds: Int = 300,
+        @SerialName("throttle_delay_between_pages_ms")
+        val throttleDelayBetweenPagesMs: Long = 500,
+        @SerialName("throttle_delay_between_chapters_ms")
+        val throttleDelayBetweenChaptersMs: Long = 2000,
+        @SerialName("throttle_adaptive_rate_limiting")
+        val throttleAdaptiveRateLimiting: Boolean = true,
     )
 
     @Serializable
