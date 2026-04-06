@@ -708,15 +708,30 @@ export const listAllMineChapters = query({
 		const limit = Math.min(Math.max(100, Math.floor(args.limit ?? 2000)), 10000);
 
 		// Load chapters directly with limit to avoid memory issues
-		const chapters = await ctx.db
-			.query('libraryChapters')
+		// Note: No simple by_owner_user_id index exists, so we filter after loading titles
+		const allTitles = await ctx.db
+			.query('libraryTitles')
 			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
-			.take(limit);
+			.collect();
+
+		const titleIds = allTitles.map((t) => t._id);
+		const allChapters: typeof chapters = [];
+
+		for (const titleId of titleIds) {
+			const titleChapters = await ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', titleId))
+				.take(Math.ceil(limit / Math.max(titleIds.length, 1)));
+			allChapters.push(...titleChapters);
+			if (allChapters.length >= limit) break;
+		}
+
+		const chapters = allChapters.slice(0, limit);
 
 		// Load only the titles that are referenced by these chapters
-		const titleIds = [...new Set(chapters.map((c) => String(c.libraryTitleId)))];
+		const referencedTitleIds = [...new Set(chapters.map((c) => String(c.libraryTitleId)))];
 		const titles = await Promise.all(
-			titleIds.map((id) => ctx.db.get(id as GenericId<'libraryTitles'>))
+			referencedTitleIds.map((id) => ctx.db.get(id as GenericId<'libraryTitles'>))
 		);
 
 		const titleById = new Map(
