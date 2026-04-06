@@ -58,6 +58,7 @@ class BridgeService(
     private val feedCache = ConcurrentHashMap<String, CachedFeedResult>()
     private val readerPageCache = ConcurrentHashMap<String, CachedReaderPage>()
     private val readerPageLocks = ConcurrentHashMap<String, Mutex>()
+    private val rateLimiter = SourceRateLimiter()
 
     fun pruneCaches(now: Long = System.currentTimeMillis()): CachePruneSummary {
         feedCache.entries.removeIf { (_, cached) -> cached.expiresAt <= now }
@@ -500,7 +501,7 @@ class BridgeService(
                 return@withLock PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
             }
 
-            val payload = fetchPageImageWithRetry(sourceId.toLong(), chapterUrl, chapterName, index)
+            val payload = fetchPageImageWithRetry(sourceId.toString(), chapterUrl, chapterName, index)
             val cached =
                 CachedReaderPage(
                     contentType = payload.contentType,
@@ -524,6 +525,14 @@ class BridgeService(
         chapterNumber: Double?,
         onProgress: (downloadedPages: Int, totalPages: Int) -> Unit,
     ): JsonObject {
+        val config = ConfigManager.config.downloads
+
+        // Wait for minimum delay between chapters from the same source
+        rateLimiter.waitForChapterStart(
+            sourceId = sourceId,
+            delayBetweenChaptersMs = config.throttleDelayBetweenChaptersMs,
+        )
+
         extensionManager.awaitReady()
         val parsedSourceId = sourceId.toLong()
         val pages =
@@ -550,15 +559,24 @@ class BridgeService(
         if (totalPages > 0) {
             val nextIndex = AtomicInteger(0)
             val completedPages = AtomicInteger(0)
+
+            // Reduce concurrency to 1 if source is being throttled due to rate limits
+            val effectiveConcurrency = if (rateLimiter.isThrottled(sourceId)) {
+                logger.debug { "Source $sourceId is throttled, using sequential download (concurrency=1)" }
+                1
+            } else {
+                minOf(DOWNLOAD_PAGE_CONCURRENCY, totalPages)
+            }
+
             coroutineScope {
-                repeat(minOf(DOWNLOAD_PAGE_CONCURRENCY, totalPages)) {
+                repeat(effectiveConcurrency) {
                     launch(Dispatchers.IO) {
                         while (true) {
                             val index = nextIndex.getAndIncrement()
                             if (index >= totalPages) {
                                 return@launch
                             }
-                            val image = fetchPageImageWithRetry(sourceId.toLong(), chapterUrl, chapterName, index)
+                            val image = fetchPageImageWithRetry(sourceId, chapterUrl, chapterName, index)
                             downloadStorage.writePage(workspace, index, image)
                             onProgress(completedPages.incrementAndGet(), totalPages)
                         }
@@ -568,6 +586,10 @@ class BridgeService(
         }
 
         val stored = downloadStorage.finalizeChapterDownload(workspace)
+
+        // Record chapter completion for rate limiting purposes
+        rateLimiter.recordChapterCompletion(sourceId)
+
         return buildJsonObject {
             put("ok", true)
             put("totalPages", totalPages)
@@ -579,35 +601,70 @@ class BridgeService(
     }
 
     private suspend fun fetchPageImageWithRetry(
-        sourceId: Long,
+        sourceId: String,
         chapterUrl: String,
         chapterName: String?,
         index: Int,
     ): PageImagePayload {
+        val config = ConfigManager.config.downloads
         var lastError: Exception? = null
+        val parsedSourceId = sourceId.toLong()
 
-        for ((attemptIndex, baseDelayMs) in DOWNLOAD_PAGE_RETRY_DELAYS_MS.withIndex()) {
-            val delayMs =
-                if (lastError is HttpException) {
-                    maxOf(baseDelayMs, ((lastError as HttpException).retryAfterSeconds ?: 0L) * 1_000L)
-                } else {
-                    baseDelayMs
+        // Extend retry attempts for rate-limited sources
+        val maxAttempts =
+            if (rateLimiter.isThrottled(sourceId)) {
+                DOWNLOAD_PAGE_RETRY_DELAYS_MS.size + 2  // Extra attempts when throttled
+            } else {
+                DOWNLOAD_PAGE_RETRY_DELAYS_MS.size
+            }
+
+        for (attemptIndex in 0 until maxAttempts) {
+            // Apply rate limiting before each attempt
+            rateLimiter.acquirePermit(
+                sourceId = sourceId,
+                baseDelayMs = config.throttleDelayBetweenPagesMs,
+                adaptiveRateLimitingEnabled = config.throttleAdaptiveRateLimiting,
+            )
+
+            // Calculate retry delay (only applies after first attempt)
+            if (attemptIndex > 0) {
+                val baseDelayMs = DOWNLOAD_PAGE_RETRY_DELAYS_MS.getOrElse(attemptIndex) { 15_000L }
+                val delayMs =
+                    if (lastError is HttpException) {
+                        maxOf(baseDelayMs, ((lastError as HttpException).retryAfterSeconds ?: 0L) * 1_000L)
+                    } else {
+                        baseDelayMs
+                    }
+                if (delayMs > 0) {
+                    kotlinx.coroutines.delay(delayMs)
                 }
-            if (delayMs > 0) {
-                kotlinx.coroutines.delay(delayMs)
             }
 
             try {
-                return extensionManager.getPageImage(sourceId, chapterUrl, chapterName, index)
+                val result = extensionManager.getPageImage(parsedSourceId, chapterUrl, chapterName, index)
+                rateLimiter.recordSuccess(sourceId)
+                return result
             } catch (error: Exception) {
                 lastError = error
-                if (!shouldRetryPageFetch(error) || attemptIndex == DOWNLOAD_PAGE_RETRY_DELAYS_MS.lastIndex) {
+
+                // Handle rate limit errors specially
+                if (error is HttpException && error.code == 429) {
+                    rateLimiter.recordRateLimit(sourceId, error.retryAfterSeconds)
+                    logger.warn(error) {
+                        "Rate limited on page ${index + 1} for $chapterUrl " +
+                            "(attempt ${attemptIndex + 1}/$maxAttempts), will retry with backoff"
+                    }
+                    // Always retry 429 unless we're out of attempts
+                    if (attemptIndex < maxAttempts - 1) continue
+                }
+
+                if (!shouldRetryPageFetch(error) || attemptIndex == maxAttempts - 1) {
                     throw error
                 }
 
                 logger.warn(error) {
                     "Page fetch failed for chapter $chapterUrl page ${index + 1} " +
-                        "(attempt ${attemptIndex + 1}/${DOWNLOAD_PAGE_RETRY_DELAYS_MS.size}), retrying"
+                        "(attempt ${attemptIndex + 1}/$maxAttempts), retrying"
                 }
             }
         }
