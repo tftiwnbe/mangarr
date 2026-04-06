@@ -14,12 +14,11 @@
 	import { convexApi } from '$lib/convex/api';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { Switch } from '$lib/elements/switch';
-	import { Tabs } from '$lib/elements/tabs';
 	import { _ } from '$lib/i18n';
 	import { buildTitlePath } from '$lib/utils/routes';
 
 	type TaskStatus = 'queued' | 'downloading' | 'completed' | 'failed' | 'cancelled';
-	type TabValue = 'active' | 'history' | 'watched';
+	type TabValue = 'watched';
 
 	type DashboardData = {
 		generatedAt: number | null;
@@ -88,14 +87,10 @@
 			watchedLimit: 30,
 			activeLimit: 100,
 			recentLimit: 40
-		}),
-		{
-			// Poll every 2 seconds when there are active downloads
-			throttleMs: 2000
-		}
+		})
 	);
 
-	let activeTab = $state<TabValue>('active');
+	let activeTab = $state<TabValue>('watched');
 	let runningAction = $state<string | null>(null);
 	let profileActionTitleId = $state<string | null>(null);
 	let taskActionKey = $state<string | null>(null);
@@ -110,6 +105,7 @@
 			generatedAt: null,
 			overview: {
 				downloadedChapters: 0,
+				totalChapters: 0,
 				avgChapterSizeBytes: 0
 			},
 			activeTasks: [],
@@ -120,84 +116,12 @@
 	const isLoading = $derived(dashboardQuery.isLoading);
 	const numberFormatter = new Intl.NumberFormat();
 
-	// Group active tasks by title for better progress visualization
-	type TitleProgress = {
-		titleId: string;
-		title: string;
-		coverUrl: string | null;
-		localCoverPath: string | null;
-		tasks: DashboardTask[];
-		totalTasks: number;
-		completedTasks: number;
-		downloadingTasks: number;
-		queuedTasks: number;
-		failedTasks: number;
-		overallProgress: number;
-		totalBytes: number;
-	};
-
-	const groupedActiveTasks = $derived.by(() => {
-		const grouped = new Map<string, TitleProgress>();
-
-		for (const task of dashboard.activeTasks) {
-			const titleId = task.titleId as string;
-			if (!grouped.has(titleId)) {
-				grouped.set(titleId, {
-					titleId,
-					title: task.title,
-					coverUrl: task.coverUrl,
-					localCoverPath: task.localCoverPath,
-					tasks: [],
-					totalTasks: 0,
-					completedTasks: 0,
-					downloadingTasks: 0,
-					queuedTasks: 0,
-					failedTasks: 0,
-					overallProgress: 0,
-					totalBytes: 0
-				});
-			}
-
-			const group = grouped.get(titleId)!;
-			group.tasks.push(task);
-			group.totalTasks++;
-
-			if (task.status === 'downloading') group.downloadingTasks++;
-			else if (task.status === 'queued') group.queuedTasks++;
-			else if (task.status === 'failed') group.failedTasks++;
-
-			group.totalBytes += task.fileSizeBytes ?? 0;
-		}
-
-		// Calculate overall progress for each title
-		for (const group of grouped.values()) {
-			const totalProgress = group.tasks.reduce((sum, task) => sum + task.progressPercent, 0);
-			group.overallProgress = group.totalTasks > 0
-				? Math.round(totalProgress / group.totalTasks)
-				: 0;
-		}
-
-		return Array.from(grouped.values()).sort((a, b) => {
-			// Prioritize downloading over queued
-			if (a.downloadingTasks > 0 && b.downloadingTasks === 0) return -1;
-			if (b.downloadingTasks > 0 && a.downloadingTasks === 0) return 1;
-			return b.totalTasks - a.totalTasks;
-		});
+	// Get the first 2 chapters that are currently downloading
+	const currentlyDownloading = $derived.by(() => {
+		return dashboard.activeTasks
+			.filter((task) => task.status === 'downloading')
+			.slice(0, 2);
 	});
-
-	const tabs: { key: TabValue; labelKey: string }[] = [
-		{ key: 'active', labelKey: 'downloads.active' },
-		{ key: 'history', labelKey: 'downloads.history' },
-		{ key: 'watched', labelKey: 'downloads.watched' }
-	];
-
-	const statusBarClass: Record<TaskStatus, string> = {
-		downloading: 'bg-[var(--text-muted)] shadow-[0_0_6px_rgba(228,228,231,0.4)] animate-pulse',
-		queued: 'bg-[var(--void-6)]',
-		completed: 'bg-[var(--success)]/50 shadow-[0_0_6px_rgba(134,239,172,0.4)]',
-		failed: 'bg-[var(--error)]/50 shadow-[0_0_6px_rgba(248,113,113,0.3)]',
-		cancelled: 'bg-[var(--void-6)]'
-	};
 
 	onMount(() => {
 		void loadStorage();
@@ -388,17 +312,6 @@
 		}
 	}
 
-	function parseTime(value: number): { key: string; values?: Record<string, number> } {
-		const diff = Math.max(0, Date.now() - value);
-		const minutes = Math.floor(diff / 60_000);
-		const hours = Math.floor(minutes / 60);
-		const days = Math.floor(hours / 24);
-		if (days > 0) return { key: 'time.shortDaysAgo', values: { count: days } };
-		if (hours > 0) return { key: 'time.shortHoursAgo', values: { count: hours } };
-		if (minutes > 0) return { key: 'time.shortMinutesAgo', values: { count: minutes } };
-		return { key: 'time.justNow' };
-	}
-
 	function formatBytes(bytes: number): string {
 		if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
 		const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -434,26 +347,6 @@
 		if (key === 'avgChapterSize') return $_('downloads.avgSizeShort');
 		if (key === 'estimatedCapacity') return $_('downloads.capacityShort');
 		return $_('downloads.chaptersShort');
-	}
-
-	function getTasksList(tab: TabValue): DashboardTask[] {
-		if (tab === 'active') return dashboard.activeTasks;
-		if (tab === 'history') return dashboard.recentTasks;
-		return [];
-	}
-
-	function tabCount(key: TabValue) {
-		if (key === 'active') return groupedActiveTasks.length;
-		if (key === 'history') return dashboard.recentTasks.length;
-		return dashboard.watchedTitles.length;
-	}
-
-	function taskFileHref(task: DashboardTask): string | null {
-		if (!task.localRelativePath || !task.storageKind) return null;
-		const params = new URLSearchParams({
-			path: task.localRelativePath
-		});
-		return `/api/internal/bridge/library/file?${params.toString()}`;
 	}
 
 	function taskActionLoading(kind: string, taskId: string) {
@@ -545,311 +438,148 @@
 		</div>
 	{/if}
 
-	<Tabs
-		tabs={tabs.map((tab) => ({
-			value: tab.key,
-			label: $_(tab.labelKey),
-			count: tabCount(tab.key)
-		}))}
-		value={activeTab}
-		onValueChange={(value) => (activeTab = value as TabValue)}
-	/>
-
-	{#if isLoading && !dashboard.generatedAt}
-		<div class="flex items-center justify-center py-20">
-			<SpinnerIcon size={16} class="animate-spin text-[var(--text-ghost)]" />
+	<!-- Current Downloads Section -->
+	{#if currentlyDownloading.length > 0}
+		<div class="flex flex-col gap-1 pb-3">
+			<h2 class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase px-1 pb-2">
+				{$_('downloads.downloading')}
+			</h2>
+			{#each currentlyDownloading as task (task.chapterId)}
+				<div class="flex gap-3 border border-[var(--line)] bg-[var(--void-2)] p-3">
+					<a href={buildTitlePath(task.titleId, task.title)} class="shrink-0">
+						<LazyImage
+							src={coverSrc(task)}
+							alt={task.title}
+							class="h-16 w-11 border border-[var(--line)]"
+						/>
+					</a>
+					<div class="min-w-0 flex-1">
+						<a href={buildTitlePath(task.titleId, task.title)}>
+							<p class="line-clamp-1 text-sm text-[var(--text)]">{task.title}</p>
+						</a>
+						<p class="mt-0.5 line-clamp-1 text-xs text-[var(--text-muted)]">{task.chapter}</p>
+						<div class="mt-1 flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
+							<span class="text-[var(--text-muted)]">{$_('downloads.downloading').toLowerCase()}</span>
+							{#if task.fileSizeBytes && task.fileSizeBytes > 0}
+								<span>{formatBytes(task.fileSizeBytes)}</span>
+							{/if}
+						</div>
+						<div class="mt-2 h-0.5 w-full overflow-hidden bg-[var(--void-4)]">
+							<div
+								class="h-full bg-[var(--text-muted)] shadow-[0_0_8px_rgba(228,228,231,0.6)] transition-[width] duration-300 animate-pulse"
+								style="width: {task.progressPercent}%"
+							></div>
+						</div>
+					</div>
+					<div class="flex shrink-0 items-center self-center">
+						<span class="text-sm text-[var(--text)] tabular-nums">
+							{task.progressPercent}%
+						</span>
+					</div>
+				</div>
+			{/each}
 		</div>
-	{:else if activeTab === 'watched'}
-		{#if dashboard.watchedTitles.length === 0}
+	{/if}
+
+	<!-- Watched Titles Section -->
+	<div class="flex flex-col gap-1">
+		<h2 class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase px-1 pb-2">
+			{$_('downloads.watched')}
+		</h2>
+		{#if isLoading && !dashboard.generatedAt}
+			<div class="flex items-center justify-center py-20">
+				<SpinnerIcon size={16} class="animate-spin text-[var(--text-ghost)]" />
+			</div>
+		{:else if dashboard.watchedTitles.length === 0}
 			<div class="flex flex-col items-center py-20">
 				<p class="text-sm text-[var(--text-ghost)]">{$_('downloads.noWatched')}</p>
 			</div>
 		{:else}
-			<div class="flex flex-col gap-1">
-				{#each dashboard.watchedTitles as item (item.titleId)}
-					{@const progress =
-						item.totalChapters > 0
-							? Math.round((item.downloadedChapters / item.totalChapters) * 100)
-							: 0}
-					<div class="group flex gap-3 py-2 transition-opacity {item.enabled ? '' : 'opacity-35'}">
-						<a href={buildTitlePath(item.titleId, item.title)} class="shrink-0">
-							<LazyImage
-								src={coverSrc(item)}
-								alt={item.title}
-								class="h-16 w-11 border border-[var(--line)]"
-							/>
-						</a>
-						<a href={buildTitlePath(item.titleId, item.title)} class="min-w-0 flex-1">
-							<div class="flex items-baseline justify-between gap-2">
-								<p class="line-clamp-1 text-sm text-[var(--text)]">{item.title}</p>
-								<span class="shrink-0 text-xs text-[var(--text-soft)] tabular-nums">
-									{item.downloadedChapters}/{item.totalChapters}
-								</span>
-							</div>
-							<div class="mt-0.5 flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
-								{#if item.variantSources.length > 0}
-									<span>{item.variantSources.join(', ')}</span>
-								{/if}
-								{#if item.paused}
-									<span class="text-[var(--text-muted)]"
-										>{$_('downloads.paused').toLowerCase()}</span
-									>
-								{/if}
-								{#if item.autoDownload}
-									<span>auto</span>
-								{/if}
-								<span>{formatBytes(item.downloadedBytes)}</span>
-							</div>
-							{#if item.queuedTasks > 0}
-								<div class="mt-0.5 flex items-center gap-2 text-[10px]">
-									<span class="text-[var(--text-ghost)]">
-										{item.queuedTasks}
-										{$_('downloads.queued').toLowerCase()}
-									</span>
-								</div>
+			{#each dashboard.watchedTitles as item (item.titleId)}
+				{@const progress =
+					item.totalChapters > 0
+						? Math.round((item.downloadedChapters / item.totalChapters) * 100)
+						: 0}
+				{@const isDownloading = item.queuedTasks > 0}
+				<div class="group flex gap-3 py-2 transition-opacity {item.enabled ? '' : 'opacity-35'}">
+					<a href={buildTitlePath(item.titleId, item.title)} class="shrink-0">
+						<LazyImage
+							src={coverSrc(item)}
+							alt={item.title}
+							class="h-16 w-11 border border-[var(--line)]"
+						/>
+					</a>
+					<a href={buildTitlePath(item.titleId, item.title)} class="min-w-0 flex-1">
+						<div class="flex items-baseline justify-between gap-2">
+							<p class="line-clamp-1 text-sm text-[var(--text)]">{item.title}</p>
+							<span class="shrink-0 text-xs text-[var(--text-soft)] tabular-nums">
+								{item.downloadedChapters}/{item.totalChapters}
+							</span>
+						</div>
+						<div class="mt-0.5 flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
+							{#if item.variantSources.length > 0}
+								<span>{item.variantSources.join(', ')}</span>
 							{/if}
-							<div class="mt-2 h-0.5 w-full overflow-hidden bg-[var(--void-4)]">
-								<div
-									class="h-full bg-[var(--text-muted)] transition-[width]"
-									style="width: {progress}%"
-								></div>
-							</div>
-						</a>
-						<div class="flex shrink-0 items-center gap-2 self-center">
-							<button
-								type="button"
-								class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text-muted)]"
-								onclick={() => void retryMissingForTitle(item.titleId)}
-								disabled={taskActionLoading('retry-title', item.titleId)}
-								title={$_('downloads.retry')}
-							>
-								{#if taskActionLoading('retry-title', item.titleId)}
-									<SpinnerIcon size={13} class="animate-spin" />
-								{:else}
-									{$_('downloads.retry')}
-								{/if}
-							</button>
-							<button
-								type="button"
-								class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text-muted)]"
-								onclick={() => void toggleAutoDownload(item.titleId, !item.autoDownload)}
-								disabled={profileActionTitleId === item.titleId}
-								title={$_('downloads.autoDownload')}
-							>
-								{$_('downloads.autoDownload')}
-								{item.autoDownload ? $_('downloads.on') : $_('downloads.off')}
-							</button>
-							<Switch
-								checked={item.enabled}
-								disabled={profileActionTitleId === item.titleId}
-								loading={profileActionTitleId === item.titleId}
-								variant="success"
-								class="self-center"
-								onCheckedChange={(enabled) => void toggleWatch(item.titleId, enabled)}
-							/>
-						</div>
-					</div>
-				{/each}
-			</div>
-		{/if}
-	{:else if activeTab === 'active'}
-		{#if groupedActiveTasks.length === 0}
-			<div class="flex flex-col items-center py-20">
-				<p class="text-sm text-[var(--text-ghost)]">{$_('downloads.noActive')}</p>
-			</div>
-		{:else}
-			<div class="flex flex-col gap-1">
-				{#each groupedActiveTasks as group (group.titleId)}
-					<div class="group flex gap-3 py-2">
-						<a href={buildTitlePath(group.titleId as Id<'libraryTitles'>, group.title)} class="shrink-0">
-							<LazyImage
-								src={coverSrc(group)}
-								alt={group.title}
-								class="h-16 w-11 border border-[var(--line)]"
-							/>
-						</a>
-						<a href={buildTitlePath(group.titleId as Id<'libraryTitles'>, group.title)} class="min-w-0 flex-1">
-							<div class="flex items-baseline justify-between gap-2">
-								<p class="line-clamp-1 text-sm text-[var(--text)]">{group.title}</p>
-								<span class="shrink-0 text-sm text-[var(--text)] tabular-nums">
-									{group.overallProgress}%
-								</span>
-							</div>
-							<div class="mt-0.5 flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
-								{#if group.downloadingTasks > 0}
-									<span class="text-[var(--text-muted)]">
-										{group.downloadingTasks} {$_('downloads.downloading').toLowerCase()}
-									</span>
-								{/if}
-								{#if group.queuedTasks > 0}
-									<span>
-										{group.queuedTasks} {$_('downloads.queued').toLowerCase()}
-									</span>
-								{/if}
-								{#if group.failedTasks > 0}
-									<span class="text-[var(--error)]">
-										{group.failedTasks} {$_('downloads.failed').toLowerCase()}
-									</span>
-								{/if}
-								<span>{group.totalTasks} {group.totalTasks === 1 ? 'chapter' : 'chapters'}</span>
-								{#if group.totalBytes > 0}
-									<span>{formatBytes(group.totalBytes)}</span>
-								{/if}
-							</div>
-							<div class="mt-2 h-0.5 w-full overflow-hidden bg-[var(--void-4)]">
-								<div
-									class="h-full bg-[var(--text-muted)] transition-[width] duration-300 {group.downloadingTasks > 0 ? 'shadow-[0_0_6px_rgba(228,228,231,0.4)] animate-pulse' : ''}"
-									style="width: {group.overallProgress}%"
-								></div>
-							</div>
-						</a>
-						<div class="flex shrink-0 items-center gap-1 self-center">
-							<button
-								type="button"
-								class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text-muted)]"
-								onclick={() => void retryMissingForTitle(group.titleId as Id<'libraryTitles'>)}
-								disabled={taskActionLoading('retry-title', group.titleId)}
-								title={$_('downloads.retry')}
-							>
-								{#if taskActionLoading('retry-title', group.titleId)}
-									<SpinnerIcon size={13} class="animate-spin" />
-								{:else}
-									{$_('downloads.retry')}
-								{/if}
-							</button>
-						</div>
-					</div>
-				{/each}
-			</div>
-		{/if}
-	{:else}
-		{@const tasks = getTasksList(activeTab)}
-		{#if tasks.length === 0}
-			<div class="flex flex-col items-center py-20">
-				<p class="text-sm text-[var(--text-ghost)]">{$_('downloads.noHistory')}</p>
-			</div>
-		{:else}
-			<div class="flex flex-col gap-1">
-				{#each tasks as task (`${activeTab}:${task.chapterId}`)}
-					{@const time = parseTime(task.updatedAt)}
-					{@const fileHref = taskFileHref(task)}
-					<div class="group flex gap-3 py-2">
-						<a href={buildTitlePath(task.titleId, task.title)} class="shrink-0">
-							<LazyImage
-								src={coverSrc(task)}
-								alt={task.title}
-								class="h-16 w-11 border border-[var(--line)]"
-							/>
-						</a>
-						<div class="min-w-0 flex-1">
-							<div class="flex items-baseline justify-between gap-2">
-								<a href={buildTitlePath(task.titleId, task.title)} class="min-w-0">
-									<p class="line-clamp-1 text-sm text-[var(--text)]">{task.title}</p>
-								</a>
-								<span class="shrink-0 text-sm text-[var(--text)] tabular-nums">
-									{task.progressPercent}%
-								</span>
-							</div>
-							<p class="mt-0.5 line-clamp-1 text-xs text-[var(--text-muted)]">{task.chapter}</p>
-							<div
-								class="mt-1 flex flex-wrap items-center gap-x-2 text-[10px] text-[var(--text-ghost)]"
-							>
-								<span>{$_(`downloads.${task.status}`).toLowerCase()}</span>
-								<span>{$_(time.key, { values: time.values })}</span>
-								{#if activeTab === 'active' && task.isPaused}
-									<span class="text-[var(--text-muted)]"
-										>{$_('downloads.paused').toLowerCase()}</span
-									>
-								{/if}
-								{#if task.fileSizeBytes && task.fileSizeBytes > 0}
-									<span>{formatBytes(task.fileSizeBytes)}</span>
-								{/if}
-							</div>
-							<div class="mt-2 h-0.5 w-full bg-[var(--void-4)]">
-								<div
-									class="h-full transition-[width] duration-300 {statusBarClass[task.status]}"
-									style="width: {task.progressPercent}%"
-								></div>
-							</div>
-							{#if task.error && task.error !== 'Paused'}
-								<p class="mt-1 line-clamp-1 text-[10px] text-[var(--error)]">{task.error}</p>
-							{/if}
-						</div>
-						<div class="flex shrink-0 items-center gap-1 self-center">
-							{#if activeTab === 'active'}
-								<button
-									type="button"
-									class="flex h-8 w-8 items-center justify-center text-[var(--text-ghost)] transition-all hover:text-[var(--text-muted)]"
-									onclick={() => togglePause(task.titleId, !task.isPaused)}
-									disabled={profileActionTitleId === task.titleId}
-									title={task.isPaused ? $_('downloads.resume') : $_('downloads.pause')}
+							{#if item.paused}
+								<span class="text-[var(--text-muted)]"
+									>{$_('downloads.paused').toLowerCase()}</span
 								>
-									{#if profileActionTitleId === task.titleId}
-										<SpinnerIcon size={15} class="animate-spin" />
-									{:else if task.isPaused}
-										<PlayIcon size={15} />
-									{:else}
-										<PauseIcon size={15} />
-									{/if}
-								</button>
-								{#if task.status === 'queued'}
-									<button
-										type="button"
-										class="flex h-8 w-8 items-center justify-center text-[var(--text-ghost)] transition-all hover:text-[var(--error)]"
-										onclick={() => void cancelQueuedTask(task)}
-										disabled={taskActionLoading('cancel', task.chapterId)}
-										title={$_('downloads.cancel')}
-									>
-										{#if taskActionLoading('cancel', task.chapterId)}
-											<SpinnerIcon size={15} class="animate-spin" />
-										{:else}
-											<XIcon size={15} />
-										{/if}
-									</button>
-								{/if}
-							{:else}
-								{#if (task.status === 'failed' || task.status === 'cancelled') && task.localRelativePath === null}
-									<button
-										type="button"
-										class="flex h-8 w-8 items-center justify-center text-[var(--text-ghost)] transition-all hover:text-[var(--text-muted)]"
-										onclick={() => void retryTask(task)}
-										disabled={taskActionLoading('retry', task.chapterId)}
-										title={$_('downloads.retry')}
-									>
-										{#if taskActionLoading('retry', task.chapterId)}
-											<SpinnerIcon size={15} class="animate-spin" />
-										{:else}
-											<PlayIcon size={15} />
-										{/if}
-									</button>
-								{/if}
-								{#if fileHref}
-									<a
-										href={fileHref}
-										class="flex h-8 w-8 items-center justify-center text-[var(--text-ghost)] transition-all hover:text-[var(--text-muted)]"
-										title={$_('downloads.openFile')}
-									>
-										<HardDriveIcon size={15} />
-									</a>
-									<button
-										type="button"
-										class="flex h-8 w-8 items-center justify-center text-[var(--text-ghost)] transition-all hover:text-[var(--error)]"
-										onclick={() => void deleteTaskFile(task)}
-										disabled={taskActionLoading('delete', task.chapterId)}
-										title={$_('downloads.deleteFile')}
-									>
-										{#if taskActionLoading('delete', task.chapterId)}
-											<SpinnerIcon size={15} class="animate-spin" />
-										{:else}
-											<TrashIcon size={15} />
-										{/if}
-									</button>
-								{/if}
 							{/if}
+							{#if item.autoDownload}
+								<span>auto</span>
+							{/if}
+							<span>{formatBytes(item.downloadedBytes)}</span>
 						</div>
+						{#if item.queuedTasks > 0}
+							<div class="mt-0.5 flex items-center gap-2 text-[10px]">
+								<span class="text-[var(--text-ghost)]">
+									{item.queuedTasks}
+									{$_('downloads.queued').toLowerCase()}
+								</span>
+							</div>
+						{/if}
+						<div class="mt-2 h-0.5 w-full overflow-hidden bg-[var(--void-4)]">
+							<div
+								class="h-full bg-[var(--text-muted)] transition-[width] {isDownloading ? 'shadow-[0_0_8px_rgba(228,228,231,0.6)] animate-pulse' : ''}"
+								style="width: {progress}%"
+							></div>
+						</div>
+					</a>
+					<div class="flex shrink-0 items-center gap-2 self-center">
+						<button
+							type="button"
+							class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text-muted)]"
+							onclick={() => void retryMissingForTitle(item.titleId)}
+							disabled={taskActionLoading('retry-title', item.titleId)}
+							title={$_('downloads.retry')}
+						>
+							{#if taskActionLoading('retry-title', item.titleId)}
+								<SpinnerIcon size={13} class="animate-spin" />
+							{:else}
+								{$_('downloads.retry')}
+							{/if}
+						</button>
+						<button
+							type="button"
+							class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text-muted)]"
+							onclick={() => void toggleAutoDownload(item.titleId, !item.autoDownload)}
+							disabled={profileActionTitleId === item.titleId}
+							title={$_('downloads.autoDownload')}
+						>
+							{$_('downloads.autoDownload')}
+							{item.autoDownload ? $_('downloads.on') : $_('downloads.off')}
+						</button>
+						<Switch
+							checked={item.enabled}
+							disabled={profileActionTitleId === item.titleId}
+							loading={profileActionTitleId === item.titleId}
+							variant="success"
+							class="self-center"
+							onCheckedChange={(enabled) => void toggleWatch(item.titleId, enabled)}
+						/>
 					</div>
-				{/each}
-			</div>
+				</div>
+			{/each}
 		{/if}
-	{/if}
+	</div>
 </div>
