@@ -476,6 +476,30 @@ export const setChapterDownloadState = mutation({
 	}
 });
 
+async function countRecentConsecutiveFailures(
+	ctx: QueryCtx | MutationCtx,
+	chapterId: GenericId<'libraryChapters'>
+) {
+	const recentTasks = await ctx.db
+		.query('downloadTasks')
+		.withIndex('by_library_chapter_id_created_at', (q) => q.eq('libraryChapterId', chapterId))
+		.order('desc')
+		.take(10);
+
+	let consecutiveFailures = 0;
+	for (const task of recentTasks) {
+		if (task.status === DOWNLOAD_TASK_STATUS.FAILED) {
+			consecutiveFailures += 1;
+		} else if (task.status === DOWNLOAD_TASK_STATUS.COMPLETED) {
+			// Stop counting if we hit a successful download
+			break;
+		}
+		// Skip queued/downloading/cancelled and keep counting
+	}
+
+	return consecutiveFailures;
+}
+
 async function queueDownloadAttempt(
 	ctx: MutationCtx,
 	args: {
@@ -523,6 +547,14 @@ async function queueDownloadAttempt(
 	);
 
 	const attemptNumber = await nextDownloadAttemptNumber(ctx, args.chapter._id);
+
+	// Check for consecutive recent failures to implement retry-next-day logic
+	const recentFailures = await countRecentConsecutiveFailures(ctx, args.chapter._id);
+	const shouldDelayRetry = recentFailures >= 3;
+	const runAfter = shouldDelayRetry
+		? args.now + 24 * 60 * 60 * 1000 // Retry tomorrow if multiple consecutive failures
+		: args.now;
+
 	const taskId = await ctx.db.insert('downloadTasks', {
 		ownerUserId: args.chapter.ownerUserId,
 		requestedByUserId: args.requestedByUserId,
@@ -561,8 +593,8 @@ async function queueDownloadAttempt(
 		},
 		idempotencyKey: `downloads.chapter:${String(args.chapter._id)}:${attemptNumber}:${args.now}`,
 		priority: args.priority,
-		maxAttempts: 3,
-		runAfter: args.now,
+		maxAttempts: 10, // Increased from 3 to 10 for pay-to-read or temporarily unavailable chapters
+		runAfter,
 		now: args.now
 	});
 

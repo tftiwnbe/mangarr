@@ -127,7 +127,6 @@ object BytecodeEditor {
                     signature: String?,
                     cst: Any?,
                 ): FieldVisitor? {
-                    logger.trace { "Class Field" to "${desc.replaceIndirectly()}: ${cst?.let { it::class.java.simpleName }}: $cst" }
                     return super.visitField(access, name, desc.replaceIndirectly(), signature, cst)
                 }
 
@@ -139,7 +138,6 @@ object BytecodeEditor {
                     superName: String?,
                     interfaces: Array<out String>?,
                 ) {
-                    logger.trace { "Visiting $name: $signature: $superName" }
                     className = name
                     super.visit(version, access, name, signature, superName, interfaces)
                 }
@@ -151,7 +149,6 @@ object BytecodeEditor {
                     signature: String?,
                     exceptions: Array<String?>?,
                 ): MethodVisitor {
-                    logger.trace { "Processing method $name: ${desc.replaceIndirectly()}: $signature" }
                     val mv =
                         super.visitMethod(
                             access,
@@ -168,7 +165,6 @@ object BytecodeEditor {
                             opcode: Int,
                             type: String?,
                         ) {
-                            logger.trace { "Type" to type }
                             super.visitTypeInsn(opcode, type.replaceDirectly())
                         }
 
@@ -178,7 +174,6 @@ object BytecodeEditor {
                             name: String?,
                             descriptor: String?,
                         ) {
-                            logger.trace { "FieldInsn" to "$owner -> $descriptor" }
                             super.visitFieldInsn(
                                 opcode,
                                 owner.replaceDirectly(),
@@ -193,7 +188,6 @@ object BytecodeEditor {
                             bsm: org.objectweb.asm.Handle?,
                             vararg bsmArgs: Any?,
                         ) {
-                            logger.trace { "InvokeDynamic" to descriptor }
                             super.visitInvokeDynamicInsn(
                                 name,
                                 descriptor.replaceIndirectly(),
@@ -209,7 +203,6 @@ object BytecodeEditor {
                             descriptor: String?,
                             isInterface: Boolean,
                         ) {
-                            logger.trace { "MethodInsn" to "$owner -> $descriptor" }
                             super.visitMethodInsn(
                                 opcode,
                                 owner.replaceDirectly(),
