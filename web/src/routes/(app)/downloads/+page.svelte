@@ -3,11 +3,8 @@
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import {
 		HardDriveIcon,
-		PauseIcon,
 		PlayIcon,
-		SpinnerIcon,
-		TrashIcon,
-		XIcon
+		SpinnerIcon
 	} from 'phosphor-svelte';
 
 	import type { Id } from '$convex/_generated/dataModel';
@@ -18,7 +15,6 @@
 	import { buildTitlePath } from '$lib/utils/routes';
 
 	type TaskStatus = 'queued' | 'downloading' | 'completed' | 'failed' | 'cancelled';
-	type TabValue = 'watched';
 
 	type DashboardData = {
 		generatedAt: number | null;
@@ -90,7 +86,6 @@
 		})
 	);
 
-	let activeTab = $state<TabValue>('watched');
 	let runningAction = $state<string | null>(null);
 	let profileActionTitleId = $state<string | null>(null);
 	let taskActionKey = $state<string | null>(null);
@@ -192,23 +187,6 @@
 		}
 	}
 
-	async function togglePause(titleId: Id<'libraryTitles'>, paused: boolean) {
-		if (profileActionTitleId === titleId) return;
-		profileActionTitleId = titleId;
-		actionError = null;
-		try {
-			await client.mutation(convexApi.library.updateDownloadProfile, {
-				titleId,
-				enabled: true,
-				paused
-			});
-		} catch (cause) {
-			actionError = cause instanceof Error ? cause.message : 'Failed to update download profile';
-		} finally {
-			profileActionTitleId = null;
-		}
-	}
-
 	async function toggleWatch(titleId: Id<'libraryTitles'>, enabled: boolean) {
 		if (profileActionTitleId === titleId) return;
 		profileActionTitleId = titleId;
@@ -242,22 +220,6 @@
 		}
 	}
 
-	async function retryTask(task: DashboardTask) {
-		const actionKey = `retry:${task.chapterId}`;
-		if (taskActionKey === actionKey) return;
-		taskActionKey = actionKey;
-		actionError = null;
-		try {
-			await client.mutation(convexApi.library.requestChapterDownload, {
-				chapterId: task.chapterId
-			});
-		} catch (cause) {
-			actionError = cause instanceof Error ? cause.message : 'Failed to retry download';
-		} finally {
-			taskActionKey = null;
-		}
-	}
-
 	async function retryMissingForTitle(titleId: Id<'libraryTitles'>) {
 		const actionKey = `retry-title:${titleId}`;
 		if (taskActionKey === actionKey) return;
@@ -269,50 +231,6 @@
 			});
 		} catch (cause) {
 			actionError = cause instanceof Error ? cause.message : 'Failed to queue missing downloads';
-		} finally {
-			taskActionKey = null;
-		}
-	}
-
-	async function cancelQueuedTask(task: DashboardTask) {
-		const actionKey = `cancel:${task.chapterId}`;
-		if (taskActionKey === actionKey) return;
-		taskActionKey = actionKey;
-		actionError = null;
-		try {
-			await client.mutation(convexApi.library.cancelQueuedChapterDownload, {
-				chapterId: task.chapterId
-			});
-		} catch (cause) {
-			actionError = cause instanceof Error ? cause.message : 'Failed to cancel download';
-		} finally {
-			taskActionKey = null;
-		}
-	}
-
-	async function deleteTaskFile(task: DashboardTask) {
-		if (!task.localRelativePath || !task.storageKind) return;
-		const actionKey = `delete:${task.chapterId}`;
-		if (taskActionKey === actionKey) return;
-		taskActionKey = actionKey;
-		actionError = null;
-		try {
-			await fetchJson<{ ok: boolean; deleted: boolean }>('/api/internal/bridge/downloads/delete', {
-				method: 'POST',
-				headers: {
-					'content-type': 'application/json'
-				},
-				body: JSON.stringify({
-					chapterId: task.chapterId,
-					titleId: task.titleId,
-					chapterUrl: task.chapterUrl,
-					localRelativePath: task.localRelativePath,
-					storageKind: task.storageKind
-				})
-			});
-			await loadStorage();
-		} catch (cause) {
-			actionError = cause instanceof Error ? cause.message : 'Failed to delete downloaded file';
 		} finally {
 			taskActionKey = null;
 		}
