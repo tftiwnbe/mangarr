@@ -420,49 +420,58 @@ export async function applyVariantSnapshotToTitle(
  * Recompute chapter download counts for a title and persist them as
  * denormalized fields on the libraryTitles row.  Call this whenever
  * chapters are added, removed, or their downloadStatus changes.
+ * Uses best-effort updates - silently ignores OCC errors.
  */
 export async function refreshTitleChapterStats(
 	ctx: MutationCtx,
 	libraryTitleId: GenericId<'libraryTitles'>,
 	now: number
 ) {
-	const chapters = await ctx.db
-		.query('libraryChapters')
-		.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', libraryTitleId))
-		.collect();
+	try {
+		const chapters = await ctx.db
+			.query('libraryChapters')
+			.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', libraryTitleId))
+			.collect();
 
-	let queued = 0;
-	let downloading = 0;
-	let downloaded = 0;
-	let failed = 0;
-	let downloadedBytes = 0;
-	for (const chapter of chapters) {
-		switch (chapter.downloadStatus) {
-			case DOWNLOAD_STATUS.QUEUED:
-				queued++;
-				break;
-			case DOWNLOAD_STATUS.DOWNLOADING:
-				downloading++;
-				break;
-			case DOWNLOAD_STATUS.DOWNLOADED:
-				downloaded++;
-				downloadedBytes += chapter.fileSizeBytes ?? 0;
-				break;
-			case DOWNLOAD_STATUS.FAILED:
-				failed++;
-				break;
+		let queued = 0;
+		let downloading = 0;
+		let downloaded = 0;
+		let failed = 0;
+		let downloadedBytes = 0;
+		for (const chapter of chapters) {
+			switch (chapter.downloadStatus) {
+				case DOWNLOAD_STATUS.QUEUED:
+					queued++;
+					break;
+				case DOWNLOAD_STATUS.DOWNLOADING:
+					downloading++;
+					break;
+				case DOWNLOAD_STATUS.DOWNLOADED:
+					downloaded++;
+					downloadedBytes += chapter.fileSizeBytes ?? 0;
+					break;
+				case DOWNLOAD_STATUS.FAILED:
+					failed++;
+					break;
+			}
 		}
-	}
 
-	await ctx.db.patch(libraryTitleId, {
-		chapterCount: chapters.length,
-		downloadedChapterCount: downloaded,
-		downloadedChapterBytes: downloadedBytes,
-		queuedChapterCount: queued,
-		downloadingChapterCount: downloading,
-		failedChapterCount: failed,
-		updatedAt: now
-	});
+		await ctx.db.patch(libraryTitleId, {
+			chapterCount: chapters.length,
+			downloadedChapterCount: downloaded,
+			downloadedChapterBytes: downloadedBytes,
+			queuedChapterCount: queued,
+			downloadingChapterCount: downloading,
+			failedChapterCount: failed,
+			updatedAt: now
+		});
+	} catch (error) {
+		// Silently ignore OCC errors - stats will be corrected on next update
+		if (error instanceof Error && error.message?.includes('changed while this mutation')) {
+			return;
+		}
+		throw error;
+	}
 }
 
 /**
@@ -545,19 +554,27 @@ export async function updateTitleChapterStatsIncremental(
 /**
  * Recompute variant count for a title and persist it as a denormalized
  * field on the libraryTitles row.  Call this whenever variants are added or
- * removed.
+ * removed. Uses best-effort updates - silently ignores OCC errors.
  */
 export async function refreshTitleVariantCount(
 	ctx: MutationCtx,
 	title: { _id: GenericId<'libraryTitles'>; ownerUserId: GenericId<'users'> },
 	now: number
 ) {
-	const variants = await ctx.db
-		.query('titleVariants')
-		.withIndex('by_owner_user_id_library_title_id', (q) =>
-			q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-		)
-		.collect();
+	try {
+		const variants = await ctx.db
+			.query('titleVariants')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+			)
+			.collect();
 
-	await ctx.db.patch(title._id, { variantCount: variants.length, updatedAt: now });
+		await ctx.db.patch(title._id, { variantCount: variants.length, updatedAt: now });
+	} catch (error) {
+		// Silently ignore OCC errors - variant count will be corrected on next update
+		if (error instanceof Error && error.message?.includes('changed while this mutation')) {
+			return;
+		}
+		throw error;
+	}
 }
