@@ -708,14 +708,14 @@ export const listAllMineChapters = query({
 		const limit = Math.min(Math.max(100, Math.floor(args.limit ?? 2000)), 10000);
 
 		// Load chapters directly with limit to avoid memory issues
-		// Note: No simple by_owner_user_id index exists, so we filter after loading titles
+		// Note: No simple by_owner_user_id index exists, so we load titles first then their chapters
 		const allTitles = await ctx.db
 			.query('libraryTitles')
 			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
 			.collect();
 
 		const titleIds = allTitles.map((t) => t._id);
-		const allChapters: typeof chapters = [];
+		const allChapters = [];
 
 		for (const titleId of titleIds) {
 			const titleChapters = await ctx.db
