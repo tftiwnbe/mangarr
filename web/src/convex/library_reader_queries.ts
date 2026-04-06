@@ -5,7 +5,6 @@ import { query } from './_generated/server';
 import { buildChapterRouteBase, buildTitleRouteBase } from '../lib/utils/route-segments';
 import {
 	getOwnedChapterProgressRow,
-	loadOwnerChaptersByTitleId,
 	loadOwnerCollectionIdsByTitleId,
 	loadOwnerCollectionMap,
 	loadOwnerUserStatusMap,
