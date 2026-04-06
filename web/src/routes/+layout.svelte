@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import '../app.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import { setupConvexClient } from '$lib/convex/client';
@@ -11,7 +12,11 @@
 
 	// Wire up theme reactivity (media query listener + DOM sync)
 	initTheme();
-	setupConvexClient();
+
+	// Setup Convex client only on client-side to avoid SSR fetch warnings
+	onMount(() => {
+		setupConvexClient();
+	});
 
 	let { children } = $props();
 </script>
