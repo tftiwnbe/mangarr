@@ -83,9 +83,9 @@ export const getDownloadDashboard = query({
 				.take(recentLimit)
 		]);
 
-		// Load all titles that have download profiles, plus recent titles
+		// Load all titles for accurate library-wide stats calculation
 		const profileTitleIds = new Set(profileRows.map((p) => String(p.libraryTitleId)));
-		const [profileTitles, recentTitles] = await Promise.all([
+		const [profileTitles, allTitles] = await Promise.all([
 			Promise.all(
 				Array.from(profileTitleIds).map((titleId) =>
 					ctx.db.get(titleId as GenericId<'libraryTitles'>)
@@ -94,12 +94,12 @@ export const getDownloadDashboard = query({
 			ctx.db
 				.query('libraryTitles')
 				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
-				.take(500)
+				.collect()
 		]);
 
 		// Combine and deduplicate titles
-		const titleMap = new Map<string, typeof recentTitles[number]>();
-		for (const title of [...profileTitles.filter((t): t is NonNullable<typeof t> => t !== null), ...recentTitles]) {
+		const titleMap = new Map<string, typeof allTitles[number]>();
+		for (const title of [...profileTitles.filter((t): t is NonNullable<typeof t> => t !== null), ...allTitles]) {
 			if (!titleMap.has(String(title._id))) {
 				titleMap.set(String(title._id), title);
 			}

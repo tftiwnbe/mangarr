@@ -76,8 +76,6 @@ class PackageTools(
                     dBuilder.parse(it)
                 }
 
-            logger.trace { parsed.manifestXml }
-
             applicationInfo.metaData =
                 Bundle().apply {
                     val appTag = doc.getElementsByTagName("application").item(0)

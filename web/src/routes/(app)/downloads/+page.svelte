@@ -116,11 +116,17 @@
 	const isLoading = $derived(dashboardQuery.isLoading);
 	const numberFormatter = new Intl.NumberFormat();
 
-	// Get the first 2 chapters that are currently downloading
-	const currentlyDownloading = $derived.by(() => {
-		return dashboard.activeTasks
+	// Get the first 2 chapters that are currently downloading, always show 2 slots (fill with null)
+	const downloadSlots = $derived.by(() => {
+		const downloading = dashboard.activeTasks
 			.filter((task) => task.status === 'downloading')
 			.slice(0, 2);
+		// Always show 2 slots, fill empty slots with null
+		const slots: Array<typeof downloading[number] | null> = [...downloading];
+		while (slots.length < 2) {
+			slots.push(null);
+		}
+		return slots;
 	});
 
 	onMount(() => {
@@ -439,12 +445,12 @@
 	{/if}
 
 	<!-- Current Downloads Section -->
-	{#if currentlyDownloading.length > 0}
-		<div class="flex flex-col gap-1 pb-3">
-			<h2 class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase px-1 pb-2">
-				{$_('downloads.downloading')}
-			</h2>
-			{#each currentlyDownloading as task (task.chapterId)}
+	<div class="flex flex-col gap-1 pb-3">
+		<h2 class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase px-1 pb-2">
+			{$_('downloads.downloading')}
+		</h2>
+		{#each downloadSlots as task, index (task?.chapterId ?? `empty-${index}`)}
+			{#if task}
 				<div class="flex gap-3 border border-[var(--line)] bg-[var(--void-2)] p-3">
 					<a href={buildTitlePath(task.titleId, task.title)} class="shrink-0">
 						<LazyImage
@@ -477,9 +483,23 @@
 						</span>
 					</div>
 				</div>
-			{/each}
-		</div>
-	{/if}
+			{:else}
+				<!-- Empty download slot -->
+				<div class="flex gap-3 border border-dashed border-[var(--line)] bg-[var(--void-1)] p-3 opacity-50">
+					<div class="h-16 w-11 border border-dashed border-[var(--line)] bg-[var(--void-2)]"></div>
+					<div class="min-w-0 flex-1">
+						<p class="text-sm text-[var(--text-ghost)]">{$_('downloads.idle')}</p>
+						<div class="mt-2 h-0.5 w-full overflow-hidden bg-[var(--void-4)]">
+							<div class="h-full bg-transparent"></div>
+						</div>
+					</div>
+					<div class="flex shrink-0 items-center self-center">
+						<span class="text-sm text-[var(--text-ghost)] tabular-nums">-</span>
+					</div>
+				</div>
+			{/if}
+		{/each}
+	</div>
 
 	<!-- Watched Titles Section -->
 	<div class="flex flex-col gap-1">

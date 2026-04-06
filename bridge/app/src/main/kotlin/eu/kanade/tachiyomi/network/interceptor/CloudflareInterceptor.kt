@@ -44,8 +44,6 @@ class CloudflareInterceptor(
     override fun intercept(chain: Interceptor.Chain): Response {
         val originalRequest = chain.request()
 
-        logger.trace { "CloudflareInterceptor is being used." }
-
         val originalResponse =
             try {
                 chain.proceed(originalRequest)
@@ -420,12 +418,10 @@ object CFClearance {
 
                         cookies
                     }
-            logger.trace { "New cookies\n${cookies.joinToString("; ")}" }
             val finalCookies =
                 network.cookieStore.get(originalRequest.url).joinToString("; ", postfix = "; ") {
                     "${it.name}=${it.value}"
                 }
-            logger.trace { "Final cookies\n$finalCookies" }
             return originalRequest
                 .newBuilder()
                 .header("Cookie", finalCookies)
