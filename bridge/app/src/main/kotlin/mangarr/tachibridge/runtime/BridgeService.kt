@@ -27,7 +27,6 @@ import mangarr.tachibridge.extensions.PageImagePayload
 import mangarr.tachibridge.repo.ExtensionRepoService
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Base64
@@ -40,7 +39,6 @@ private val logger = KotlinLogging.logger {}
 private val json = Json { ignoreUnknownKeys = true }
 private const val FEED_CACHE_TTL_MS = 5 * 60 * 1000L
 private const val READER_PAGE_CACHE_TTL_MS = 15 * 60 * 1000L
-private const val MANGADEX_PACKAGE = "eu.kanade.tachiyomi.extension.all.mangadex"
 private val DOWNLOAD_PAGE_RETRY_DELAYS_MS = listOf(0L, 2_000L, 5_000L, 15_000L)
 private val SOURCE_REQUEST_RETRY_DELAYS_MS = listOf(0L, 1_500L, 4_000L)
 private const val DOWNLOAD_PAGE_CONCURRENCY = 2
@@ -951,11 +949,6 @@ class BridgeService(
                 .firstOrNull { it.id == parsedSourceId }
                 ?: error("Source not found: $sourceId")
         val sourcePkg = ConfigManager.config.findBySourceId(parsedSourceId)?.packageName.orEmpty()
-        if (sourcePkg == MANGADEX_PACKAGE && feed == "popular") {
-            val payload = fetchMangaDexPopularFeed(sourceId, source, normalizedLimit, page, sourcePkg)
-            storeFeedCache(cacheKey, payload, now + FEED_CACHE_TTL_MS)
-            return payload
-        }
         val response =
             withSourceRequestRetry(
                 sourceId = parsedSourceId,
@@ -1067,93 +1060,6 @@ class BridgeService(
             current = current.cause
         }
         return null
-    }
-
-    private fun fetchMangaDexPopularFeed(
-        sourceId: String,
-        source: mangarr.tachibridge.config.BridgeConfig.SourceInfo,
-        limit: Int,
-        page: Int,
-        sourcePkg: String,
-    ): JsonObject {
-        val offset = ((page - 1).coerceAtLeast(0)) * limit
-        val url =
-            "https://api.mangadex.org/manga"
-                .toHttpUrl()
-                .newBuilder()
-                .addQueryParameter("order[followedCount]", "desc")
-                .addQueryParameter("availableTranslatedLanguage[]", source.lang)
-                .addQueryParameter("limit", limit.toString())
-                .addQueryParameter("offset", offset.toString())
-                .addQueryParameter("includes[]", "cover_art")
-                .build()
-        val request = Request.Builder().url(url).get().build()
-        val body =
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    error("MangaDex popular request failed with HTTP ${response.code}")
-                }
-                response.body?.string() ?: error("MangaDex popular request returned an empty body")
-            }
-        val payload = json.parseToJsonElement(body).jsonObject
-        val total = payload["total"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0
-        val items =
-            payload["data"]
-                ?.jsonArray
-                ?.mapNotNull { element ->
-                    val item = element.jsonObject
-                    val mangaId = item["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-                    val attributes = item["attributes"]?.jsonObject ?: return@mapNotNull null
-                    val title = firstLocalizedValue(attributes["title"]) ?: return@mapNotNull null
-                    val description = firstLocalizedValue(attributes["description"])
-                    val genre =
-                        item["attributes"]
-                            ?.jsonObject
-                            ?.get("tags")
-                            ?.jsonArray
-                            ?.mapNotNull { tag ->
-                                firstLocalizedValue(tag.jsonObject["attributes"]?.jsonObject?.get("name"))
-                            }?.distinct()
-                            ?.takeIf { it.isNotEmpty() }
-                            ?.joinToString(", ")
-                    val coverFileName =
-                        item["relationships"]
-                            ?.jsonArray
-                            ?.firstOrNull { relationship ->
-                                relationship.jsonObject["type"]?.jsonPrimitive?.contentOrNull == "cover_art"
-                            }?.jsonObject
-                            ?.get("attributes")
-                            ?.jsonObject
-                            ?.get("fileName")
-                            ?.jsonPrimitive
-                            ?.contentOrNull
-                    val coverUrl =
-                        coverFileName?.let { fileName ->
-                            "https://uploads.mangadex.org/covers/$mangaId/$fileName"
-                        }
-
-                    buildJsonObject {
-                        put("canonicalKey", canonicalKey(sourceId, "/manga/$mangaId"))
-                        put("sourceId", sourceId)
-                        put("sourcePkg", sourcePkg)
-                        put("sourceLang", source.lang)
-                        put("sourceName", source.name)
-                        put("titleUrl", "/manga/$mangaId")
-                        put("title", title)
-                        description?.let { put("description", it) }
-                        coverUrl?.let { put("coverUrl", it) }
-                        genre?.let { put("genre", it) }
-                    }
-                } ?: emptyList()
-
-        return buildJsonObject {
-            put("ok", true)
-            put("sourceId", sourceId)
-            put("feed", "popular")
-            put("page", page)
-            put("hasNextPage", total > offset + items.size)
-            put("items", JsonArray(items))
-        }
     }
 
     private fun normalizeFilter(filter: mangarr.tachibridge.extensions.Filter): JsonObject {

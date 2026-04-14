@@ -21,7 +21,6 @@ export function cleanExtensionLabel(name: string) {
 
 export function humanizeSourcePkg(sourcePkg: string) {
 	const segment = sourcePkg.split('.').filter(Boolean).at(-1) ?? sourcePkg;
-	if (segment.toLowerCase() === 'mangadex') return 'MangaDex';
 	return segment
 		.replace(/[-_]+/g, ' ')
 		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
