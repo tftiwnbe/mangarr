@@ -24,7 +24,12 @@ type LibraryChapter = {
 
 export const POST: RequestHandler = async (event) => {
 	const user = requireUser(event);
-	const requestJson = (await event.request.json().catch(() => ({}))) as { titleId?: string };
+	let requestJson: { titleId?: string } = {};
+	try {
+		requestJson = (await event.request.json()) as { titleId?: string };
+	} catch {
+		throw error(400, 'Request body must be valid JSON');
+	}
 	const titleId = typeof requestJson.titleId === 'string' ? requestJson.titleId : null;
 
 	const client = await getUserConvexClient(user);

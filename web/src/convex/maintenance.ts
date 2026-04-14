@@ -1,4 +1,5 @@
 import { internalMutation } from './_generated/server';
+import { STATUS } from './commands';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const COMMAND_RETENTION_MS = 7 * DAY_MS;
@@ -15,7 +16,7 @@ export const runRetentionPass = internalMutation({
 		let deletedExploreCacheRows = 0;
 
 		const commandCutoff = now - COMMAND_RETENTION_MS;
-		const terminalCommandStatuses = new Set(['succeeded', 'failed', 'cancelled', 'dead_letter']);
+		const terminalCommandStatuses = new Set([STATUS.SUCCEEDED, STATUS.FAILED, STATUS.CANCELLED, STATUS.DEAD]);
 		try {
 			const oldCommands = await ctx.db
 				.query('commands')

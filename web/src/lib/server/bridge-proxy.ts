@@ -43,7 +43,10 @@ export async function proxyBridgeRequest(
 			body: init.body,
 			signal
 		});
-	} catch {
+	} catch (cause) {
+		if (cause instanceof DOMException && cause.name === 'TimeoutError') {
+			throw error(504, 'Bridge request timed out');
+		}
 		throw error(502, 'Bridge internal API is unavailable');
 	}
 

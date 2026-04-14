@@ -9,7 +9,7 @@ import { mutation, query, type MutationCtx } from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
 import type { CommandPayloadMap, CommandType } from './command_payloads';
 
-const STATUS = {
+export const STATUS = {
 	QUEUED: 'queued',
 	LEASED: 'leased',
 	RUNNING: 'running',
