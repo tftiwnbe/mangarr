@@ -718,39 +718,34 @@
 
 						{#if isExpanded}
 							<div transition:slide={{ duration: 150 }}>
-								<div class="flex flex-col gap-6 border-b border-[var(--line-soft)] px-1 pt-2 pb-5">
-									<div class="flex flex-col gap-1">
+								<div class="border-b border-[var(--line-soft)] px-1 pt-1 pb-4">
+									<!-- Sources -->
+									<div class="mb-4">
 										{#if visibleSources.length === 0}
-											<p class="py-1 text-xs text-[var(--text-ghost)]">
+											<p class="py-3 text-xs text-[var(--text-ghost)]">
 												no sources match your language preferences
 											</p>
 										{:else}
 											{#each visibleSources as source (source.id)}
 												<div
-													class="flex items-center gap-3 py-2.5 transition-colors {source.enabled ===
-													false
-														? 'opacity-45'
-														: ''}"
+													class="flex items-center gap-3 py-2 transition-opacity {source.enabled === false ? 'opacity-40' : ''}"
 												>
 													<div class="min-w-0 flex-1">
 														<div class="flex items-center gap-2">
-															<span class="truncate text-xs text-[var(--text-soft)]"
-																>{source.name}</span
-															>
-															<span
-																class="shrink-0 text-[10px] tracking-wide text-[var(--text-ghost)] uppercase"
-															>
+															<span class="truncate text-xs text-[var(--text-soft)]">{source.name}</span>
+															<span class="shrink-0 border border-[var(--void-4)] px-1 py-px text-[9px] tracking-wider text-[var(--text-ghost)] uppercase">
 																{source.lang}
 															</span>
-															{#if source.enabled === false}
-																<span
-																	class="shrink-0 text-[10px] tracking-wide text-[var(--text-ghost)] uppercase"
-																>
-																	off
-																</span>
-															{/if}
 														</div>
 													</div>
+													<button
+														type="button"
+														class="flex h-7 w-7 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-3)] hover:text-[var(--text-soft)]"
+														onclick={() => void openSourceSettings(source.id)}
+														title={$_('extensions.sourceSettings')}
+													>
+														<GearIcon size={13} />
+													</button>
 													<Switch
 														checked={source.enabled !== false}
 														disabled={togglingSourceId === source.id}
@@ -758,42 +753,34 @@
 														onCheckedChange={(enabled) =>
 															void handleToggleSource(ext.pkg, source.id, enabled)}
 													/>
-													<button
-														type="button"
-														class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-3)] hover:text-[var(--text)]"
-														onclick={() => void openSourceSettings(source.id)}
-														title={$_('extensions.sourceSettings')}
-													>
-														<GearIcon size={14} />
-													</button>
 												</div>
 											{/each}
 										{/if}
 									</div>
 
-									<div class="flex items-center gap-3">
-										<span class="flex-1 text-xs text-[var(--text-muted)]"
-											>{$_('extensions.proxy').toLowerCase()}</span
+									<!-- Extension controls -->
+									<div class="flex items-center gap-4 border-t border-[var(--line-soft)] pt-3">
+										<div class="flex flex-1 items-center gap-3">
+											<span class="text-[11px] text-[var(--text-ghost)]">{$_('extensions.proxy').toLowerCase()}</span>
+											<Switch
+												checked={ext.use_proxy}
+												disabled={isTogglingProxy}
+												loading={isTogglingProxy}
+												onCheckedChange={(enabled) => void handleToggleProxy(ext.pkg, enabled)}
+											/>
+										</div>
+										<button
+											type="button"
+											class="flex items-center gap-1.5 text-[11px] text-[var(--text-ghost)] transition-colors hover:text-[var(--error)] disabled:pointer-events-none disabled:opacity-40"
+											onclick={() => void handleUninstall(ext.pkg)}
+											disabled={isUninstalling}
 										>
-										<Switch
-											checked={ext.use_proxy}
-											disabled={isTogglingProxy}
-											loading={isTogglingProxy}
-											onCheckedChange={(enabled) => void handleToggleProxy(ext.pkg, enabled)}
-										/>
+											{#if isUninstalling}
+												<SpinnerIcon size={11} class="animate-spin" />
+											{/if}
+											{$_('extensions.uninstall').toLowerCase()}
+										</button>
 									</div>
-
-									<button
-										type="button"
-										class="self-start text-[11px] text-[var(--text-ghost)] transition-colors hover:text-[var(--error)]"
-										onclick={() => void handleUninstall(ext.pkg)}
-										disabled={isUninstalling}
-									>
-										{#if isUninstalling}
-											<SpinnerIcon size={12} class="mr-1 inline-block animate-spin" />
-										{/if}
-										{$_('extensions.uninstall').toLowerCase()}
-									</button>
 								</div>
 							</div>
 						{/if}
@@ -808,7 +795,7 @@
 	{:else if !repository?.configured}
 		<div class="flex flex-col items-center gap-5 py-20 text-center">
 			<div class="flex h-16 w-16 items-center justify-center bg-[var(--void-2)]">
-				<CheckIcon size={24} class="text-[var(--text-muted)]" />
+				<PuzzlePieceIcon size={24} class="text-[var(--text-muted)]" />
 			</div>
 			<div>
 				<p class="text-sm text-[var(--text)]">{$_('extensions.allInstalled')}</p>
@@ -944,23 +931,23 @@
 
 						{#if pref.type === 'list' && pref.entries && pref.entry_values}
 							{@const val = String(getCurrentValue(pref) ?? '')}
-							<div class="mt-3 flex flex-col gap-1">
+							<div class="mt-3 flex flex-col">
 								{#each pref.entries as entry, i (entry)}
 									{@const entryVal = pref.entry_values?.[i] ?? entry}
+									{@const isSelected = val === entryVal}
 									<button
 										type="button"
-										class="flex items-center gap-2 px-3 py-2.5 text-xs transition-colors {val ===
-										entryVal
-											? 'bg-[var(--void-3)] text-[var(--text)]'
-											: 'text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
+										class="flex items-center gap-3 px-2 py-2 text-xs transition-colors {isSelected
+											? 'text-[var(--text)]'
+											: 'text-[var(--text-muted)] hover:text-[var(--text-soft)] hover:bg-[var(--void-2)]'}"
 										onclick={() => handlePreferenceChange(pref.key, entryVal)}
 										disabled={!pref.enabled}
 									>
-										<div
-											class="h-3 w-3 border border-[var(--void-6)] {val === entryVal
-												? 'bg-[var(--text)]'
-												: ''}"
-										></div>
+										<span class="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border {isSelected ? 'border-[var(--text)] bg-[var(--text)]' : 'border-[var(--void-6)]'}">
+											{#if isSelected}
+												<span class="h-1.5 w-1.5 rounded-full bg-[var(--void-0)]"></span>
+											{/if}
+										</span>
 										{entry}
 									</button>
 								{/each}
@@ -969,15 +956,15 @@
 
 						{#if pref.type === 'multi_select' && pref.entries && pref.entry_values}
 							{@const val = ((getCurrentValue(pref) as string[]) ?? []).map(String)}
-							<div class="mt-3 flex flex-col gap-1">
+							<div class="mt-3 flex flex-col">
 								{#each pref.entries as entry, i (entry)}
 									{@const entryVal = pref.entry_values?.[i] ?? entry}
 									{@const isSelected = val.includes(entryVal)}
 									<button
 										type="button"
-										class="flex items-center gap-2 px-3 py-2.5 text-xs transition-colors {isSelected
-											? 'bg-[var(--void-3)] text-[var(--text)]'
-											: 'text-[var(--text-muted)] hover:bg-[var(--void-2)]'}"
+										class="flex items-center gap-3 px-2 py-2 text-xs transition-colors {isSelected
+											? 'text-[var(--text)]'
+											: 'text-[var(--text-muted)] hover:text-[var(--text-soft)] hover:bg-[var(--void-2)]'}"
 										onclick={() => {
 											const next = isSelected
 												? val.filter((item) => item !== entryVal)
@@ -986,15 +973,11 @@
 										}}
 										disabled={!pref.enabled}
 									>
-										<div
-											class="flex h-4 w-4 items-center justify-center border border-[var(--void-6)] {isSelected
-												? 'bg-[var(--text)]'
-												: ''}"
-										>
+										<span class="flex h-3.5 w-3.5 shrink-0 items-center justify-center border {isSelected ? 'border-[var(--text)] bg-[var(--text)]' : 'border-[var(--void-6)]'}">
 											{#if isSelected}
-												<CheckIcon size={10} class="text-[var(--void-0)]" />
+												<CheckIcon size={9} class="text-[var(--void-0)]" />
 											{/if}
-										</div>
+										</span>
 										{entry}
 									</button>
 								{/each}
@@ -1005,7 +988,7 @@
 							<div class="mt-3">
 								<input
 									type="text"
-									class="h-10 w-full border-b border-[var(--line)] bg-transparent px-3 text-sm text-[var(--text)] outline-none focus:border-[var(--text-muted)] disabled:opacity-40"
+									class="h-10 w-full border border-[var(--line-soft)] bg-[var(--void-1)] px-3 text-sm text-[var(--text)] outline-none transition-colors focus:border-[var(--void-5)] disabled:opacity-40"
 									value={String(getCurrentValue(pref) ?? '')}
 									disabled={!pref.enabled}
 									oninput={(event) => handlePreferenceChange(pref.key, event.currentTarget.value)}
@@ -1016,90 +999,77 @@
 				{/each}
 
 				{#if sourceSettingsData.preferences.length > 0}
-					<div class="pt-4">
+					<div class="border-t border-[var(--line-soft)] pt-4">
 						<button
 							type="button"
-							class="flex w-full items-center gap-2 py-2 text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
+							class="flex w-full items-center gap-2 py-1 text-[11px] text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 							onclick={() => (advancedOpen = !advancedOpen)}
 						>
 							{#if advancedOpen}
-								<CaretDownIcon size={12} />
+								<CaretDownIcon size={11} />
 							{:else}
-								<CaretRightIcon size={12} />
+								<CaretRightIcon size={11} />
 							{/if}
-							advanced
+							<span class="tracking-wider uppercase">storage import</span>
+							{#if importedStoragePreferences.length > 0}
+								<span class="ml-auto text-[10px] text-[var(--text-ghost)]">
+									{importedStoragePreferences.length} key{importedStoragePreferences.length === 1 ? '' : 's'}
+								</span>
+							{/if}
 						</button>
 
 						{#if advancedOpen}
-							<div class="flex flex-col gap-3 pt-2" transition:slide={{ duration: 120 }}>
-								<div class="py-3">
-									<div class="flex flex-col gap-3">
-										<div>
-											<p class="text-xs text-[var(--text-soft)]">auth / storage import</p>
-											<p class="mt-0.5 text-[11px] text-[var(--text-ghost)]">
-												Replace hidden extension storage values. Leave empty and apply to clear all.
-											</p>
-										</div>
+							<div class="flex flex-col gap-3 pt-3" transition:slide={{ duration: 120 }}>
+								<p class="text-[11px] text-[var(--text-ghost)]">
+									Replace hidden extension storage values. Leave empty and apply to clear all.
+								</p>
 
-										<textarea
-											class="min-h-24 w-full resize-y border-b border-[var(--line)] bg-transparent p-3 text-xs text-[var(--text)] outline-none focus:border-[var(--text-muted)]"
-											placeholder="JSON object or key-value pairs"
-											bind:value={authImportText}
-										></textarea>
+								<textarea
+									class="min-h-24 w-full resize-y border border-[var(--line-soft)] bg-[var(--void-1)] p-3 text-xs text-[var(--text)] outline-none focus:border-[var(--void-5)]"
+									placeholder="JSON object or key-value pairs"
+									bind:value={authImportText}
+								></textarea>
 
-										<p class="text-[11px] text-[var(--text-ghost)]">
-											{#if importedStoragePreferences.length > 0}
-												{importedStoragePreferences.length} imported key{importedStoragePreferences.length ===
-												1
-													? ''
-													: 's'} loaded
-											{:else}
-												no imported keys
-											{/if}
-										</p>
-
-										{#if authImportError}
-											<div class="bg-[var(--error-soft)] px-3 py-2 text-[11px] text-[var(--error)]">
-												{authImportError}
-											</div>
-										{/if}
-
-										{#if authImportSuccess}
-											<div
-												class="bg-[var(--success)]/10 px-3 py-2 text-[11px] text-[var(--success)]"
-											>
-												{authImportSuccess}
-											</div>
-										{/if}
-
-										<Button
-											variant="ghost"
-											size="sm"
-											onclick={() => void importAuthStorage()}
-											disabled={authImportSaving ||
-												(!authImportText.trim() && importedStoragePreferences.length === 0)}
-											loading={authImportSaving}
-										>
-											apply
-										</Button>
+								{#if authImportError}
+									<div class="border-l-2 border-[var(--error)] bg-[var(--error-soft)] px-3 py-2 text-[11px] text-[var(--error)]">
+										{authImportError}
 									</div>
-								</div>
+								{/if}
+
+								{#if authImportSuccess}
+									<div class="border-l-2 border-[var(--success)] bg-[var(--success)]/10 px-3 py-2 text-[11px] text-[var(--success)]">
+										{authImportSuccess}
+									</div>
+								{/if}
+
+								<Button
+									variant="outline"
+									size="sm"
+									onclick={() => void importAuthStorage()}
+									disabled={authImportSaving ||
+										(!authImportText.trim() && importedStoragePreferences.length === 0)}
+									loading={authImportSaving}
+								>
+									apply
+								</Button>
 							</div>
 						{/if}
 					</div>
 				{/if}
 
 				{#if pendingPreferenceChanges.size > 0}
-					<Button
-						variant="solid"
-						size="md"
-						onclick={() => void saveSourceSettings()}
-						disabled={sourceSettingsSaving}
-						loading={sourceSettingsSaving}
-						class="sticky bottom-0"
-					>
-						{$_('common.save')} ({pendingPreferenceChanges.size})
-					</Button>
+					<div class="sticky bottom-0 border-t border-[var(--line-soft)] bg-[var(--void-0)] pt-3 pb-1">
+						<Button
+							variant="solid"
+							size="md"
+							onclick={() => void saveSourceSettings()}
+							disabled={sourceSettingsSaving}
+							loading={sourceSettingsSaving}
+							class="w-full"
+						>
+							{$_('common.save')} ({pendingPreferenceChanges.size})
+						</Button>
+					</div>
 				{/if}
 			</div>
 		{/if}

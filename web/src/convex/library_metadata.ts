@@ -5,8 +5,9 @@ import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/s
 import { buildTitleRouteBase } from '../lib/utils/route-segments';
 import { requireBridgeIdentity } from './bridge_auth';
 import { insertCommand } from './command_payloads';
+import { STATUS } from './commands';
 
-const REUSABLE_COMMAND_STATUSES = new Set(['queued', 'succeeded']);
+const REUSABLE_COMMAND_STATUSES = new Set([STATUS.QUEUED, STATUS.SUCCEEDED]);
 
 export const getExploreTitlePreview = query({
 	args: {

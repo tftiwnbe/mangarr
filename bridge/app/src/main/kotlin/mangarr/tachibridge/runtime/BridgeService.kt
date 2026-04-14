@@ -61,6 +61,7 @@ class BridgeService(
     fun pruneCaches(now: Long = System.currentTimeMillis()): CachePruneSummary {
         feedCache.entries.removeIf { (_, cached) -> cached.expiresAt <= now }
         readerPageCache.entries.removeIf { (_, cached) -> cached.expiresAt <= now }
+        readerPageLocks.keys.removeIf { key -> !readerPageCache.containsKey(key) }
 
         val deletedFeedFiles = pruneFeedCacheFiles(json, feedCacheDir, now)
         val deletedReaderPageFiles = pruneReaderPageCacheFiles(json, readerPageCacheDir, now)

@@ -31,6 +31,7 @@ import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.io.IOException
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.io.path.deleteIfExists
 
 private val logger = KotlinLogging.logger {}
@@ -48,6 +49,17 @@ class BridgeHttpServer(
     private val bridgeId: String,
 ) {
     private val json = Json { prettyPrint = false }
+
+    // Dedicated client for cover proxying: short timeouts, inherits proxy/cookie config from networkHelper
+    private val coverProxyClient by lazy {
+        networkHelper.client
+            .newBuilder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .callTimeout(20, TimeUnit.SECONDS)
+            .build()
+    }
+
     private val server =
         HttpServer.create(InetSocketAddress(host, port), 0).apply {
             executor = Executors.newCachedThreadPool()
@@ -241,43 +253,47 @@ class BridgeHttpServer(
 
             val refererOrigin = "${parsedUrl.protocol}://${parsedUrl.host}"
 
-            try {
-                val request =
-                    GET(
-                        target,
-                        headers =
-                            okhttp3.Headers
-                                .Builder()
-                                .add("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
-                                .add("Origin", refererOrigin)
-                                .add("Referer", "$refererOrigin/")
-                                .add("User-Agent", "Mozilla/5.0 (compatible; MangarrCoverProxy/1.0)")
-                                .build(),
-                    )
-                networkHelper.client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        sendJson(exchange, response.code, buildJsonObject { put("message", "Remote cover is unavailable") })
-                        return@createContext
+            val coverHeaders =
+                okhttp3.Headers
+                    .Builder()
+                    .add("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+                    .add("Origin", refererOrigin)
+                    .add("Referer", "$refererOrigin/")
+                    .add("User-Agent", "Mozilla/5.0 (compatible; MangarrCoverProxy/1.0)")
+                    .build()
+
+            val maxAttempts = 3
+            var lastError: Exception? = null
+            for (attempt in 1..maxAttempts) {
+                try {
+                    val request = GET(target, headers = coverHeaders)
+                    coverProxyClient.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) {
+                            sendJson(exchange, response.code, buildJsonObject { put("message", "Remote cover is unavailable") })
+                            return@createContext
+                        }
+                        val body = response.body?.bytes()
+                        if (body == null) {
+                            sendJson(exchange, 502, buildJsonObject { put("message", "Remote cover is unavailable") })
+                            return@createContext
+                        }
+                        val contentType = response.body?.contentType()?.toString() ?: "image/jpeg"
+                        val cacheControl = response.header("cache-control") ?: "public, max-age=86400, stale-while-revalidate=604800"
+                        sendBytes(exchange, 200, body, contentType, extraHeaders = mapOf("cache-control" to cacheControl))
                     }
-                    val body = response.body?.bytes()
-                    if (body == null) {
-                        sendJson(exchange, 502, buildJsonObject { put("message", "Remote cover is unavailable") })
-                        return@createContext
-                    }
-                    val contentType = response.body?.contentType()?.toString() ?: "image/jpeg"
-                    val cacheControl = response.header("cache-control") ?: "public, max-age=86400, stale-while-revalidate=604800"
-                    sendBytes(
-                        exchange,
-                        200,
-                        body,
-                        contentType,
-                        extraHeaders = mapOf("cache-control" to cacheControl),
-                    )
+                    return@createContext
+                } catch (e: IOException) {
+                    lastError = e
+                    logger.debug(e) { "Cover fetch attempt $attempt/$maxAttempts failed url=$target" }
+                    if (attempt < maxAttempts) Thread.sleep(300L * attempt)
+                } catch (e: Exception) {
+                    logger.warn(e) { "Unexpected error serving remote cover url=$target" }
+                    sendJson(exchange, 502, buildJsonObject { put("message", "Remote cover is unavailable") })
+                    return@createContext
                 }
-            } catch (error: Exception) {
-                logger.warn(error) { "Failed to serve remote cover url=$target" }
-                sendJson(exchange, 502, buildJsonObject { put("message", "Remote cover is unavailable") })
             }
+            logger.debug { "Failed to serve remote cover after $maxAttempts attempts url=$target: ${lastError?.message}" }
+            sendJson(exchange, 502, buildJsonObject { put("message", "Remote cover is unavailable") })
         }
 
         server.createContext("/assets/library/chapter-file") { exchange ->

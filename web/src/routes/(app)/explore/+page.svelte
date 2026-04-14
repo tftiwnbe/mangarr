@@ -36,6 +36,7 @@
 		sourceHealthLabelKey,
 		type SourceHealthEntry
 	} from '$lib/utils/source-health';
+	import type { FilterMeta, FilterItem, PreferenceBundle } from '$lib/extensions/source-preferences';
 
 	type TabValue = 'popular' | 'latest' | 'search';
 
@@ -80,31 +81,6 @@
 		libraryId: string;
 		listedInLibrary: boolean;
 		routeSegment?: string | null;
-	};
-
-	type FilterMeta = {
-		key: string;
-		title: string;
-		summary?: string;
-		type: string;
-		enabled?: boolean;
-		visible?: boolean;
-		default_value?: unknown;
-		current_value?: unknown;
-		entries?: string[];
-		entry_values?: string[];
-	};
-
-	type FilterItem = {
-		name: string;
-		type: string;
-		data: FilterMeta;
-	};
-
-	type PreferenceBundle = {
-		source: { id: string; name: string; lang: string; supportsLatest: boolean };
-		preferences: FilterItem[];
-		searchFilters: FilterItem[];
 	};
 
 	type FeedResult = {
