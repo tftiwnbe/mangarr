@@ -1,14 +1,9 @@
 package mangarr.tachibridge.runtime
 
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 internal fun normalizeRepoEntry(
@@ -59,14 +54,4 @@ internal fun iconUrl(repoIndexUrl: String, pkg: String): String? {
 	val normalizedRepoUrl = repoIndexUrl.trim()
 	if (normalizedRepoUrl.isBlank()) return null
 	return "${normalizedRepoUrl.substringBeforeLast("/")}/icon/$pkg.png"
-}
-
-internal fun firstLocalizedValue(element: JsonElement?): String? {
-	val values =
-		element
-			?.jsonObject
-			?.values
-			?.mapNotNull { value -> value.jsonPrimitive.contentOrNull?.trim()?.takeIf { it.isNotEmpty() } }
-			?: return null
-	return values.firstOrNull()
 }

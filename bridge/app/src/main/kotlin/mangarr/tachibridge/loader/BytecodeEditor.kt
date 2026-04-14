@@ -15,11 +15,6 @@ import kotlin.streams.asSequence
 
 object BytecodeEditor {
     private val logger = KotlinLogging.logger {}
-    private const val TOKEN_VALIDATION_METHOD = "isUserTokenValid"
-    private const val TOKEN_VALIDATION_DESC = "(Ljava/lang/String;)Z"
-    private const val TOKEN_PATCH_OWNER = "mangarr/tachibridge/loader/SourceAuthPatches"
-    private const val TOKEN_PATCH_NAME = "isTokenValid"
-    private const val TOKEN_PATCH_DESC = "(Ljava/lang/Object;Ljava/lang/String;)Z"
 
     private class SafeClassWriter(
         classReader: ClassReader,
@@ -38,28 +33,16 @@ object BytecodeEditor {
     }
 
     fun fixAndroidClasses(jarFile: Path) {
-        FileSystems.newFileSystem(jarFile, null as ClassLoader?)?.use {
-            Files
-                .walk(it.getPath("/"))
-                .asSequence()
-                .filterNotNull()
-                .filterNot(Files::isDirectory)
-                .mapNotNull(::getClassBytes)
-                .map(::transform)
-                .forEach(::write)
-        }
-    }
-
-    fun patchInstalledJar(jarFile: Path) {
-        FileSystems.newFileSystem(jarFile, null as ClassLoader?)?.use {
-            Files
-                .walk(it.getPath("/"))
-                .asSequence()
-                .filterNotNull()
-                .filterNot(Files::isDirectory)
-                .mapNotNull(::getClassBytes)
-                .map(::patchTokenValidationClass)
-                .forEach(::write)
+        FileSystems.newFileSystem(jarFile, null as ClassLoader?)?.use { fs ->
+            Files.walk(fs.getPath("/")).use { stream ->
+                stream
+                    .asSequence()
+                    .filterNotNull()
+                    .filterNot(Files::isDirectory)
+                    .mapNotNull(::getClassBytes)
+                    .map(::transform)
+                    .forEach(::write)
+            }
         }
     }
 
@@ -118,8 +101,6 @@ object BytecodeEditor {
         val cw = SafeClassWriter(cr, ClassWriter.COMPUTE_MAXS or ClassWriter.COMPUTE_FRAMES)
         cr.accept(
             object : ClassVisitor(Opcodes.ASM5, cw) {
-                private var className: String? = null
-
                 override fun visitField(
                     access: Int,
                     name: String?,
@@ -128,18 +109,6 @@ object BytecodeEditor {
                     cst: Any?,
                 ): FieldVisitor? {
                     return super.visitField(access, name, desc.replaceIndirectly(), signature, cst)
-                }
-
-                override fun visit(
-                    version: Int,
-                    access: Int,
-                    name: String?,
-                    signature: String?,
-                    superName: String?,
-                    interfaces: Array<out String>?,
-                ) {
-                    className = name
-                    super.visit(version, access, name, signature, superName, interfaces)
                 }
 
                 override fun visitMethod(
@@ -157,9 +126,6 @@ object BytecodeEditor {
                             signature,
                             exceptions,
                         )
-                    if (name == TOKEN_VALIDATION_METHOD && desc == TOKEN_VALIDATION_DESC) {
-                        return createTokenValidationPatch(mv)
-                    }
                     return object : MethodVisitor(Opcodes.ASM5, mv) {
                         override fun visitTypeInsn(
                             opcode: Int,
@@ -218,102 +184,6 @@ object BytecodeEditor {
         )
         return pair.first to cw.toByteArray()
     }
-
-    private fun patchTokenValidationClass(pair: Pair<Path, ByteArray>): Pair<Path, ByteArray> {
-        val cr = ClassReader(pair.second)
-        val cw = SafeClassWriter(cr, ClassWriter.COMPUTE_MAXS or ClassWriter.COMPUTE_FRAMES)
-        cr.accept(
-            object : ClassVisitor(Opcodes.ASM5, cw) {
-                override fun visitMethod(
-                    access: Int,
-                    name: String,
-                    desc: String,
-                    signature: String?,
-                    exceptions: Array<String?>?,
-                ): MethodVisitor {
-                    val mv = super.visitMethod(access, name, desc, signature, exceptions)
-                    if (name == TOKEN_VALIDATION_METHOD && desc == TOKEN_VALIDATION_DESC) {
-                        return createTokenValidationPatch(mv)
-                    }
-                    return mv
-                }
-            },
-            0,
-        )
-        return pair.first to cw.toByteArray()
-    }
-
-    private fun createTokenValidationPatch(mv: MethodVisitor): MethodVisitor =
-        object : MethodVisitor(Opcodes.ASM5, mv) {
-            override fun visitCode() {
-                super.visitCode()
-                mv.visitVarInsn(Opcodes.ALOAD, 0)
-                mv.visitVarInsn(Opcodes.ALOAD, 1)
-                mv.visitMethodInsn(
-                    Opcodes.INVOKESTATIC,
-                    TOKEN_PATCH_OWNER,
-                    TOKEN_PATCH_NAME,
-                    TOKEN_PATCH_DESC,
-                    false,
-                )
-                mv.visitInsn(Opcodes.IRETURN)
-            }
-
-            override fun visitInsn(opcode: Int) {}
-
-            override fun visitVarInsn(
-                opcode: Int,
-                `var`: Int,
-            ) {}
-
-            override fun visitFieldInsn(
-                opcode: Int,
-                owner: String?,
-                name: String?,
-                descriptor: String?,
-            ) {}
-
-            override fun visitMethodInsn(
-                opcode: Int,
-                owner: String?,
-                name: String?,
-                descriptor: String?,
-                isInterface: Boolean,
-            ) {}
-
-            override fun visitTypeInsn(
-                opcode: Int,
-                type: String?,
-            ) {}
-
-            override fun visitIntInsn(
-                opcode: Int,
-                operand: Int,
-            ) {}
-
-            override fun visitLdcInsn(value: Any?) {}
-
-            override fun visitJumpInsn(
-                opcode: Int,
-                label: org.objectweb.asm.Label?,
-            ) {}
-
-            override fun visitLabel(label: org.objectweb.asm.Label?) {}
-
-            override fun visitTryCatchBlock(
-                start: org.objectweb.asm.Label?,
-                end: org.objectweb.asm.Label?,
-                handler: org.objectweb.asm.Label?,
-                type: String?,
-            ) {}
-
-            override fun visitMaxs(
-                maxStack: Int,
-                maxLocals: Int,
-            ) {
-                super.visitMaxs(0, 0)
-            }
-        }
 
     private fun write(pair: Pair<Path, ByteArray>) {
         Files

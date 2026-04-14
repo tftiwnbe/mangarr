@@ -239,12 +239,7 @@ class BridgeHttpServer(
                 return@createContext
             }
 
-            val refererOrigin =
-                if (parsedUrl.host == "uploads.mangadex.org" || parsedUrl.host.endsWith(".mangadex.org")) {
-                    "https://mangadex.org"
-                } else {
-                    "${parsedUrl.protocol}://${parsedUrl.host}"
-                }
+            val refererOrigin = "${parsedUrl.protocol}://${parsedUrl.host}"
 
             try {
                 val request =

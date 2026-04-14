@@ -126,24 +126,6 @@ export function normalizeImportedStoragePayload(
 			out[normalizedKey] = JSON.stringify(parsed);
 		}
 	}
-	try {
-		const maybeTokenStore = buildLibGroupTokenStorePayload(raw);
-		for (const [key, value] of Object.entries(maybeTokenStore)) {
-			const normalizedValue = normalizePreferenceValue(key, value);
-			if (
-				typeof normalizedValue === 'string' ||
-				typeof normalizedValue === 'number' ||
-				typeof normalizedValue === 'boolean' ||
-				normalizedValue === null
-			) {
-				out[key] = normalizedValue;
-			} else {
-				out[key] = JSON.stringify(normalizedValue);
-			}
-		}
-	} catch {
-		/* not a LibGroup payload */
-	}
 	return out;
 }
 
@@ -204,57 +186,6 @@ function parseLooseKeyValueInput(input: string): Record<string, unknown> | null 
 		map[key] = parsePossiblyStringifiedJson(rawValue);
 	}
 	return map;
-}
-
-function buildLibGroupTokenStorePayload(raw: Record<string, unknown>): Record<string, unknown> {
-	let tokenPayload: Record<string, unknown> | null = null;
-	let authPayload: Record<string, unknown> | null = null;
-	if (raw.token && raw.auth && typeof raw.token === 'object' && typeof raw.auth === 'object') {
-		tokenPayload = raw.token as Record<string, unknown>;
-		authPayload = raw.auth as Record<string, unknown>;
-	}
-	const authEntry = parsePossiblyStringifiedJson(raw.auth);
-	if (!tokenPayload && authEntry && typeof authEntry === 'object' && !Array.isArray(authEntry)) {
-		const authObj = authEntry as Record<string, unknown>;
-		if (authObj.token && authObj.auth) {
-			tokenPayload = authObj.token as Record<string, unknown>;
-			authPayload = authObj.auth as Record<string, unknown>;
-		}
-	}
-	if (!tokenPayload || !authPayload) {
-		throw new Error(
-			'Unable to find LibGroup auth payload. Expected object with token/auth fields.'
-		);
-	}
-	const userId = Number(authPayload.id);
-	const tokenType = String(tokenPayload.token_type ?? tokenPayload.tokenType ?? '').trim();
-	const accessToken = String(tokenPayload.access_token ?? tokenPayload.accessToken ?? '').trim();
-	const expiresIn = Number(tokenPayload.expires_in ?? tokenPayload.expiresIn ?? 0);
-	const timestamp = Number(tokenPayload.timestamp ?? Date.now());
-	if (
-		!Number.isFinite(userId) ||
-		userId <= 0 ||
-		!tokenType ||
-		!accessToken ||
-		!Number.isFinite(expiresIn) ||
-		expiresIn <= 0
-	) {
-		throw new Error('Invalid token payload. token_type, access_token, expires_in are required.');
-	}
-	return {
-		bearer_token: accessToken,
-		user_id: String(Math.trunc(userId)),
-		expires_in: String(Math.trunc(expiresIn * 1_000)),
-		TokenStore: {
-			auth: { id: userId },
-			token: {
-				token_type: tokenType,
-				access_token: accessToken,
-				expires_in: Math.trunc(expiresIn),
-				timestamp: Math.trunc(Number.isFinite(timestamp) ? timestamp : Date.now())
-			}
-		}
-	};
 }
 
 function hasStoredValue(value: unknown): boolean {
