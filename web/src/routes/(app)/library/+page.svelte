@@ -476,9 +476,6 @@
 				}
 			});
 		}
-		if (!title.offline_readiness.titlePageReady || title.offline_readiness.missingCoverCache) {
-			return $_('library.offlinePreparing');
-		}
 		return null;
 	}
 

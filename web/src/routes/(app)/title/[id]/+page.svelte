@@ -389,12 +389,6 @@
 				})
 			};
 		}
-		if (!title.offlineReadiness.titlePageReady || title.offlineReadiness.missingCoverCache) {
-			return {
-				label: $_('title.offlinePreparing'),
-				detail: $_('title.offlinePreparingDescription')
-			};
-		}
 		return {
 			label: $_('title.offlineBrowseReady'),
 			detail: $_('title.offlineBrowseReadyDescription')
