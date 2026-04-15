@@ -84,8 +84,19 @@ internal fun applySearchFiltersToList(
 				@Suppress("UNCHECKED_CAST")
 				val groupItems = filter.state as? List<Any> ?: return@forEachIndexed
 				groupItems.forEachIndexed { itemIndex, item ->
-					if (item is SourceFilter.CheckBox) {
-						item.state = selected.contains(itemIndex)
+					when (item) {
+						is SourceFilter.CheckBox -> {
+							item.state = selected.contains(itemIndex)
+						}
+						is SourceFilter.TriState -> {
+							item.state =
+								if (selected.contains(itemIndex)) {
+									SourceFilter.TriState.STATE_INCLUDE
+								} else {
+									SourceFilter.TriState.STATE_IGNORE
+								}
+						}
+						else -> Unit
 					}
 				}
 			}
@@ -187,10 +198,11 @@ internal fun encodeSearchFilterDefinition(
 					}
 					val selected =
 						groupItems.mapIndexedNotNull { itemIndex, item ->
-							if (item is SourceFilter.CheckBox && item.state) {
-								itemIndex.toString()
-							} else {
-								null
+							when {
+								item is SourceFilter.CheckBox && item.state -> itemIndex.toString()
+								item is SourceFilter.TriState &&
+									item.state == SourceFilter.TriState.STATE_INCLUDE -> itemIndex.toString()
+								else -> null
 							}
 						}
 					put("default_value", JsonArray(emptyList()))
