@@ -238,6 +238,8 @@
 		"removeFromList": "Remove from list",
 		"assignStatusBeforePreferences": "Select a status to configure rating, updates, and collections",
 		"rating": "Rating",
+		"updatesOn": "Updates on",
+		"updatesOff": "Updates off",
 		"downloadMonitoring": "Download updates",
 		"monitoringSources": "Sources to watch for updates",
 		"collections": "Collections",
