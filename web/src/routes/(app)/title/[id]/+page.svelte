@@ -3,12 +3,16 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { useConvexClient, useQuery } from 'convex-svelte';
+	import { DropdownMenu } from 'bits-ui';
 	import {
+		BellIcon,
+		BellSlashIcon,
 		BookIcon,
+		CaretDownIcon,
 		CaretLeftIcon,
-		DownloadIcon,
 		GearIcon,
 		PlayIcon,
+		PlusIcon,
 		StarIcon,
 		SpinnerIcon
 	} from 'phosphor-svelte';
@@ -18,21 +22,14 @@
 	import TitleCommentsTab from '$lib/components/title-comments-tab.svelte';
 	import TitleInfoTab from '$lib/components/title-info-tab.svelte';
 	import { convexApi } from '$lib/convex/api';
-	import TitleSourcePanel from '$lib/components/title-source-panel.svelte';
 	import { waitForCommand } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
-	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
 	import { navigateBack, navHistoryRevision, resolveNavBackTarget } from '$lib/stores/nav-history';
 	import { panelOverlayOpen } from '$lib/stores/ui';
 	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
-	import {
-		effectiveSourceHealthState,
-		sourceHealthLabelKey,
-		type SourceHealthEntry
-	} from '$lib/utils/source-health';
 	import { TITLE_STATUS } from '$lib/utils/title-status';
 
 	const { data } = $props<{ data: { titleSegment: string | null } }>();
@@ -190,10 +187,9 @@
 	let showManagementPanel = $state(false);
 	let downloadingChapterIds = $state<string[]>([]);
 	let updatingDownloadProfile = $state(false);
-	let preferencesSaving = $state(false);
 	let actionError = $state<string | null>(null);
-	let preferencesError = $state<string | null>(null);
-	let preferencesSuccess = $state(false);
+	let prefsSaving = $state(false);
+	let ratingHover = $state(0);
 	let metadataRequested = $state(false);
 	let readinessRequested = $state(false);
 	let chapterHydrationStatus = $state<'idle' | 'syncing' | 'refreshing' | 'failed'>('idle');
@@ -220,8 +216,6 @@
 	let browserOnline = $state(true);
 	let coverCacheRequested = $state(false);
 	let progressActionChapterId = $state<string | null>(null);
-	let resetProgressDialogOpen = $state(false);
-	let resettingTitleProgress = $state(false);
 
 	onMount(() => {
 		if (typeof navigator !== 'undefined') {
@@ -264,16 +258,6 @@
 	const title = $derived(rawTitleQueryData);
 	const titleChapters = $derived((titleChaptersQuery.data ?? []) as ChapterRow[]);
 	const titleComments = $derived((titleCommentsQuery.data ?? []) as TitleComment[]);
-	const sourceHealthQuery = useQuery(convexApi.commands.listSourceHealth, () =>
-		title ? { sourceIds: [title.sourceId] } : 'skip'
-	);
-	const sourceHealthEntries = $derived((sourceHealthQuery.data ?? []) as SourceHealthEntry[]);
-	const currentSourceHealth = $derived.by(
-		() =>
-			sourceHealthEntries.find((entry) => entry.scope === 'title') ??
-			sourceHealthEntries.find((entry) => entry.scope === 'search') ??
-			null
-	);
 	const sources = $derived((sourcesQuery.data ?? []) as SourceItem[]);
 	const availableStatuses = $derived(
 		((statusesQuery.data ?? []) as UserStatusOption[]).sort(
@@ -343,57 +327,6 @@
 	const author = $derived.by(() => String(title?.author ?? '').trim());
 	const artist = $derived.by(() => String(title?.artist ?? '').trim());
 	const updatesEnabled = $derived(Boolean(title?.downloadProfile?.enabled));
-	const sourceHealthSummary = $derived.by(() => {
-		if (currentSourceHealth) {
-			return {
-				label: $_(
-					sourceHealthLabelKey({
-						state: effectiveSourceHealthState(currentSourceHealth),
-						permanent: currentSourceHealth.permanent
-					})
-				),
-				detail: currentSourceHealth.message
-			};
-		}
-		return {
-			label: $_('title.sourceHealthy'),
-			detail: $_('title.sourceHealthyDescription')
-		};
-	});
-	const offlineReadinessSummary = $derived.by(() => {
-		if (!title) {
-			return {
-				label: $_('title.offlineUnknown'),
-				detail: $_('title.offlineUnknownDescription')
-			};
-		}
-		if (title.offlineReadiness.fullyDownloaded) {
-			return {
-				label: $_('title.offlineReady'),
-				detail: $_('title.offlineReadyDescription', {
-					values: { count: title.offlineReadiness.downloadedChapters }
-				})
-			};
-		}
-		if (title.offlineReadiness.downloadedChapters > 0) {
-			return {
-				label: $_('title.offlinePartial'),
-				detail: $_('title.offlinePartialDescription', {
-					values: {
-						downloaded: title.offlineReadiness.downloadedChapters,
-						total: Math.max(
-							title.offlineReadiness.totalChapters,
-							title.offlineReadiness.downloadedChapters
-						)
-					}
-				})
-			};
-		}
-		return {
-			label: $_('title.offlineBrowseReady'),
-			detail: $_('title.offlineBrowseReadyDescription')
-		};
-	});
 	const linkedSourceKeys = $derived.by(
 		() =>
 			new Set(
@@ -441,23 +374,15 @@
 		if (status === TITLE_STATUS.HIATUS) return $_('status.hiatus');
 		return '';
 	});
-	const preferencesDirty = $derived.by(() => {
-		if (!title) {
-			return false;
-		}
-
-		const currentStatusId = title.userStatus?.id ?? null;
-		const currentRating = title.userRating ? Math.round(title.userRating) : 0;
-		const currentCollectionIds = [...title.collections.map((collection) => collection.id)].sort();
-		const nextCollectionIds = [...selectedCollectionIds].sort();
-
-		return (
-			currentStatusId !== selectedStatusId ||
-			currentRating !== selectedRating ||
-			currentCollectionIds.join(',') !== nextCollectionIds.join(',')
-		);
-	});
-
+	const selectedStatus = $derived(
+		availableStatuses.find((status) => status.id === selectedStatusId) ?? null
+	);
+	const selectedCollections = $derived(
+		availableCollections.filter((collection) => selectedCollectionIds.includes(collection.id))
+	);
+	const unselectedCollections = $derived(
+		availableCollections.filter((collection) => !selectedCollectionIds.includes(collection.id))
+	);
 	$effect(() => {
 		panelOverlayOpen.set(showManagementPanel);
 		return () => panelOverlayOpen.set(false);
@@ -784,22 +709,6 @@
 		}
 	}
 
-	async function resetTitleReadProgress() {
-		if (!title || resettingTitleProgress) return;
-		resettingTitleProgress = true;
-		actionError = null;
-		try {
-			await client.mutation(convexApi.library.resetTitleProgress, {
-				titleId: title._id
-			});
-			resetProgressDialogOpen = false;
-		} catch (error) {
-			actionError = error instanceof Error ? error.message : $_('title.resetProgressFailed');
-		} finally {
-			resettingTitleProgress = false;
-		}
-	}
-
 	async function toggleDownloadUpdates() {
 		if (!title || updatingDownloadProfile) return;
 		updatingDownloadProfile = true;
@@ -816,22 +725,9 @@
 		}
 	}
 
-	function toggleCollectionSelection(collectionId: string) {
-		selectedCollectionIds = selectedCollectionIds.includes(collectionId)
-			? selectedCollectionIds.filter((id) => id !== collectionId)
-			: [...selectedCollectionIds, collectionId];
-	}
-
-	function selectRating(value: number) {
-		selectedRating = selectedRating === value ? 0 : value;
-	}
-
-	async function savePreferences() {
-		if (!title || preferencesSaving || !preferencesDirty) return;
-
-		preferencesSaving = true;
-		preferencesError = null;
-		preferencesSuccess = false;
+	async function commitPrefs() {
+		if (!title) return;
+		prefsSaving = true;
 		try {
 			await client.mutation(convexApi.library.updateTitlePreferences, {
 				titleId: title._id,
@@ -839,16 +735,31 @@
 				userRating: selectedRating > 0 ? selectedRating : null,
 				collectionIds: selectedCollectionIds as Id<'libraryCollections'>[]
 			});
-			preferencesSuccess = true;
-			setTimeout(() => {
-				preferencesSuccess = false;
-			}, 2500);
 		} catch (cause) {
-			preferencesError =
-				cause instanceof Error ? cause.message : 'Unable to save title preferences';
+			actionError = cause instanceof Error ? cause.message : 'Unable to save';
 		} finally {
-			preferencesSaving = false;
+			prefsSaving = false;
 		}
+	}
+
+	function setStatus(statusId: string | null) {
+		if (selectedStatusId === statusId) return;
+		selectedStatusId = statusId;
+		void commitPrefs();
+	}
+
+	function setRating(value: number) {
+		const next = selectedRating === value ? 0 : value;
+		if (selectedRating === next) return;
+		selectedRating = next;
+		void commitPrefs();
+	}
+
+	function toggleCollection(collectionId: string) {
+		selectedCollectionIds = selectedCollectionIds.includes(collectionId)
+			? selectedCollectionIds.filter((id) => id !== collectionId)
+			: [...selectedCollectionIds, collectionId];
+		void commitPrefs();
 	}
 
 	async function runWithConcurrency<T>(
@@ -1266,13 +1177,153 @@
 				</div>
 			</div>
 
+			{#snippet chipRow()}
+				<div class="flex flex-wrap items-center gap-1.5 text-xs">
+					<DropdownMenu.Root>
+						<DropdownMenu.Trigger
+							class="flex items-center gap-1 px-2.5 py-1 transition-colors {selectedStatus
+								? 'bg-[var(--void-5)] text-[var(--text)] hover:bg-[var(--void-6)]'
+								: 'bg-[var(--void-3)] text-[var(--text-ghost)] hover:bg-[var(--void-4)] hover:text-[var(--text)]'} data-[state=open]:bg-[var(--void-5)] data-[state=open]:text-[var(--text)]"
+						>
+							<span>{selectedStatus?.label ?? $_('title.status')}</span>
+							<CaretDownIcon size={10} />
+						</DropdownMenu.Trigger>
+						<DropdownMenu.Portal>
+							<DropdownMenu.Content
+								class="z-50 min-w-[160px] bg-[var(--void-3)] py-1 shadow-lg"
+								sideOffset={4}
+							>
+								<DropdownMenu.Item
+									class="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-4)] hover:text-[var(--text)] data-[highlighted]:bg-[var(--void-4)] data-[highlighted]:text-[var(--text)]"
+									onclick={() => setStatus(null)}
+								>
+									{$_('common.clear')}
+								</DropdownMenu.Item>
+								{#each availableStatuses as status (status.id)}
+									<DropdownMenu.Item
+										class="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-[var(--void-4)] hover:text-[var(--text)] data-[highlighted]:bg-[var(--void-4)] data-[highlighted]:text-[var(--text)] {selectedStatusId ===
+										status.id
+											? 'text-[var(--text)]'
+											: 'text-[var(--text-ghost)]'}"
+										onclick={() => setStatus(status.id)}
+									>
+										{status.label}
+									</DropdownMenu.Item>
+								{/each}
+							</DropdownMenu.Content>
+						</DropdownMenu.Portal>
+					</DropdownMenu.Root>
+
+					<button
+						type="button"
+						class="flex items-center gap-1 px-2.5 py-1 transition-colors disabled:opacity-50 {updatesEnabled
+							? 'bg-[var(--void-5)] text-[var(--text)] hover:bg-[var(--void-6)]'
+							: 'bg-[var(--void-3)] text-[var(--text-ghost)] hover:bg-[var(--void-4)] hover:text-[var(--text)]'}"
+						onclick={toggleDownloadUpdates}
+						disabled={updatingDownloadProfile}
+					>
+						{#if updatingDownloadProfile}
+							<SpinnerIcon size={12} class="animate-spin" />
+						{:else if updatesEnabled}
+							<BellIcon size={12} />
+						{:else}
+							<BellSlashIcon size={12} />
+						{/if}
+						<span>
+							{updatesEnabled ? $_('title.updatesOn') : $_('title.updatesOff')}
+						</span>
+					</button>
+
+					{#each selectedCollections as collection (collection.id)}
+						<button
+							type="button"
+							class="flex items-center gap-1 bg-[var(--void-5)] px-2.5 py-1 text-[var(--text)] transition-colors hover:bg-[var(--void-6)]"
+							onclick={() => toggleCollection(collection.id)}
+							aria-label={`Remove from ${collection.name}`}
+						>
+							<span>{collection.name}</span>
+						</button>
+					{/each}
+					{#if unselectedCollections.length > 0}
+						<DropdownMenu.Root>
+							<DropdownMenu.Trigger
+								class="flex items-center gap-1 bg-[var(--void-3)] px-2.5 py-1 text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-4)] hover:text-[var(--text)] data-[state=open]:bg-[var(--void-5)] data-[state=open]:text-[var(--text)]"
+							>
+								<PlusIcon size={12} />
+								{#if selectedCollections.length === 0}
+									<span>{$_('title.collections')}</span>
+								{/if}
+							</DropdownMenu.Trigger>
+							<DropdownMenu.Portal>
+								<DropdownMenu.Content
+									class="z-50 min-w-[180px] bg-[var(--void-3)] py-1 shadow-lg"
+									sideOffset={4}
+								>
+									{#each unselectedCollections as collection (collection.id)}
+										<DropdownMenu.Item
+											class="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-4)] hover:text-[var(--text)] data-[highlighted]:bg-[var(--void-4)] data-[highlighted]:text-[var(--text)]"
+											onclick={() => toggleCollection(collection.id)}
+										>
+											{collection.name}
+										</DropdownMenu.Item>
+									{/each}
+								</DropdownMenu.Content>
+							</DropdownMenu.Portal>
+						</DropdownMenu.Root>
+					{/if}
+					{#if prefsSaving}
+						<SpinnerIcon size={12} class="animate-spin text-[var(--void-6)]" />
+					{/if}
+				</div>
+			{/snippet}
+
 			<div class="flex flex-col">
 				<div class="relative -mt-20 flex flex-col gap-2 sm:-mt-24 md:mt-0">
-					<h1
-						class="text-display text-2xl leading-tight text-[var(--text)] sm:text-3xl md:text-2xl"
-					>
-						{title.title}
-					</h1>
+					<div class="flex items-center gap-0.5 md:hidden">
+						{#each Array.from({ length: 5 }) as _unused, i (i)}
+							{@const value = i + 1}
+							{@const active = (ratingHover > 0 ? ratingHover : selectedRating) >= value}
+							<button
+								type="button"
+								class="p-1 transition-colors {active
+									? 'text-[var(--text)]'
+									: 'text-[var(--void-6)] hover:text-[var(--text-muted)]'}"
+								onmouseenter={() => (ratingHover = value)}
+								onmouseleave={() => (ratingHover = 0)}
+								onclick={() => setRating(value)}
+								aria-label={`Rate ${value}`}
+							>
+								<StarIcon size={18} weight={active ? 'fill' : 'regular'} />
+							</button>
+						{/each}
+					</div>
+
+					<div class="flex items-start justify-between gap-4">
+						<h1
+							class="text-display text-2xl leading-tight text-[var(--text)] sm:text-3xl md:text-2xl"
+						>
+							{title.title}
+						</h1>
+						<div class="hidden shrink-0 items-center gap-0.5 md:flex">
+							{#each Array.from({ length: 5 }) as _unused, i (i)}
+								{@const value = i + 1}
+								{@const active = (ratingHover > 0 ? ratingHover : selectedRating) >= value}
+								<button
+									type="button"
+									class="p-0.5 transition-colors {active
+										? 'text-[var(--text)]'
+										: 'text-[var(--void-6)] hover:text-[var(--text-muted)]'}"
+									onmouseenter={() => (ratingHover = value)}
+									onmouseleave={() => (ratingHover = 0)}
+									onclick={() => setRating(value)}
+									aria-label={`Rate ${value}`}
+								>
+									<StarIcon size={16} weight={active ? 'fill' : 'regular'} />
+								</button>
+							{/each}
+						</div>
+					</div>
+
 					{#if author || artist}
 						<p class="text-sm text-[var(--text-ghost)]">
 							{#if author}{author}{/if}
@@ -1283,25 +1334,13 @@
 							{/if}
 						</p>
 					{/if}
-					<p class="text-xs text-[var(--void-6)]">
-						{#if displayStatus}{displayStatus}{/if}
-						{#if title.chapterStats.total > 0}
-							· {chaptersLabel}{/if}
-						{#if sourcesCount > 0}
-							· {sourcesLabel}{/if}
-					</p>
-					<TitleSourcePanel
-						{sourceName}
-						sourceLang={title.sourceLang}
-						sourceHealthLabel={sourceHealthSummary.label}
-						sourceHealthDetail={sourceHealthSummary.detail}
-						offlineLabel={offlineReadinessSummary.label}
-						offlineDetail={offlineReadinessSummary.detail}
-						headingLabel={$_('title.readingSource')}
-					/>
+
+					<div class="mt-2 hidden md:block">
+						{@render chipRow()}
+					</div>
 				</div>
 
-				<div class="mt-8 flex flex-col gap-4 md:hidden">
+				<div class="mt-6 flex flex-col gap-4 md:hidden">
 					<div class="flex items-center gap-3">
 						{#if title.chapterStats.total > 0}
 							<button
@@ -1347,6 +1386,7 @@
 							</span>
 						</div>
 					{/if}
+					{@render chipRow()}
 				</div>
 
 				{#if actionError}
@@ -1451,101 +1491,6 @@
 	>
 		<div class="flex flex-col gap-6">
 			<div class="flex flex-col gap-2">
-				<span class="text-label">{$_('title.status')}</span>
-				{#if availableStatuses.length === 0}
-					<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
-				{:else}
-					<div class="flex flex-wrap gap-1.5">
-						<button
-							type="button"
-							class="px-3 py-1.5 text-xs transition-colors {selectedStatusId === null
-								? 'bg-[var(--void-5)] text-[var(--text)]'
-								: 'bg-[var(--void-3)] text-[var(--text-ghost)] hover:bg-[var(--void-4)] hover:text-[var(--text-muted)]'}"
-							onclick={() => (selectedStatusId = null)}
-						>
-							{$_('common.clear')}
-						</button>
-						{#each availableStatuses as status (status.id)}
-							<button
-								type="button"
-								class="px-3 py-1.5 text-xs transition-colors {selectedStatusId === status.id
-									? 'bg-[var(--void-5)] text-[var(--text)]'
-									: 'bg-[var(--void-3)] text-[var(--text-ghost)] hover:bg-[var(--void-4)] hover:text-[var(--text-muted)]'}"
-								onclick={() => (selectedStatusId = status.id)}
-							>
-								{status.label}
-							</button>
-						{/each}
-					</div>
-				{/if}
-			</div>
-
-			<div class="flex flex-col gap-2">
-				<span class="text-label">{$_('title.rating')}</span>
-				<div class="flex items-center gap-2 text-[var(--void-6)]">
-					{#each Array.from({ length: 5 }) as _, i (i)}
-						{@const value = i + 1}
-						<button
-							type="button"
-							class="transition-colors {selectedRating >= value
-								? 'text-[var(--text)]'
-								: 'text-[var(--void-6)] hover:text-[var(--text-muted)]'}"
-							onclick={() => selectRating(value)}
-							aria-label={`Rate ${value}`}
-						>
-							<StarIcon size={16} weight={selectedRating >= value ? 'fill' : 'regular'} />
-						</button>
-					{/each}
-					<button
-						type="button"
-						class="ml-2 text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
-						onclick={() => (selectedRating = 0)}
-					>
-						{$_('common.clear')}
-					</button>
-				</div>
-			</div>
-
-			<div class="flex flex-col gap-2">
-				<span class="text-label">{$_('title.collections')}</span>
-				{#if availableCollections.length === 0}
-					<p class="text-xs text-[var(--text-ghost)]">{$_('title.noCollections')}</p>
-				{:else}
-					<div class="flex flex-wrap gap-1.5">
-						{#each availableCollections as collection (collection.id)}
-							{@const selected = selectedCollectionIds.includes(collection.id)}
-							<button
-								type="button"
-								class="px-3 py-1.5 text-xs transition-colors {selected
-									? 'bg-[var(--void-5)] text-[var(--text)]'
-									: 'bg-[var(--void-3)] text-[var(--text-ghost)] hover:bg-[var(--void-4)] hover:text-[var(--text-muted)]'}"
-								onclick={() => toggleCollectionSelection(collection.id)}
-							>
-								{collection.name}
-							</button>
-						{/each}
-					</div>
-				{/if}
-			</div>
-
-			<div class="flex flex-col gap-2">
-				<span class="text-label">{$_('extensions.updates')}</span>
-				<button
-					type="button"
-					class="flex items-center gap-2 bg-[var(--void-3)] px-4 py-3 text-left text-sm text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-4)] disabled:opacity-50"
-					onclick={toggleDownloadUpdates}
-					disabled={updatingDownloadProfile}
-				>
-					{#if updatingDownloadProfile}
-						<SpinnerIcon size={14} class="animate-spin" />
-					{:else}
-						<DownloadIcon size={14} />
-					{/if}
-					<span>{updatesEnabled ? $_('downloads.enabled') : $_('downloads.disabled')}</span>
-				</button>
-			</div>
-
-			<div class="flex flex-col gap-2">
 				<span class="text-label">{$_('title.sourceMaintenance')}</span>
 				<p class="text-xs text-[var(--text-ghost)]">
 					{$_('title.sourceMaintenanceDescription')}
@@ -1558,18 +1503,6 @@
 					loading={sourceStatusRefreshing}
 				>
 					{$_('title.refreshSource')}
-				</Button>
-			</div>
-
-			<div class="flex flex-col gap-2">
-				<span class="text-label">{$_('title.resetProgress')}</span>
-				<Button
-					variant="outline"
-					size="sm"
-					onclick={() => (resetProgressDialogOpen = true)}
-					disabled={readingProgressCount === 0 || resettingTitleProgress}
-				>
-					{$_('title.resetProgress')}
 				</Button>
 			</div>
 
@@ -1753,36 +1686,6 @@
 				{/if}
 			</div>
 
-			{#if preferencesError}
-				<p class="text-xs text-[var(--error)]">{preferencesError}</p>
-			{/if}
-			{#if preferencesSuccess}
-				<p class="text-xs text-[var(--success)]">{$_('title.preferencesSaved')}</p>
-			{/if}
-
-			<Button
-				variant="solid"
-				size="md"
-				onclick={() => void savePreferences()}
-				disabled={!preferencesDirty || preferencesSaving}
-				loading={preferencesSaving}
-			>
-				{preferencesSaving ? $_('title.saving') : $_('common.save')}
-			</Button>
 		</div>
 	</SlidePanel>
 {/if}
-
-<ConfirmDialog
-	open={resetProgressDialogOpen}
-	title={$_('title.resetProgressConfirmTitle')}
-	description={$_('title.resetProgressConfirmDescription')}
-	confirmLabel={$_('title.resetProgress')}
-	cancelLabel={$_('common.cancel')}
-	variant="danger"
-	loading={resettingTitleProgress}
-	onConfirm={() => void resetTitleReadProgress()}
-	onCancel={() => {
-		if (!resettingTitleProgress) resetProgressDialogOpen = false;
-	}}
-/>

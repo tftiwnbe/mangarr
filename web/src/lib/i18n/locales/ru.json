@@ -238,6 +238,8 @@
 		"removeFromList": "Удалить из списка",
 		"assignStatusBeforePreferences": "Выберите статус, чтобы настроить оценку, обновления и коллекции",
 		"rating": "Оценка",
+		"updatesOn": "Обновления вкл.",
+		"updatesOff": "Обновления выкл.",
 		"downloadMonitoring": "Обновления загрузок",
 		"monitoringSources": "Источники для отслеживания обновлений",
 		"collections": "Коллекции",
