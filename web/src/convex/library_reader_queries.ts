@@ -221,7 +221,13 @@ export const getMineImportedSourceLookup = query({
 	handler: async (ctx) => {
 		const identity = await ctx.auth.getUserIdentity();
 		if (!identity) {
-			return {};
+			return [] as Array<{
+				sourceId: string;
+				titleUrl: string;
+				libraryId: string;
+				listedInLibrary: boolean;
+				routeSegment: string;
+			}>;
 		}
 
 		const ownerUserId = identity.subject as GenericId<'users'>;
@@ -239,33 +245,36 @@ export const getMineImportedSourceLookup = query({
 
 		const visibleTitleIds = new Set(titles.map((title) => String(title._id)));
 		const titleById = new Map(titles.map((title) => [String(title._id), title]));
-		const lookup: Record<
-			string,
-			{
-				libraryId: string;
-				listedInLibrary: boolean;
-				routeSegment: string;
-			}
-		> = {};
+		const entries: Array<{
+			sourceId: string;
+			titleUrl: string;
+			libraryId: string;
+			listedInLibrary: boolean;
+			routeSegment: string;
+		}> = [];
 		for (const title of titles) {
-			lookup[`${title.sourceId}::${title.titleUrl}`] = {
+			entries.push({
+				sourceId: title.sourceId,
+				titleUrl: title.titleUrl,
 				libraryId: String(title._id),
 				listedInLibrary: title.listedInLibrary !== false,
 				routeSegment: titleRouteSegments.get(String(title._id)) ?? buildTitleRouteBase(title.title)
-			};
+			});
 		}
 		for (const variant of variants) {
 			if (!visibleTitleIds.has(String(variant.libraryTitleId))) continue;
 			const primaryEntry = titleById.get(String(variant.libraryTitleId));
-			lookup[`${variant.sourceId}::${variant.titleUrl}`] = {
+			entries.push({
+				sourceId: variant.sourceId,
+				titleUrl: variant.titleUrl,
 				libraryId: String(variant.libraryTitleId),
 				listedInLibrary: primaryEntry?.listedInLibrary !== false,
 				routeSegment:
 					titleRouteSegments.get(String(variant.libraryTitleId)) ??
 					buildTitleRouteBase(primaryEntry?.title ?? '')
-			};
+			});
 		}
-		return lookup;
+		return entries;
 	}
 });
 
