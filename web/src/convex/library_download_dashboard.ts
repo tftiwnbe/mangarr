@@ -120,7 +120,7 @@ export const getDownloadDashboard = query({
 			profileRows.map((profile) => [profile.libraryTitleId as string, profile] as const)
 		);
 
-		// Build chapter stats from denormalized counts on title rows — no chapter scan needed.
+		// Sum denormalized counts from all library titles.
 		let downloadedChapters = 0;
 		let totalChapters = 0;
 		let totalDownloadedBytes = 0;
@@ -143,7 +143,7 @@ export const getDownloadDashboard = query({
 			queuedTaskCountByTitleId.set(key, (queuedTaskCountByTitleId.get(key) ?? 0) + 1);
 		}
 
-		const watchedTitles = titles
+		const watchedCandidates = titles
 			.map((title) => {
 				const titleId = String(title._id);
 				const profile = profileByTitleId.get(titleId) ?? null;
@@ -183,6 +183,8 @@ export const getDownloadDashboard = query({
 				return right.updatedAt - left.updatedAt;
 			})
 			.slice(0, watchedLimit);
+
+		const watchedTitles = watchedCandidates;
 
 		return {
 			generatedAt: Date.now(),
