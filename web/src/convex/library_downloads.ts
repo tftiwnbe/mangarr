@@ -422,7 +422,9 @@ export const setChapterDownloadState = mutation({
 
 		if (
 			args.status === DOWNLOAD_STATUS.DOWNLOADING &&
-			task.status === DOWNLOAD_TASK_STATUS.DOWNLOADING
+			task.status === DOWNLOAD_TASK_STATUS.DOWNLOADING &&
+			args.downloadedPages == null &&
+			args.totalPages == null
 		) {
 			return { ok: true };
 		}
