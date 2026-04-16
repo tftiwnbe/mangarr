@@ -651,18 +651,19 @@
 		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
 			{#each visibleFilteredTitles as title (title.id)}
 				{@const displayStatus = getDisplayStatus(title)}
-				{@const offlineStatus = offlineStatusLabel(title)}
 				<a
 					href={buildTitlePath(title.id, title.title, title.route_segment ?? null)}
-					class="group card-glow relative flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)]"
+					class="group flex flex-col gap-2"
 				>
-					<div class="relative aspect-[2/3] overflow-hidden bg-[var(--void-3)]">
+					<div
+						class="relative aspect-[2/3] overflow-hidden bg-[var(--void-3)] ring-1 ring-[var(--void-1)] transition-all duration-200 group-hover:ring-[var(--void-6)] group-hover:shadow-[0_8px_28px_-8px_rgba(0,0,0,0.6)]"
+					>
 						{#if title.thumbnail_url}
 							<LazyImage
 								src={title.thumbnail_url}
 								alt={title.title}
 								class="h-full w-full"
-								imgClass="transition-transform group-hover:scale-105"
+								imgClass="transition-transform duration-300 group-hover:scale-[1.03]"
 							/>
 						{:else}
 							<div class="flex h-full w-full items-center justify-center bg-[var(--void-5)]">
@@ -670,25 +671,24 @@
 							</div>
 						{/if}
 
-						{#if title.chapters_count > 0}
+						{#if title.user_rating != null}
 							<div
-								class="absolute right-1 bottom-1 bg-[var(--void-0)]/80 px-1.5 py-0.5 text-[10px] text-[var(--text)]"
+								class="absolute top-1 right-1 flex items-center gap-1 bg-[var(--void-0)]/80 px-1.5 py-0.5 text-[11px] leading-none text-[var(--text)] backdrop-blur-sm"
 							>
-								{title.chapters_count}
+								<span class="text-sm leading-none text-[var(--warning)]">★</span>
+								<span class="tabular-nums">{Math.round(title.user_rating)}</span>
 							</div>
 						{/if}
 					</div>
 
-					<div class="flex flex-1 flex-col gap-1 p-2">
-						<p class="line-clamp-2 text-xs leading-tight text-[var(--text)]">{title.title}</p>
+					<div class="flex flex-col gap-0.5 px-0.5">
+						<p
+							class="line-clamp-2 min-h-[2lh] text-xs leading-snug text-[var(--text)] transition-colors group-hover:text-white"
+						>
+							{title.title}
+						</p>
 						{#if displayStatus}
-							<p class="text-[10px] text-[var(--text-muted)]">{displayStatus}</p>
-						{/if}
-						{#if offlineStatus}
-							<p class="text-[10px] text-[var(--text-ghost)]">{offlineStatus}</p>
-						{/if}
-						{#if title.user_rating != null}
-							<p class="text-[10px] text-[var(--text-muted)]">★ {title.user_rating.toFixed(1)}</p>
+							<p class="truncate text-[10px] text-[var(--text-ghost)]">{displayStatus}</p>
 						{/if}
 					</div>
 				</a>

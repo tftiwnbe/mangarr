@@ -276,6 +276,79 @@ body.reader-mode::-webkit-scrollbar {
 		border-color: var(--void-6);
 	}
 
+	/* Owned card — static starlight halo around the entire card, pale periwinkle.
+	   Hover intensifies the halo + reveals scattered star particles around it. */
+	.card-owned {
+		position: relative;
+		filter: drop-shadow(0 0 10px rgba(165, 180, 252, 0.18))
+			drop-shadow(0 0 24px rgba(165, 180, 252, 0.12));
+		transition: filter var(--duration-normal) var(--ease-out);
+	}
+	.card-owned:hover {
+		filter: drop-shadow(0 0 14px rgba(199, 210, 254, 0.42))
+			drop-shadow(0 0 40px rgba(165, 180, 252, 0.3));
+	}
+	.card-owned > :first-child {
+		box-shadow:
+			0 0 0 1px rgba(199, 210, 254, 0.35),
+			0 0 16px -4px rgba(165, 180, 252, 0.28);
+		transition: box-shadow var(--duration-normal) var(--ease-out);
+	}
+	.card-owned:hover > :first-child {
+		box-shadow:
+			0 0 0 1px rgba(199, 210, 254, 0.8),
+			0 0 24px -2px rgba(165, 180, 252, 0.55);
+	}
+
+	.card-star {
+		position: absolute;
+		pointer-events: none;
+		color: rgba(199, 210, 254, 0.95);
+		opacity: 0;
+		transform: scale(0.4) rotate(-18deg);
+		filter: drop-shadow(0 0 4px rgba(199, 210, 254, 0.8));
+		transition:
+			opacity 0.5s var(--ease-out),
+			transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+		font-family: Georgia, 'Times New Roman', serif;
+		line-height: 1;
+		user-select: none;
+	}
+	.card-owned:hover .card-star {
+		opacity: 1;
+		transform: scale(1) rotate(0);
+	}
+	.card-star-1 {
+		top: -6px;
+		left: -4px;
+		font-size: 11px;
+		transition-delay: 0.05s;
+	}
+	.card-star-2 {
+		top: 18%;
+		right: -10px;
+		font-size: 7px;
+		transition-delay: 0.18s;
+	}
+	.card-star-3 {
+		bottom: 38%;
+		left: -8px;
+		font-size: 9px;
+		transition-delay: 0.1s;
+	}
+	.card-star-4 {
+		bottom: -4px;
+		right: 12%;
+		font-size: 8px;
+		transition-delay: 0.22s;
+	}
+	.card-star-5 {
+		top: 62%;
+		right: -6px;
+		font-size: 5px;
+		transition-delay: 0.3s;
+	}
+
 	/* Surface variants */
 	.surface {
 		background: var(--surface);

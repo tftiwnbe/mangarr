@@ -4,9 +4,7 @@
 	import { SvelteMap } from 'svelte/reactivity';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import {
-		CheckIcon,
 		CompassIcon,
-		EyeSlashIcon,
 		FunnelIcon,
 		ImageIcon,
 		MagnifyingGlassIcon,
@@ -237,7 +235,14 @@
 	}));
 
 	const importedLibraryIds = $derived.by(() => {
-		return (importedLookupQuery.data ?? {}) as Record<string, ImportedLookupEntry>;
+		const entries = (importedLookupQuery.data ?? []) as Array<
+			ImportedLookupEntry & { sourceId: string; titleUrl: string }
+		>;
+		const lookup: Record<string, ImportedLookupEntry> = {};
+		for (const entry of entries) {
+			lookup[`${entry.sourceId}::${entry.titleUrl}`] = entry;
+		}
+		return lookup;
 	});
 	const persistedSourceFailures = $derived((sourceHealthQuery.data ?? []) as SourceHealthEntry[]);
 
@@ -1115,23 +1120,6 @@
 		return `/title/open?${query.toString()}`;
 	}
 
-	function exploreBadge(item: ExploreCard) {
-		if (!item.importedLibraryId) return null;
-		if (item.importedListedInLibrary) {
-			return {
-				variant: 'listed' as const,
-				label: $_('title.inLibrary'),
-				className: 'bg-[var(--success)]/85 text-[var(--void-0)]'
-			};
-		}
-		return {
-			variant: 'hidden' as const,
-			label: $_('explore.hiddenImportedBadge'),
-			className:
-				'bg-[var(--void-1)]/85 text-[var(--text-muted)] ring-1 ring-inset ring-[var(--line)]'
-		};
-	}
-
 	function shouldUseBrowserNavigation(event: MouseEvent): boolean {
 		return (
 			event.defaultPrevented ||
@@ -1469,12 +1457,12 @@
 	{#if currentLoading && cards.length === 0}
 		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
 			{#each Array(18) as _, i (i)}
-				<div class="flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)]">
+				<div class="flex flex-col gap-2">
 					<div
-						class="aspect-[2/3] animate-pulse bg-[var(--void-4)]"
+						class="aspect-[2/3] animate-pulse bg-[var(--void-4)] ring-1 ring-[var(--void-1)]"
 						style={`animation-delay: ${i * 40}ms`}
 					></div>
-					<div class="flex flex-col gap-1.5 p-2">
+					<div class="flex flex-col gap-1.5 px-0.5">
 						<div class="h-2 w-full animate-pulse bg-[var(--void-4)]"></div>
 						<div class="h-2 w-3/5 animate-pulse bg-[var(--void-5)]"></div>
 					</div>
@@ -1484,54 +1472,32 @@
 	{:else if cards.length > 0}
 		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
 			{#each visibleCards as item (item.key)}
-				{@const badge = exploreBadge(item)}
+				{@const isOwned = item.importedLibraryId != null && item.importedListedInLibrary}
 				<a
 					href={buildPreviewHref(item)}
-					class="group card-glow relative flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)] text-left"
+					class={`group flex flex-col gap-2 text-left ${isOwned ? 'card-owned' : ''}`}
 					onclick={(event) => handleCardClick(event, item)}
 					aria-disabled={openingTitleKey !== null}
 				>
-					<div class="relative aspect-[2/3] overflow-hidden bg-[var(--void-3)]">
+					<div
+						class={`relative aspect-[2/3] overflow-hidden bg-[var(--void-3)] transition-all duration-200 ${
+							isOwned
+								? ''
+								: 'ring-1 ring-[var(--void-1)] group-hover:ring-[var(--void-6)] group-hover:shadow-[0_8px_28px_-8px_rgba(0,0,0,0.6)]'
+						}`}
+					>
 						{#if item.thumbnailUrl}
 							<LazyImage
 								src={getCachedCoverUrl(item.thumbnailUrl)}
 								alt={item.title}
 								class="h-full w-full"
-								imgClass="transition-transform group-hover:scale-105"
+								imgClass="transition-transform duration-300 group-hover:scale-[1.03]"
 							/>
 						{:else}
 							<div class="flex h-full w-full items-center justify-center">
 								<ImageIcon size={24} class="text-[var(--text-ghost)]" />
 							</div>
 						{/if}
-
-						<div class="absolute inset-x-1 top-1 flex items-start justify-end gap-2">
-							{#if badge}
-								{#if badge.variant === 'listed'}
-									<div
-										class={`flex shrink-0 items-center gap-1 px-1.5 py-0.5 text-[10px] ${badge.className}`}
-									>
-										<CheckIcon size={10} />
-										<span>{badge.label}</span>
-									</div>
-								{:else}
-									<div
-										class={`flex h-6 w-6 shrink-0 items-center justify-center ${badge.className}`}
-										title={badge.label}
-										aria-label={badge.label}
-									>
-										<EyeSlashIcon size={12} />
-									</div>
-								{/if}
-							{/if}
-						</div>
-						<div class="absolute inset-x-1 bottom-1 flex items-end justify-start">
-							<div
-								class="max-w-[85%] truncate bg-[var(--void-0)]/82 px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] backdrop-blur-sm"
-							>
-								{item.sourceName}{item.sourceLang ? ` · ${item.sourceLang.toUpperCase()}` : ''}
-							</div>
-						</div>
 
 						{#if openingTitleKey === item.key}
 							<div
@@ -1542,9 +1508,23 @@
 						{/if}
 					</div>
 
-					<div class="flex flex-1 flex-col gap-1 p-2">
-						<p class="line-clamp-2 text-xs text-[var(--text)]">{item.title}</p>
+					<div class="flex flex-col gap-0.5 px-0.5">
+						<p
+							class="line-clamp-2 min-h-[2lh] text-xs leading-snug text-[var(--text)] transition-colors group-hover:text-white"
+						>
+							{item.title}
+						</p>
+						<p class="truncate text-[10px] tracking-wide text-[var(--text-ghost)] uppercase">
+							{item.sourceName}{item.sourceLang ? ` · ${item.sourceLang.toUpperCase()}` : ''}
+						</p>
 					</div>
+					{#if isOwned}
+						<span class="card-star card-star-1" aria-hidden="true">✦</span>
+						<span class="card-star card-star-2" aria-hidden="true">✦</span>
+						<span class="card-star card-star-3" aria-hidden="true">✧</span>
+						<span class="card-star card-star-4" aria-hidden="true">✦</span>
+						<span class="card-star card-star-5" aria-hidden="true">✧</span>
+					{/if}
 				</a>
 			{/each}
 		</div>
