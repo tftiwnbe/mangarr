@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import {
+		ArrowClockwiseIcon,
 		HardDriveIcon,
 		PlayIcon,
 		SpinnerIcon
@@ -111,18 +112,17 @@
 	const isLoading = $derived(dashboardQuery.isLoading);
 	const numberFormatter = new Intl.NumberFormat();
 
-	// Get the first 2 chapters that are currently downloading, always show 2 slots (fill with null)
-	const downloadSlots = $derived.by(() => {
-		const downloading = dashboard.activeTasks
+	const activeDownloads = $derived(
+		dashboard.activeTasks
 			.filter((task) => task.status === 'downloading')
-			.slice(0, 2);
-		// Always show 2 slots, fill empty slots with null
-		const slots: Array<typeof downloading[number] | null> = [...downloading];
-		while (slots.length < 2) {
-			slots.push(null);
-		}
-		return slots;
-	});
+			.sort((a, b) => a.chapterId.localeCompare(b.chapterId))
+	);
+
+	const chapterProgress = $derived(
+		dashboard.overview.totalChapters > 0
+			? (dashboard.overview.downloadedChapters / dashboard.overview.totalChapters) * 100
+			: 0
+	);
 
 	onMount(() => {
 		void loadStorage();
@@ -249,29 +249,24 @@
 		return `${value.toFixed(decimals)} ${units[unit]}`;
 	}
 
-	function overviewValue(key: 'downloadedChapters' | 'avgChapterSize' | 'estimatedCapacity') {
-		if (key === 'downloadedChapters') {
-			const downloaded = Math.max(0, dashboard.overview.downloadedChapters);
-			const total = Math.max(0, dashboard.overview.totalChapters);
-			return `${numberFormatter.format(downloaded)} / ${numberFormatter.format(total)}`;
-		}
-		if (key === 'avgChapterSize') {
-			return formatBytes(dashboard.overview.avgChapterSizeBytes);
-		}
-		const freeSpace = storage?.freeSpaceBytes ?? 0;
-		if (dashboard.overview.avgChapterSizeBytes <= 0 || freeSpace <= 0) {
-			return '0';
-		}
-		return numberFormatter.format(
-			Math.max(0, Math.floor(freeSpace / dashboard.overview.avgChapterSizeBytes))
-		);
-	}
+	const chapterStat = $derived.by(() => {
+		const downloaded = Math.max(0, dashboard.overview.downloadedChapters);
+		const total = Math.max(0, dashboard.overview.totalChapters);
+		return {
+			downloaded: numberFormatter.format(downloaded),
+			total: numberFormatter.format(total)
+		};
+	});
 
-	function overviewShortLabel(key: 'downloadedChapters' | 'avgChapterSize' | 'estimatedCapacity') {
-		if (key === 'avgChapterSize') return $_('downloads.avgSizeShort');
-		if (key === 'estimatedCapacity') return $_('downloads.capacityShort');
-		return $_('downloads.chaptersShort');
-	}
+	const capacityStat = $derived.by(() => {
+		const freeSpace = storage?.freeSpaceBytes ?? 0;
+		const avg = dashboard.overview.avgChapterSizeBytes;
+		const capacity = avg > 0 && freeSpace > 0 ? Math.floor(freeSpace / avg) : 0;
+		return {
+			capacity: numberFormatter.format(capacity),
+			free: formatBytes(freeSpace)
+		};
+	});
 
 	function taskActionLoading(kind: string, taskId: string) {
 		return taskActionKey === `${kind}:${taskId}`;
@@ -282,70 +277,75 @@
 	<title>{$_('nav.downloads')} | {$_('app.name')}</title>
 </svelte:head>
 
-<div class="flex flex-col gap-6">
-	<div class="flex items-center justify-between">
-		<h1 class="text-display text-xl text-[var(--text)]">{$_('nav.downloads').toLowerCase()}</h1>
+<div class="flex flex-col gap-7">
+	<header class="flex items-end justify-between gap-3">
+		<h1 class="text-display text-xl leading-none text-[var(--text)]">
+			{$_('nav.downloads').toLowerCase()}
+		</h1>
 		<div class="flex items-center gap-1">
 			<button
 				type="button"
-				class="flex h-8 w-8 items-center justify-center transition-all {runningAction === 'cycle'
-					? 'text-[var(--text)]'
-					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+				class="group/btn flex h-8 w-8 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)] disabled:opacity-40"
 				onclick={handleRunWatch}
 				disabled={runningAction !== null}
 				title={$_('downloads.runNow')}
+				aria-label={$_('downloads.runNow')}
 			>
 				{#if runningAction === 'cycle'}
-					<SpinnerIcon size={14} class="animate-spin" />
+					<SpinnerIcon size={15} class="animate-spin" />
 				{:else}
-					<PlayIcon size={14} />
+					<PlayIcon size={15} weight="duotone" />
 				{/if}
 			</button>
 			<button
 				type="button"
-				class="flex h-8 w-8 items-center justify-center transition-all {reconcileLoading
-					? 'text-[var(--text)]'
-					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+				class="group/btn flex h-8 w-8 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)] disabled:opacity-40"
 				onclick={handleReconcileDownloads}
 				disabled={reconcileLoading}
 				title={$_('downloads.scanDownloads')}
+				aria-label={$_('downloads.scanDownloads')}
 			>
 				{#if reconcileLoading}
-					<SpinnerIcon size={14} class="animate-spin" />
+					<SpinnerIcon size={15} class="animate-spin" />
 				{:else}
-					<HardDriveIcon size={14} />
+					<HardDriveIcon size={15} weight="duotone" />
 				{/if}
 			</button>
 		</div>
-	</div>
+	</header>
 
-	<div class="flex items-start justify-between px-1">
-		{#each ['downloadedChapters', 'avgChapterSize', 'estimatedCapacity'] as statKey (statKey)}
-			<div class="flex flex-col gap-0.5">
-				<span class="text-lg font-medium text-[var(--text)] tabular-nums">
-					{overviewValue(statKey as 'downloadedChapters' | 'avgChapterSize' | 'estimatedCapacity')}
-				</span>
-				<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
-					{overviewShortLabel(
-						statKey as 'downloadedChapters' | 'avgChapterSize' | 'estimatedCapacity'
-					)}
-				</span>
-				{#if statKey === 'estimatedCapacity'}
-					<span class="text-[10px] text-[var(--text-ghost)]">
-						{formatBytes(storage?.freeSpaceBytes ?? 0)} free
-					</span>
-				{/if}
-			</div>
-		{/each}
-	</div>
-
-	{#if reconcileResult || reconcileLoading || reconcileError}
+	<section class="flex flex-col gap-3">
 		<div class="flex flex-col gap-2">
+			<div class="flex items-baseline justify-between gap-3">
+				<span class="text-display text-2xl leading-none text-[var(--text)] tabular-nums">
+					{chapterStat.downloaded}<span class="text-[var(--text-ghost)] text-base">/{chapterStat.total}</span>
+				</span>
+				<span class="text-[10px] leading-none tracking-[0.24em] text-[var(--text-ghost)] uppercase">
+					{$_('downloads.chaptersShort')}
+				</span>
+			</div>
+			<div class="relative h-[2px] w-full overflow-hidden bg-[var(--void-4)]">
+				<div
+					class="absolute inset-y-0 left-0 bg-[rgba(199,210,254,0.5)]"
+					style="width: {chapterProgress}%"
+				></div>
+			</div>
+		</div>
+		<div class="flex items-center gap-3 text-[11px] text-[var(--text-muted)] tabular-nums">
+			<span>{formatBytes(dashboard.overview.avgChapterSizeBytes)} <span class="text-[var(--text-ghost)] tracking-[0.12em] uppercase">avg</span></span>
+			<span class="text-[var(--void-6)]">·</span>
+			<span>{capacityStat.capacity} <span class="text-[var(--text-ghost)] tracking-[0.12em] uppercase">{$_('downloads.capacityShort')}</span></span>
+			<span class="text-[var(--void-6)]">·</span>
+			<span>{capacityStat.free} <span class="text-[var(--text-ghost)] tracking-[0.12em] uppercase">free</span></span>
+		</div>
+	</section>
+
+	{#if reconcileResult || reconcileError}
+		<div class="flex flex-col gap-1 border-l border-[var(--line)] pl-3">
 			{#if reconcileResult}
-				<p class="text-[10px] tracking-wide text-[var(--text-ghost)]">
-					Fixed {reconcileResult.fixed ?? 0} missing downloaded chapters. Found
-					{reconcileResult.downloaded ?? 0} stored chapters and {reconcileResult.missing ?? 0}
-					missing entries.
+				<p class="text-[11px] text-[var(--text-muted)]">
+					Fixed {reconcileResult.fixed ?? 0} · found {reconcileResult.downloaded ?? 0} stored · {reconcileResult.missing ??
+						0} missing
 				</p>
 			{/if}
 			{#if reconcileError}
@@ -356,168 +356,207 @@
 
 	{#if actionError}
 		<div
-			class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]"
+			class="border-l-2 border-[var(--error)] bg-[var(--error-soft)] px-3 py-2 text-xs text-[var(--error)]"
 		>
 			{actionError}
 		</div>
 	{/if}
 
-	<!-- Current Downloads Section -->
-	<div class="flex flex-col gap-1 pb-3">
-		<h2 class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase px-1 pb-2">
-			{$_('downloads.downloading')}
-		</h2>
-		{#each downloadSlots as task, index (task?.chapterId ?? `empty-${index}`)}
-			{#if task}
-				<div class="flex gap-3 border border-[var(--line)] bg-[var(--void-2)] p-3">
-					<a href={buildTitlePath(task.titleId, task.title)} class="shrink-0">
-						<LazyImage
-							src={coverSrc(task)}
-							alt={task.title}
-							class="h-16 w-11 border border-[var(--line)]"
-						/>
-					</a>
-					<div class="min-w-0 flex-1">
-						<a href={buildTitlePath(task.titleId, task.title)}>
-							<p class="line-clamp-1 text-sm text-[var(--text)]">{task.title}</p>
-						</a>
-						<p class="mt-0.5 line-clamp-1 text-xs text-[var(--text-muted)]">{task.chapter}</p>
-						<div class="mt-1 flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
-							<span class="text-[var(--text-muted)]">{$_('downloads.downloading').toLowerCase()}</span>
-							{#if task.fileSizeBytes && task.fileSizeBytes > 0}
-								<span>{formatBytes(task.fileSizeBytes)}</span>
-							{/if}
-						</div>
-						<div class="mt-2 h-0.5 w-full overflow-hidden bg-[var(--void-4)]">
-							<div
-								class="h-full bg-[var(--text-muted)] shadow-[0_0_8px_rgba(228,228,231,0.6)] transition-[width] duration-300 animate-pulse"
-								style="width: {task.progressPercent}%"
-							></div>
-						</div>
-					</div>
-					<div class="flex shrink-0 items-center self-center">
-						<span class="text-sm text-[var(--text)] tabular-nums">
-							{task.progressPercent}%
-						</span>
-					</div>
-				</div>
-			{:else}
-				<!-- Empty download slot -->
-				<div class="flex gap-3 border border-dashed border-[var(--line)] bg-[var(--void-1)] p-3 opacity-50">
-					<div class="h-16 w-11 border border-dashed border-[var(--line)] bg-[var(--void-2)]"></div>
-					<div class="min-w-0 flex-1">
-						<p class="text-sm text-[var(--text-ghost)]">{$_('downloads.idle')}</p>
-						<div class="mt-2 h-0.5 w-full overflow-hidden bg-[var(--void-4)]">
-							<div class="h-full bg-transparent"></div>
-						</div>
-					</div>
-					<div class="flex shrink-0 items-center self-center">
-						<span class="text-sm text-[var(--text-ghost)] tabular-nums">-</span>
-					</div>
-				</div>
+	<!-- Inflight -->
+	<section class="flex flex-col gap-2">
+		<header class="flex items-center gap-2 px-0.5">
+			<span
+				class="h-1 w-1 rounded-full {activeDownloads.length > 0
+					? 'bg-[rgba(199,210,254,0.9)] shadow-[0_0_8px_rgba(165,180,252,0.8)] animate-pulse'
+					: 'bg-[var(--void-6)]'}"
+			></span>
+			<h2 class="text-[10px] tracking-[0.24em] text-[var(--text-ghost)] uppercase">
+				{activeDownloads.length > 0
+					? $_('downloads.inflight')
+					: $_('downloads.standby')}
+			</h2>
+			{#if activeDownloads.length > 0}
+				<span class="text-[10px] text-[var(--text-ghost)] tabular-nums">
+					{activeDownloads.length}
+				</span>
 			{/if}
-		{/each}
-	</div>
+		</header>
 
-	<!-- Watched Titles Section -->
-	<div class="flex flex-col gap-1">
-		<h2 class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase px-1 pb-2">
-			{$_('downloads.watched')}
-		</h2>
+		{#if activeDownloads.length === 0}
+			<div class="px-0.5 py-3 text-[11px] text-[var(--text-muted)]">
+				{$_('downloads.noDownloading')}
+			</div>
+		{:else}
+			<div class="flex flex-col gap-2">
+				{#each activeDownloads as task (task.chapterId)}
+					<article class="flex h-[72px] gap-3 py-2">
+						<a href={buildTitlePath(task.titleId, task.title)} class="shrink-0">
+							<div
+								class="relative h-14 w-10 overflow-hidden bg-[var(--void-3)] shadow-[0_0_0_1px_rgba(199,210,254,0.28),0_0_14px_-4px_rgba(165,180,252,0.35)]"
+							>
+								<LazyImage
+									src={coverSrc(task)}
+									alt={task.title}
+									class="absolute inset-0 h-full w-full"
+								/>
+							</div>
+						</a>
+						<div class="flex min-w-0 flex-1 flex-col justify-center gap-1">
+							<a href={buildTitlePath(task.titleId, task.title)} class="flex items-baseline justify-between gap-2">
+								<p class="line-clamp-1 text-sm leading-tight text-[var(--text)]">{task.title}</p>
+								<span class="shrink-0 text-[11px] leading-none text-[var(--text-soft)] tabular-nums">
+									{task.progressPercent > 0 ? `${task.progressPercent}%` : '···'}
+								</span>
+							</a>
+							<div class="flex items-center gap-2">
+								<p class="min-w-0 truncate text-xs leading-tight text-[var(--text-muted)]">{task.chapter}</p>
+								{#if task.fileSizeBytes && task.fileSizeBytes > 0}
+									<span class="shrink-0 text-[10px] text-[var(--text-ghost)] tabular-nums">{formatBytes(task.fileSizeBytes)}</span>
+								{/if}
+							</div>
+							<div class="relative h-[2px] w-full overflow-hidden bg-[var(--void-4)]">
+								{#if task.progressPercent > 0}
+									<div
+										class="absolute inset-y-0 left-0 bg-[rgba(199,210,254,0.9)] shadow-[0_0_10px_rgba(165,180,252,0.7)] transition-[width] duration-300"
+										style="width: {task.progressPercent}%"
+									></div>
+								{:else}
+									<div
+										class="absolute inset-y-0 left-0 w-full animate-pulse bg-[rgba(199,210,254,0.35)]"
+									></div>
+								{/if}
+							</div>
+						</div>
+					</article>
+				{/each}
+			</div>
+		{/if}
+	</section>
+
+	<!-- Watched -->
+	<section class="flex flex-col gap-2">
+		<header class="flex items-center gap-2 px-0.5">
+			<span class="h-1 w-1 rounded-full bg-[var(--void-6)]"></span>
+			<h2 class="text-[10px] tracking-[0.24em] text-[var(--text-ghost)] uppercase">
+				{$_('downloads.watched')}
+			</h2>
+			{#if dashboard.watchedTitles.length > 0}
+				<span class="text-[10px] text-[var(--text-ghost)] tabular-nums">
+					{dashboard.watchedTitles.length}
+				</span>
+			{/if}
+		</header>
+
 		{#if isLoading && !dashboard.generatedAt}
-			<div class="flex items-center justify-center py-20">
+			<div class="flex items-center justify-center py-16">
 				<SpinnerIcon size={16} class="animate-spin text-[var(--text-ghost)]" />
 			</div>
 		{:else if dashboard.watchedTitles.length === 0}
-			<div class="flex flex-col items-center py-20">
-				<p class="text-sm text-[var(--text-ghost)]">{$_('downloads.noWatched')}</p>
+			<div class="flex flex-col items-center gap-1 py-16">
+				<p class="text-sm text-[var(--text-muted)]">{$_('downloads.noWatched')}</p>
+				<p class="text-[11px] text-[var(--text-ghost)]">
+					{$_('downloads.noWatchedDescription')}
+				</p>
 			</div>
 		{:else}
-			{#each dashboard.watchedTitles as item (item.titleId)}
-				{@const progress =
-					item.totalChapters > 0
-						? Math.round((item.downloadedChapters / item.totalChapters) * 100)
-						: 0}
-				{@const isDownloading = item.queuedTasks > 0}
-				<div class="group flex gap-3 py-2 transition-opacity {item.enabled ? '' : 'opacity-35'}">
-					<a href={buildTitlePath(item.titleId, item.title)} class="shrink-0">
-						<LazyImage
-							src={coverSrc(item)}
-							alt={item.title}
-							class="h-16 w-11 border border-[var(--line)]"
-						/>
-					</a>
-					<a href={buildTitlePath(item.titleId, item.title)} class="min-w-0 flex-1">
-						<div class="flex items-baseline justify-between gap-2">
-							<p class="line-clamp-1 text-sm text-[var(--text)]">{item.title}</p>
-							<span class="shrink-0 text-xs text-[var(--text-soft)] tabular-nums">
-								{item.downloadedChapters}/{item.totalChapters}
-							</span>
-						</div>
-						<div class="mt-0.5 flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
-							{#if item.variantSources.length > 0}
-								<span>{item.variantSources.join(', ')}</span>
-							{/if}
-							{#if item.paused}
-								<span class="text-[var(--text-muted)]"
-									>{$_('downloads.paused').toLowerCase()}</span
-								>
-							{/if}
-							{#if item.autoDownload}
-								<span>auto</span>
-							{/if}
-							<span>{formatBytes(item.downloadedBytes)}</span>
-						</div>
-						{#if item.queuedTasks > 0}
-							<div class="mt-0.5 flex items-center gap-2 text-[10px]">
-								<span class="text-[var(--text-ghost)]">
-									{item.queuedTasks}
-									{$_('downloads.queued').toLowerCase()}
-								</span>
-							</div>
-						{/if}
-						<div class="mt-2 h-0.5 w-full overflow-hidden bg-[var(--void-4)]">
+			<ul class="flex flex-col">
+				{#each dashboard.watchedTitles as item (item.titleId)}
+					{@const progress =
+						item.totalChapters > 0
+							? Math.round((item.downloadedChapters / item.totalChapters) * 100)
+							: 0}
+					{@const isDownloading = item.queuedTasks > 0}
+					{@const retryActive = taskActionLoading('retry-title', item.titleId)}
+					<li
+						class="group flex gap-3 py-3 transition-opacity {item.enabled
+							? ''
+							: 'opacity-35'}"
+					>
+						<a href={buildTitlePath(item.titleId, item.title)} class="shrink-0 self-start">
 							<div
-								class="h-full bg-[var(--text-muted)] transition-[width] {isDownloading ? 'shadow-[0_0_8px_rgba(228,228,231,0.6)] animate-pulse' : ''}"
-								style="width: {progress}%"
-							></div>
+								class="relative h-20 w-14 overflow-hidden bg-[var(--void-3)] ring-1 ring-[var(--void-4)] transition-all group-hover:ring-[var(--void-6)]"
+							>
+								<LazyImage
+									src={coverSrc(item)}
+									alt={item.title}
+									class="absolute inset-0 h-full w-full"
+								/>
+							</div>
+						</a>
+						<div class="flex min-w-0 flex-1 flex-col gap-1.5">
+							<a href={buildTitlePath(item.titleId, item.title)} class="flex min-w-0 flex-col gap-0.5">
+								<div class="flex items-baseline justify-between gap-2">
+									<p class="line-clamp-1 text-sm text-[var(--text)]">{item.title}</p>
+									<span
+										class="shrink-0 text-[11px] leading-none text-[var(--text-soft)] tabular-nums"
+									>
+										{item.downloadedChapters}<span class="text-[var(--text-ghost)]"
+											>/{item.totalChapters || '—'}</span
+										>
+									</span>
+								</div>
+								{#if item.variantSources.length > 0 || item.downloadedBytes > 0}
+									<div class="flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
+										{#if item.variantSources.length > 0}
+											<span class="truncate tracking-wide uppercase">
+												{item.variantSources.join(' · ')}
+											</span>
+										{/if}
+										{#if item.downloadedBytes > 0}
+											<span class="shrink-0 tabular-nums">
+												{formatBytes(item.downloadedBytes)}
+											</span>
+										{/if}
+										{#if item.paused}
+											<span class="text-[var(--text-muted)]">
+												{$_('downloads.paused').toLowerCase()}
+											</span>
+										{/if}
+									</div>
+								{/if}
+							</a>
+
+							<div class="flex items-center justify-end gap-2">
+								{#if item.queuedTasks > 0}
+									<span class="mr-auto text-[10px] tabular-nums text-[rgba(199,210,254,0.75)]">
+										+{item.queuedTasks} {$_('downloads.queued').toLowerCase()}
+									</span>
+								{/if}
+								<button
+									type="button"
+									class="flex h-6 w-6 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)] disabled:opacity-40"
+									onclick={() => void retryMissingForTitle(item.titleId)}
+									disabled={retryActive}
+									title={$_('downloads.retry')}
+									aria-label={$_('downloads.retry')}
+								>
+									{#if retryActive}
+										<SpinnerIcon size={12} class="animate-spin" />
+									{:else}
+										<ArrowClockwiseIcon size={12} />
+									{/if}
+								</button>
+								<Switch
+									checked={item.enabled}
+									disabled={profileActionTitleId === item.titleId}
+									loading={profileActionTitleId === item.titleId}
+									variant="default"
+									onCheckedChange={(enabled) => void toggleWatch(item.titleId, enabled)}
+								/>
+							</div>
+
+							<div class="relative h-[2px] w-full overflow-hidden bg-[var(--void-4)]">
+								<div
+									class="absolute inset-y-0 left-0 transition-[width] {isDownloading
+										? 'bg-[rgba(199,210,254,0.85)] shadow-[0_0_10px_rgba(165,180,252,0.6)] animate-pulse'
+										: 'bg-[var(--void-7)]'}"
+									style="width: {progress}%"
+								></div>
+							</div>
 						</div>
-					</a>
-					<div class="flex shrink-0 items-center gap-2 self-center">
-						<button
-							type="button"
-							class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text-muted)]"
-							onclick={() => void retryMissingForTitle(item.titleId)}
-							disabled={taskActionLoading('retry-title', item.titleId)}
-							title={$_('downloads.retry')}
-						>
-							{#if taskActionLoading('retry-title', item.titleId)}
-								<SpinnerIcon size={13} class="animate-spin" />
-							{:else}
-								{$_('downloads.retry')}
-							{/if}
-						</button>
-						<button
-							type="button"
-							class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text-muted)]"
-							onclick={() => void toggleAutoDownload(item.titleId, !item.autoDownload)}
-							disabled={profileActionTitleId === item.titleId}
-							title={$_('downloads.autoDownload')}
-						>
-							{$_('downloads.autoDownload')}
-							{item.autoDownload ? $_('downloads.on') : $_('downloads.off')}
-						</button>
-						<Switch
-							checked={item.enabled}
-							disabled={profileActionTitleId === item.titleId}
-							loading={profileActionTitleId === item.titleId}
-							variant="success"
-							class="self-center"
-							onCheckedChange={(enabled) => void toggleWatch(item.titleId, enabled)}
-						/>
-					</div>
-				</div>
-			{/each}
+					</li>
+				{/each}
+			</ul>
 		{/if}
-	</div>
+	</section>
 </div>
