@@ -1,4 +1,7 @@
-import { internalMutation } from './_generated/server';
+import type { GenericId } from 'convex/values';
+import { v } from 'convex/values';
+
+import { internalMutation, mutation } from './_generated/server';
 import { STATUS } from './commands';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -74,6 +77,85 @@ export const runRetentionPass = internalMutation({
 			deletedCommands,
 			deletedDownloadTasks,
 			deletedExploreCacheRows
+		};
+	}
+});
+
+export const recomputeChapterCounts = internalMutation({
+	args: {
+		batchSize: v.optional(v.float64()),
+		cursor: v.optional(v.string())
+	},
+	handler: async (ctx, args) => {
+		const batchSize = Math.min(args.batchSize ?? 20, 50);
+
+		// Find the first user (single-user instance)
+		const firstTitle = await ctx.db.query('libraryTitles').first();
+		if (!firstTitle) return { done: true, fixed: 0, nextCursor: null };
+		const ownerUserId = firstTitle.ownerUserId;
+		const now = Date.now();
+
+		const allTitles = await ctx.db
+			.query('libraryTitles')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+			.collect();
+
+		const staleTitles = allTitles
+			.filter((t) => !t.chapterCount || t.chapterCount === 0)
+			.sort((a, b) => a._creationTime - b._creationTime);
+
+		const cursorIndex = args.cursor
+			? staleTitles.findIndex((t) => String(t._id) === args.cursor)
+			: 0;
+		const startIndex = cursorIndex >= 0 ? cursorIndex : 0;
+		const batch = staleTitles.slice(startIndex, startIndex + batchSize);
+
+		let fixed = 0;
+		for (const title of batch) {
+			const chapters = await ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id', (q) =>
+					q.eq('libraryTitleId', title._id)
+				)
+				.collect();
+
+			let downloaded = 0;
+			let downloadedBytes = 0;
+			let queued = 0;
+			let downloading = 0;
+			let failed = 0;
+			for (const ch of chapters) {
+				switch (ch.downloadStatus) {
+					case 'queued': queued++; break;
+					case 'downloading': downloading++; break;
+					case 'downloaded':
+						downloaded++;
+						downloadedBytes += ch.fileSizeBytes ?? 0;
+						break;
+					case 'failed': failed++; break;
+				}
+			}
+
+			await ctx.db.patch(title._id, {
+				chapterCount: chapters.length,
+				downloadedChapterCount: downloaded,
+				downloadedChapterBytes: downloadedBytes,
+				queuedChapterCount: queued,
+				downloadingChapterCount: downloading,
+				failedChapterCount: failed,
+				updatedAt: now
+			});
+			fixed++;
+		}
+
+		const hasMore = startIndex + batchSize < staleTitles.length;
+		const nextCursor = hasMore ? String(staleTitles[startIndex + batchSize]._id) : null;
+
+		return {
+			done: !hasMore,
+			fixed,
+			remaining: staleTitles.length - startIndex - batch.length,
+			nextCursor
 		};
 	}
 });
