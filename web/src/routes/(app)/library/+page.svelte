@@ -461,24 +461,6 @@
 		return getStatusText(title.status);
 	}
 
-	function offlineStatusLabel(title: LibraryTitleSummary): string | null {
-		if (title.offline_readiness.fullyDownloaded) {
-			return $_('library.offlineReady');
-		}
-		if (title.offline_readiness.downloadedChapters > 0) {
-			return $_('library.offlinePartial', {
-				values: {
-					downloaded: title.offline_readiness.downloadedChapters,
-					total: Math.max(
-						title.offline_readiness.totalChapters,
-						title.offline_readiness.downloadedChapters
-					)
-				}
-			});
-		}
-		return null;
-	}
-
 	function toggleReadingStatus(id: string) {
 		activeReadingStatusIds = activeReadingStatusIds.includes(id)
 			? activeReadingStatusIds.filter((value) => value !== id)

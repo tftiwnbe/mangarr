@@ -3,7 +3,7 @@ import { v } from 'convex/values';
 
 import { internalMutation, mutation, type MutationCtx, type QueryCtx } from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
-import { markTitleListedInLibrary, refreshTitleChapterStats, updateTitleChapterStatsIncremental } from './library_shared';
+import { markTitleListedInLibrary, getPreferredVariantForTitle, refreshTitleChapterStats, updateTitleChapterStatsIncremental } from './library_shared';
 import { insertCommand } from './command_payloads';
 export { getDownloadDashboard } from './library_download_dashboard';
 
@@ -27,11 +27,17 @@ const RESERVED_RUNNING_DOWNLOAD_SLOTS = 2;
 const MAX_ENQUEUED_DOWNLOADS_PER_TITLE_REQUEST = 24;
 const ACTIVE_DOWNLOAD_RECOVERY_SCAN_LIMIT = 2_000;
 const DOWNLOAD_COMMAND_PRIORITY_BASE = 250;
+const CHAPTER_SYNC_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
+const ACTIVE_CHAPTER_SYNC_COMMAND_STATUSES = new Set(['queued', 'leased', 'running']);
 
 type DownloadTaskStatus = (typeof DOWNLOAD_TASK_STATUS)[keyof typeof DOWNLOAD_TASK_STATUS];
 
 function isActiveDownloadTaskStatus(status: DownloadTaskStatus) {
 	return status === DOWNLOAD_TASK_STATUS.QUEUED || status === DOWNLOAD_TASK_STATUS.DOWNLOADING;
+}
+
+function isChapterAvailableFromSource(chapter: { isAvailableFromSource?: boolean }) {
+	return chapter.isAvailableFromSource !== false;
 }
 
 export const cancelQueuedChapterDownload = mutation({
@@ -107,6 +113,9 @@ export const requestChapterDownload = mutation({
 	},
 	handler: async (ctx, args) => {
 		const chapter = await requireOwnedChapter(ctx, args.chapterId);
+		if (!isChapterAvailableFromSource(chapter)) {
+			throw new Error('Chapter is no longer available from the source');
+		}
 		const title = await ctx.db.get(chapter.libraryTitleId);
 		if (!title || title.ownerUserId !== chapter.ownerUserId) {
 			throw new Error('Library title not found');
@@ -170,6 +179,8 @@ export const updateDownloadProfile = mutation({
 				enabled: created.enabled,
 				paused: created.paused,
 				autoDownload: created.autoDownload,
+				lastChapterSyncRequestedAt: created.lastChapterSyncRequestedAt ?? null,
+				lastChapterSyncAt: created.lastChapterSyncAt ?? null,
 				lastCheckedAt: created.lastCheckedAt ?? null,
 				lastSuccessAt: created.lastSuccessAt ?? null,
 				lastError: created.lastError ?? null
@@ -193,6 +204,8 @@ export const updateDownloadProfile = mutation({
 			enabled: updated.enabled,
 			paused: updated.paused,
 			autoDownload: updated.autoDownload,
+			lastChapterSyncRequestedAt: updated.lastChapterSyncRequestedAt ?? null,
+			lastChapterSyncAt: updated.lastChapterSyncAt ?? null,
 			lastCheckedAt: updated.lastCheckedAt ?? null,
 			lastSuccessAt: updated.lastSuccessAt ?? null,
 			lastError: updated.lastError ?? null
@@ -305,9 +318,9 @@ export const requestMissingDownloads = mutation({
 				.collect()
 		]);
 
-		const eligible = [...missingChapters, ...failedChapters].sort(
-			(left, right) => left.sequence - right.sequence
-		);
+		const eligible = [...missingChapters, ...failedChapters]
+			.filter((chapter) => isChapterAvailableFromSource(chapter))
+			.sort((left, right) => left.sequence - right.sequence);
 		const remainingSlots = await remainingDownloadCapacityForUser(ctx, userId);
 		if (remainingSlots <= 0) {
 			return {
@@ -855,11 +868,18 @@ async function selectDownloadCycleCandidatesForUser(
 		.sort((left, right) => right.updatedAt - left.updatedAt)
 		.slice(0, args.limit);
 	const activeProfiles = profiles.filter((profile) => !profile.paused);
-	const [queuedInFlight, downloadingInFlight] = await Promise.all([
-		loadDownloadTasksForUserStatus(ctx, args.userId, DOWNLOAD_TASK_STATUS.QUEUED, 1),
-		loadDownloadTasksForUserStatus(ctx, args.userId, DOWNLOAD_TASK_STATUS.DOWNLOADING, 1)
-	]);
-	const hasInFlightDownloads = queuedInFlight.length > 0 || downloadingInFlight.length > 0;
+
+	// Only block the cycle when the bridge is actively downloading chapters
+	// (leased/running commands). Queued tasks should not prevent new work from
+	// being enqueued for other titles — they are already excluded from
+	// candidates via activeChapterIds below.
+	const downloadingInFlight = await loadDownloadTasksForUserStatus(
+		ctx,
+		args.userId,
+		DOWNLOAD_TASK_STATUS.DOWNLOADING,
+		1
+	);
+	const hasInFlightDownloads = downloadingInFlight.length > 0;
 	if (hasInFlightDownloads) {
 		return {
 			checkedProfiles: activeProfiles.length,
@@ -920,7 +940,11 @@ async function selectDownloadCycleCandidatesForUser(
 	>();
 	for (const chapter of [...missingChapters, ...failedChapters]) {
 		const titleId = String(chapter.libraryTitleId);
-		if (!titleById.has(titleId) || activeChapterIds.has(String(chapter._id))) {
+		if (
+			!titleById.has(titleId) ||
+			activeChapterIds.has(String(chapter._id)) ||
+			!isChapterAvailableFromSource(chapter)
+		) {
 			continue;
 		}
 		const next = eligibleChaptersByTitleId.get(titleId) ?? [];
@@ -1055,6 +1079,98 @@ async function failRecoveredTask(
 		updatedAt: now
 	});
 }
+
+export const runScheduledChapterSync = internalMutation({
+	args: {
+		maxTitles: v.optional(v.float64())
+	},
+	handler: async (ctx, args) => {
+		const maxTitles = Math.max(1, Math.min(Math.floor(args.maxTitles ?? 10), 50));
+		const now = Date.now();
+
+		// Find all enabled download profiles
+		const enabledProfiles = await ctx.db
+			.query('downloadProfiles')
+			.withIndex('by_enabled_updated_at', (q) => q.eq('enabled', true))
+			.collect();
+
+		// Deduplicate by title, then pick the titles whose sync cursor is oldest.
+		const seenTitleIds = new Set<string>();
+		const candidates: Array<{
+			profile: (typeof enabledProfiles)[number];
+			titleId: GenericId<'libraryTitles'>;
+			eligibleAt: number;
+		}> = [];
+		for (const profile of enabledProfiles) {
+			if (profile.paused) continue;
+			const titleKey = String(profile.libraryTitleId);
+			if (seenTitleIds.has(titleKey)) continue;
+			seenTitleIds.add(titleKey);
+
+			const lastSyncCursor = Math.max(
+				profile.lastChapterSyncRequestedAt ?? 0,
+				profile.lastChapterSyncAt ?? 0
+			);
+			if (now - lastSyncCursor < CHAPTER_SYNC_COOLDOWN_MS) continue;
+
+			candidates.push({
+				profile,
+				titleId: profile.libraryTitleId,
+				eligibleAt: lastSyncCursor
+			});
+		}
+		candidates.sort((left, right) => left.eligibleAt - right.eligibleAt);
+
+		let synced = 0;
+		for (const { profile, titleId } of candidates.slice(0, maxTitles)) {
+			const title = await ctx.db.get(titleId);
+			if (!title) continue;
+
+			const variant = await getPreferredVariantForTitle(ctx, title);
+			if (!variant) continue;
+
+			const sourceId = variant.sourceId.trim();
+			const titleUrl = variant.titleUrl.trim();
+			if (!sourceId || !titleUrl) continue;
+
+			const idempotencyKey = `library.chapters.sync:${String(title._id)}:${sourceId}:${titleUrl}`;
+			const existingCommand = (
+				await ctx.db
+					.query('commands')
+					.withIndex('by_idempotency_key', (q) => q.eq('idempotencyKey', idempotencyKey))
+					.collect()
+			)
+				.filter((command) => command.requestedByUserId === title.ownerUserId)
+				.sort((left, right) => right.createdAt - left.createdAt)
+				.find((command) => ACTIVE_CHAPTER_SYNC_COMMAND_STATUSES.has(command.status));
+			if (existingCommand) {
+				await ctx.db.patch(profile._id, {
+					lastChapterSyncRequestedAt: now,
+					updatedAt: now
+				});
+				continue;
+			}
+			await insertCommand(ctx, {
+				commandType: 'library.chapters.sync',
+				requestedByUserId: title.ownerUserId,
+				payload: { titleId: title._id, sourceId, titleUrl },
+				idempotencyKey,
+				priority: 200,
+				maxAttempts: 3,
+				runAfter: now,
+				now,
+				targetCapability: 'library.chapters.sync'
+			});
+			await ctx.db.patch(profile._id, {
+				lastChapterSyncRequestedAt: now,
+				updatedAt: now
+			});
+			synced += 1;
+		}
+
+		return { candidates: candidates.length, synced };
+	}
+});
 
 type DocLike<TableName extends keyof import('./_generated/dataModel').DataModel> =
 	import('./_generated/dataModel').Doc<TableName>;

@@ -146,6 +146,14 @@ export async function mergeOwnedTitles(
 			enabled: targetProfile.enabled || sourceProfile.enabled,
 			paused: targetProfile.paused && sourceProfile.paused,
 			autoDownload: targetProfile.autoDownload || sourceProfile.autoDownload,
+			lastChapterSyncRequestedAt: maxNumber(
+				targetProfile.lastChapterSyncRequestedAt,
+				sourceProfile.lastChapterSyncRequestedAt
+			),
+			lastChapterSyncAt: maxNumber(
+				targetProfile.lastChapterSyncAt,
+				sourceProfile.lastChapterSyncAt
+			),
 			lastCheckedAt: maxNumber(targetProfile.lastCheckedAt, sourceProfile.lastCheckedAt),
 			lastSuccessAt: maxNumber(targetProfile.lastSuccessAt, sourceProfile.lastSuccessAt),
 			lastError: pickString(targetProfile.lastError, sourceProfile.lastError),
@@ -306,6 +314,7 @@ export function buildMergedChapterPatch(
 		scanlator?: string;
 		dateUpload?: number;
 		sequence: number;
+		isAvailableFromSource?: boolean;
 		downloadStatus: (typeof DOWNLOAD_STATUS)[keyof typeof DOWNLOAD_STATUS];
 		totalPages?: number;
 		downloadedPages: number;
@@ -322,6 +331,7 @@ export function buildMergedChapterPatch(
 		scanlator?: string;
 		dateUpload?: number;
 		sequence: number;
+		isAvailableFromSource?: boolean;
 		downloadStatus: (typeof DOWNLOAD_STATUS)[keyof typeof DOWNLOAD_STATUS];
 		totalPages?: number;
 		downloadedPages: number;
@@ -345,6 +355,9 @@ export function buildMergedChapterPatch(
 		scanlator: pickString(targetChapter.scanlator, sourceChapter.scanlator),
 		dateUpload: maxNumber(targetChapter.dateUpload, sourceChapter.dateUpload),
 		sequence: Math.max(targetChapter.sequence, sourceChapter.sequence),
+		isAvailableFromSource:
+			(targetChapter.isAvailableFromSource ?? true) ||
+			(sourceChapter.isAvailableFromSource ?? true),
 		downloadStatus: mergedStatus,
 		totalPages: maxNumber(targetChapter.totalPages, sourceChapter.totalPages),
 		downloadedPages: Math.max(targetChapter.downloadedPages, sourceChapter.downloadedPages),

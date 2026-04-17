@@ -20,6 +20,15 @@ crons.interval(
 );
 
 crons.interval(
+	'chapter sync for monitored titles',
+	{ minutes: 30 },
+	internal.library_downloads.runScheduledChapterSync,
+	{
+		maxTitles: 10
+	}
+);
+
+crons.interval(
 	'data retention pass',
 	{ hours: 6 },
 	internalMaintenance.maintenance.runRetentionPass,

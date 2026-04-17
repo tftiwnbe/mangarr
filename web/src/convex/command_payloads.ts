@@ -121,11 +121,12 @@ export const commandPayloadValidator = v.union(
 		chapterUrl: v.string(),
 		chapterName: v.optional(v.string())
 	}),
-	// explore.search — query + limit + sourceId (optional searchFilters)
+	// explore.search — query + limit + sourceId (optional searchFilters, optional page for legacy data)
 	v.object({
 		sourceId: v.string(),
 		query: v.string(),
 		limit: v.float64(),
+		page: v.optional(v.float64()),
 		searchFilters: v.optional(v.any())
 	}),
 	// explore.popular / explore.latest — sourceId + page + limit

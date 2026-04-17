@@ -231,6 +231,7 @@ export default defineSchema({
 		scanlator: v.optional(v.string()),
 		dateUpload: v.optional(v.float64()),
 		sequence: v.float64(),
+		isAvailableFromSource: v.optional(v.boolean()),
 		downloadStatus: v.union(
 			v.literal('missing'),
 			v.literal('queued'),
@@ -260,6 +261,8 @@ export default defineSchema({
 		enabled: v.boolean(),
 		paused: v.boolean(),
 		autoDownload: v.boolean(),
+		lastChapterSyncRequestedAt: v.optional(v.float64()),
+		lastChapterSyncAt: v.optional(v.float64()),
 		lastCheckedAt: v.optional(v.float64()),
 		lastSuccessAt: v.optional(v.float64()),
 		lastError: v.optional(v.string()),

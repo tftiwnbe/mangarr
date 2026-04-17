@@ -203,23 +203,6 @@
 		}
 	}
 
-	async function toggleAutoDownload(titleId: Id<'libraryTitles'>, autoDownload: boolean) {
-		if (profileActionTitleId === titleId) return;
-		profileActionTitleId = titleId;
-		actionError = null;
-		try {
-			await client.mutation(convexApi.library.updateDownloadProfile, {
-				titleId,
-				enabled: true,
-				autoDownload
-			});
-		} catch (cause) {
-			actionError = cause instanceof Error ? cause.message : 'Failed to update download profile';
-		} finally {
-			profileActionTitleId = null;
-		}
-	}
-
 	async function retryMissingForTitle(titleId: Id<'libraryTitles'>) {
 		const actionKey = `retry-title:${titleId}`;
 		if (taskActionKey === actionKey) return;

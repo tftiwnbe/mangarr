@@ -7,7 +7,7 @@ import { requireBridgeIdentity } from './bridge_auth';
 import { insertCommand } from './command_payloads';
 import { STATUS } from './commands';
 
-const REUSABLE_COMMAND_STATUSES = new Set([STATUS.QUEUED, STATUS.SUCCEEDED]);
+const REUSABLE_COMMAND_STATUSES = new Set<string>([STATUS.QUEUED, STATUS.SUCCEEDED]);
 
 export const getExploreTitlePreview = query({
 	args: {

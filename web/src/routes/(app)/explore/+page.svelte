@@ -34,7 +34,7 @@
 		sourceHealthLabelKey,
 		type SourceHealthEntry
 	} from '$lib/utils/source-health';
-	import type { FilterMeta, FilterItem, PreferenceBundle } from '$lib/extensions/source-preferences';
+	import type { FilterMeta, PreferenceBundle } from '$lib/extensions/source-preferences';
 
 	type TabValue = 'popular' | 'latest' | 'search';
 

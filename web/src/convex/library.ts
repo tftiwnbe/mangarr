@@ -132,6 +132,12 @@ export const requestChapterSync = mutation({
 			throw new Error('Library title has no linked source variant');
 		}
 		const now = Date.now();
+		const profile = await ctx.db
+			.query('downloadProfiles')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+			)
+			.unique();
 		const commandId = await insertCommand(ctx, {
 			commandType: 'library.chapters.sync',
 			requestedByUserId: identity.subject as GenericId<'users'>,
@@ -146,6 +152,12 @@ export const requestChapterSync = mutation({
 			runAfter: now,
 			now
 		});
+		if (profile) {
+			await ctx.db.patch(profile._id, {
+				lastChapterSyncRequestedAt: now,
+				updatedAt: now
+			});
+		}
 
 		return { commandId };
 	}
@@ -204,6 +216,7 @@ export const upsertChaptersForTitle = mutation({
 					current.chapterNumber !== chapter.chapterNumber ||
 					current.scanlator !== chapter.scanlator ||
 					current.dateUpload !== chapter.dateUpload ||
+					current.isAvailableFromSource === false ||
 					current.sequence !== index;
 				if (needsPatch) {
 					await ctx.db.patch(current._id, {
@@ -216,6 +229,7 @@ export const upsertChaptersForTitle = mutation({
 						chapterNumber: chapter.chapterNumber,
 						scanlator: chapter.scanlator,
 						dateUpload: chapter.dateUpload,
+						isAvailableFromSource: true,
 						sequence: index,
 						updatedAt: args.now
 					});
@@ -238,6 +252,7 @@ export const upsertChaptersForTitle = mutation({
 				scanlator: chapter.scanlator,
 				dateUpload: chapter.dateUpload,
 				sequence: index,
+				isAvailableFromSource: true,
 				downloadStatus: DOWNLOAD_STATUS.MISSING,
 				downloadedPages: 0,
 				createdAt: args.now,
@@ -248,41 +263,33 @@ export const upsertChaptersForTitle = mutation({
 
 		const staleChapters = existing.filter(
 			(chapter) =>
-				chapter.titleVariantId === variant._id && !seenChapterUrls.has(chapter.chapterUrl)
+				chapter.titleVariantId === variant._id &&
+				!seenChapterUrls.has(chapter.chapterUrl) &&
+				chapter.isAvailableFromSource !== false
 		);
-
-		if (staleChapters.length > 0) {
-			const staleChapterIds = new Set(staleChapters.map((c) => String(c._id)));
-			// Batch-load all progress and comment rows for the title, then filter to
-			// only the stale chapters — 2 queries instead of 2 × staleChapters.length.
-			const [allProgressRows, allCommentRows] = await Promise.all([
-				ctx.db
-					.query('chapterProgress')
-					.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
-						q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-					)
-					.collect(),
-				ctx.db
-					.query('chapterComments')
-					.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
-						q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-					)
-					.collect()
-			]);
-			for (const progress of allProgressRows) {
-				if (staleChapterIds.has(String(progress.chapterId))) {
-					await ctx.db.delete(progress._id);
-				}
-			}
-			for (const comment of allCommentRows) {
-				if (staleChapterIds.has(String(comment.chapterId))) {
-					await ctx.db.delete(comment._id);
-				}
-			}
-			for (const staleChapter of staleChapters) {
-				await ctx.db.delete(staleChapter._id);
-			}
+		for (const staleChapter of staleChapters) {
+			await ctx.db.patch(staleChapter._id, {
+				isAvailableFromSource: false,
+				updatedAt: args.now
+			});
 			chapterRowsChanged = true;
+		}
+
+		await ctx.db.patch(variant._id, {
+			lastSyncedAt: args.now,
+			updatedAt: args.now
+		});
+		const profile = await ctx.db
+			.query('downloadProfiles')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+			)
+			.unique();
+		if (profile) {
+			await ctx.db.patch(profile._id, {
+				lastChapterSyncAt: args.now,
+				updatedAt: args.now
+			});
 		}
 
 		if (chapterRowsChanged) {
