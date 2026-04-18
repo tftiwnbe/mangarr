@@ -41,6 +41,7 @@ private const val FEED_CACHE_TTL_MS = 5 * 60 * 1000L
 private const val READER_PAGE_CACHE_TTL_MS = 15 * 60 * 1000L
 private val DOWNLOAD_PAGE_RETRY_DELAYS_MS = listOf(0L, 2_000L, 5_000L, 15_000L)
 private val SOURCE_REQUEST_RETRY_DELAYS_MS = listOf(0L, 1_500L, 4_000L)
+private const val SOURCE_BROWSE_REQUEST_BASE_DELAY_MS = 1_500L
 private const val DOWNLOAD_PAGE_CONCURRENCY = 2
 private val HTTP_ERROR_PATTERN = Pattern.compile("HTTP error\\s+(\\d{3})")
 
@@ -1004,6 +1005,7 @@ class BridgeService(
         block: suspend () -> T,
     ): T {
         var lastError: Exception? = null
+        val normalizedSourceId = sourceId.toString()
 
         for ((attemptIndex, baseDelayMs) in SOURCE_REQUEST_RETRY_DELAYS_MS.withIndex()) {
             val delayMs =
@@ -1017,16 +1019,28 @@ class BridgeService(
             }
 
             try {
-                return block()
+                rateLimiter.acquirePermit(
+                    sourceId = normalizedSourceId,
+                    baseDelayMs = SOURCE_BROWSE_REQUEST_BASE_DELAY_MS,
+                    adaptiveRateLimitingEnabled = ConfigManager.config.downloads.throttleAdaptiveRateLimiting,
+                )
+                val result = block()
+                rateLimiter.recordSuccess(normalizedSourceId)
+                return result
             } catch (error: Exception) {
+                val httpError = error as? HttpException
+                if (httpError?.code == 429) {
+                    rateLimiter.recordRateLimit(normalizedSourceId, httpError.retryAfterSeconds)
+                }
                 lastError = error
                 if (!shouldRetrySourceRequest(error) || attemptIndex == SOURCE_REQUEST_RETRY_DELAYS_MS.lastIndex) {
                     throw error
                 }
 
-                logger.warn(error) {
+                logger.warn {
                     "Source $requestKind request failed for $sourceId ($requestKey) " +
-                        "attempt ${attemptIndex + 1}/${SOURCE_REQUEST_RETRY_DELAYS_MS.size}, retrying"
+                        "attempt ${attemptIndex + 1}/${SOURCE_REQUEST_RETRY_DELAYS_MS.size}, retrying: " +
+                        "${error::class.simpleName}: ${error.message}"
                 }
             }
         }

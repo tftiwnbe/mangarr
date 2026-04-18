@@ -5,6 +5,9 @@ import { setConvexClientContext } from 'convex-svelte';
 
 let client: ConvexClient | null = null;
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
+type BrowserLocationLike =
+	| Pick<Location, 'hostname' | 'protocol' | 'port' | 'origin'>
+	| { hostname: string; protocol?: string; port?: string; origin?: string };
 
 export function setupConvexClient() {
 	if (!browser) {
@@ -35,20 +38,19 @@ export function getConvexUrl() {
 
 export function resolveBrowserConvexUrl(
 	configuredUrl: string,
-	locationLike: Pick<Location, 'hostname'> | { hostname: string }
+	locationLike: BrowserLocationLike
 ) {
 	try {
 		const url = new URL(configuredUrl);
-		if (!LOOPBACK_HOSTS.has(url.hostname)) {
-			return normalizeConvexUrl(url.toString());
-		}
-
 		const browserHost = locationLike.hostname.trim();
 		if (!browserHost || LOOPBACK_HOSTS.has(browserHost)) {
 			return normalizeConvexUrl(url.toString());
 		}
 
-		url.hostname = browserHost;
+		if (LOOPBACK_HOSTS.has(url.hostname) || shouldUseBrowserOrigin(url, locationLike)) {
+			return resolveAgainstBrowserOrigin(url, locationLike);
+		}
+
 		return normalizeConvexUrl(url.toString());
 	} catch {
 		return normalizeConvexUrl(configuredUrl);
@@ -59,8 +61,51 @@ function normalizeConvexUrl(url: string) {
 	return url.replace(/\/+$/, '');
 }
 
+function shouldUseBrowserOrigin(url: URL, locationLike: BrowserLocationLike) {
+	return (
+		locationLike.protocol === 'https:' &&
+		url.protocol === 'http:' &&
+		(url.pathname === '/convex' || url.pathname.startsWith('/convex/'))
+	);
+}
+
+function resolveAgainstBrowserOrigin(url: URL, locationLike: BrowserLocationLike) {
+	const browserOrigin = resolveBrowserOrigin(locationLike);
+	if (!browserOrigin) {
+		return normalizeConvexUrl(url.toString());
+	}
+
+	return normalizeConvexUrl(new URL(`${url.pathname}${url.search}${url.hash}`, browserOrigin).toString());
+}
+
+function resolveBrowserOrigin(locationLike: BrowserLocationLike) {
+	if (locationLike.origin) {
+		return locationLike.origin;
+	}
+
+	if (!locationLike.protocol) {
+		return null;
+	}
+
+	const browserHost = locationLike.hostname.trim();
+	if (!browserHost) {
+		return null;
+	}
+
+	const browserPort = locationLike.port?.trim();
+	return `${locationLike.protocol}//${browserHost}${browserPort ? `:${browserPort}` : ''}`;
+}
+
+function getBrowserFetch(): typeof window.fetch {
+	if (!browser) {
+		throw new Error('Browser fetch is unavailable during server-side rendering');
+	}
+
+	return window.fetch.bind(window);
+}
+
 const fetchConvexToken: AuthTokenFetcher = async ({ forceRefreshToken }) => {
-	const response = await fetch('/api/auth/convex-token', {
+	const response = await getBrowserFetch()('/api/auth/convex-token', {
 		method: 'POST',
 		headers: forceRefreshToken
 			? {

@@ -130,6 +130,10 @@ function targetCapabilityFor(commandType: string) {
 			return 'sources.preferences';
 		case 'sources.preferences.save':
 			return 'sources.preferences';
+		case 'discovery.feed.crawl':
+			return 'discovery.feed';
+		case 'discovery.title.hydrate':
+			return 'discovery.metadata';
 		case 'explore.search':
 			return 'explore.search';
 		case 'explore.popular':
@@ -434,7 +438,13 @@ export const enqueueLibraryImport = mutation({
 		sourceId: v.string(),
 		sourcePkg: v.string(),
 		sourceLang: v.string(),
-		titleUrl: v.string()
+		titleUrl: v.string(),
+		fallbackTitle: v.optional(v.string()),
+		fallbackAuthor: v.optional(v.string()),
+		fallbackArtist: v.optional(v.string()),
+		fallbackDescription: v.optional(v.string()),
+		fallbackCoverUrl: v.optional(v.string()),
+		fallbackGenre: v.optional(v.string())
 	},
 	handler: (ctx, args) =>
 		enqueueCommand(ctx, {

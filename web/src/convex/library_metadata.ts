@@ -87,7 +87,13 @@ export const beginTitleOpen = mutation({
 		sourceId: v.string(),
 		sourcePkg: v.string(),
 		sourceLang: v.string(),
-		titleUrl: v.string()
+		titleUrl: v.string(),
+		fallbackTitle: v.optional(v.string()),
+		fallbackAuthor: v.optional(v.string()),
+		fallbackArtist: v.optional(v.string()),
+		fallbackDescription: v.optional(v.string()),
+		fallbackCoverUrl: v.optional(v.string()),
+		fallbackGenre: v.optional(v.string())
 	},
 	handler: async (ctx, args) => {
 		const ownerUserId = await requireViewerUserId(ctx);
@@ -139,7 +145,13 @@ export const beginTitleOpen = mutation({
 				sourceId: args.sourceId,
 				sourcePkg: args.sourcePkg,
 				sourceLang: args.sourceLang,
-				titleUrl: args.titleUrl
+				titleUrl: args.titleUrl,
+				fallbackTitle: args.fallbackTitle,
+				fallbackAuthor: args.fallbackAuthor,
+				fallbackArtist: args.fallbackArtist,
+				fallbackDescription: args.fallbackDescription,
+				fallbackCoverUrl: args.fallbackCoverUrl,
+				fallbackGenre: args.fallbackGenre
 			},
 			idempotencyKey,
 			priority: 100,

@@ -166,6 +166,11 @@
 		coverUrl?: string | null;
 	};
 
+	type SimilarTitlesResult = {
+		items: ExploreItem[];
+		warming: boolean;
+	};
+
 	type UserStatusOption = {
 		id: string;
 		key: string;
@@ -235,6 +240,20 @@
 		};
 	});
 
+	function buildOpenTitleHref(item: ExploreItem) {
+		const query = new URLSearchParams({
+			source_id: item.sourceId,
+			source_pkg: item.sourcePkg,
+			source_lang: item.sourceLang,
+			title_url: item.titleUrl,
+			title: item.title,
+			description: item.description ?? '',
+			thumbnail_url: item.coverUrl ?? '',
+			canonical_key: item.canonicalKey
+		});
+		return `/title/open?${query.toString()}`;
+	}
+
 	const client = useConvexClient();
 	const titleQuery = useQuery(convexApi.library.getMineOverviewByRouteSegment, () =>
 		data.titleSegment ? { routeSegment: data.titleSegment } : 'skip'
@@ -247,6 +266,9 @@
 	const titleCommentsQuery = useQuery(convexApi.library.listTitleComments, () =>
 		activeTab === 'comments' && resolvedTitleId ? { titleId: resolvedTitleId } : 'skip'
 	);
+	const similarTitlesQuery = useQuery(convexApi.discovery.listSimilarForLibraryTitle, () =>
+		resolvedTitleId ? { titleId: resolvedTitleId, limit: 12 } : 'skip'
+	);
 	const sourcesQuery = useQuery(convexApi.extensions.listSources, () => ({}));
 	const statusesQuery = useQuery(convexApi.library.listUserStatuses, () => ({}));
 	const collectionsQuery = useQuery(convexApi.library.listCollections, () => ({}));
@@ -258,6 +280,18 @@
 	const title = $derived(rawTitleQueryData);
 	const titleChapters = $derived((titleChaptersQuery.data ?? []) as ChapterRow[]);
 	const titleComments = $derived((titleCommentsQuery.data ?? []) as TitleComment[]);
+	const similarTitlesResult = $derived(
+		((similarTitlesQuery.data ?? { items: [], warming: true }) as SimilarTitlesResult) ?? {
+			items: [],
+			warming: true
+		}
+	);
+	const similarTitles = $derived(
+		similarTitlesResult.items.map((item) => ({
+			...item,
+			href: buildOpenTitleHref(item)
+		}))
+	);
 	const sources = $derived((sourcesQuery.data ?? []) as SourceItem[]);
 	const availableStatuses = $derived(
 		((statusesQuery.data ?? []) as UserStatusOption[]).sort(
@@ -1445,6 +1479,9 @@
 							{chaptersLabel}
 							{sourcesLabel}
 							{updatesEnabled}
+							{similarTitles}
+							similarTitlesLoading={similarTitlesQuery.isLoading}
+							similarTitlesWarming={similarTitlesResult.warming}
 						/>
 					{:else if activeTab === 'chapters'}
 						<TitleChaptersTab

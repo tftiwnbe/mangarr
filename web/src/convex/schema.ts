@@ -207,6 +207,68 @@ export default defineSchema({
 		.index('by_source_id_title_url', ['sourceId', 'titleUrl'])
 		.index('by_fetched_at', ['fetchedAt']),
 
+	discoveryTitles: defineTable({
+		canonicalKey: v.string(),
+		sourceId: v.string(),
+		sourcePkg: v.optional(v.string()),
+		sourceLang: v.optional(v.string()),
+		sourceName: v.optional(v.string()),
+		titleUrl: v.string(),
+		title: v.string(),
+		normalizedTitle: v.string(),
+		normalizedAuthor: v.optional(v.string()),
+		description: v.optional(v.string()),
+		coverUrl: v.optional(v.string()),
+		author: v.optional(v.string()),
+		genre: v.optional(v.string()),
+		status: v.optional(v.float64()),
+		popularSeenCount: v.float64(),
+		latestSeenCount: v.float64(),
+		firstSeenAt: v.float64(),
+		lastSeenAt: v.float64(),
+		lastPopularSeenAt: v.optional(v.float64()),
+		lastLatestSeenAt: v.optional(v.float64()),
+		detailsHydratedAt: v.optional(v.float64()),
+		detailsNextHydrateAt: v.optional(v.float64()),
+		detailsLastErrorAt: v.optional(v.float64()),
+		detailsFailureCount: v.optional(v.float64()),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_source_id_title_url', ['sourceId', 'titleUrl'])
+		.index('by_canonical_key', ['canonicalKey'])
+		.index('by_normalized_title', ['normalizedTitle'])
+		.index('by_last_seen_at', ['lastSeenAt']),
+
+	discoveryCrawlState: defineTable({
+		sourceId: v.string(),
+		feedType: v.union(v.literal('popular'), v.literal('latest')),
+		nextPage: v.float64(),
+		dueAt: v.float64(),
+		lastSuccessAt: v.optional(v.float64()),
+		lastErrorAt: v.optional(v.float64()),
+		consecutiveFailures: v.float64(),
+		cooldownUntil: v.optional(v.float64()),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_source_id_feed_type', ['sourceId', 'feedType'])
+		.index('by_due_at', ['dueAt']),
+
+	discoveryEdges: defineTable({
+		pairKey: v.string(),
+		leftDiscoveryTitleId: v.id('discoveryTitles'),
+		rightDiscoveryTitleId: v.id('discoveryTitles'),
+		popularCount: v.float64(),
+		latestCount: v.float64(),
+		lastObservedAt: v.float64(),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_pair_key', ['pairKey'])
+		.index('by_left_discovery_title_id', ['leftDiscoveryTitleId'])
+		.index('by_right_discovery_title_id', ['rightDiscoveryTitleId']),
+
 	libraryCollectionTitles: defineTable({
 		ownerUserId: v.id('users'),
 		libraryTitleId: v.id('libraryTitles'),

@@ -16,6 +16,7 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let titleName = $state('');
+	let titleDescription = $state('');
 	let thumbnailUrl = $state('');
 	let openPhase = $state<'checking' | 'importing' | 'syncing'>('checking');
 
@@ -78,7 +79,10 @@
 				sourceId,
 				sourcePkg,
 				sourceLang,
-				titleUrl
+				titleUrl,
+				fallbackTitle: titleName || undefined,
+				fallbackDescription: titleDescription || undefined,
+				fallbackCoverUrl: thumbnailUrl || undefined
 			});
 
 			if (openRequest.titleId) {
@@ -117,7 +121,10 @@
 					sourceId,
 					sourcePkg,
 					sourceLang,
-					titleUrl
+					titleUrl,
+					fallbackTitle: titleName || undefined,
+					fallbackDescription: titleDescription || undefined,
+					fallbackCoverUrl: thumbnailUrl || undefined
 				});
 				titleId = String(resolved.titleId ?? '');
 				resolvedTitle = String(resolved.title ?? resolvedTitle);
@@ -139,6 +146,7 @@
 
 	onMount(() => {
 		titleName = page.url.searchParams.get('title')?.trim() ?? '';
+		titleDescription = page.url.searchParams.get('description')?.trim() ?? '';
 		thumbnailUrl = page.url.searchParams.get('thumbnail_url')?.trim() ?? '';
 		void openTitle();
 	});

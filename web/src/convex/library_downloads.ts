@@ -721,6 +721,17 @@ async function findLatestDownloadTaskForChapter(
 	);
 }
 
+function shouldTreatDownloadFailureAsPermanent(task: {
+	status: string;
+	errorMessage?: string | null;
+} | null) {
+	if (!task || task.status !== DOWNLOAD_TASK_STATUS.FAILED) {
+		return false;
+	}
+
+	return (task.errorMessage ?? '').toLowerCase().includes('http error 404');
+}
+
 async function runDownloadCycleForUser(
 	ctx: MutationCtx,
 	args: {
@@ -938,13 +949,30 @@ async function selectDownloadCycleCandidatesForUser(
 		string,
 		Array<(typeof missingChapters)[number] | (typeof failedChapters)[number]>
 	>();
-	for (const chapter of [...missingChapters, ...failedChapters]) {
+	for (const chapter of missingChapters) {
 		const titleId = String(chapter.libraryTitleId);
 		if (
 			!titleById.has(titleId) ||
 			activeChapterIds.has(String(chapter._id)) ||
 			!isChapterAvailableFromSource(chapter)
 		) {
+			continue;
+		}
+		const next = eligibleChaptersByTitleId.get(titleId) ?? [];
+		next.push(chapter);
+		eligibleChaptersByTitleId.set(titleId, next);
+	}
+	for (const chapter of failedChapters) {
+		const titleId = String(chapter.libraryTitleId);
+		if (
+			!titleById.has(titleId) ||
+			activeChapterIds.has(String(chapter._id)) ||
+			!isChapterAvailableFromSource(chapter)
+		) {
+			continue;
+		}
+		const latestTask = await findLatestDownloadTaskForChapter(ctx, chapter._id);
+		if (shouldTreatDownloadFailureAsPermanent(latestTask)) {
 			continue;
 		}
 		const next = eligibleChaptersByTitleId.get(titleId) ?? [];
@@ -1122,7 +1150,7 @@ export const runScheduledChapterSync = internalMutation({
 		candidates.sort((left, right) => left.eligibleAt - right.eligibleAt);
 
 		let synced = 0;
-		for (const { profile, titleId } of candidates.slice(0, maxTitles)) {
+		for (const { titleId } of candidates.slice(0, maxTitles)) {
 			const title = await ctx.db.get(titleId);
 			if (!title) continue;
 
@@ -1144,10 +1172,6 @@ export const runScheduledChapterSync = internalMutation({
 				.sort((left, right) => right.createdAt - left.createdAt)
 				.find((command) => ACTIVE_CHAPTER_SYNC_COMMAND_STATUSES.has(command.status));
 			if (existingCommand) {
-				await ctx.db.patch(profile._id, {
-					lastChapterSyncRequestedAt: now,
-					updatedAt: now
-				});
 				continue;
 			}
 			await insertCommand(ctx, {
@@ -1160,10 +1184,6 @@ export const runScheduledChapterSync = internalMutation({
 				runAfter: now,
 				now,
 				targetCapability: 'library.chapters.sync'
-			});
-			await ctx.db.patch(profile._id, {
-				lastChapterSyncRequestedAt: now,
-				updatedAt: now
 			});
 			synced += 1;
 		}

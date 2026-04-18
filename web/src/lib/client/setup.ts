@@ -1,3 +1,5 @@
+import { browser } from '$app/environment';
+
 import { ClientError } from './auth';
 
 export type RepoExtensionResource = {
@@ -28,13 +30,21 @@ async function parseJson<T>(response: Response): Promise<T> {
 	return data as T;
 }
 
+function getBrowserFetch(): typeof window.fetch {
+	if (!browser) {
+		throw new Error('Browser fetch is unavailable during server-side rendering');
+	}
+
+	return window.fetch.bind(window);
+}
+
 export async function getExtensionRepository() {
-	const response = await fetch('/api/extensions/repository');
+	const response = await getBrowserFetch()('/api/extensions/repository');
 	return parseJson<{ url: string; configured: boolean }>(response);
 }
 
 export async function updateExtensionRepository(payload: { url: string }) {
-	const response = await fetch('/api/extensions/repository', {
+	const response = await getBrowserFetch()('/api/extensions/repository', {
 		method: 'PUT',
 		headers: {
 			'content-type': 'application/json'

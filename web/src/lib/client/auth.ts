@@ -1,3 +1,5 @@
+import { browser } from '$app/environment';
+
 export type UserProfile = {
 	id: string;
 	username: string;
@@ -30,13 +32,21 @@ async function parseJson<T>(response: Response): Promise<T> {
 	return data as T;
 }
 
+function getBrowserFetch(): typeof window.fetch {
+	if (!browser) {
+		throw new Error('Browser fetch is unavailable during server-side rendering');
+	}
+
+	return window.fetch.bind(window);
+}
+
 export async function getSetupStatus() {
-	const response = await fetch('/api/auth/setup-status');
+	const response = await getBrowserFetch()('/api/auth/setup-status');
 	return parseJson<{ needs_setup: boolean }>(response);
 }
 
 export async function registerFirstUser(payload: { username: string; password: string }) {
-	const response = await fetch('/api/auth/register-first-user', {
+	const response = await getBrowserFetch()('/api/auth/register-first-user', {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
 		body: JSON.stringify(payload)
@@ -45,7 +55,7 @@ export async function registerFirstUser(payload: { username: string; password: s
 }
 
 export async function login(payload: { username: string; password: string; remember_me: boolean }) {
-	const response = await fetch('/api/auth/login', {
+	const response = await getBrowserFetch()('/api/auth/login', {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
 		body: JSON.stringify(payload)
@@ -54,7 +64,7 @@ export async function login(payload: { username: string; password: string; remem
 }
 
 export async function getMe() {
-	const response = await fetch('/api/auth/me');
+	const response = await getBrowserFetch()('/api/auth/me');
 	return parseJson<UserProfile>(response);
 }
 
@@ -64,11 +74,13 @@ export async function getPostLoginRedirect(redirect?: string) {
 		params.set('redirect', redirect);
 	}
 	const query = params.toString();
-	const response = await fetch(`/api/auth/post-login-redirect${query ? `?${query}` : ''}`);
+	const response = await getBrowserFetch()(
+		`/api/auth/post-login-redirect${query ? `?${query}` : ''}`
+	);
 	return parseJson<{ redirect: string }>(response);
 }
 
 export async function signOut() {
-	const response = await fetch('/api/auth/logout', { method: 'POST' });
+	const response = await getBrowserFetch()('/api/auth/logout', { method: 'POST' });
 	await parseJson<{ ok: boolean }>(response);
 }

@@ -124,6 +124,9 @@
 
 	"explore": {
 		"title": "Discover",
+		"forYou": "For You",
+		"forYouWarming": "Discovery is still warming up. Browse Popular or Latest to help seed recommendations.",
+		"forYouEmpty": "No recommendations yet. Keep browsing and importing titles to build your feed.",
 		"popular": "Popular",
 		"popularThisWeek": "Popular This Week",
 		"latestUpdates": "Latest Updates",
@@ -155,6 +158,9 @@
 		"info": "Info",
 		"sources": "Sources",
 		"findMatchesDescription": "Linked sources and suggested matches from enabled sources.",
+		"similarTitles": "Similar Titles",
+		"similarTitlesWarming": "Discovery is still warming up for this title.",
+		"similarTitlesEmpty": "No similar titles found yet.",
 		"findOtherSources": "Find Other Sources",
 		"addSource": "Add Source",
 		"suggestedMatches": "Suggested matches",

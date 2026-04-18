@@ -26,6 +26,16 @@ export interface CommandPayloadMap {
 		sourceId: string;
 		entries: Array<{ key: string; value: unknown }>;
 	};
+	'discovery.feed.crawl': {
+		sourceId: string;
+		feedType: 'popular' | 'latest';
+		page: number;
+		limit: number;
+	};
+	'discovery.title.hydrate': {
+		sourceId: string;
+		titleUrl: string;
+	};
 	'explore.popular': { sourceId: string; page: number; limit: number };
 	'explore.latest': { sourceId: string; page: number; limit: number };
 	'explore.search': {
@@ -43,6 +53,12 @@ export interface CommandPayloadMap {
 		sourcePkg: string;
 		sourceLang: string;
 		titleUrl: string;
+		fallbackTitle?: string;
+		fallbackAuthor?: string;
+		fallbackArtist?: string;
+		fallbackDescription?: string;
+		fallbackCoverUrl?: string;
+		fallbackGenre?: string;
 	};
 	'library.chapters.sync': {
 		titleId: GenericId<'libraryTitles'>;
@@ -96,7 +112,13 @@ export const commandPayloadValidator = v.union(
 		sourceId: v.string(),
 		sourcePkg: v.string(),
 		sourceLang: v.string(),
-		titleUrl: v.string()
+		titleUrl: v.string(),
+		fallbackTitle: v.optional(v.string()),
+		fallbackAuthor: v.optional(v.string()),
+		fallbackArtist: v.optional(v.string()),
+		fallbackDescription: v.optional(v.string()),
+		fallbackCoverUrl: v.optional(v.string()),
+		fallbackGenre: v.optional(v.string())
 	}),
 	// library.chapters.sync — titleId + sourceId + titleUrl
 	v.object({
@@ -114,6 +136,18 @@ export const commandPayloadValidator = v.union(
 	v.object({
 		sourceId: v.string(),
 		entries: v.array(v.object({ key: v.string(), value: v.any() }))
+	}),
+	// discovery.feed.crawl — sourceId + feedType + page + limit
+	v.object({
+		sourceId: v.string(),
+		feedType: v.union(v.literal('popular'), v.literal('latest')),
+		page: v.float64(),
+		limit: v.float64()
+	}),
+	// discovery.title.hydrate — sourceId + titleUrl
+	v.object({
+		sourceId: v.string(),
+		titleUrl: v.string()
 	}),
 	// reader.pages.fetch — chapterUrl discriminant
 	v.object({

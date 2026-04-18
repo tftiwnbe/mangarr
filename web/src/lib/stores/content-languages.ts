@@ -26,11 +26,19 @@ function setLocalContentLanguages(langs: string[]): void {
 	}
 }
 
+function getBrowserFetch(): typeof window.fetch {
+	if (!browser) {
+		throw new Error('Browser fetch is unavailable during server-side rendering');
+	}
+
+	return window.fetch.bind(window);
+}
+
 export const contentLanguages = writable<string[]>(getLocalContentLanguages());
 
 export async function loadContentLanguages(): Promise<void> {
 	try {
-		const response = await fetch('/api/settings/content-languages');
+		const response = await getBrowserFetch()('/api/settings/content-languages');
 		if (!response.ok) {
 			throw new Error('Unable to load content language settings');
 		}
@@ -48,7 +56,7 @@ export async function setContentLanguages(langs: string[]): Promise<void> {
 	setLocalContentLanguages(normalized);
 	contentLanguages.set(normalized);
 	try {
-		const response = await fetch('/api/settings/content-languages', {
+		const response = await getBrowserFetch()('/api/settings/content-languages', {
 			method: 'PUT',
 			headers: {
 				'content-type': 'application/json'

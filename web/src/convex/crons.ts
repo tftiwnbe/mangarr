@@ -4,6 +4,9 @@ import { internal } from './_generated/api';
 
 const crons = cronJobs();
 const internalMaintenance = internal as unknown as {
+	discovery: {
+		runScheduler: typeof internal.library_downloads.runScheduledDownloadCycles;
+	};
 	maintenance: {
 		runRetentionPass: typeof internal.library_downloads.runScheduledDownloadCycles;
 	};
@@ -26,6 +29,13 @@ crons.interval(
 	{
 		maxTitles: 10
 	}
+);
+
+crons.interval(
+	'discovery crawl scheduler',
+	{ minutes: 15 },
+	internalMaintenance.discovery.runScheduler,
+	{}
 );
 
 crons.interval(

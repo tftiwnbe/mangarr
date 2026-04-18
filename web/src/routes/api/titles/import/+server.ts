@@ -43,7 +43,11 @@ export const POST: RequestHandler = async (event) => {
 			sourceId: item.source_id,
 			sourcePkg: item.source_pkg,
 			sourceLang: item.source_lang,
-			titleUrl: item.title_url
+			titleUrl: item.title_url,
+			fallbackTitle: item.title,
+			fallbackDescription: item.description ?? undefined,
+			fallbackCoverUrl: item.cover_url ?? undefined,
+			fallbackGenre: item.genre ?? undefined
 		});
 		importCommandId = String(enqueued.commandId);
 		const completed = await waitForCommand(client, enqueued.commandId, {

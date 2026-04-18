@@ -36,7 +36,7 @@
 	} from '$lib/utils/source-health';
 	import type { FilterMeta, PreferenceBundle } from '$lib/extensions/source-preferences';
 
-	type TabValue = 'popular' | 'latest' | 'search';
+	type TabValue = 'forYou' | 'popular' | 'latest' | 'search';
 
 	type SourceItem = {
 		id: string;
@@ -63,6 +63,7 @@
 	type ExploreCard = {
 		key: string;
 		title: string;
+		description?: string;
 		thumbnailUrl: string | null;
 		sourceName: string;
 		sourceId: string;
@@ -89,6 +90,11 @@
 
 	type SearchResult = {
 		items: ExploreItem[];
+	};
+
+	type ForYouResult = {
+		items: ExploreItem[];
+		warming: boolean;
 	};
 
 	type SourceFailureScope = 'feed' | 'search';
@@ -126,14 +132,16 @@
 	const client = useConvexClient();
 	const sourcesQuery = useQuery(convexApi.extensions.listSources, () => ({}));
 	const importedLookupQuery = useQuery(convexApi.library.getMineImportedSourceLookup, () => ({}));
+	const forYouQuery = useQuery(convexApi.discovery.listForYou, () => ({ limit: 24 }));
 
-	const tabs = [
-		{ value: 'popular', label: 'Popular' },
-		{ value: 'latest', label: 'Latest Updates' },
-		{ value: 'search', label: 'Search' }
-	];
+	const tabs = $derived([
+		{ value: 'forYou', label: $_('explore.forYou') },
+		{ value: 'popular', label: $_('explore.popular') },
+		{ value: 'latest', label: $_('explore.latestUpdates') },
+		{ value: 'search', label: $_('common.search') }
+	]);
 
-	let activeTab = $state<TabValue>('popular');
+	let activeTab = $state<TabValue>('forYou');
 	let searchQuery = $state('');
 	let loading = $state(true);
 	let loadingMore = $state(false);
@@ -227,7 +235,9 @@
 	);
 	const sourceHealthQuery = useQuery(convexApi.commands.listSourceHealth, () => ({
 		sourceIds:
-			activeTab === 'search'
+			activeTab === 'forYou'
+				? []
+				: activeTab === 'search'
 				? selectedSourceId
 					? [selectedSourceId]
 					: searchSources.map((source) => source.id)
@@ -245,11 +255,21 @@
 		return lookup;
 	});
 	const persistedSourceFailures = $derived((sourceHealthQuery.data ?? []) as SourceHealthEntry[]);
+	const forYouResult = $derived(
+		((forYouQuery.data ?? { items: [], warming: true }) as ForYouResult) ?? {
+			items: [],
+			warming: true
+		}
+	);
 
 	const feedCommandType = $derived(activeTab === 'latest' ? 'explore.latest' : 'explore.popular');
 	const showSearchPrompt = $derived(activeTab === 'search' && !canRunSearch);
 	const currentLoading = $derived(
-		loading || loadingMore || sourcesQuery.isLoading || importedLookupQuery.isLoading
+		loading ||
+			loadingMore ||
+			sourcesQuery.isLoading ||
+			importedLookupQuery.isLoading ||
+			(activeTab === 'forYou' && forYouQuery.isLoading)
 	);
 	const combinedSourceFailures = $derived.by(() => {
 		const merged: Record<string, SourceFailure> = { ...sourceFailures };
@@ -274,6 +294,9 @@
 		return merged;
 	});
 	const activeSourceFailures = $derived.by(() => {
+		if (activeTab === 'forYou') {
+			return [];
+		}
 		const scope: SourceFailureScope = activeTab === 'search' ? 'search' : 'feed';
 		const now = Date.now();
 		return Object.values(combinedSourceFailures)
@@ -291,7 +314,9 @@
 				? selectedSourceId
 					? [selectedSourceId]
 					: searchSources.map((source) => source.id)
-				: activeFeedSourceIds;
+				: activeTab === 'forYou'
+					? Array.from(new Set(forYouResult.items.map((item) => item.sourceId)))
+					: activeFeedSourceIds;
 
 		const items: ExploreCard[] = [];
 		const signatureToIndex: Record<string, number> = {};
@@ -300,13 +325,16 @@
 			const resultItems =
 				activeTab === 'search'
 					? searchItemsForSource(sourceId)
-					: feedItemsForSource(feedCommandType, sourceId, loadedPagesBySource[sourceId] ?? 0);
+					: activeTab === 'forYou'
+						? forYouResult.items.filter((item) => item.sourceId === sourceId)
+						: feedItemsForSource(feedCommandType, sourceId, loadedPagesBySource[sourceId] ?? 0);
 
 			for (const item of resultItems) {
 				const importedEntry = importedLibraryIds[`${item.sourceId}::${item.titleUrl}`] ?? null;
 				const nextCard: ExploreCard = {
 					key: cardKeyFor(item),
 					title: item.title,
+					description: item.description,
 					thumbnailUrl: item.coverUrl ?? null,
 					sourceName: item.sourceName || sourceNameFor(item.sourceId),
 					sourceId: item.sourceId,
@@ -342,6 +370,7 @@
 				const merged = {
 					...current,
 					title: current.title || nextCard.title,
+					description: current.description || nextCard.description,
 					thumbnailUrl: current.thumbnailUrl || nextCard.thumbnailUrl,
 					sourceName: current.sourceName || nextCard.sourceName,
 					importedLibraryId: current.importedLibraryId ?? nextCard.importedLibraryId,
@@ -372,6 +401,11 @@
 					searchQuery: searchQuery.trim().toLowerCase(),
 					filters: selectedSourceAppliedFilters
 				})
+			: activeTab === 'forYou'
+				? JSON.stringify({
+						activeTab,
+						count: forYouResult.items.length
+					})
 			: JSON.stringify({
 					activeTab,
 					selectedExtensionPkgs: [...selectedExtensionPkgs].sort()
@@ -1114,6 +1148,7 @@
 			source_lang: item.sourceLang,
 			title_url: item.titleUrl,
 			title: item.title,
+			description: item.description ?? '',
 			thumbnail_url: item.thumbnailUrl ?? '',
 			canonical_key: item.canonicalKey
 		});
@@ -1200,7 +1235,7 @@
 
 	$effect(() => {
 		if (!sources.length) return;
-		if (activeTab === 'search') {
+		if (activeTab === 'search' || activeTab === 'forYou') {
 			lastFeedLoadSignature = '';
 			activeFeedSourceIds = [];
 			loading = false;
@@ -1367,7 +1402,7 @@
 		</div>
 	{/if}
 
-	{#if extensionFilters.length > 0 && activeTab !== 'search'}
+	{#if extensionFilters.length > 0 && activeTab !== 'search' && activeTab !== 'forYou'}
 		<div class="flex flex-col gap-2">
 			<div class="flex items-center justify-between">
 				<p class="text-xs text-[var(--text-ghost)]">{$_('explore.filterByExtension')}</p>
@@ -1440,10 +1475,12 @@
 				{:else}
 					{cards.length} result{cards.length === 1 ? '' : 's'}
 				{/if}
+			{:else if activeTab === 'forYou'}
+				{$_('explore.forYou')}
 			{:else if activeTab === 'latest'}
 				{$_('explore.latestUpdates')}
 			{:else}
-				Popular
+				{$_('explore.popular')}
 			{/if}
 		</p>
 		{#if currentLoading}
@@ -1528,10 +1565,10 @@
 				</a>
 			{/each}
 		</div>
-		{#if activeTab !== 'search' || visibleCards.length < cards.length}
+		{#if activeTab === 'popular' || activeTab === 'latest' || visibleCards.length < cards.length}
 			<div bind:this={feedSentinel} class="h-px w-full" aria-hidden="true"></div>
 		{/if}
-		{#if activeTab !== 'search' && canLoadMoreFeed}
+		{#if (activeTab === 'popular' || activeTab === 'latest') && canLoadMoreFeed}
 			<div class="flex items-center justify-center py-4">
 				{#if loadingMore}
 					<p class="flex items-center gap-2 text-sm text-[var(--text-ghost)]">
@@ -1554,10 +1591,20 @@
 			</div>
 			<div>
 				<p class="text-[var(--text)]">
-					{showSearchPrompt ? $_('common.search') : $_('common.noResults')}
+					{activeTab === 'forYou'
+						? $_('explore.forYou')
+						: showSearchPrompt
+							? $_('common.search')
+							: $_('common.noResults')}
 				</p>
 				<p class="mt-1 text-sm text-[var(--text-ghost)]">
-					{showSearchPrompt ? $_('explore.typeToSearch') : $_('explore.tryDifferentSearch')}
+					{activeTab === 'forYou'
+						? forYouResult.warming
+							? $_('explore.forYouWarming')
+							: $_('explore.forYouEmpty')
+						: showSearchPrompt
+							? $_('explore.typeToSearch')
+							: $_('explore.tryDifferentSearch')}
 				</p>
 			</div>
 			{#if sources.length === 0}

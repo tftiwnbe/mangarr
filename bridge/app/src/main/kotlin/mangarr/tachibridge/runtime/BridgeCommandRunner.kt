@@ -8,6 +8,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -45,10 +46,13 @@ private val interactiveCapabilities =
         "library.cover.cache",
         "library.import",
     )
+private val discoveryCapabilities = listOf("discovery.feed", "discovery.metadata")
 private const val DOWNLOAD_COMMAND_CONCURRENCY = 2
 private const val INTERACTIVE_COMMAND_CONCURRENCY = 2
+private const val DISCOVERY_COMMAND_CONCURRENCY = 1
 private const val DOWNLOAD_PROGRESS_UPDATE_INTERVAL_MS = 1_250L
 private const val DOWNLOAD_LEASE_RENEW_INTERVAL_MS = 5_000L
+private const val DISCOVERY_RETRY_DELAY_MS = 15 * 60 * 1000L
 
 @Serializable
 data class CommandRunnerSnapshot(
@@ -69,6 +73,7 @@ class BridgeCommandRunner(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val activeInteractiveCommands = AtomicInteger(0)
     private val activeDownloadCommands = AtomicInteger(0)
+    private val activeDiscoveryCommands = AtomicInteger(0)
     private var job: Job? = null
     @Volatile
     private var snapshot =
@@ -116,6 +121,11 @@ class BridgeCommandRunner(
             val downloadSlots = (DOWNLOAD_COMMAND_CONCURRENCY - activeDownloadCommands.get()).coerceAtLeast(0)
             if (downloadSlots > 0) {
                 leased += leaseCommands(client, now, listOf("downloads.chapter"), downloadSlots)
+            }
+
+            val discoverySlots = (DISCOVERY_COMMAND_CONCURRENCY - activeDiscoveryCommands.get()).coerceAtLeast(0)
+            if (discoverySlots > 0) {
+                leased += leaseCommands(client, now, discoveryCapabilities, discoverySlots)
             }
 
             if (leased.isNotEmpty()) {
@@ -210,6 +220,8 @@ class BridgeCommandRunner(
             val counter =
                 if (command.commandType == "downloads.chapter") {
                     activeDownloadCommands
+                } else if (command.commandType == "discovery.feed.crawl" || command.commandType == "discovery.title.hydrate") {
+                    activeDiscoveryCommands
                 } else {
                     activeInteractiveCommands
                 }
@@ -282,17 +294,34 @@ class BridgeCommandRunner(
                             ConfigManager.config.downloads.failedRetryDelaySeconds * 1000L,
                             (httpError?.retryAfterSeconds ?: 0L) * 1000L,
                         )
+                    } else if (retryable && (command.commandType == "discovery.feed.crawl" || command.commandType == "discovery.title.hydrate")) {
+                        maxOf(
+                            DISCOVERY_RETRY_DELAY_MS,
+                            (httpError?.retryAfterSeconds ?: 0L) * 1000L,
+                        )
                     } else {
                         5_000L
                     }
                 if (retryable) {
-                    events.error(
-                        "bridge.command.failed",
-                        "Bridge command execution failed",
-                        error,
-                        "durationMs" to (System.currentTimeMillis() - startedAt),
-                        "retryDelayMs" to retryDelayMs,
-                    )
+                    if (command.commandType == "discovery.feed.crawl" || command.commandType == "discovery.title.hydrate") {
+                        events.warn(
+                            "bridge.command.failed",
+                            "Bridge command execution failed",
+                            "durationMs" to (System.currentTimeMillis() - startedAt),
+                            "retryDelayMs" to retryDelayMs,
+                            "throwable_class" to error::class.simpleName,
+                            "throwable_message" to error.message,
+                            "httpCode" to httpError?.code,
+                        )
+                    } else {
+                        events.error(
+                            "bridge.command.failed",
+                            "Bridge command execution failed",
+                            error,
+                            "durationMs" to (System.currentTimeMillis() - startedAt),
+                            "retryDelayMs" to retryDelayMs,
+                        )
+                    }
                 } else {
                     events.warn(
                         "bridge.command.failed_permanent",
@@ -303,6 +332,36 @@ class BridgeCommandRunner(
                         "throwable_message" to error.message,
                         "httpCode" to httpError?.code,
                     )
+                }
+                if (command.commandType == "discovery.feed.crawl") {
+                    runCatching {
+                        val payload = command.payload.jsonObject
+                        client.recordDiscoveryCrawlFailure(
+                            client.payload(
+                                buildJsonObject {
+                                    put("sourceId", payload.requiredString("sourceId"))
+                                    put("feedType", payload.requiredString("feedType"))
+                                    put("message", error.message ?: "Unhandled bridge command error")
+                                    put("retryAfterMs", (httpError?.retryAfterSeconds ?: 0L) * 1000L)
+                                    put("now", System.currentTimeMillis())
+                                },
+                            ),
+                        )
+                    }
+                } else if (command.commandType == "discovery.title.hydrate") {
+                    runCatching {
+                        val payload = command.payload.jsonObject
+                        client.recordDiscoveryTitleHydrationFailure(
+                            client.payload(
+                                buildJsonObject {
+                                    put("sourceId", payload.requiredString("sourceId"))
+                                    put("titleUrl", payload.requiredString("titleUrl"))
+                                    put("retryAfterMs", (httpError?.retryAfterSeconds ?: 0L) * 1000L)
+                                    put("now", System.currentTimeMillis())
+                                },
+                            ),
+                        )
+                    }
                 }
                 client.failCommand(
                     client.payload(
@@ -533,13 +592,108 @@ class BridgeCommandRunner(
                 val sourceId = payload.requiredString("sourceId")
                 val page = payload.optionalInt("page") ?: 1
                 val limit = payload.optionalInt("limit") ?: 30
-                kotlinx.coroutines.runBlocking { service.fetchPopular(sourceId, page, limit) }
+                val result = kotlinx.coroutines.runBlocking { service.fetchPopular(sourceId, page, limit) }
+                client.ingestDiscoveryFeedPage(
+                    client.payload(
+                        buildJsonObject {
+                            put("feedType", "popular")
+                            put("sourceId", sourceId)
+                            put("page", page)
+                            put("hasNextPage", result["hasNextPage"] ?: JsonPrimitive(false))
+                            put("items", result["items"] ?: kotlinx.serialization.json.buildJsonArray { })
+                            put("updateCrawlState", false)
+                            put("now", System.currentTimeMillis())
+                        },
+                    ),
+                )
+                result
             }
             "explore.latest" -> {
                 val sourceId = payload.requiredString("sourceId")
                 val page = payload.optionalInt("page") ?: 1
                 val limit = payload.optionalInt("limit") ?: 30
-                kotlinx.coroutines.runBlocking { service.fetchLatest(sourceId, page, limit) }
+                val result = kotlinx.coroutines.runBlocking { service.fetchLatest(sourceId, page, limit) }
+                client.ingestDiscoveryFeedPage(
+                    client.payload(
+                        buildJsonObject {
+                            put("feedType", "latest")
+                            put("sourceId", sourceId)
+                            put("page", page)
+                            put("hasNextPage", result["hasNextPage"] ?: JsonPrimitive(false))
+                            put("items", result["items"] ?: kotlinx.serialization.json.buildJsonArray { })
+                            put("updateCrawlState", false)
+                            put("now", System.currentTimeMillis())
+                        },
+                    ),
+                )
+                result
+            }
+            "discovery.feed.crawl" -> {
+                val sourceId = payload.requiredString("sourceId")
+                val feedType = payload.requiredString("feedType")
+                val page = payload.optionalInt("page") ?: 1
+                val limit = payload.optionalInt("limit") ?: 24
+                val result =
+                    when (feedType) {
+                        "latest" -> kotlinx.coroutines.runBlocking { service.fetchLatest(sourceId, page, limit) }
+                        else -> kotlinx.coroutines.runBlocking { service.fetchPopular(sourceId, page, limit) }
+                    }
+                client.ingestDiscoveryFeedPage(
+                    client.payload(
+                        buildJsonObject {
+                            put("feedType", feedType)
+                            put("sourceId", sourceId)
+                            put("page", page)
+                            put("hasNextPage", result["hasNextPage"] ?: JsonPrimitive(false))
+                            put("items", result["items"] ?: kotlinx.serialization.json.buildJsonArray { })
+                            put("updateCrawlState", true)
+                            put("now", System.currentTimeMillis())
+                        },
+                    ),
+                )
+                result
+            }
+            "discovery.title.hydrate" -> {
+                val sourceId = payload.requiredString("sourceId")
+                val titleUrl = payload.requiredString("titleUrl")
+                val titleResult = kotlinx.coroutines.runBlocking { service.fetchTitle(sourceId, titleUrl) }
+                val normalizedTitle = titleResult["title"]?.jsonObject ?: error("Missing title payload")
+                client.upsertLibraryTitleMetadata(
+                    client.payload(
+                        buildJsonObject {
+                            put("sourceId", sourceId)
+                            put("titleUrl", titleUrl)
+                            put("sourcePkg", normalizedTitle.optionalString("sourcePkg"))
+                            put("sourceLang", normalizedTitle.optionalString("sourceLang"))
+                            put("title", normalizedTitle.requiredString("title"))
+                            put("author", normalizedTitle.optionalString("author"))
+                            put("artist", normalizedTitle.optionalString("artist"))
+                            put("description", normalizedTitle.optionalString("description"))
+                            put("coverUrl", normalizedTitle.optionalString("coverUrl"))
+                            put("genre", normalizedTitle.optionalString("genre"))
+                            put("status", normalizedTitle.optionalInt("status") ?: 0)
+                            put("now", System.currentTimeMillis())
+                        },
+                    ),
+                )
+                client.upsertDiscoveryTitleMetadata(
+                    client.payload(
+                        buildJsonObject {
+                            put("sourceId", sourceId)
+                            put("titleUrl", titleUrl)
+                            put("sourcePkg", normalizedTitle.optionalString("sourcePkg"))
+                            put("sourceLang", normalizedTitle.optionalString("sourceLang"))
+                            put("title", normalizedTitle.requiredString("title"))
+                            put("author", normalizedTitle.optionalString("author"))
+                            put("description", normalizedTitle.optionalString("description"))
+                            put("coverUrl", normalizedTitle.optionalString("coverUrl"))
+                            put("genre", normalizedTitle.optionalString("genre"))
+                            put("status", normalizedTitle.optionalInt("status") ?: 0)
+                            put("now", System.currentTimeMillis())
+                        },
+                    ),
+                )
+                titleResult
             }
             "explore.title.fetch" -> {
                 val sourceId = payload.requiredString("sourceId")
@@ -556,6 +710,23 @@ class BridgeCommandRunner(
                             put("title", normalizedTitle.requiredString("title"))
                             put("author", normalizedTitle.optionalString("author"))
                             put("artist", normalizedTitle.optionalString("artist"))
+                            put("description", normalizedTitle.optionalString("description"))
+                            put("coverUrl", normalizedTitle.optionalString("coverUrl"))
+                            put("genre", normalizedTitle.optionalString("genre"))
+                            put("status", normalizedTitle.optionalInt("status") ?: 0)
+                            put("now", System.currentTimeMillis())
+                        },
+                    ),
+                )
+                client.upsertDiscoveryTitleMetadata(
+                    client.payload(
+                        buildJsonObject {
+                            put("sourceId", sourceId)
+                            put("titleUrl", titleUrl)
+                            put("sourcePkg", normalizedTitle.optionalString("sourcePkg"))
+                            put("sourceLang", normalizedTitle.optionalString("sourceLang"))
+                            put("title", normalizedTitle.requiredString("title"))
+                            put("author", normalizedTitle.optionalString("author"))
                             put("description", normalizedTitle.optionalString("description"))
                             put("coverUrl", normalizedTitle.optionalString("coverUrl"))
                             put("genre", normalizedTitle.optionalString("genre"))
@@ -619,8 +790,33 @@ class BridgeCommandRunner(
                 val canonicalKey = payload.requiredString("canonicalKey")
                 val userId = payload.optionalString("userId") ?: command.requestedByUserId
                 val resolved =
-                    kotlinx.coroutines.runBlocking {
-                        service.resolveImport(sourceId, sourcePkg, sourceLang, titleUrl)
+                    try {
+                        kotlinx.coroutines.runBlocking {
+                            service.resolveImport(sourceId, sourcePkg, sourceLang, titleUrl)
+                        }
+                    } catch (error: Exception) {
+                        val fallbackResolved =
+                            fallbackImportMetadata(
+                                payload = payload,
+                                sourceId = sourceId,
+                                sourcePkg = sourcePkg,
+                                sourceLang = sourceLang,
+                                titleUrl = titleUrl,
+                                canonicalKey = canonicalKey,
+                            )
+                        if (fallbackResolved != null && error is SerializationException) {
+                            events.warn(
+                                "bridge.library.import.metadata_fallback",
+                                "Falling back to caller metadata after title details decoding failed",
+                                "sourceId" to sourceId,
+                                "titleUrl" to titleUrl,
+                                "commandId" to command.id,
+                                "error" to (error.message ?: "Unknown serialization error"),
+                            )
+                            fallbackResolved
+                        } else {
+                            throw error
+                        }
                     }
 
                 client.upsertLibraryTitleMetadata(
@@ -887,6 +1083,31 @@ class BridgeCommandRunner(
 
     private fun JsonObject.optionalString(key: String): String? =
         this[key]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+
+    private fun fallbackImportMetadata(
+        payload: JsonObject,
+        sourceId: String,
+        sourcePkg: String,
+        sourceLang: String,
+        titleUrl: String,
+        canonicalKey: String,
+    ): JsonObject? {
+        val fallbackTitle = payload.optionalString("fallbackTitle") ?: return null
+        return buildJsonObject {
+            put("canonicalKey", canonicalKey)
+            put("sourceId", sourceId)
+            put("sourcePkg", sourcePkg)
+            put("sourceLang", sourceLang)
+            put("titleUrl", titleUrl)
+            put("title", fallbackTitle)
+            put("author", payload.optionalString("fallbackAuthor"))
+            put("artist", payload.optionalString("fallbackArtist"))
+            put("description", payload.optionalString("fallbackDescription"))
+            put("coverUrl", payload.optionalString("fallbackCoverUrl"))
+            put("genre", payload.optionalString("fallbackGenre"))
+            put("status", 0)
+        }
+    }
 
     private fun JsonObject.optionalInt(key: String): Int? =
         this[key]?.jsonPrimitive?.intLikeOrNull()

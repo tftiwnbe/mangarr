@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.network
 import android.content.Context
 import eu.kanade.tachiyomi.network.interceptor.CloudflareInterceptor
 import eu.kanade.tachiyomi.network.interceptor.IgnoreGzipInterceptor
+import eu.kanade.tachiyomi.network.interceptor.JsonFieldCoercionInterceptor
 import eu.kanade.tachiyomi.network.interceptor.UncaughtExceptionInterceptor
 import eu.kanade.tachiyomi.network.interceptor.UserAgentInterceptor
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -86,6 +87,7 @@ class NetworkHelper(
                             maxSize = 5L * 1024 * 1024, // 5 MiB
                         ),
                     ).addInterceptor(UncaughtExceptionInterceptor())
+                    .addInterceptor(JsonFieldCoercionInterceptor())
                     .addInterceptor(UserAgentInterceptor(::defaultUserAgentProvider))
                     .addNetworkInterceptor(IgnoreGzipInterceptor())
                     .addNetworkInterceptor(BrotliInterceptor)
@@ -132,7 +134,7 @@ class NetworkHelper(
         val enabled =
             System.getenv("MANGARR_OKHTTP_LEAK_TRACE")?.trim()?.lowercase()?.let {
                 it == "1" || it == "true" || it == "yes" || it == "on"
-            } ?: true
+            } ?: false
         if (!enabled) {
             return
         }

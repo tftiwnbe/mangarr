@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { getCachedCoverUrl } from '$lib/api/covers';
+	import { LazyImage } from '$lib/elements/lazy-image';
 	import { _ } from '$lib/i18n';
 
 	type Props = {
@@ -14,6 +16,15 @@
 		chaptersLabel: string;
 		sourcesLabel: string;
 		updatesEnabled: boolean;
+		similarTitles: Array<{
+			title: string;
+			sourceName: string;
+			sourceLang: string;
+			coverUrl?: string | null;
+			href: string;
+		}>;
+		similarTitlesLoading: boolean;
+		similarTitlesWarming: boolean;
 	};
 
 	let {
@@ -28,7 +39,10 @@
 		sourceLang,
 		chaptersLabel,
 		sourcesLabel,
-		updatesEnabled
+		updatesEnabled,
+		similarTitles,
+		similarTitlesLoading,
+		similarTitlesWarming
 	}: Props = $props();
 
 	const uniqueGenres = $derived(
@@ -129,4 +143,54 @@
 			</div>
 		</div>
 	</div>
+
+	{#if similarTitlesLoading || similarTitles.length > 0 || similarTitlesWarming}
+		<div class="flex flex-col gap-3">
+			<div class="flex items-center justify-between gap-3">
+				<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
+					{$_('title.similarTitles')}
+				</span>
+				{#if similarTitlesLoading}
+					<span class="text-[10px] text-[var(--text-ghost)]">{$_('common.loading')}</span>
+				{/if}
+			</div>
+
+			{#if similarTitles.length > 0}
+				<div class="grid grid-cols-4 gap-2 sm:grid-cols-5 lg:grid-cols-6">
+					{#each similarTitles as item (item.href)}
+						<a href={item.href} class="group flex flex-col gap-2 text-left">
+							<div class="aspect-[2/3] overflow-hidden bg-[var(--void-2)] ring-1 ring-[var(--void-1)] transition-all group-hover:ring-[var(--void-6)]">
+								{#if item.coverUrl}
+									<LazyImage
+										src={getCachedCoverUrl(item.coverUrl)}
+										alt={item.title}
+										class="h-full w-full"
+										imgClass="transition-transform duration-300 group-hover:scale-[1.03]"
+									/>
+								{:else}
+									<div class="flex h-full items-center justify-center text-[10px] text-[var(--text-ghost)]">
+										{$_('common.empty')}
+									</div>
+								{/if}
+							</div>
+							<div class="flex flex-col gap-0.5">
+								<p class="line-clamp-2 text-[10px] leading-snug text-[var(--text)]">
+									{item.title}
+								</p>
+								<p class="truncate text-[9px] tracking-wide text-[var(--text-ghost)] uppercase">
+									{item.sourceName}{item.sourceLang ? ` · ${item.sourceLang.toUpperCase()}` : ''}
+								</p>
+							</div>
+						</a>
+					{/each}
+				</div>
+			{:else}
+				<p class="text-sm text-[var(--text-ghost)]">
+					{similarTitlesWarming
+						? $_('title.similarTitlesWarming')
+						: $_('title.similarTitlesEmpty')}
+				</p>
+			{/if}
+		</div>
+	{/if}
 </div>

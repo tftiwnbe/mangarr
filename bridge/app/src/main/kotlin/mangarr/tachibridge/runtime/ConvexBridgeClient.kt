@@ -120,6 +120,18 @@ class ConvexBridgeClient(
     fun upsertLibraryTitleMetadata(args: JsonObject): OkResponse =
         mutation("library:upsertTitleMetadataFromBridge", args)
 
+    fun ingestDiscoveryFeedPage(args: JsonObject): OkResponse =
+        mutation("discovery:ingestFeedPageFromBridge", args)
+
+    fun upsertDiscoveryTitleMetadata(args: JsonObject): OkResponse =
+        mutation("discovery:upsertTitleMetadataFromBridge", args)
+
+    fun recordDiscoveryCrawlFailure(args: JsonObject): OkResponse =
+        mutation("discovery:recordCrawlFailureFromBridge", args)
+
+    fun recordDiscoveryTitleHydrationFailure(args: JsonObject): OkResponse =
+        mutation("discovery:recordTitleHydrationFailureFromBridge", args)
+
     fun setLibraryChapterDownloadState(args: JsonObject): OkResponse =
         mutation("library:setChapterDownloadState", args)
 
