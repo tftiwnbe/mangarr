@@ -18,8 +18,6 @@
 		updatesEnabled: boolean;
 		similarTitles: Array<{
 			title: string;
-			sourceName: string;
-			sourceLang: string;
 			coverUrl?: string | null;
 			href: string;
 		}>;
@@ -48,6 +46,7 @@
 	const uniqueGenres = $derived(
 		Array.from(new Set(genres.map((genre) => genre.trim()).filter((genre) => genre.length > 0)))
 	);
+
 </script>
 
 <div class="flex flex-col gap-8">
@@ -156,16 +155,21 @@
 			</div>
 
 			{#if similarTitles.length > 0}
-				<div class="grid grid-cols-4 gap-2 sm:grid-cols-5 lg:grid-cols-6">
+				<!-- Mobile: horizontal scroll snap. Desktop: grid -->
+				<div class="flex snap-x snap-mandatory gap-2.5 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-4 sm:overflow-visible sm:pb-0 lg:grid-cols-6">
 					{#each similarTitles as item (item.href)}
-						<a href={item.href} class="group flex flex-col gap-2 text-left">
-							<div class="aspect-[2/3] overflow-hidden bg-[var(--void-2)] ring-1 ring-[var(--void-1)] transition-all group-hover:ring-[var(--void-6)]">
+						<a
+							href={item.href}
+							class="group flex w-[40vw] shrink-0 snap-start flex-col gap-1.5 text-left sm:w-auto"
+							title={item.title}
+						>
+							<div class="aspect-[2/3] overflow-hidden bg-[var(--void-2)] ring-1 ring-[var(--void-4)] transition-all duration-300 group-hover:scale-[1.02] group-hover:ring-[var(--void-6)]">
 								{#if item.coverUrl}
 									<LazyImage
 										src={getCachedCoverUrl(item.coverUrl)}
 										alt={item.title}
 										class="h-full w-full"
-										imgClass="transition-transform duration-300 group-hover:scale-[1.03]"
+										imgClass="transition-transform duration-500 group-hover:scale-[1.05]"
 									/>
 								{:else}
 									<div class="flex h-full items-center justify-center text-[10px] text-[var(--text-ghost)]">
@@ -173,14 +177,9 @@
 									</div>
 								{/if}
 							</div>
-							<div class="flex flex-col gap-0.5">
-								<p class="line-clamp-2 text-[10px] leading-snug text-[var(--text)]">
-									{item.title}
-								</p>
-								<p class="truncate text-[9px] tracking-wide text-[var(--text-ghost)] uppercase">
-									{item.sourceName}{item.sourceLang ? ` · ${item.sourceLang.toUpperCase()}` : ''}
-								</p>
-							</div>
+							<p class="line-clamp-2 text-[10px] leading-snug text-[var(--text)]">
+								{item.title}
+							</p>
 						</a>
 					{/each}
 				</div>

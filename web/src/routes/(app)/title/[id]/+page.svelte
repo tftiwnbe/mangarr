@@ -167,7 +167,7 @@
 	};
 
 	type SimilarTitlesResult = {
-		items: ExploreItem[];
+		items: (ExploreItem & { score: number })[];
 		warming: boolean;
 	};
 

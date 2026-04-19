@@ -143,6 +143,38 @@ export const getDownloadDashboard = query({
 			queuedTaskCountByTitleId.set(key, (queuedTaskCountByTitleId.get(key) ?? 0) + 1);
 		}
 
+		// Fetch commands for queued tasks to detect backoff (runAfter in the future)
+		const now = Date.now();
+		const queuedCommandIds = [
+			...new Set(
+				queuedTaskRows
+					.map((t) => t.commandId)
+					.filter((id): id is NonNullable<typeof id> => id != null)
+			)
+		];
+		const queuedCommands = await Promise.all(queuedCommandIds.map((id) => ctx.db.get(id)));
+
+		// Map commandId -> runAfter for backed-off commands
+		const commandRunAfterById = new Map<string, number>();
+		for (const cmd of queuedCommands) {
+			if (cmd && cmd.runAfter > now) {
+				commandRunAfterById.set(String(cmd._id), cmd.runAfter);
+			}
+		}
+
+		// Per-title: earliest future runAfter across queued tasks
+		const nextRetryAtByTitleId = new Map<string, number>();
+		for (const task of queuedTaskRows) {
+			if (!task.commandId) continue;
+			const runAfter = commandRunAfterById.get(String(task.commandId));
+			if (runAfter == null) continue;
+			const titleKey = String(task.libraryTitleId);
+			const existing = nextRetryAtByTitleId.get(titleKey);
+			if (existing == null || runAfter < existing) {
+				nextRetryAtByTitleId.set(titleKey, runAfter);
+			}
+		}
+
 		const watchedCandidates = titles
 			.map((title) => {
 				const titleId = String(title._id);
@@ -172,6 +204,8 @@ export const getDownloadDashboard = query({
 					queuedTasks,
 					downloadedBytes: title.downloadedChapterBytes ?? 0,
 					variantSources: [`${sourceName}${title.sourceLang ? ` [${title.sourceLang}]` : ''}`],
+					lastError: profile?.lastError ?? null,
+					nextRetryAt: nextRetryAtByTitleId.get(titleId) ?? null,
 					updatedAt
 				};
 			})

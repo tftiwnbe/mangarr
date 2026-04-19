@@ -1,11 +1,14 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import {
 		ArrowClockwiseIcon,
+		ClockCountdownIcon,
 		HardDriveIcon,
 		PlayIcon,
-		SpinnerIcon
+		SpinnerIcon,
+		WarningCircleIcon
 	} from 'phosphor-svelte';
 
 	import type { Id } from '$convex/_generated/dataModel';
@@ -60,6 +63,8 @@
 		queuedTasks: number;
 		downloadedBytes: number;
 		variantSources: string[];
+		lastError: string | null;
+		nextRetryAt: number | null;
 		updatedAt: number;
 	};
 
@@ -128,6 +133,14 @@
 		void loadStorage();
 	});
 
+	function getBrowserFetch(): typeof window.fetch {
+		if (!browser) {
+			throw new Error('Browser fetch is unavailable during server-side rendering');
+		}
+
+		return window.fetch.bind(window);
+	}
+
 	function coverSrc(item: { localCoverPath?: string | null; coverUrl?: string | null }) {
 		if (item.localCoverPath) {
 			const params = new URLSearchParams({ path: item.localCoverPath });
@@ -137,7 +150,7 @@
 	}
 
 	async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-		const response = await fetch(url, init);
+		const response = await getBrowserFetch()(url, init);
 		const payload = (await response.json().catch(() => null)) as { message?: string } & T;
 		if (!response.ok) {
 			throw new Error(payload?.message ?? 'Request failed');
@@ -253,6 +266,17 @@
 
 	function taskActionLoading(kind: string, taskId: string) {
 		return taskActionKey === `${kind}:${taskId}`;
+	}
+
+	function formatRetryIn(retryAt: number): string {
+		const ms = retryAt - Date.now();
+		if (ms <= 0) return 'soon';
+		const totalSeconds = Math.floor(ms / 1000);
+		const hours = Math.floor(totalSeconds / 3600);
+		const minutes = Math.floor((totalSeconds % 3600) / 60);
+		if (hours >= 1) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+		if (minutes >= 1) return `${minutes}m`;
+		return `${totalSeconds}s`;
 	}
 </script>
 
@@ -497,12 +521,24 @@
 										{/if}
 									</div>
 								{/if}
+								{#if item.lastError}
+									<div class="flex min-w-0 items-start gap-1 text-[10px] leading-tight text-[rgba(248,113,113,0.7)]">
+										<WarningCircleIcon size={10} class="mt-px shrink-0 opacity-70" />
+										<span class="line-clamp-2 min-w-0">{item.lastError}</span>
+									</div>
+								{/if}
 							</a>
 
 							<div class="flex items-center justify-end gap-2">
-								{#if item.queuedTasks > 0}
+								{#if item.queuedTasks > 0 && !(item.nextRetryAt != null && item.nextRetryAt > Date.now())}
 									<span class="mr-auto text-[10px] tabular-nums text-[rgba(199,210,254,0.75)]">
 										+{item.queuedTasks} {$_('downloads.queued').toLowerCase()}
+									</span>
+								{/if}
+								{#if item.nextRetryAt != null && item.nextRetryAt > Date.now()}
+									<span class="flex items-center gap-1 text-[10px] tabular-nums text-[var(--text-ghost)]">
+										<ClockCountdownIcon size={10} class="shrink-0" />
+										{formatRetryIn(item.nextRetryAt)}
 									</span>
 								{/if}
 								<button

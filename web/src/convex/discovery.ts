@@ -965,7 +965,7 @@ export const listSimilarForLibraryTitle = query({
 					return right.lastSeenAt - left.lastSeenAt;
 				})
 				.slice(0, limit)
-				.map((entry) => mapDiscoveryItem(entry.title)),
+				.map((entry) => ({ ...mapDiscoveryItem(entry.title), score: entry.score })),
 			warming: finalRanked.length < DISCOVERY_WARM_MIN_ITEMS
 		};
 	}
