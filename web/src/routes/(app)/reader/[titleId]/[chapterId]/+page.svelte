@@ -301,13 +301,21 @@
 		paintedPageIds.add(id);
 	}
 
+	function getBrowserFetch(): typeof window.fetch {
+		if (typeof window === 'undefined') {
+			throw new Error('Browser fetch is unavailable during server-side rendering');
+		}
+
+		return window.fetch.bind(window);
+	}
+
 	function handlePageError(item: ReaderPage) {
 		if (item.kind === 'local') {
 			if (chapter) {
 				localPagesUnavailableForChapterId = chapter._id;
-				if (title && reconcileRequestedForTitleId !== title._id) {
+				if (typeof window !== 'undefined' && title && reconcileRequestedForTitleId !== title._id) {
 					reconcileRequestedForTitleId = title._id;
-					void fetch('/api/internal/bridge/downloads/reconcile', {
+					void getBrowserFetch()('/api/internal/bridge/downloads/reconcile', {
 						method: 'POST',
 						headers: {
 							'content-type': 'application/json'
@@ -483,6 +491,11 @@
 			return;
 		}
 		readerHeaderVisible = isReaderAtTop || showTopZone || isPointerInHeader;
+	}
+
+	function handleReaderTap() {
+		if (!isTouchDevice) return;
+		readerHeaderVisible = !readerHeaderVisible;
 	}
 
 	function startNewComment() {
@@ -902,7 +915,8 @@
 		</div>
 	{:else}
 		{#if mode === 'vertical'}
-			<div class="flex flex-col pt-10 md:mx-auto md:max-w-3xl">
+			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+			<div class="flex flex-col pt-10 md:mx-auto md:max-w-3xl" onclick={handleReaderTap}>
 				{#each pages as readerPage (readerPage.id)}
 					<div
 						data-reader-page-index={readerPage.pageIndex}
@@ -974,6 +988,14 @@
 					</Button>
 				{/if}
 			</div>
+			{#if !nextChapter && title}
+				<a
+					href={canonicalTitlePath}
+					class="text-[11px] tracking-wide text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)] uppercase"
+				>
+					← {title.title}
+				</a>
+			{/if}
 			{#if bookmarkError}
 				<p class="text-xs text-[var(--error)]">{bookmarkError}</p>
 			{/if}
