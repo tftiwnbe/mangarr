@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { useQuery } from 'convex-svelte';
 	import { onMount } from 'svelte';
@@ -240,8 +241,16 @@
 		}
 	});
 
+	function getBrowserFetch(): typeof window.fetch {
+		if (!browser) {
+			throw new Error('Browser fetch is unavailable during server-side rendering');
+		}
+
+		return window.fetch.bind(window);
+	}
+
 	async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-		const response = await fetch(url, init);
+		const response = await getBrowserFetch()(url, init);
 		if (!response.ok) {
 			throw new Error(await readError(response, `Request failed: ${url}`));
 		}
@@ -535,7 +544,7 @@
 	}
 
 	async function handleSignOut() {
-		await fetch('/api/auth/logout', { method: 'POST' });
+		await getBrowserFetch()('/api/auth/logout', { method: 'POST' });
 		await goto('/login', { replaceState: true });
 	}
 

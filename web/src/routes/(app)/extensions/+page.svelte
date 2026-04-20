@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { onMount } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { slide } from 'svelte/transition';
@@ -198,8 +199,16 @@
 		};
 	});
 
+	function getBrowserFetch(): typeof window.fetch {
+		if (!browser) {
+			throw new Error('Browser fetch is unavailable during server-side rendering');
+		}
+
+		return window.fetch.bind(window);
+	}
+
 	async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-		const response = await fetch(url, init);
+		const response = await getBrowserFetch()(url, init);
 		const text = await response.text();
 		const data = text ? (JSON.parse(text) as T | { message?: string }) : null;
 		if (!response.ok) {

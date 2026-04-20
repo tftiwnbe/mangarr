@@ -3,6 +3,7 @@ package mangarr.tachibridge.server
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.HttpException
 import eu.kanade.tachiyomi.network.NetworkHelper
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.json.Json
@@ -30,11 +31,13 @@ import java.net.URL
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.deleteIfExists
 
 private val logger = KotlinLogging.logger {}
+private const val PAGE_ASSET_FAILURE_LOG_TTL_MS = 60_000L
 
 class BridgeHttpServer(
     private val host: String,
@@ -49,6 +52,7 @@ class BridgeHttpServer(
     private val bridgeId: String,
 ) {
     private val json = Json { prettyPrint = false }
+    private val pageAssetFailureLogCache = ConcurrentHashMap<String, Long>()
 
     // Dedicated client for cover proxying: short timeouts, inherits proxy/cookie config from networkHelper
     private val coverProxyClient by lazy {
@@ -169,8 +173,30 @@ class BridgeHttpServer(
                 }
                 sendBytes(exchange, 200, image.bytes, image.contentType)
             } catch (error: Exception) {
-                logger.warn(error) { "Failed to serve page asset for source=$sourceId chapter=$chapterUrl index=$index" }
-                sendJson(exchange, 502, buildJsonObject { put("message", "Bridge page asset is unavailable") })
+                val httpError = error.findHttpException()
+                if (httpError != null) {
+                    val logKey = "$sourceId::$chapterUrl::$index::${httpError.code}"
+                    if (shouldLogPageAssetFailure(logKey)) {
+                        logger.warn {
+                            "Failed to serve page asset for source=$sourceId chapter=$chapterUrl index=$index: HTTP ${httpError.code}"
+                        }
+                    }
+                } else {
+                    logger.warn(error) {
+                        "Failed to serve page asset for source=$sourceId chapter=$chapterUrl index=$index"
+                    }
+                }
+                val statusCode =
+                    when (httpError?.code) {
+                        400 -> 400
+                        401 -> 401
+                        403 -> 403
+                        404 -> 404
+                        410 -> 410
+                        429 -> 429
+                        else -> 502
+                    }
+                sendJson(exchange, statusCode, buildJsonObject { put("message", "Bridge page asset is unavailable") })
             }
         }
 
@@ -651,6 +677,18 @@ class BridgeHttpServer(
         return true
     }
 
+    private fun shouldLogPageAssetFailure(logKey: String, now: Long = System.currentTimeMillis()): Boolean {
+        val lastLoggedAt = pageAssetFailureLogCache[logKey]
+        if (lastLoggedAt != null && now - lastLoggedAt < PAGE_ASSET_FAILURE_LOG_TTL_MS) {
+            return false
+        }
+        pageAssetFailureLogCache[logKey] = now
+        pageAssetFailureLogCache.entries.removeIf { (_, loggedAt) ->
+            now - loggedAt >= PAGE_ASSET_FAILURE_LOG_TTL_MS
+        }
+        return true
+    }
+
     private fun sendJson(exchange: HttpExchange, status: Int, payload: kotlinx.serialization.json.JsonObject) {
         val body = json.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), payload).toByteArray()
         exchange.responseHeaders.add("content-type", "application/json")
@@ -835,4 +873,15 @@ class BridgeHttpServer(
         if (!numeric.isFinite() || numeric % 1.0 != 0.0) return null
         return numeric.toInt()
     }
+}
+
+private fun Throwable.findHttpException(): HttpException? {
+    var current: Throwable? = this
+    while (current != null) {
+        if (current is HttpException) {
+            return current
+        }
+        current = current.cause
+    }
+    return null
 }

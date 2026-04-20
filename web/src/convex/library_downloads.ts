@@ -27,6 +27,7 @@ const RESERVED_RUNNING_DOWNLOAD_SLOTS = 2;
 const MAX_ENQUEUED_DOWNLOADS_PER_TITLE_REQUEST = 24;
 const ACTIVE_DOWNLOAD_RECOVERY_SCAN_LIMIT = 2_000;
 const DOWNLOAD_COMMAND_PRIORITY_BASE = 250;
+const MANUAL_DOWNLOAD_COMMAND_PRIORITY_BASE = 100;
 const CHAPTER_SYNC_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
 const ACTIVE_CHAPTER_SYNC_COMMAND_STATUSES = new Set(['queued', 'leased', 'running']);
 
@@ -303,7 +304,7 @@ export const requestMissingDownloads = mutation({
 		const now = Date.now();
 		await markTitleListedInLibrary(ctx, title, now);
 
-		const [missingChapters, failedChapters] = await Promise.all([
+		const [missingChapters, failedChapters, queuedChapters, queuedTaskRows] = await Promise.all([
 			ctx.db
 				.query('libraryChapters')
 				.withIndex('by_library_title_id_download_status', (q) =>
@@ -315,8 +316,49 @@ export const requestMissingDownloads = mutation({
 				.withIndex('by_library_title_id_download_status', (q) =>
 					q.eq('libraryTitleId', title._id).eq('downloadStatus', DOWNLOAD_STATUS.FAILED)
 				)
-				.collect()
+				.collect(),
+			ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id_download_status', (q) =>
+					q.eq('libraryTitleId', title._id).eq('downloadStatus', DOWNLOAD_STATUS.QUEUED)
+				)
+				.collect(),
+			ctx.db
+				.query('downloadTasks')
+				.withIndex('by_owner_user_id_status_updated_at', (q) =>
+					q.eq('ownerUserId', userId).eq('status', DOWNLOAD_TASK_STATUS.QUEUED)
+				)
+				.order('desc')
+				.take(MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER + 64)
 		]);
+
+		const queuedTaskChapters = (
+			await Promise.all(
+				queuedTaskRows
+					.filter((task) => task.libraryTitleId === title._id)
+					.map((task) => ctx.db.get(task.libraryChapterId))
+			)
+		).filter(
+			(chapter): chapter is NonNullable<typeof chapter> =>
+				chapter !== null && chapter.libraryTitleId === title._id && chapter.ownerUserId === userId
+		);
+
+		const eligibleRetryChapters = [...queuedChapters, ...queuedTaskChapters]
+			.filter((chapter, index, chapters) =>
+				chapters.findIndex((entry) => entry._id === chapter._id) === index
+			)
+			.filter((chapter) => isChapterAvailableFromSource(chapter))
+			.sort((left, right) => left.sequence - right.sequence);
+		for (const chapter of eligibleRetryChapters) {
+			await queueDownloadAttempt(ctx, {
+				chapter,
+				title,
+				requestedByUserId: userId,
+				trigger: 'retry',
+				priority: DOWNLOAD_COMMAND_PRIORITY_BASE,
+				now
+			});
+		}
 
 		const eligible = [...missingChapters, ...failedChapters]
 			.filter((chapter) => isChapterAvailableFromSource(chapter))
@@ -344,7 +386,7 @@ export const requestMissingDownloads = mutation({
 				title,
 				requestedByUserId: userId,
 				trigger: 'retry',
-				priority: DOWNLOAD_COMMAND_PRIORITY_BASE + priorityOffset,
+				priority: MANUAL_DOWNLOAD_COMMAND_PRIORITY_BASE + priorityOffset,
 				now
 			});
 			if (queued.alreadyQueued) {
@@ -532,6 +574,75 @@ async function queueDownloadAttempt(
 		args.chapter._id
 	);
 	if (activeTask) {
+		if (args.trigger !== 'watch' && activeTask.status === DOWNLOAD_TASK_STATUS.QUEUED) {
+			const command = activeTask.commandId ? await ctx.db.get(activeTask.commandId) : null;
+			const canPromoteQueuedCommand =
+				command &&
+				command.requestedByUserId === args.requestedByUserId &&
+				command.commandType === 'downloads.chapter' &&
+				command.status === 'queued';
+			const canRecoverExpiredLeasedCommand =
+				command &&
+				command.requestedByUserId === args.requestedByUserId &&
+				command.commandType === 'downloads.chapter' &&
+				(command.status === 'leased' || command.status === 'running') &&
+				(command.leaseExpiresAt ?? 0) <= args.now;
+
+			if (canPromoteQueuedCommand) {
+				await ctx.db.patch(command._id, {
+					runAfter: args.now,
+					priority: Math.min(command.priority, args.priority),
+					lastErrorMessage: undefined,
+					updatedAt: args.now
+				});
+				await ctx.db.patch(activeTask._id, {
+					errorMessage: undefined,
+					updatedAt: args.now
+				});
+			} else if (canRecoverExpiredLeasedCommand) {
+				await ctx.db.patch(command._id, {
+					status: 'queued',
+					runAfter: args.now,
+					priority: Math.min(command.priority, args.priority),
+					leaseOwnerBridgeId: undefined,
+					leaseExpiresAt: undefined,
+					lastErrorMessage: undefined,
+					updatedAt: args.now
+				});
+				await ctx.db.patch(activeTask._id, {
+					errorMessage: undefined,
+					updatedAt: args.now
+				});
+			} else if (!command || ['failed', 'dead_letter', 'cancelled'].includes(command.status)) {
+				const replacementCommandId = await insertCommand(ctx, {
+					commandType: 'downloads.chapter',
+					requestedByUserId: args.requestedByUserId,
+					payload: {
+						chapterId: args.chapter._id,
+						downloadTaskId: activeTask._id,
+						titleId: args.title._id,
+						sourceId: args.chapter.sourceId,
+						sourcePkg: args.chapter.sourcePkg,
+						sourceLang: args.chapter.sourceLang,
+						titleUrl: args.chapter.titleUrl,
+						chapterUrl: args.chapter.chapterUrl,
+						title: args.title.title,
+						chapterName: args.chapter.chapterName,
+						chapterNumber: args.chapter.chapterNumber
+					},
+					idempotencyKey: `downloads.chapter:${String(args.chapter._id)}:retry:${args.now}`,
+					priority: args.priority,
+					maxAttempts: 10,
+					runAfter: args.now,
+					now: args.now
+				});
+				await ctx.db.patch(activeTask._id, {
+					commandId: replacementCommandId,
+					errorMessage: undefined,
+					updatedAt: args.now
+				});
+			}
+		}
 		return {
 			taskId: activeTask._id,
 			commandId: activeTask.commandId ?? null,
@@ -563,9 +674,9 @@ async function queueDownloadAttempt(
 
 	const attemptNumber = await nextDownloadAttemptNumber(ctx, args.chapter._id);
 
-	// Check for consecutive recent failures to implement retry-next-day logic
+	// Only background watcher retries should respect the long cooldown after repeated failures.
 	const recentFailures = await countRecentConsecutiveFailures(ctx, args.chapter._id);
-	const shouldDelayRetry = recentFailures >= 3;
+	const shouldDelayRetry = args.trigger === 'watch' && recentFailures >= 3;
 	const runAfter = shouldDelayRetry
 		? args.now + 24 * 60 * 60 * 1000 // Retry tomorrow if multiple consecutive failures
 		: args.now;

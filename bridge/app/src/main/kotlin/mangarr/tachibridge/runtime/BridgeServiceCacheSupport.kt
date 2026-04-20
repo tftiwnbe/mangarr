@@ -202,6 +202,11 @@ internal data class CachedReaderPage(
 	val expiresAt: Long,
 )
 
+internal data class CachedReaderPageFailure(
+	val httpCode: Int,
+	val expiresAt: Long,
+)
+
 @Serializable
 internal data class CachedReaderPageSnapshot(
 	val contentType: String,

@@ -21,6 +21,9 @@ export const STATUS = {
 
 type CommandStatus = (typeof STATUS)[keyof typeof STATUS];
 const REUSABLE_STATUSES = new Set<CommandStatus>([STATUS.QUEUED, STATUS.SUCCEEDED]);
+const EXPIRED_LEASE_RECOVERY_BATCH = 10;
+const MAX_CANDIDATES_PER_CAPABILITY = 4;
+const MAX_CANDIDATE_POOL_MULTIPLIER = 3;
 
 async function upsertSourceHealthFailure(
 	ctx: MutationCtx,
@@ -428,7 +431,8 @@ export const enqueueReaderPagesFetch = mutation({
 				sourceId: args.sourceId,
 				chapterUrl: args.chapterUrl,
 				chapterName: args.chapterName
-			}
+			},
+			idempotencyKey: `reader.pages.fetch:${args.sourceId}:${args.chapterUrl}`
 		})
 });
 
@@ -530,13 +534,13 @@ export const lease = mutation({
 			.withIndex('by_status_lease_expires_at', (q) =>
 				q.eq('status', STATUS.LEASED).lt('leaseExpiresAt', args.now + 1)
 			)
-			.take(50);
+			.take(EXPIRED_LEASE_RECOVERY_BATCH);
 		const expiredRunning = await ctx.db
 			.query('commands')
 			.withIndex('by_status_lease_expires_at', (q) =>
 				q.eq('status', STATUS.RUNNING).lt('leaseExpiresAt', args.now + 1)
 			)
-			.take(50);
+			.take(EXPIRED_LEASE_RECOVERY_BATCH);
 
 		for (const row of [...expired, ...expiredRunning]) {
 			if (!row.leaseExpiresAt || row.leaseExpiresAt > args.now) {
@@ -556,22 +560,43 @@ export const lease = mutation({
 		}
 
 		const limit = Math.max(1, Math.min(Math.floor(args.limit), 25));
-		const candidates = await Promise.all(
-			Array.from(new Set(args.capabilities)).map(async (capability) =>
-				ctx.db
-					.query('commands')
-					.withIndex('by_status_target_capability_priority_run_after', (q) =>
-						q
-							.eq('status', STATUS.QUEUED)
-							.eq('targetCapability', capability)
-							.lte('runAfter', args.now)
-					)
-					.take(limit)
-			)
+		const uniqueCapabilities = Array.from(new Set(args.capabilities));
+		const candidatePoolLimit = Math.max(
+			limit,
+			Math.min(limit * MAX_CANDIDATE_POOL_MULTIPLIER, 12)
 		);
+		const candidates: Array<(typeof expired)[number]> = [];
+		const seenCommandIds = new Set<string>();
+
+		for (const capability of uniqueCapabilities) {
+			if (candidates.length >= candidatePoolLimit) {
+				break;
+			}
+
+			const rows = await ctx.db
+				.query('commands')
+				.withIndex('by_status_target_capability_priority_run_after', (q) =>
+					q
+						.eq('status', STATUS.QUEUED)
+						.eq('targetCapability', capability)
+						.lte('runAfter', args.now)
+				)
+				.take(Math.min(limit, MAX_CANDIDATES_PER_CAPABILITY));
+
+			for (const row of rows) {
+				const commandId = String(row._id);
+				if (seenCommandIds.has(commandId)) {
+					continue;
+				}
+				seenCommandIds.add(commandId);
+				candidates.push(row);
+				if (candidates.length >= candidatePoolLimit) {
+					break;
+				}
+			}
+		}
 
 		const eligible = candidates
-			.flat()
 			.sort((left, right) => {
 				if (left.priority !== right.priority) return left.priority - right.priority;
 				if (left.commandType !== right.commandType) {

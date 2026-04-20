@@ -39,6 +39,7 @@ private val logger = KotlinLogging.logger {}
 private val json = Json { ignoreUnknownKeys = true }
 private const val FEED_CACHE_TTL_MS = 5 * 60 * 1000L
 private const val READER_PAGE_CACHE_TTL_MS = 15 * 60 * 1000L
+private const val READER_PAGE_FAILURE_CACHE_TTL_MS = 60 * 1000L
 private val DOWNLOAD_PAGE_RETRY_DELAYS_MS = listOf(0L, 2_000L, 5_000L, 15_000L)
 private val SOURCE_REQUEST_RETRY_DELAYS_MS = listOf(0L, 1_500L, 4_000L)
 private const val SOURCE_BROWSE_REQUEST_BASE_DELAY_MS = 1_500L
@@ -56,12 +57,14 @@ class BridgeService(
     private val httpClient = OkHttpClient()
     private val feedCache = ConcurrentHashMap<String, CachedFeedResult>()
     private val readerPageCache = ConcurrentHashMap<String, CachedReaderPage>()
+    private val readerPageFailureCache = ConcurrentHashMap<String, CachedReaderPageFailure>()
     private val readerPageLocks = ConcurrentHashMap<String, Mutex>()
     private val rateLimiter = SourceRateLimiter()
 
     fun pruneCaches(now: Long = System.currentTimeMillis()): CachePruneSummary {
         feedCache.entries.removeIf { (_, cached) -> cached.expiresAt <= now }
         readerPageCache.entries.removeIf { (_, cached) -> cached.expiresAt <= now }
+        readerPageFailureCache.entries.removeIf { (_, cached) -> cached.expiresAt <= now }
         readerPageLocks.keys.removeIf { key -> !readerPageCache.containsKey(key) }
 
         val deletedFeedFiles = pruneFeedCacheFiles(json, feedCacheDir, now)
@@ -485,6 +488,9 @@ class BridgeService(
         readerPageCache[cacheKey]?.takeIf { it.expiresAt > now }?.let { cached ->
             return PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
         }
+        readerPageFailureCache[cacheKey]?.takeIf { it.expiresAt > now }?.let { cached ->
+            throw HttpException(cached.httpCode)
+        }
         loadPersistedReaderPage(json, readerPageCacheDir, cacheKey, now)?.let { cached ->
             readerPageCache[cacheKey] = cached
             return PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
@@ -496,12 +502,29 @@ class BridgeService(
             readerPageCache[cacheKey]?.takeIf { it.expiresAt > currentTime }?.let { cached ->
                 return@withLock PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
             }
+            readerPageFailureCache[cacheKey]?.takeIf { it.expiresAt > currentTime }?.let { cached ->
+                throw HttpException(cached.httpCode)
+            }
             loadPersistedReaderPage(json, readerPageCacheDir, cacheKey, currentTime)?.let { cached ->
                 readerPageCache[cacheKey] = cached
                 return@withLock PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
             }
 
-            val payload = fetchPageImageWithRetry(sourceId.toString(), chapterUrl, chapterName, index)
+            val payload =
+                try {
+                    fetchPageImageWithRetry(sourceId.toString(), chapterUrl, chapterName, index)
+                } catch (error: Exception) {
+                    val httpCode = (error as? HttpException)?.code
+                    if (httpCode == 403 || httpCode == 404 || httpCode == 410) {
+                        readerPageFailureCache[cacheKey] =
+                            CachedReaderPageFailure(
+                                httpCode = httpCode,
+                                expiresAt = System.currentTimeMillis() + READER_PAGE_FAILURE_CACHE_TTL_MS,
+                            )
+                    }
+                    throw error
+                }
+            readerPageFailureCache.remove(cacheKey)
             val cached =
                 CachedReaderPage(
                     contentType = payload.contentType,
