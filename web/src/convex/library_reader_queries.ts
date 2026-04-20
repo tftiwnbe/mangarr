@@ -32,7 +32,7 @@ export const listMine = query({
 			return [];
 		}
 		const userId = identity.subject as GenericId<'users'>;
-		const limit = Math.min(Math.max(1, Math.floor(args.limit ?? 500)), 1000);
+		const limit = Math.min(Math.max(1, Math.floor(args.limit ?? 5000)), 10000);
 		const offset = Math.max(0, Math.floor(args.offset ?? 0));
 
 		const [allTitles, statusById, collectionById, collectionIdsByTitleId] = await Promise.all([
@@ -47,17 +47,29 @@ export const listMine = query({
 		]);
 
 		const titles = allTitles.slice(offset);
-		const titleRouteSegments = buildTitleRouteSegments(titles);
 
 		return titles
 			.filter((title) => title.listedInLibrary !== false)
 			.map((title) => {
 				const collectionIds = collectionIdsByTitleId.get(String(title._id)) ?? [];
-
+				const chapterStats = {
+					total: title.chapterCount ?? 0,
+					queued: title.queuedChapterCount ?? 0,
+					downloading: title.downloadingChapterCount ?? 0,
+					downloaded: title.downloadedChapterCount ?? 0,
+					failed: title.failedChapterCount ?? 0
+				};
 				return {
-					...title,
-					routeSegment:
-						titleRouteSegments.get(String(title._id)) ?? buildTitleRouteBase(title.title),
+					_id: title._id,
+					routeSegment: null,
+					title: title.title,
+					coverUrl: title.coverUrl ?? null,
+					localCoverPath: title.localCoverPath ?? null,
+					status: title.status ?? null,
+					genre: title.genre ?? null,
+					lastReadAt: title.lastReadAt ?? null,
+					createdAt: title.createdAt,
+					updatedAt: title.updatedAt,
 					userStatus: title.userStatusId
 						? (statusById.get(String(title.userStatusId)) ?? null)
 						: null,
@@ -68,19 +80,10 @@ export const listMine = query({
 							(collection): collection is NonNullable<typeof collection> => collection !== null
 						)
 						.sort((left, right) => left.position - right.position),
-					// Variant count served from denormalized field — no variant scan needed.
-					variantsCount: title.variantCount ?? 0,
-					// Chapter stats served from denormalized counts — no chapter scan needed.
-					chapterStats: {
-						total: title.chapterCount ?? 0,
-						queued: title.queuedChapterCount ?? 0,
-						downloading: title.downloadingChapterCount ?? 0,
-						downloaded: title.downloadedChapterCount ?? 0,
-						failed: title.failedChapterCount ?? 0
-					},
+					chapterStats,
 					offlineReadiness: summarizeOfflineReadiness(title, {
-						total: title.chapterCount ?? 0,
-						downloaded: title.downloadedChapterCount ?? 0
+						total: chapterStats.total,
+						downloaded: chapterStats.downloaded
 					})
 				};
 			});

@@ -915,8 +915,7 @@
 		</div>
 	{:else}
 		{#if mode === 'vertical'}
-			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-			<div class="flex flex-col pt-10 md:mx-auto md:max-w-3xl" onclick={handleReaderTap}>
+			<div class="flex flex-col pt-10 md:mx-auto md:max-w-3xl" role="presentation" onclick={handleReaderTap} onkeydown={undefined}>
 				{#each pages as readerPage (readerPage.id)}
 					<div
 						data-reader-page-index={readerPage.pageIndex}

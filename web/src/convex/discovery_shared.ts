@@ -150,14 +150,6 @@ export function buildDiscoveryNormalizedAuthor(author: string | null | undefined
 	return normalizeMergeText(author);
 }
 
-function normalizedTokenSet(value: string | null | undefined) {
-	const normalized = normalizeMergeText(value);
-	if (!normalized) {
-		return new Set<string>();
-	}
-	return new Set(normalized.split(' ').filter((token) => token.length >= 3));
-}
-
 function overlapRatio(left: Set<string>, right: Set<string>) {
 	if (left.size === 0 || right.size === 0) {
 		return 0;
@@ -188,13 +180,6 @@ function scoreGenreOverlap(left: string | null | undefined, right: string | null
 	return 0;
 }
 
-function scoreDescriptionOverlap(left: string | null | undefined, right: string | null | undefined) {
-	const ratio = overlapRatio(normalizedTokenSet(left), normalizedTokenSet(right));
-	if (ratio >= 0.6) return 36;
-	if (ratio >= 0.4) return 22;
-	if (ratio >= 0.25) return 10;
-	return 0;
-}
 
 function scoreAuthorMatch(left: string | null | undefined, right: string | null | undefined) {
 	const normalizedLeft = normalizeMergeText(left);
@@ -239,10 +224,7 @@ export function rankSimilarCandidateBreakdown(args: {
 		args.anchor.genre ?? null,
 		args.candidate.genre ?? null
 	);
-	const descriptionScore = scoreDescriptionOverlap(
-		args.anchor.description ?? null,
-		args.candidate.description ?? null
-	);
+	const descriptionScore = 0;
 	return {
 		similarity,
 		edgeScore,
@@ -353,7 +335,7 @@ export function isDiscoveryMetadataRecommendationStrong(args: {
 	}
 	return (
 		breakdown.similarity >= DISCOVERY_MIN_SIMILARITY_SCORE &&
-		(breakdown.authorBonus > 0 || breakdown.genreScore > 0 || breakdown.descriptionScore > 0) &&
+		(breakdown.authorBonus > 0 || breakdown.genreScore > 0) &&
 		breakdown.total >= DISCOVERY_MIN_METADATA_TOTAL_SCORE
 	);
 }

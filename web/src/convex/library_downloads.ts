@@ -329,7 +329,7 @@ export const requestMissingDownloads = mutation({
 					q.eq('ownerUserId', userId).eq('status', DOWNLOAD_TASK_STATUS.QUEUED)
 				)
 				.order('desc')
-				.take(MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER + 64)
+				.take(MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER)
 		]);
 
 		const queuedTaskChapters = (
@@ -457,16 +457,21 @@ export const setChapterDownloadState = mutation({
 			updatedAt: args.now
 		});
 
-		// Use incremental update instead of full refresh to avoid OCC errors
-		await updateTitleChapterStatsIncremental(
-			ctx,
-			chapter.libraryTitleId,
-			oldStatus,
-			args.status,
-			oldFileSizeBytes,
-			newFileSizeBytes,
-			args.now
-		);
+		// Only update title stats when status or file size actually changes — avoids
+		// hammering the same libraryTitles doc on every page-progress update.
+		const statusChanged = oldStatus !== args.status;
+		const sizeChanged = (oldFileSizeBytes ?? 0) !== (newFileSizeBytes ?? 0);
+		if (statusChanged || sizeChanged) {
+			await updateTitleChapterStatsIncremental(
+				ctx,
+				chapter.libraryTitleId,
+				oldStatus,
+				args.status,
+				oldFileSizeBytes,
+				newFileSizeBytes,
+				args.now
+			);
+		}
 
 		const task =
 			(args.downloadTaskId ? await ctx.db.get(args.downloadTaskId) : null) ??
@@ -855,7 +860,12 @@ async function runDownloadCycleForUser(
 	if (cyclePlan.hasInFlightDownloads) {
 		return { checked: cyclePlan.checkedProfiles, enqueued: 0 };
 	}
-	let remainingCapacity = await remainingQueuedDownloadCapacityForUser(ctx, args.userId);
+	// Use denormalized queuedChapterCount from already-loaded titles — avoids reading downloadTasks
+	const totalQueued = cyclePlan.validTitles.reduce(
+		(sum, t) => sum + (t.queuedChapterCount ?? 0),
+		0
+	);
+	let remainingCapacity = Math.max(0, MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER - totalQueued);
 	if (remainingCapacity <= 0) {
 		return { checked: cyclePlan.checkedProfiles, enqueued: 0 };
 	}
@@ -991,17 +1001,18 @@ async function selectDownloadCycleCandidatesForUser(
 		.slice(0, args.limit);
 	const activeProfiles = profiles.filter((profile) => !profile.paused);
 
-	// Only block the cycle when the bridge is actively downloading chapters
-	// (leased/running commands). Queued tasks should not prevent new work from
-	// being enqueued for other titles — they are already excluded from
-	// candidates via activeChapterIds below.
-	const downloadingInFlight = await loadDownloadTasksForUserStatus(
-		ctx,
-		args.userId,
-		DOWNLOAD_TASK_STATUS.DOWNLOADING,
-		1
+	const titleIds = [...new Set(activeProfiles.map((profile) => String(profile.libraryTitleId)))];
+	const titles = await Promise.all(
+		titleIds.map(async (titleId) => {
+			const title = await ctx.db.get(titleId as GenericId<'libraryTitles'>);
+			return title && title.ownerUserId === args.userId ? title : null;
+		})
 	);
-	const hasInFlightDownloads = downloadingInFlight.length > 0;
+	const validTitles = titles.filter((t): t is NonNullable<typeof t> => t !== null);
+
+	// Use denormalized counts on libraryTitles instead of scanning downloadTasks —
+	// libraryTitles is only written on status transitions, not per page, so much less contention.
+	const hasInFlightDownloads = validTitles.some((t) => (t.downloadingChapterCount ?? 0) > 0);
 	if (hasInFlightDownloads) {
 		return {
 			checkedProfiles: activeProfiles.length,
@@ -1009,21 +1020,6 @@ async function selectDownloadCycleCandidatesForUser(
 			entries: []
 		};
 	}
-	const titleIds = [...new Set(activeProfiles.map((profile) => String(profile.libraryTitleId)))];
-	const [titles, queuedTasks] = await Promise.all([
-		Promise.all(
-			titleIds.map(async (titleId) => {
-				const title = await ctx.db.get(titleId as GenericId<'libraryTitles'>);
-				return title && title.ownerUserId === args.userId ? title : null;
-			})
-		),
-		loadDownloadTasksForUserStatus(
-			ctx,
-			args.userId,
-			DOWNLOAD_TASK_STATUS.QUEUED,
-			MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER + 64
-		)
-	]);
 
 	// Load chapters only for titles with active download profiles to avoid timeout
 	const [missingChapters, failedChapters] = await Promise.all([
@@ -1051,22 +1047,15 @@ async function selectDownloadCycleCandidatesForUser(
 		).then((results) => results.flat())
 	]);
 	const titleById = new Map(
-		titles
-			.filter((title): title is NonNullable<typeof title> => title !== null)
-			.map((title) => [String(title._id), title] as const)
+		validTitles.map((title) => [String(title._id), title] as const)
 	);
-	const activeChapterIds = new Set(queuedTasks.map((task) => String(task.libraryChapterId)));
 	const eligibleChaptersByTitleId = new Map<
 		string,
 		Array<(typeof missingChapters)[number] | (typeof failedChapters)[number]>
 	>();
 	for (const chapter of missingChapters) {
 		const titleId = String(chapter.libraryTitleId);
-		if (
-			!titleById.has(titleId) ||
-			activeChapterIds.has(String(chapter._id)) ||
-			!isChapterAvailableFromSource(chapter)
-		) {
+		if (!titleById.has(titleId) || !isChapterAvailableFromSource(chapter)) {
 			continue;
 		}
 		const next = eligibleChaptersByTitleId.get(titleId) ?? [];
@@ -1075,11 +1064,7 @@ async function selectDownloadCycleCandidatesForUser(
 	}
 	for (const chapter of failedChapters) {
 		const titleId = String(chapter.libraryTitleId);
-		if (
-			!titleById.has(titleId) ||
-			activeChapterIds.has(String(chapter._id)) ||
-			!isChapterAvailableFromSource(chapter)
-		) {
+		if (!titleById.has(titleId) || !isChapterAvailableFromSource(chapter)) {
 			continue;
 		}
 		const latestTask = await findLatestDownloadTaskForChapter(ctx, chapter._id);
@@ -1094,6 +1079,7 @@ async function selectDownloadCycleCandidatesForUser(
 	return {
 		checkedProfiles: activeProfiles.length,
 		hasInFlightDownloads,
+		validTitles,
 		entries: activeProfiles
 			.map((profile) => {
 				const title = titleById.get(String(profile.libraryTitleId));

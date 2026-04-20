@@ -1,4 +1,3 @@
-import { browser } from '$app/environment';
 import { init, register, getLocaleFromNavigator, locale, _, waitLocale } from 'svelte-i18n';
 
 // Supported locales
@@ -20,15 +19,17 @@ export const DEFAULT_LOCALE: SupportedLocale = 'en';
 // Storage key for user's locale preference
 const LOCALE_STORAGE_KEY = 'mangarr-locale';
 
-// Register all locales with lazy loading
-register('en', () => import('./locales/en.json'));
-register('ru', () => import('./locales/ru.json'));
+// Register all locales with lazy loading — only on the client to avoid SSR fetch warnings
+if (typeof window !== 'undefined') {
+	register('en', () => import('./locales/en.json'));
+	register('ru', () => import('./locales/ru.json'));
+}
 
 /**
  * Get the stored locale preference from localStorage
  */
 function getStoredLocale(): SupportedLocale | null {
-	if (!browser) return null;
+	if (typeof window === 'undefined') return null;
 
 	const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
 	if (stored && SUPPORTED_LOCALES.includes(stored as SupportedLocale)) {
@@ -41,7 +42,7 @@ function getStoredLocale(): SupportedLocale | null {
  * Save locale preference to localStorage
  */
 export function setStoredLocale(newLocale: SupportedLocale): void {
-	if (browser) {
+	if (typeof window !== 'undefined') {
 		localStorage.setItem(LOCALE_STORAGE_KEY, newLocale);
 	}
 	locale.set(newLocale);
@@ -56,7 +57,7 @@ function detectInitialLocale(): SupportedLocale {
 	if (stored) return stored;
 
 	// 2. Check browser language
-	if (browser) {
+	if (typeof window !== 'undefined') {
 		const browserLocale = getLocaleFromNavigator();
 		if (browserLocale) {
 			// Extract language code (e.g., 'en-US' -> 'en')
