@@ -518,4 +518,8 @@ RUN sh -c 'jar=$(echo /app/bin/tachibridge-*.jar); cp "$jar" /app/bin/tachibridg
 
 EXPOSE 3737
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=5 CMD \
+  curl -fsS "http://127.0.0.1:${PORT:-3737}/login" >/dev/null && \
+  curl -fsS "http://127.0.0.1:${MANGARR_BRIDGE_PORT:-3212}/health" >/dev/null || exit 1
+
 CMD ["/usr/local/bin/mangarr-startup"]
