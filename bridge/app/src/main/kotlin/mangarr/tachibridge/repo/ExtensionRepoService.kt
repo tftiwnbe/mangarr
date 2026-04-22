@@ -40,6 +40,15 @@ data class ExtensionRepoSource(
 )
 
 @Serializable
+data class ExtensionRepositoryCacheSnapshot(
+    val configured: Boolean,
+    val url: String,
+    val cacheLoaded: Boolean,
+    val cacheFilePresent: Boolean,
+    val cachedEntryCount: Int,
+)
+
+@Serializable
 private data class ExtensionRepoCacheSnapshot(
     val url: String,
     val entries: List<ExtensionRepoEntry>,
@@ -105,6 +114,15 @@ class ExtensionRepoService(
     }
 
     fun currentRepoIndexUrl(): String = repoIndexUrl
+
+    fun cacheSnapshot(): ExtensionRepositoryCacheSnapshot =
+        ExtensionRepositoryCacheSnapshot(
+            configured = repoIndexUrl.isNotBlank(),
+            url = repoIndexUrl,
+            cacheLoaded = cachedIndex != null,
+            cacheFilePresent = cachePath.exists(),
+            cachedEntryCount = cachedIndex?.size ?: 0,
+        )
 
     private fun validateRepoIndexUrl(url: String) {
         if (url.isBlank()) {

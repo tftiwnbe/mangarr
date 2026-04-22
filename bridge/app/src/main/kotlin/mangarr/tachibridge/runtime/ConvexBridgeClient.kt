@@ -25,6 +25,7 @@ data class LeaseCommand(
     val commandType: String,
     val payload: JsonElement,
     val requestedByUserId: String? = null,
+    val leaseToken: String,
     val attemptCount: Double,
     val maxAttempts: Double,
 )
@@ -32,12 +33,20 @@ data class LeaseCommand(
 @Serializable
 data class OkResponse(
     val ok: Boolean,
+    val stale: Boolean = false,
 )
 
 @Serializable
 data class FailResponse(
     val ok: Boolean,
     val retried: Boolean = false,
+    val stale: Boolean = false,
+)
+
+@Serializable
+data class RecoverExpiredLeasesResponse(
+    val recoveredCommands: Double,
+    val deadLetteredCommands: Double,
 )
 
 @Serializable
@@ -81,6 +90,9 @@ class ConvexBridgeClient(
     fun leaseCommands(args: JsonObject): List<LeaseCommand> =
         mutation("commands:lease", args)
 
+    fun recoverExpiredLeases(args: JsonObject): RecoverExpiredLeasesResponse =
+        mutation("commands:recoverExpiredLeases", args)
+
     fun markCommandRunning(args: JsonObject): OkResponse =
         mutation("commands:markRunning", args)
 
@@ -119,6 +131,9 @@ class ConvexBridgeClient(
 
     fun upsertLibraryTitleMetadata(args: JsonObject): OkResponse =
         mutation("library:upsertTitleMetadataFromBridge", args)
+
+    fun refreshLibraryTitleStats(args: JsonObject): OkResponse =
+        mutation("library:refreshTitleStatsFromBridge", args)
 
     fun ingestDiscoveryFeedPage(args: JsonObject): OkResponse =
         mutation("discovery:ingestFeedPageFromBridge", args)

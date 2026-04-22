@@ -47,6 +47,9 @@ jobs:
       - name: Run web checks
         run: cd web && pnpm run check
 
+      - name: Run web unit tests
+        run: cd web && pnpm run test:unit -- --run
+
       - name: Build web client
         run: cd web && pnpm run build
 
@@ -78,4 +81,4 @@ jobs:
         run: cd bridge && ./gradlew ktlintCheck --no-daemon
 
       - name: Build bridge
-        run: cd bridge && ./gradlew build shadowJar --no-daemon
+        run: cd bridge && ./gradlew build --no-daemon

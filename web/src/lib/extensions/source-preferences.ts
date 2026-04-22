@@ -111,6 +111,8 @@ export function normalizeImportedStoragePayload(
 	raw: Record<string, unknown>
 ): Record<string, unknown> {
 	const out: Record<string, unknown> = {};
+	const parsedValues = new Map<string, unknown>();
+
 	for (const [key, value] of Object.entries(raw)) {
 		const normalizedKey = key.trim();
 		if (!normalizedKey) continue;
@@ -125,7 +127,52 @@ export function normalizeImportedStoragePayload(
 		} else {
 			out[normalizedKey] = JSON.stringify(parsed);
 		}
+		parsedValues.set(normalizedKey, parsed);
 	}
+
+	const rawToken = raw.token;
+	const parsedToken = normalizePreferenceValue('token', parsePossiblyStringifiedJson(rawToken));
+	const tokenObject = isRecord(parsedToken) ? parsedToken : null;
+	if (tokenObject) {
+		const accessToken = tokenObject.access_token;
+		if (typeof accessToken === 'string' && accessToken.trim()) {
+			out.bearer_token = normalizePreferenceValue('bearer_token', accessToken);
+		}
+
+		const expiresIn = tokenObject.expires_in;
+		if (typeof expiresIn === 'number' && Number.isFinite(expiresIn)) {
+			out.expires_in = String(Math.round(expiresIn * 1000));
+		}
+	}
+
+	const rawAuth = raw.auth;
+	const parsedAuth = normalizePreferenceValue('auth', parsePossiblyStringifiedJson(rawAuth));
+	const authObject = isRecord(parsedAuth) ? parsedAuth : null;
+	if (authObject) {
+		const userId = authObject.id;
+		if (
+			(typeof userId === 'number' && Number.isFinite(userId)) ||
+			(typeof userId === 'string' && userId.trim())
+		) {
+			out.user_id = String(userId);
+		}
+	}
+
+	if (parsedValues.size > 0) {
+		const tokenStore: Record<string, unknown> = {};
+		if (parsedValues.has('auth')) {
+			tokenStore.auth = parsedValues.get('auth');
+		}
+		if (parsedValues.has('token')) {
+			tokenStore.token = parsedValues.get('token');
+		}
+		for (const [key, value] of parsedValues.entries()) {
+			if (key === 'auth' || key === 'token') continue;
+			tokenStore[key] = value;
+		}
+		out.TokenStore = JSON.stringify(tokenStore);
+	}
+
 	return out;
 }
 
@@ -193,4 +240,8 @@ function hasStoredValue(value: unknown): boolean {
 	if (typeof value === 'string') return value.trim().length > 0;
 	if (Array.isArray(value)) return value.length > 0;
 	return true;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

@@ -27,7 +27,6 @@ import mangarr.tachibridge.runtime.BridgeState
 import mangarr.tachibridge.runtime.ConvexBridgeClient
 import mangarr.tachibridge.runtime.DownloadReconcileChapter
 import java.net.URLDecoder
-import java.net.URL
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.io.IOException
@@ -39,6 +38,7 @@ import kotlin.io.path.deleteIfExists
 private val logger = KotlinLogging.logger {}
 private const val PAGE_ASSET_FAILURE_LOG_TTL_MS = 60_000L
 
+@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 class BridgeHttpServer(
     private val host: String,
     private val port: Int,
@@ -50,6 +50,7 @@ class BridgeHttpServer(
     private val networkHelper: NetworkHelper,
     private val bridgeClient: ConvexBridgeClient?,
     private val bridgeId: String,
+    private val kcefSnapshotProvider: () -> JsonObject,
 ) {
     private val json = Json { prettyPrint = false }
     private val pageAssetFailureLogCache = ConcurrentHashMap<String, Long>()
@@ -79,6 +80,8 @@ class BridgeHttpServer(
                     put("bridge", json.encodeToJsonElement(BridgeSnapshot.serializer(), bridgeState.current()))
                     put("convex", json.encodeToJsonElement(HeartbeatSnapshot.serializer(), heartbeatReporter.snapshot()))
                     put("commands", json.encodeToJsonElement(CommandRunnerSnapshot.serializer(), commandRunner.snapshot()))
+                    put("kcef", kcefSnapshotProvider())
+                    put("repository", bridgeService.repositoryHealthSnapshot())
                 },
             )
         }
@@ -266,13 +269,13 @@ class BridgeHttpServer(
                 return@createContext
             }
 
-            val parsedUrl =
-                try {
-                    URL(target)
-                } catch (_: Exception) {
-                    null
-                }
-            if (parsedUrl == null || (parsedUrl.protocol != "http" && parsedUrl.protocol != "https")) {
+	            val parsedUrl =
+	                try {
+	                    java.net.URI(target).toURL()
+	                } catch (_: Exception) {
+	                    null
+	                }
+	            if (parsedUrl == null || (parsedUrl.protocol != "http" && parsedUrl.protocol != "https")) {
                 sendJson(exchange, 400, buildJsonObject { put("message", "Invalid url") })
                 return@createContext
             }

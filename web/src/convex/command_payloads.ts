@@ -70,6 +70,9 @@ export interface CommandPayloadMap {
 		sourceId: string;
 		coverUrl: string;
 	};
+	'library.title.stats.refresh': {
+		titleId: GenericId<'libraryTitles'>;
+	};
 	'downloads.chapter': {
 		chapterId: GenericId<'libraryChapters'>;
 		downloadTaskId: GenericId<'downloadTasks'>;
@@ -131,6 +134,10 @@ export const commandPayloadValidator = v.union(
 		titleId: v.id('libraryTitles'),
 		sourceId: v.string(),
 		coverUrl: v.string()
+	}),
+	// library.title.stats.refresh — titleId only
+	v.object({
+		titleId: v.id('libraryTitles')
 	}),
 	// sources.preferences.save — entries array discriminant
 	v.object({
@@ -217,6 +224,7 @@ export async function insertCommand<T extends CommandType>(
 		runAfter: args.runAfter,
 		attemptCount: 0,
 		maxAttempts: args.maxAttempts,
+		leaseToken: undefined,
 		createdAt: args.now,
 		updatedAt: args.now
 	});

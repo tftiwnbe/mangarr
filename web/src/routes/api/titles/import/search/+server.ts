@@ -39,14 +39,11 @@ export const POST: RequestHandler = async (event) => {
 		throw error(400, 'Either query or search_filters is required');
 	}
 
-	const enqueued = await client.mutation(convexApi.commands.enqueue, {
-		commandType: 'explore.search',
-		payload: {
-			sourceId,
-			query,
-			limit,
-			...(searchFilters ? { searchFilters } : {})
-		}
+	const enqueued = await client.mutation(convexApi.commands.enqueueExploreSearch, {
+		sourceId,
+		query,
+		limit,
+		...(searchFilters ? { searchFilters } : {})
 	});
 	let completed;
 	try {

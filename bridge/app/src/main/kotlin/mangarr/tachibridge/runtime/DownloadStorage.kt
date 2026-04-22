@@ -68,6 +68,8 @@ class DownloadStorage(
         chapterUrl: String,
         chapterName: String,
         chapterNumber: Double?,
+        downloadTaskId: String,
+        attemptOwner: String,
     ): ChapterWorkspace {
         val finalDir =
             storedChapterPath(
@@ -80,13 +82,14 @@ class DownloadStorage(
                 chapterName = chapterName,
                 chapterNumber = chapterNumber,
             )
-        val tempDir = finalDir.parent.resolve("${finalDir.fileName}.tmp")
+        val tempRootDir = finalDir.parent.resolve("${finalDir.fileName}.tmp")
+        val tempDir = tempRootDir.resolve(attemptWorkspaceName(downloadTaskId, attemptOwner))
 
-        finalDir.toFile().deleteRecursively()
         tempDir.toFile().deleteRecursively()
         Files.createDirectories(tempDir)
 
         return ChapterWorkspace(
+            tempRootDir = tempRootDir,
             tempDir = tempDir,
             finalDir = finalDir,
         )
@@ -117,6 +120,7 @@ class DownloadStorage(
 
     fun finalizeChapterDownload(workspace: ChapterWorkspace): StoredChapterPayload {
         val downloadsRoot = downloadsRoot()
+        require(!workspace.finalDir.exists()) { "Chapter download target already exists" }
         Files.createDirectories(workspace.finalDir.parent)
         Files.move(
             workspace.tempDir,
@@ -124,6 +128,7 @@ class DownloadStorage(
             StandardCopyOption.REPLACE_EXISTING,
             StandardCopyOption.ATOMIC_MOVE,
         )
+        deleteEmptyTempRoot(workspace.tempRootDir)
 
         return StoredChapterPayload(
             storageKind = "directory",
@@ -131,6 +136,11 @@ class DownloadStorage(
             fileSizeBytes = pathSize(workspace.finalDir),
             pageCount = countStoredPages(workspace.finalDir),
         )
+    }
+
+    fun cleanupChapterWorkspace(workspace: ChapterWorkspace) {
+        workspace.tempDir.toFile().deleteRecursively()
+        deleteEmptyTempRoot(workspace.tempRootDir)
     }
 
     fun cacheCover(
@@ -384,6 +394,15 @@ class DownloadStorage(
         return "${slugSegment(raw, 88, "chapter")}--${hashKey(chapterUrl)}"
     }
 
+    private fun attemptWorkspaceName(
+        downloadTaskId: String,
+        attemptOwner: String,
+    ): String {
+        val taskSegment = slugSegment(downloadTaskId, 48, "task")
+        val ownerSegment = slugSegment(attemptOwner, 64, "attempt")
+        return "$taskSegment-$ownerSegment"
+    }
+
     private fun formatChapterNumber(chapterNumber: Double?): String? {
         val value = chapterNumber ?: return null
         if (!value.isFinite()) return null
@@ -431,6 +450,17 @@ class DownloadStorage(
             }.toAbsolutePath().normalize()
         Files.createDirectories(root)
         return root
+    }
+
+    private fun deleteEmptyTempRoot(path: Path) {
+        if (!path.exists() || !path.isDirectory()) {
+            return
+        }
+        Files.list(path).use { stream ->
+            if (!stream.findAny().isPresent) {
+                path.deleteIfExists()
+            }
+        }
     }
 
     private fun deleteResolvedStoredChapter(path: Path): Boolean =
@@ -494,6 +524,7 @@ class DownloadStorage(
 }
 
 data class ChapterWorkspace(
+    val tempRootDir: Path,
     val tempDir: Path,
     val finalDir: Path,
 )

@@ -985,16 +985,12 @@
 						{$_('reader.nextChapter')}
 						<CaretRightIcon size={14} />
 					</Button>
+				{:else if title}
+					<Button variant="outline" size="sm" href={canonicalTitlePath}>
+						{title.title}
+					</Button>
 				{/if}
 			</div>
-			{#if !nextChapter && title}
-				<a
-					href={canonicalTitlePath}
-					class="text-[11px] tracking-wide text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)] uppercase"
-				>
-					← {title.title}
-				</a>
-			{/if}
 			{#if bookmarkError}
 				<p class="text-xs text-[var(--error)]">{bookmarkError}</p>
 			{/if}

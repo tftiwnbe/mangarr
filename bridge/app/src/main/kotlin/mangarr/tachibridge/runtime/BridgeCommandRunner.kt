@@ -44,6 +44,7 @@ private val interactiveCapabilities =
         "reader.pages.fetch",
         "library.chapters.sync",
         "library.cover.cache",
+        "library.title.stats.refresh",
         "library.import",
     )
 private val discoveryCapabilities = listOf("discovery.feed", "discovery.metadata")
@@ -62,6 +63,11 @@ data class CommandRunnerSnapshot(
     val lastSuccessAt: Long? = null,
     val lastError: String? = null,
 )
+
+private class StaleCommandLeaseException(
+    commandId: String,
+    action: String,
+) : IllegalStateException("Command $commandId lost its lease before $action")
 
 class BridgeCommandRunner(
     private val bridgeClient: ConvexBridgeClient?,
@@ -112,6 +118,7 @@ class BridgeCommandRunner(
         snapshot = snapshot.copy(lastPollAt = now)
 
         try {
+            recoverExpiredCommandLeases(client, now)
             val leased = mutableListOf<LeaseCommand>()
             val interactiveSlots = (INTERACTIVE_COMMAND_CONCURRENCY - activeInteractiveCommands.get()).coerceAtLeast(0)
             if (interactiveSlots > 0) {
@@ -148,6 +155,29 @@ class BridgeCommandRunner(
                 "bridgeId" to bridgeId,
             )
             snapshot = snapshot.copy(lastError = error.message ?: "Unknown command error")
+        }
+    }
+
+    private fun recoverExpiredCommandLeases(
+        client: ConvexBridgeClient,
+        now: Long,
+    ) {
+        val recovered =
+            client.recoverExpiredLeases(
+                client.payload(
+                    buildJsonObject {
+                        put("now", now)
+                    },
+                ),
+            )
+        if (recovered.recoveredCommands > 0) {
+            events.warn(
+                "bridge.commands.recovered_expired_leases",
+                "Recovered expired command leases before polling for new work",
+                "bridgeId" to bridgeId,
+                "recoveredCommands" to recovered.recoveredCommands.toInt(),
+                "deadLetteredCommands" to recovered.deadLetteredCommands.toInt(),
+            )
         }
     }
 
@@ -236,6 +266,40 @@ class BridgeCommandRunner(
         }
     }
 
+    private fun requireLeaseOwnership(
+        command: LeaseCommand,
+        action: String,
+        response: OkResponse,
+    ) {
+        if (response.stale) {
+            throw StaleCommandLeaseException(command.id, action)
+        }
+        check(response.ok) { "Bridge command ${command.id} failed during $action" }
+    }
+
+    private fun renewLeaseOrThrowStale(
+        client: ConvexBridgeClient,
+        command: LeaseCommand,
+        now: Long = System.currentTimeMillis(),
+    ) {
+        requireLeaseOwnership(
+            command = command,
+            action = "lease renewal",
+            response =
+                client.renewCommandLease(
+                    client.payload(
+                        buildJsonObject {
+                            put("commandId", command.id)
+                            put("bridgeId", bridgeId)
+                            put("leaseToken", command.leaseToken)
+                            put("now", now)
+                            put("leaseDurationMs", leaseDurationMs)
+                        },
+                    ),
+                ),
+        )
+    }
+
     private fun handleCommand(client: ConvexBridgeClient, command: LeaseCommand) {
         val startedAt = System.currentTimeMillis()
         commandContext(command).use {
@@ -246,135 +310,166 @@ class BridgeCommandRunner(
                 "maxAttempts" to command.maxAttempts.toInt(),
             )
 
-            client.markCommandRunning(
-                client.payload(
-                    buildJsonObject {
-                        put("commandId", command.id)
-                        put("bridgeId", bridgeId)
-                        put("now", startedAt)
-                        put("leaseDurationMs", leaseDurationMs)
-                    },
-                ),
+            requireLeaseOwnership(
+                command = command,
+                action = "markRunning",
+                response =
+                    client.markCommandRunning(
+                        client.payload(
+                            buildJsonObject {
+                                put("commandId", command.id)
+                                put("bridgeId", bridgeId)
+                                put("leaseToken", command.leaseToken)
+                                put("now", startedAt)
+                                put("leaseDurationMs", leaseDurationMs)
+                            },
+                        ),
+                    ),
             )
 
             try {
-                client.renewCommandLease(
-                    client.payload(
-                        buildJsonObject {
-                            put("commandId", command.id)
-                            put("bridgeId", bridgeId)
-                            put("now", System.currentTimeMillis())
-                            put("leaseDurationMs", leaseDurationMs)
-                        },
-                    ),
-                )
+                renewLeaseOrThrowStale(client, command)
 
                 val result = executeCommand(client, command)
-                client.completeCommand(
-                    client.payload(
-                        buildJsonObject {
-                            put("commandId", command.id)
-                            put("bridgeId", bridgeId)
-                            put("now", System.currentTimeMillis())
-                            put("result", result)
-                        },
-                    ),
-                )
+                val completion =
+                    client.completeCommand(
+                        client.payload(
+                            buildJsonObject {
+                                put("commandId", command.id)
+                                put("bridgeId", bridgeId)
+                                put("leaseToken", command.leaseToken)
+                                put("now", System.currentTimeMillis())
+                                put("result", result)
+                            },
+                        ),
+                    )
+                if (completion.stale) {
+                    throw StaleCommandLeaseException(command.id, "completion")
+                }
+                check(completion.ok) { "Bridge command ${command.id} could not be completed" }
                 events.debug(
                     "bridge.command.completed",
                     "Completed bridge command",
                     "durationMs" to (System.currentTimeMillis() - startedAt),
                 )
             } catch (error: Exception) {
-                val retryable = isRetryableFailure(command, error)
-                val httpError = error.findHttpException()
-                val retryDelayMs =
-                    if (retryable && command.commandType == "downloads.chapter") {
-                        maxOf(
-                            ConfigManager.config.downloads.failedRetryDelaySeconds * 1000L,
-                            (httpError?.retryAfterSeconds ?: 0L) * 1000L,
-                        )
-                    } else if (retryable && (command.commandType == "discovery.feed.crawl" || command.commandType == "discovery.title.hydrate")) {
-                        maxOf(
-                            DISCOVERY_RETRY_DELAY_MS,
-                            (httpError?.retryAfterSeconds ?: 0L) * 1000L,
-                        )
+                if (error is StaleCommandLeaseException) {
+                    events.warn(
+                        "bridge.command.stale_lease",
+                        "Bridge command lost lease ownership; abandoning stale worker",
+                        "commandId" to command.id,
+                        "bridgeId" to bridgeId,
+                        "durationMs" to (System.currentTimeMillis() - startedAt),
+                        "message" to (error.message ?: "stale lease"),
+                    )
+                } else {
+                    val retryable = isRetryableFailure(command, error)
+                    val httpError = error.findHttpException()
+                    val retryDelayMs =
+                        if (retryable && command.commandType == "downloads.chapter") {
+                            maxOf(
+                                ConfigManager.config.downloads.failedRetryDelaySeconds * 1000L,
+                                (httpError?.retryAfterSeconds ?: 0L) * 1000L,
+                            )
+                        } else if (retryable && (command.commandType == "discovery.feed.crawl" || command.commandType == "discovery.title.hydrate")) {
+                            maxOf(
+                                DISCOVERY_RETRY_DELAY_MS,
+                                (httpError?.retryAfterSeconds ?: 0L) * 1000L,
+                            )
+                        } else {
+                            5_000L
+                        }
+                    if (retryable) {
+                        if (command.commandType == "discovery.feed.crawl" || command.commandType == "discovery.title.hydrate") {
+                            events.warn(
+                                "bridge.command.failed",
+                                "Bridge command execution failed",
+                                "durationMs" to (System.currentTimeMillis() - startedAt),
+                                "retryDelayMs" to retryDelayMs,
+                                "throwable_class" to error::class.simpleName,
+                                "throwable_message" to error.message,
+                                "httpCode" to httpError?.code,
+                            )
+                        } else {
+                            events.error(
+                                "bridge.command.failed",
+                                "Bridge command execution failed",
+                                error,
+                                "durationMs" to (System.currentTimeMillis() - startedAt),
+                                "retryDelayMs" to retryDelayMs,
+                            )
+                        }
                     } else {
-                        5_000L
-                    }
-                if (retryable) {
-                    if (command.commandType == "discovery.feed.crawl" || command.commandType == "discovery.title.hydrate") {
                         events.warn(
-                            "bridge.command.failed",
-                            "Bridge command execution failed",
+                            "bridge.command.failed_permanent",
+                            "Bridge command failed permanently",
                             "durationMs" to (System.currentTimeMillis() - startedAt),
                             "retryDelayMs" to retryDelayMs,
                             "throwable_class" to error::class.simpleName,
                             "throwable_message" to error.message,
                             "httpCode" to httpError?.code,
                         )
-                    } else {
-                        events.error(
-                            "bridge.command.failed",
-                            "Bridge command execution failed",
-                            error,
-                            "durationMs" to (System.currentTimeMillis() - startedAt),
-                            "retryDelayMs" to retryDelayMs,
-                        )
                     }
-                } else {
-                    events.warn(
-                        "bridge.command.failed_permanent",
-                        "Bridge command failed permanently",
-                        "durationMs" to (System.currentTimeMillis() - startedAt),
-                        "retryDelayMs" to retryDelayMs,
-                        "throwable_class" to error::class.simpleName,
-                        "throwable_message" to error.message,
-                        "httpCode" to httpError?.code,
-                    )
-                }
-                if (command.commandType == "discovery.feed.crawl") {
-                    runCatching {
-                        val payload = command.payload.jsonObject
-                        client.recordDiscoveryCrawlFailure(
+                    if (command.commandType == "discovery.feed.crawl") {
+                        runCatching {
+                            val payload = command.payload.jsonObject
+                            client.recordDiscoveryCrawlFailure(
+                                client.payload(
+                                    buildJsonObject {
+                                        put("sourceId", payload.requiredString("sourceId"))
+                                        put("feedType", payload.requiredString("feedType"))
+                                        put("message", error.message ?: "Unhandled bridge command error")
+                                        put("retryAfterMs", (httpError?.retryAfterSeconds ?: 0L) * 1000L)
+                                        put("now", System.currentTimeMillis())
+                                    },
+                                ),
+                            )
+                        }
+                    } else if (command.commandType == "discovery.title.hydrate") {
+                        runCatching {
+                            val payload = command.payload.jsonObject
+                            client.recordDiscoveryTitleHydrationFailure(
+                                client.payload(
+                                    buildJsonObject {
+                                        put("sourceId", payload.requiredString("sourceId"))
+                                        put("titleUrl", payload.requiredString("titleUrl"))
+                                        put("retryAfterMs", (httpError?.retryAfterSeconds ?: 0L) * 1000L)
+                                        put("now", System.currentTimeMillis())
+                                    },
+                                ),
+                            )
+                        }
+                    }
+                    val failed =
+                        client.failCommand(
                             client.payload(
                                 buildJsonObject {
-                                    put("sourceId", payload.requiredString("sourceId"))
-                                    put("feedType", payload.requiredString("feedType"))
+                                    put("commandId", command.id)
+                                    put("bridgeId", bridgeId)
+                                    put("leaseToken", command.leaseToken)
+                                    put("now", System.currentTimeMillis())
                                     put("message", error.message ?: "Unhandled bridge command error")
-                                    put("retryAfterMs", (httpError?.retryAfterSeconds ?: 0L) * 1000L)
-                                    put("now", System.currentTimeMillis())
+                                    put("retryDelayMs", retryDelayMs)
+                                    put("retryable", retryable)
                                 },
                             ),
                         )
-                    }
-                } else if (command.commandType == "discovery.title.hydrate") {
-                    runCatching {
-                        val payload = command.payload.jsonObject
-                        client.recordDiscoveryTitleHydrationFailure(
-                            client.payload(
-                                buildJsonObject {
-                                    put("sourceId", payload.requiredString("sourceId"))
-                                    put("titleUrl", payload.requiredString("titleUrl"))
-                                    put("retryAfterMs", (httpError?.retryAfterSeconds ?: 0L) * 1000L)
-                                    put("now", System.currentTimeMillis())
-                                },
-                            ),
+                    if (failed.stale) {
+                        events.warn(
+                            "bridge.command.stale_lease_on_fail",
+                            "Bridge command failed after lease ownership moved; skipping stale failure write",
+                            "commandId" to command.id,
+                            "bridgeId" to bridgeId,
+                        )
+                    } else if (!failed.ok) {
+                        events.warn(
+                            "bridge.command.fail_rejected",
+                            "Bridge command failure could not be recorded",
+                            "commandId" to command.id,
+                            "bridgeId" to bridgeId,
                         )
                     }
                 }
-                client.failCommand(
-                    client.payload(
-                        buildJsonObject {
-                            put("commandId", command.id)
-                            put("bridgeId", bridgeId)
-                            put("now", System.currentTimeMillis())
-                            put("message", error.message ?: "Unhandled bridge command error")
-                            put("retryDelayMs", retryDelayMs)
-                            put("retryable", retryable)
-                        },
-                    ),
-                )
             }
         }
     }
@@ -782,6 +877,21 @@ class BridgeCommandRunner(
                     put("localCoverPath", coverPath)
                 }
             }
+            "library.title.stats.refresh" -> {
+                val titleId = payload.requiredString("titleId")
+                client.refreshLibraryTitleStats(
+                    client.payload(
+                        buildJsonObject {
+                            put("titleId", titleId)
+                            put("now", System.currentTimeMillis())
+                        },
+                    ),
+                )
+                buildJsonObject {
+                    put("ok", true)
+                    put("titleId", titleId)
+                }
+            }
             "library.import" -> {
                 val sourceId = payload.requiredString("sourceId")
                 val sourcePkg = payload.requiredString("sourcePkg")
@@ -916,7 +1026,7 @@ class BridgeCommandRunner(
             }
             "downloads.chapter" -> {
                 val chapterId = payload.requiredString("chapterId")
-                val downloadTaskId = payload.optionalString("downloadTaskId")
+                val downloadTaskId = payload.optionalString("downloadTaskId") ?: command.id
                 val titleId = payload.requiredString("titleId")
                 val titleName = payload.optionalString("title") ?: titleId
                 val sourceId = payload.requiredString("sourceId")
@@ -925,6 +1035,16 @@ class BridgeCommandRunner(
                 val chapterUrl = payload.requiredString("chapterUrl")
                 val chapterName = payload.optionalString("chapterName") ?: "chapter"
                 val chapterNumber = payload.optionalDouble("chapterNumber")
+                val attemptOwner =
+                    buildString {
+                        append(downloadTaskId)
+                        append("-")
+                        append(command.id)
+                        append("-")
+                        append(command.attemptCount.toInt())
+                        append("-")
+                        append(command.leaseToken)
+                    }
 
                 client.setLibraryChapterDownloadState(
                     client.payload(
@@ -954,6 +1074,11 @@ class BridgeCommandRunner(
                                 chapterUrl = chapterUrl,
                                 chapterName = chapterName,
                                 chapterNumber = chapterNumber,
+                                downloadTaskId = downloadTaskId,
+                                attemptOwner = attemptOwner,
+                                ensureOwnership = {
+                                    renewLeaseOrThrowStale(client, command)
+                                },
                             ) { downloadedPages, totalPages ->
                                 val now = System.currentTimeMillis()
                                 val (shouldRenewLease, shouldPushProgress) =
@@ -976,16 +1101,7 @@ class BridgeCommandRunner(
                                         renewLease to pushProgress
                                     }
                                 if (shouldRenewLease) {
-                                    client.renewCommandLease(
-                                        client.payload(
-                                            buildJsonObject {
-                                                put("commandId", command.id)
-                                                put("bridgeId", bridgeId)
-                                                put("now", now)
-                                                put("leaseDurationMs", leaseDurationMs)
-                                            },
-                                        ),
-                                    )
+                                    renewLeaseOrThrowStale(client, command, now)
                                 }
 
                                 if (shouldPushProgress) {
@@ -1024,17 +1140,19 @@ class BridgeCommandRunner(
 
                     result
                 } catch (error: Exception) {
-                    client.setLibraryChapterDownloadState(
-                        client.payload(
-                            buildJsonObject {
-                                put("chapterId", chapterId)
-                                downloadTaskId?.let { put("downloadTaskId", it) }
-                                put("status", "failed")
-                                put("lastErrorMessage", error.message ?: "Download failed")
-                                put("now", System.currentTimeMillis())
-                            },
-                        ),
-                    )
+                    if (error !is StaleCommandLeaseException) {
+                        client.setLibraryChapterDownloadState(
+                            client.payload(
+                                buildJsonObject {
+                                    put("chapterId", chapterId)
+                                    downloadTaskId.let { put("downloadTaskId", it) }
+                                    put("status", "failed")
+                                    put("lastErrorMessage", error.message ?: "Download failed")
+                                    put("now", System.currentTimeMillis())
+                                },
+                            ),
+                        )
+                    }
                     throw error
                 }
             }

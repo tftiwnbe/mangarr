@@ -269,6 +269,9 @@ filter_bridge_stderr() {
       *"dbus/object_proxy.cc:590"*UPower*)
         printf '%s\n' "$line" >> "$noisefile"
         ;;
+      *"Failed to connect to the bus:"*|*"dbus/bus.cc"*|*"gpu_process_host.cc"*|*"gpu_memory_buffer_support_x11.cc"*|*"viz_main_impl.cc"*|*"ssl_client_socket_impl.cc"*)
+        printf '%s\n' "$line" >> "$noisefile"
+        ;;
       JCEF_*|JCEF\(*|CEF\ Version\ =*|Chromium\ Version\ =*)
         printf '%s\n' "$line" >> "$noisefile"
         ;;
@@ -284,6 +287,9 @@ filter_bridge_stdout() {
   local noisefile="$2"
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
+      *"Failed to connect to the bus:"*|*"dbus/bus.cc"*|*"gpu_process_host.cc"*|*"gpu_memory_buffer_support_x11.cc"*|*"viz_main_impl.cc"*|*"ssl_client_socket_impl.cc"*)
+        printf '%s\n' "$line" >> "$noisefile"
+        ;;
       JCEF\(*|JCEF_*|CEF\ Version\ =*|Chromium\ Version\ =*)
         printf '%s\n' "$line" >> "$noisefile"
         ;;
@@ -477,6 +483,10 @@ COPY --from=bridge-build /app/bridge/app/build/tachibridge-*.jar /app/bin/
 RUN sh -c 'jar=$(echo /app/bin/tachibridge-*.jar); cp "$jar" /app/bin/tachibridge.jar'
 
 EXPOSE 3737
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=5 CMD \
+  curl -fsS "http://127.0.0.1:${PORT:-3737}/login" >/dev/null && \
+  curl -fsS "http://127.0.0.1:${MANGARR_BRIDGE_PORT:-3212}/health" >/dev/null || exit 1
 
 CMD ["/usr/local/bin/mangarr-startup"]
 

@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -88,6 +89,13 @@ class BridgeServer(
     private val bridgeScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val shutdownLatch = CountDownLatch(1)
     private var kcefInitialized = false
+    @Volatile
+    private var kcefSnapshot: JsonObject =
+        buildJsonObject {
+            put("enabled", isKcefEnabled())
+            put("initialized", false)
+            put("status", if (isKcefEnabled()) "starting" else "disabled")
+        }
     private val runtimeContext =
         LogContext.of(
             "bridgeId" to config.runtime.bridgeId,
@@ -95,6 +103,22 @@ class BridgeServer(
             "dataDir" to dataPath.toString(),
             "extensionsDir" to extensionsPath.toString(),
         )
+
+    private fun setKcefSnapshot(
+        status: String,
+        initialized: Boolean,
+        lastError: String? = null,
+    ) {
+        kcefSnapshot =
+            buildJsonObject {
+                put("enabled", isKcefEnabled())
+                put("initialized", initialized)
+                put("status", status)
+                if (!lastError.isNullOrBlank()) {
+                    put("lastError", lastError)
+                }
+            }
+    }
 
     @kotlinx.coroutines.DelicateCoroutinesApi
     fun start() =
@@ -191,6 +215,7 @@ class BridgeServer(
                     networkHelper = networkHelper,
                     bridgeClient = convexClient,
                     bridgeId = config.runtime.bridgeId,
+                    kcefSnapshotProvider = { kcefSnapshot },
                 )
             bridgeState.setRunning()
             heartbeatReporter.start()
@@ -248,6 +273,7 @@ class BridgeServer(
                         initializeKCEF()
                     }.onFailure { error ->
                         val message = error.message ?: "KCEF warmup failed"
+                        setKcefSnapshot(status = "degraded", initialized = false, lastError = message)
                         warmupWarnings += "KCEF: $message"
                         events.warn(
                             "bridge.kcef.degraded",
@@ -303,6 +329,7 @@ class BridgeServer(
                         "warnings" to warningMessage,
                     )
                 } catch (e: Exception) {
+                    setKcefSnapshot(status = "error", initialized = kcefInitialized, lastError = e.message)
                     bridgeState.setError(e.message ?: "Bridge warmup failed")
                     events.error(
                         "bridge.warmup.failed",
@@ -370,9 +397,11 @@ class BridgeServer(
     private fun initializeKCEF() {
         val kcefEvents = events.withContext("subsystem" to "kcef")
         if (!isKcefEnabled()) {
+            setKcefSnapshot(status = "disabled", initialized = false)
             kcefEvents.info("bridge.kcef.disabled", "KCEF is disabled")
             return
         }
+        setKcefSnapshot(status = "initializing", initialized = false)
         kcefEvents.info("bridge.kcef.initializing", "Initializing KCEF")
         Security.addProvider(BouncyCastleProvider())
 
@@ -499,18 +528,21 @@ class BridgeServer(
                 },
             )
         } catch (e: Exception) {
+            setKcefSnapshot(status = "error", initialized = false, lastError = e.message)
             kcefEvents.error("bridge.kcef.init_failed", "Failed to initialize KCEF", e)
             throw e
         }
 
         if (!initSignal.await(60, TimeUnit.SECONDS)) {
             val failure = initFailure ?: IllegalStateException("KCEF did not finish initialization within 60 seconds")
+            setKcefSnapshot(status = "error", initialized = false, lastError = failure.message)
             kcefEvents.error("bridge.kcef.init_incomplete", "KCEF initialization did not complete", failure)
             throw IllegalStateException("KCEF initialization did not complete", failure)
         }
 
         if (!initialized.get()) {
             val failure = initFailure ?: IllegalStateException("KCEF did not finish initialization")
+            setKcefSnapshot(status = "error", initialized = false, lastError = failure.message)
             kcefEvents.error("bridge.kcef.init_incomplete", "KCEF initialization did not complete", failure)
             throw IllegalStateException("KCEF initialization did not complete", failure)
         }
@@ -530,6 +562,7 @@ class BridgeServer(
         )
 
         kcefInitialized = true
+        setKcefSnapshot(status = "ready", initialized = true)
         kcefEvents.info(
             "bridge.kcef.ready",
             "KCEF initialization complete",

@@ -26,53 +26,12 @@
 	import { buildTitlePath } from '$lib/utils/routes';
 	import { TITLE_STATUS } from '$lib/utils/title-status';
 
-	type RawCollection = {
-		id: number | string;
-		name: string;
-	};
-
 	type RawUserStatus = {
 		id: string;
 		label: string;
 	};
 
-	type TitleItem = {
-		_id: Id<'libraryTitles'>;
-		routeSegment?: string | null;
-		title: string;
-		sourceId: string;
-		sourcePkg: string;
-		sourceLang: string;
-		titleUrl: string;
-		coverUrl?: string | null;
-		localCoverPath?: string | null;
-		chapterStats: {
-			total: number;
-			queued: number;
-			downloading: number;
-			downloaded: number;
-			failed: number;
-		};
-		offlineReadiness: {
-			titlePageReady: boolean;
-			metadataReady: boolean;
-			cachedCover: boolean;
-			downloadedChapters: number;
-			totalChapters: number;
-			fullyDownloaded: boolean;
-			missingCoverCache: boolean;
-		};
-		createdAt: number;
-		updatedAt: number;
-		lastReadAt?: number;
-		status?: number | null;
-		genre?: string | null;
-		userStatus?: RawUserStatus | null;
-		user_status?: RawUserStatus | null;
-		userRating?: number | null;
-		user_rating?: number | null;
-		collections?: RawCollection[] | null;
-	};
+	type TitleItem = Awaited<(typeof convexApi.library.listMine)['_returnType']>[number];
 
 	type LibraryCollectionResource = {
 		id: string;
@@ -96,19 +55,7 @@
 		offline_readiness: TitleItem['offlineReadiness'];
 	};
 
-	type HiddenTitleSummary = {
-		_id: Id<'libraryTitles'>;
-		routeSegment?: string | null;
-		title: string;
-		sourceId: string;
-		sourcePkg: string;
-		sourceLang: string;
-		titleUrl: string;
-		coverUrl?: string | null;
-		localCoverPath?: string | null;
-		createdAt: number;
-		updatedAt: number;
-	};
+	type HiddenTitleSummary = Awaited<(typeof convexApi.library.listHiddenMine)['_returnType']>[number];
 
 	type SortMode = 'updated' | 'added' | 'reading' | 'alpha' | 'status';
 	const INITIAL_LIBRARY_RENDER_LIMIT = 60;
@@ -180,12 +127,10 @@
 		{ key: 'hiatus', labelKey: 'status.hiatus', values: [TITLE_STATUS.HIATUS] }
 	];
 
-	const titles = $derived(
-		((library.data ?? []) as TitleItem[]).map((title) => mapTitleToSummary(title))
-	);
+	const titles = $derived((library.data ?? []).map((title) => mapTitleToSummary(title)));
 	const loading = $derived(library.isLoading);
 	const error = $derived(library.error instanceof Error ? library.error.message : null);
-	const hiddenTitles = $derived(((hiddenLibraryTitles.data ?? []) as HiddenTitleSummary[]).slice());
+	const hiddenTitles = $derived((hiddenLibraryTitles.data ?? []).slice());
 	const hiddenImportsCount = $derived(hiddenTitles.length);
 	const renderContextKey = $derived(
 		JSON.stringify({
@@ -402,7 +347,7 @@
 			updated_at: title.updatedAt,
 			added_at: title.createdAt,
 			last_read_at: title.lastReadAt ?? null,
-			user_status: title.user_status ?? title.userStatus ?? null,
+			user_status: title.userStatus ?? null,
 			status: title.status ?? 0,
 			genre: title.genre ?? null,
 			collections:
@@ -410,7 +355,7 @@
 					id: String(collection.id),
 					name: collection.name
 				})) ?? [],
-			user_rating: title.user_rating ?? title.userRating ?? null,
+			user_rating: title.userRating ?? null,
 			offline_readiness: title.offlineReadiness
 		};
 	}

@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
-	import { useQuery } from 'convex-svelte';
+	import { useConvexClient, useQuery } from 'convex-svelte';
 	import { onMount } from 'svelte';
 
+	import type { Id } from '$convex/_generated/dataModel';
+	import { waitForCommand } from '$lib/client/commands';
 	import { convexApi } from '$lib/convex/api';
 	import { Button } from '$lib/elements/button';
 	import { Input } from '$lib/elements/input';
@@ -96,8 +98,9 @@
 		languages?: string[];
 	};
 
-	type RepositoryEntry = {
-		lang?: string | null;
+	type RepositoryUpdateAccepted = {
+		accepted: true;
+		syncCommandId: Id<'commands'>;
 	};
 
 	type BridgeHealth = {
@@ -125,6 +128,7 @@
 	];
 
 	const sourcesQuery = useQuery(convexApi.extensions.listSources, () => ({}));
+	const convexClient = useConvexClient();
 
 	let user = $state<UserProfile | null>(null);
 	let loading = $state(true);
@@ -415,19 +419,23 @@
 		extensionRepoSuccess = false;
 
 		try {
-			const result = await fetchJson<RepositoryEntry[]>('/api/extensions/repository', {
+			const accepted = await fetchJson<RepositoryUpdateAccepted>('/api/extensions/repository', {
 				method: 'PUT',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ url: extensionRepoUrl.trim() })
 			});
-			const repoLangs = toMainContentLanguages(result.map((item) => item.lang));
+			await waitForCommand(convexClient, accepted.syncCommandId, {
+				timeoutMs: 30_000,
+				pollIntervalMs: 300
+			});
+			const repository = await fetchJson<RepositoryState>('/api/extensions/repository');
+			const repoLangs = toMainContentLanguages(repository.languages ?? []);
 			if (repoLangs.length > 0) {
 				setKnownContentLanguages(repoLangs);
 				knownLangs = repoLangs;
 			}
 			extensionRepoSuccess = true;
 			setTimeout(() => (extensionRepoSuccess = false), 3000);
-			const repository = await fetchJson<RepositoryState>('/api/extensions/repository');
 			extensionRepoUrl = repository.url;
 		} catch (cause) {
 			extensionRepoError = cause instanceof Error ? cause.message : 'Failed to update repository';

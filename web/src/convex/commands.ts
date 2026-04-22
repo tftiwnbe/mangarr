@@ -1,5 +1,6 @@
 import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
+import type { Doc } from './_generated/dataModel';
 
 import {
 	isPermanentSourceFailure,
@@ -24,6 +25,21 @@ const REUSABLE_STATUSES = new Set<CommandStatus>([STATUS.QUEUED, STATUS.SUCCEEDE
 const EXPIRED_LEASE_RECOVERY_BATCH = 10;
 const MAX_CANDIDATES_PER_CAPABILITY = 4;
 const MAX_CANDIDATE_POOL_MULTIPLIER = 3;
+
+function generateLeaseToken(bridgeId: string, now: number) {
+	return `${bridgeId}:${now}:${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function hasMatchingLease(
+	command: Doc<'commands'> | null,
+	args: { bridgeId: string; leaseToken: string }
+): command is Doc<'commands'> {
+	return (
+		command !== null &&
+		command.leaseOwnerBridgeId === args.bridgeId &&
+		command.leaseToken === args.leaseToken
+	);
+}
 
 async function upsertSourceHealthFailure(
 	ctx: MutationCtx,
@@ -151,6 +167,8 @@ function targetCapabilityFor(commandType: string) {
 			return 'reader.pages.fetch';
 		case 'library.chapters.sync':
 			return 'library.chapters.sync';
+		case 'library.title.stats.refresh':
+			return 'library.title.stats.refresh';
 		case 'library.import':
 			return 'library.import';
 		case 'downloads.chapter':
@@ -241,6 +259,7 @@ async function enqueueCommand<T extends CommandType>(
 		runAfter: now,
 		attemptCount: 0,
 		maxAttempts: Math.max(1, Math.floor(args.maxAttempts ?? 3)),
+		leaseToken: undefined,
 		createdAt: now,
 		updatedAt: now
 	});
@@ -529,43 +548,13 @@ export const lease = mutation({
 	},
 	handler: async (ctx, args) => {
 		await requireBridgeIdentity(ctx);
-		const expired = await ctx.db
-			.query('commands')
-			.withIndex('by_status_lease_expires_at', (q) =>
-				q.eq('status', STATUS.LEASED).lt('leaseExpiresAt', args.now + 1)
-			)
-			.take(EXPIRED_LEASE_RECOVERY_BATCH);
-		const expiredRunning = await ctx.db
-			.query('commands')
-			.withIndex('by_status_lease_expires_at', (q) =>
-				q.eq('status', STATUS.RUNNING).lt('leaseExpiresAt', args.now + 1)
-			)
-			.take(EXPIRED_LEASE_RECOVERY_BATCH);
-
-		for (const row of [...expired, ...expiredRunning]) {
-			if (!row.leaseExpiresAt || row.leaseExpiresAt > args.now) {
-				continue;
-			}
-
-			const exhausted = row.attemptCount >= row.maxAttempts;
-			await ctx.db.patch(row._id, {
-				status: exhausted ? STATUS.DEAD : STATUS.QUEUED,
-				runAfter: exhausted ? row.runAfter : args.now,
-				leaseOwnerBridgeId: undefined,
-				leaseExpiresAt: undefined,
-				completedAt: exhausted ? args.now : undefined,
-				lastErrorMessage: 'Lease expired before command completed',
-				updatedAt: args.now
-			});
-		}
-
 		const limit = Math.max(1, Math.min(Math.floor(args.limit), 25));
 		const uniqueCapabilities = Array.from(new Set(args.capabilities));
 		const candidatePoolLimit = Math.max(
 			limit,
 			Math.min(limit * MAX_CANDIDATE_POOL_MULTIPLIER, 12)
 		);
-		const candidates: Array<(typeof expired)[number]> = [];
+		const candidates: Array<Doc<'commands'>> = [];
 		const seenCommandIds = new Set<string>();
 
 		for (const capability of uniqueCapabilities) {
@@ -613,15 +602,18 @@ export const lease = mutation({
 			commandType: string;
 			payload: unknown;
 			requestedByUserId?: GenericId<'users'>;
+			leaseToken: string;
 			attemptCount: number;
 			maxAttempts: number;
 		}> = [];
 
 		for (const row of eligible) {
 			const nextAttemptCount = row.attemptCount + 1;
+			const leaseToken = generateLeaseToken(args.bridgeId, args.now);
 			await ctx.db.patch(row._id, {
 				status: STATUS.LEASED,
 				leaseOwnerBridgeId: args.bridgeId,
+				leaseToken,
 				leaseExpiresAt: args.now + args.leaseDurationMs,
 				attemptCount: nextAttemptCount,
 				updatedAt: args.now
@@ -631,6 +623,7 @@ export const lease = mutation({
 				commandType: row.commandType,
 				payload: row.payload,
 				requestedByUserId: row.requestedByUserId,
+				leaseToken,
 				attemptCount: nextAttemptCount,
 				maxAttempts: row.maxAttempts
 			});
@@ -640,18 +633,66 @@ export const lease = mutation({
 	}
 });
 
+export const recoverExpiredLeases = mutation({
+	args: {
+		now: v.float64()
+	},
+	handler: async (ctx, args) => {
+		await requireBridgeIdentity(ctx);
+		const expired = await ctx.db
+			.query('commands')
+			.withIndex('by_status_lease_expires_at', (q) =>
+				q.eq('status', STATUS.LEASED).lt('leaseExpiresAt', args.now + 1)
+			)
+			.take(EXPIRED_LEASE_RECOVERY_BATCH);
+		const expiredRunning = await ctx.db
+			.query('commands')
+			.withIndex('by_status_lease_expires_at', (q) =>
+				q.eq('status', STATUS.RUNNING).lt('leaseExpiresAt', args.now + 1)
+			)
+			.take(EXPIRED_LEASE_RECOVERY_BATCH);
+
+		let recoveredCommands = 0;
+		let deadLetteredCommands = 0;
+		for (const row of [...expired, ...expiredRunning]) {
+			if (!row.leaseExpiresAt || row.leaseExpiresAt > args.now) {
+				continue;
+			}
+
+			const exhausted = row.attemptCount >= row.maxAttempts;
+			await ctx.db.patch(row._id, {
+				status: exhausted ? STATUS.DEAD : STATUS.QUEUED,
+				runAfter: exhausted ? row.runAfter : args.now,
+				leaseOwnerBridgeId: undefined,
+				leaseToken: undefined,
+				leaseExpiresAt: undefined,
+				completedAt: exhausted ? args.now : undefined,
+				lastErrorMessage: 'Lease expired before command completed',
+				updatedAt: args.now
+			});
+			recoveredCommands += 1;
+			if (exhausted) {
+				deadLetteredCommands += 1;
+			}
+		}
+
+		return { recoveredCommands, deadLetteredCommands };
+	}
+});
+
 export const markRunning = mutation({
 	args: {
 		commandId: v.id('commands'),
 		bridgeId: v.string(),
+		leaseToken: v.string(),
 		now: v.float64(),
 		leaseDurationMs: v.float64()
 	},
 	handler: async (ctx, args) => {
 		await requireBridgeIdentity(ctx);
 		const command = await ctx.db.get(args.commandId);
-		if (!command || command.leaseOwnerBridgeId !== args.bridgeId) {
-			return { ok: false };
+		if (!hasMatchingLease(command, args)) {
+			return { ok: false, stale: true };
 		}
 		if (command.status !== STATUS.LEASED && command.status !== STATUS.RUNNING) {
 			return { ok: false };
@@ -671,14 +712,15 @@ export const renewLease = mutation({
 	args: {
 		commandId: v.id('commands'),
 		bridgeId: v.string(),
+		leaseToken: v.string(),
 		now: v.float64(),
 		leaseDurationMs: v.float64()
 	},
 	handler: async (ctx, args) => {
 		await requireBridgeIdentity(ctx);
 		const command = await ctx.db.get(args.commandId);
-		if (!command || command.leaseOwnerBridgeId !== args.bridgeId) {
-			return { ok: false };
+		if (!hasMatchingLease(command, args)) {
+			return { ok: false, stale: true };
 		}
 		if (command.status !== STATUS.LEASED && command.status !== STATUS.RUNNING) {
 			return { ok: false };
@@ -696,14 +738,15 @@ export const complete = mutation({
 	args: {
 		commandId: v.id('commands'),
 		bridgeId: v.string(),
+		leaseToken: v.string(),
 		now: v.float64(),
 		result: v.any()
 	},
 	handler: async (ctx, args) => {
 		await requireBridgeIdentity(ctx);
 		const command = await ctx.db.get(args.commandId);
-		if (!command || command.leaseOwnerBridgeId !== args.bridgeId) {
-			return { ok: false };
+		if (!hasMatchingLease(command, args)) {
+			return { ok: false, stale: true };
 		}
 
 		await ctx.db.patch(args.commandId, {
@@ -711,6 +754,7 @@ export const complete = mutation({
 			progress: undefined,
 			result: args.result,
 			leaseOwnerBridgeId: undefined,
+			leaseToken: undefined,
 			leaseExpiresAt: undefined,
 			completedAt: args.now,
 			updatedAt: args.now
@@ -724,6 +768,7 @@ export const fail = mutation({
 	args: {
 		commandId: v.id('commands'),
 		bridgeId: v.string(),
+		leaseToken: v.string(),
 		now: v.float64(),
 		message: v.string(),
 		retryDelayMs: v.optional(v.float64()),
@@ -732,8 +777,8 @@ export const fail = mutation({
 	handler: async (ctx, args) => {
 		await requireBridgeIdentity(ctx);
 		const command = await ctx.db.get(args.commandId);
-		if (!command || command.leaseOwnerBridgeId !== args.bridgeId) {
-			return { ok: false };
+		if (!hasMatchingLease(command, args)) {
+			return { ok: false, stale: true, retried: false };
 		}
 
 		const shouldRetry = args.retryable !== false && command.attemptCount < command.maxAttempts;
@@ -747,6 +792,7 @@ export const fail = mutation({
 			lastErrorMessage: args.message,
 			progress: undefined,
 			leaseOwnerBridgeId: undefined,
+			leaseToken: undefined,
 			leaseExpiresAt: undefined,
 			completedAt: shouldRetry ? undefined : args.now,
 			updatedAt: args.now
@@ -767,14 +813,15 @@ export const updateProgress = mutation({
 	args: {
 		commandId: v.id('commands'),
 		bridgeId: v.string(),
+		leaseToken: v.string(),
 		now: v.float64(),
 		progress: v.any()
 	},
 	handler: async (ctx, args) => {
 		await requireBridgeIdentity(ctx);
 		const command = await ctx.db.get(args.commandId);
-		if (!command || command.leaseOwnerBridgeId !== args.bridgeId) {
-			return { ok: false };
+		if (!hasMatchingLease(command, args)) {
+			return { ok: false, stale: true };
 		}
 		if (command.status !== STATUS.LEASED && command.status !== STATUS.RUNNING) {
 			return { ok: false };

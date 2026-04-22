@@ -1,15 +1,14 @@
 <script lang="ts">
+	import { useConvexClient } from 'convex-svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { get } from 'svelte/store';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 
+	import type { Id } from '$convex/_generated/dataModel';
 	import { ClientError } from '$lib/client/auth';
-	import {
-		getExtensionRepository,
-		updateExtensionRepository,
-		type RepoExtensionResource
-	} from '$lib/client/setup';
+	import { waitForCommand } from '$lib/client/commands';
+	import { getExtensionRepository, updateExtensionRepository } from '$lib/client/setup';
 	import { Button } from '$lib/elements/button';
 	import { Input } from '$lib/elements/input';
 	import { _ } from '$lib/i18n';
@@ -36,20 +35,12 @@
 	let checkingAuth = $state(true);
 	let mounted = $state(false);
 
-	let repoExtensions = $state<RepoExtensionResource[]>([]);
+	const convexClient = useConvexClient();
+	let repositoryLanguages = $state<string[]>([]);
 	let selectedContentLangs = $state<Set<string>>(new Set());
 
-	function repoContentLanguages(extensions: RepoExtensionResource[]): string[] {
-		return toMainContentLanguages(
-			extensions.flatMap((extension) => [
-				extension.lang,
-				...extension.sources.map((source) => source.lang)
-			])
-		);
-	}
-
 	const availableContentLangs = $derived.by(() => {
-		return repoContentLanguages(repoExtensions);
+		return toMainContentLanguages(repositoryLanguages);
 	});
 
 	const defaultRepoUrl = 'https://raw.githubusercontent.com/your-org/extensions/main/index.json';
@@ -62,6 +53,7 @@
 			if (repository.configured && repository.url) {
 				repoUrl = repository.url;
 			}
+			repositoryLanguages = repository.languages ?? [];
 			selectedContentLangs = new Set(get(contentLanguages));
 		} catch {
 			selectedContentLangs = new Set(get(contentLanguages));
@@ -77,9 +69,15 @@
 		error = null;
 
 		try {
-			const result = await updateExtensionRepository({ url: repoUrl.trim() });
-			repoExtensions = result;
-			setKnownContentLanguages(repoContentLanguages(result));
+			const update = await updateExtensionRepository({ url: repoUrl.trim() });
+			await waitForCommand(convexClient, update.syncCommandId as Id<'commands'>, {
+				timeoutMs: 30_000,
+				pollIntervalMs: 300
+			});
+			const repository = await getExtensionRepository();
+			const repoLangs = toMainContentLanguages(repository.languages ?? []);
+			repositoryLanguages = repoLangs;
+			setKnownContentLanguages(repoLangs);
 			step = 2;
 		} catch (cause) {
 			if (cause instanceof ClientError) {

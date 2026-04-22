@@ -2,9 +2,12 @@ import type { GenericId } from 'convex/values';
 
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { buildTitleRouteBase } from '../lib/utils/route-segments';
+import { insertCommand } from './command_payloads';
 import { DOWNLOAD_STATUS } from './library_shared_access';
 import { loadInstalledSourceCatalog, variantInstalledSourceRecord } from './library_shared_sources';
 import { pickNumber, pickString } from './library_shared_values';
+
+const ACTIVE_COMMAND_STATUSES = new Set(['queued', 'leased', 'running']);
 
 export async function getPreferredVariantForTitle(
 	ctx: QueryCtx | MutationCtx,
@@ -472,6 +475,55 @@ export async function refreshTitleChapterStats(
 		}
 		throw error;
 	}
+}
+
+export async function scheduleTitleStatsRefresh(
+	ctx: MutationCtx,
+	args: {
+		libraryTitleId: GenericId<'libraryTitles'>;
+		ownerUserId: GenericId<'users'>;
+		now: number;
+		priority?: number;
+	}
+) {
+	const idempotencyKey = `library.title.stats.refresh:${String(args.libraryTitleId)}`;
+	const existing = (
+		await ctx.db
+			.query('commands')
+			.withIndex('by_idempotency_key', (q) => q.eq('idempotencyKey', idempotencyKey))
+			.collect()
+	)
+		.filter(
+			(command) =>
+				command.commandType === 'library.title.stats.refresh' &&
+				command.requestedByUserId === args.ownerUserId
+		)
+		.sort((left, right) => right.createdAt - left.createdAt)[0];
+
+	if (existing && ACTIVE_COMMAND_STATUSES.has(existing.status)) {
+		if (existing.status === 'queued') {
+			await ctx.db.patch(existing._id, {
+				runAfter: Math.min(existing.runAfter, args.now),
+				priority: Math.min(existing.priority, args.priority ?? 150),
+				lastErrorMessage: undefined,
+				updatedAt: args.now
+			});
+		}
+		return existing._id;
+	}
+
+	return insertCommand(ctx, {
+		commandType: 'library.title.stats.refresh',
+		requestedByUserId: args.ownerUserId,
+		payload: {
+			titleId: args.libraryTitleId
+		},
+		idempotencyKey,
+		priority: args.priority ?? 150,
+		maxAttempts: 3,
+		runAfter: args.now,
+		now: args.now
+	});
 }
 
 /**

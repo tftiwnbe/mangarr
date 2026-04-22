@@ -438,6 +438,7 @@ export default defineSchema({
 		priority: v.float64(),
 		runAfter: v.float64(),
 		leaseOwnerBridgeId: v.optional(v.string()),
+		leaseToken: v.optional(v.string()),
 		leaseExpiresAt: v.optional(v.float64()),
 		attemptCount: v.float64(),
 		maxAttempts: v.float64(),

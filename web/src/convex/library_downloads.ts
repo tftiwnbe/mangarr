@@ -3,7 +3,11 @@ import { v } from 'convex/values';
 
 import { internalMutation, mutation, type MutationCtx, type QueryCtx } from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
-import { markTitleListedInLibrary, getPreferredVariantForTitle, refreshTitleChapterStats, updateTitleChapterStatsIncremental } from './library_shared';
+import {
+	getPreferredVariantForTitle,
+	markTitleListedInLibrary,
+	scheduleTitleStatsRefresh
+} from './library_shared';
 import { insertCommand } from './command_payloads';
 export { getDownloadDashboard } from './library_download_dashboard';
 
@@ -82,9 +86,6 @@ export const cancelQueuedChapterDownload = mutation({
 			updatedAt: now
 		});
 
-		const oldStatus = chapter.downloadStatus;
-		const oldFileSizeBytes = chapter.fileSizeBytes;
-
 		await ctx.db.patch(chapter._id, {
 			downloadStatus: DOWNLOAD_STATUS.MISSING,
 			downloadedPages: 0,
@@ -93,16 +94,11 @@ export const cancelQueuedChapterDownload = mutation({
 			updatedAt: now
 		});
 
-		// Update title stats incrementally to avoid OCC errors
-		await updateTitleChapterStatsIncremental(
-			ctx,
-			chapter.libraryTitleId,
-			oldStatus,
-			DOWNLOAD_STATUS.MISSING,
-			oldFileSizeBytes,
-			undefined,
+		await scheduleTitleStatsRefresh(ctx, {
+			libraryTitleId: chapter.libraryTitleId,
+			ownerUserId: chapter.ownerUserId,
 			now
-		);
+		});
 
 		return { ok: true, taskId: activeTask._id };
 	}
@@ -457,20 +453,14 @@ export const setChapterDownloadState = mutation({
 			updatedAt: args.now
 		});
 
-		// Only update title stats when status or file size actually changes — avoids
-		// hammering the same libraryTitles doc on every page-progress update.
 		const statusChanged = oldStatus !== args.status;
 		const sizeChanged = (oldFileSizeBytes ?? 0) !== (newFileSizeBytes ?? 0);
 		if (statusChanged || sizeChanged) {
-			await updateTitleChapterStatsIncremental(
-				ctx,
-				chapter.libraryTitleId,
-				oldStatus,
-				args.status,
-				oldFileSizeBytes,
-				newFileSizeBytes,
-				args.now
-			);
+			await scheduleTitleStatsRefresh(ctx, {
+				libraryTitleId: chapter.libraryTitleId,
+				ownerUserId: chapter.ownerUserId,
+				now: args.now
+			});
 		}
 
 		const task =
@@ -610,6 +600,7 @@ async function queueDownloadAttempt(
 					runAfter: args.now,
 					priority: Math.min(command.priority, args.priority),
 					leaseOwnerBridgeId: undefined,
+					leaseToken: undefined,
 					leaseExpiresAt: undefined,
 					lastErrorMessage: undefined,
 					updatedAt: args.now
@@ -655,9 +646,6 @@ async function queueDownloadAttempt(
 		};
 	}
 
-	const oldStatus = args.chapter.downloadStatus;
-	const oldFileSizeBytes = args.chapter.fileSizeBytes;
-
 	await ctx.db.patch(args.chapter._id, {
 		downloadStatus: DOWNLOAD_STATUS.QUEUED,
 		downloadedPages: 0,
@@ -666,16 +654,11 @@ async function queueDownloadAttempt(
 		updatedAt: args.now
 	});
 
-	// Update title stats incrementally to avoid OCC errors
-	await updateTitleChapterStatsIncremental(
-		ctx,
-		args.chapter.libraryTitleId,
-		oldStatus,
-		DOWNLOAD_STATUS.QUEUED,
-		oldFileSizeBytes,
-		args.chapter.fileSizeBytes,
-		args.now
-	);
+	await scheduleTitleStatsRefresh(ctx, {
+		libraryTitleId: args.chapter.libraryTitleId,
+		ownerUserId: args.chapter.ownerUserId,
+		now: args.now
+	});
 
 	const attemptNumber = await nextDownloadAttemptNumber(ctx, args.chapter._id);
 
@@ -751,7 +734,7 @@ async function recoverActiveDownloadsInternal(
 	const activeTasks = await loadActiveDownloadTasks(ctx, ACTIVE_DOWNLOAD_RECOVERY_SCAN_LIMIT);
 	let requeuedTasks = 0;
 	let failedTasks = 0;
-	const dirtyTitleIds = new Set<string>();
+	const dirtyTitles = new Map<string, GenericId<'users'>>();
 
 	for (const task of activeTasks) {
 		const chapter = await ctx.db.get(task.libraryChapterId);
@@ -783,13 +766,13 @@ async function recoverActiveDownloadsInternal(
 
 		if (hasDownloadedStorage) {
 			await finalizeRecoveredCompletedTask(ctx, task, chapter, args.now);
-			dirtyTitleIds.add(String(chapter.libraryTitleId));
+			dirtyTitles.set(String(chapter.libraryTitleId), chapter.ownerUserId);
 			continue;
 		}
 
 		if (shouldRequeue) {
 			await requeueRecoveredTask(ctx, task, chapter, command, args.now);
-			dirtyTitleIds.add(String(chapter.libraryTitleId));
+			dirtyTitles.set(String(chapter.libraryTitleId), chapter.ownerUserId);
 			requeuedTasks += 1;
 			continue;
 		}
@@ -806,13 +789,17 @@ async function recoverActiveDownloadsInternal(
 				errorMessage,
 				args.now
 			);
-			dirtyTitleIds.add(String(chapter.libraryTitleId));
+			dirtyTitles.set(String(chapter.libraryTitleId), chapter.ownerUserId);
 			failedTasks += 1;
 		}
 	}
 
-	for (const titleId of dirtyTitleIds) {
-		await refreshTitleChapterStats(ctx, titleId as GenericId<'libraryTitles'>, args.now);
+	for (const [titleId, ownerUserId] of dirtyTitles) {
+		await scheduleTitleStatsRefresh(ctx, {
+			libraryTitleId: titleId as GenericId<'libraryTitles'>,
+			ownerUserId,
+			now: args.now
+		});
 	}
 
 	return {
@@ -860,12 +847,7 @@ async function runDownloadCycleForUser(
 	if (cyclePlan.hasInFlightDownloads) {
 		return { checked: cyclePlan.checkedProfiles, enqueued: 0 };
 	}
-	// Use denormalized queuedChapterCount from already-loaded titles — avoids reading downloadTasks
-	const totalQueued = cyclePlan.validTitles.reduce(
-		(sum, t) => sum + (t.queuedChapterCount ?? 0),
-		0
-	);
-	let remainingCapacity = Math.max(0, MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER - totalQueued);
+	let remainingCapacity = await remainingDownloadCapacityForUser(ctx, args.userId);
 	if (remainingCapacity <= 0) {
 		return { checked: cyclePlan.checkedProfiles, enqueued: 0 };
 	}
@@ -911,7 +893,6 @@ async function runDownloadCycleForUser(
 			lastError: undefined,
 			updatedAt: args.now
 		});
-		// Stats are now updated incrementally in queueDownloadAttempt, no need for full refresh
 	}
 
 	return { checked: cyclePlan.checkedProfiles, enqueued };
@@ -938,19 +919,6 @@ async function remainingDownloadCapacityForUser(
 	const reservedSlots =
 		queuedTasks.length + Math.min(RESERVED_RUNNING_DOWNLOAD_SLOTS, downloadingTasks.length);
 	return Math.max(0, MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER - reservedSlots);
-}
-
-async function remainingQueuedDownloadCapacityForUser(
-	ctx: QueryCtx | MutationCtx,
-	ownerUserId: GenericId<'users'>
-) {
-	const queuedTasks = await loadDownloadTasksForUserStatus(
-		ctx,
-		ownerUserId,
-		DOWNLOAD_TASK_STATUS.QUEUED,
-		MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER + 1
-	);
-	return Math.max(0, MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER - queuedTasks.length);
 }
 
 async function findActiveDownloadTaskForChapter(
@@ -1010,9 +978,13 @@ async function selectDownloadCycleCandidatesForUser(
 	);
 	const validTitles = titles.filter((t): t is NonNullable<typeof t> => t !== null);
 
-	// Use denormalized counts on libraryTitles instead of scanning downloadTasks —
-	// libraryTitles is only written on status transitions, not per page, so much less contention.
-	const hasInFlightDownloads = validTitles.some((t) => (t.downloadingChapterCount ?? 0) > 0);
+	const activeDownloadingTasks = await loadDownloadTasksForUserStatus(
+		ctx,
+		args.userId,
+		DOWNLOAD_TASK_STATUS.DOWNLOADING,
+		1
+	);
+	const hasInFlightDownloads = activeDownloadingTasks.length > 0;
 	if (hasInFlightDownloads) {
 		return {
 			checkedProfiles: activeProfiles.length,
@@ -1164,6 +1136,7 @@ async function requeueRecoveredTask(
 			priority: Math.max(command.priority, DOWNLOAD_COMMAND_PRIORITY_BASE),
 			runAfter: now,
 			leaseOwnerBridgeId: undefined,
+			leaseToken: undefined,
 			leaseExpiresAt: undefined,
 			lastErrorMessage: undefined,
 			completedAt: undefined,

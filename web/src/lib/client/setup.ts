@@ -1,19 +1,11 @@
+import type { Id } from '$convex/_generated/dataModel';
 import { browser } from '$app/environment';
 
 import { ClientError } from './auth';
 
-export type RepoExtensionResource = {
-	pkg: string;
-	name: string;
-	version: string;
-	lang: string;
-	nsfw: boolean;
-	sources: Array<{
-		id: string;
-		name: string;
-		lang: string;
-		supportsLatest: boolean;
-	}>;
+export type RepositoryUpdateAccepted = {
+	accepted: true;
+	syncCommandId: Id<'commands'>;
 };
 
 async function parseJson<T>(response: Response): Promise<T> {
@@ -40,7 +32,7 @@ function getBrowserFetch(): typeof window.fetch {
 
 export async function getExtensionRepository() {
 	const response = await getBrowserFetch()('/api/extensions/repository');
-	return parseJson<{ url: string; configured: boolean }>(response);
+	return parseJson<{ url: string; configured: boolean; languages?: string[] }>(response);
 }
 
 export async function updateExtensionRepository(payload: { url: string }) {
@@ -51,5 +43,5 @@ export async function updateExtensionRepository(payload: { url: string }) {
 		},
 		body: JSON.stringify(payload)
 	});
-	return parseJson<RepoExtensionResource[]>(response);
+	return parseJson<RepositoryUpdateAccepted>(response);
 }

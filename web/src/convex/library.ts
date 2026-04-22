@@ -9,9 +9,9 @@ import {
 	DOWNLOAD_STATUS,
 	findVariantForTitle,
 	getPreferredVariantForTitle,
-	refreshTitleChapterStats,
 	requireOwnedTitle
 } from './library_shared';
+import { refreshTitleChapterStats, scheduleTitleStatsRefresh } from './library_shared';
 import { insertCommand } from './command_payloads';
 import { pickBestMergeCandidate } from './title_identity';
 
@@ -293,7 +293,11 @@ export const upsertChaptersForTitle = mutation({
 		}
 
 		if (chapterRowsChanged) {
-			await refreshTitleChapterStats(ctx, title._id, args.now);
+			await scheduleTitleStatsRefresh(ctx, {
+				libraryTitleId: title._id,
+				ownerUserId: title.ownerUserId,
+				now: args.now
+			});
 		}
 
 		return { ok: true, chapterCount: args.chapters.length };
@@ -318,6 +322,23 @@ export const setLocalCoverPath = mutation({
 			updatedAt: args.now
 		});
 
+		return { ok: true };
+	}
+});
+
+export const refreshTitleStatsFromBridge = mutation({
+	args: {
+		titleId: v.id('libraryTitles'),
+		now: v.float64()
+	},
+	handler: async (ctx, args) => {
+		await requireBridgeIdentity(ctx);
+		const title = await ctx.db.get(args.titleId);
+		if (!title) {
+			throw new Error('Library title not found');
+		}
+
+		await refreshTitleChapterStats(ctx, args.titleId, args.now);
 		return { ok: true };
 	}
 });

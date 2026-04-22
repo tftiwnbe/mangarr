@@ -102,6 +102,17 @@ class BridgeService(
         }
     }
 
+    fun repositoryHealthSnapshot(): JsonObject {
+        val snapshot = repoService.cacheSnapshot()
+        return buildJsonObject {
+            put("configured", snapshot.configured)
+            put("url", snapshot.url)
+            put("cacheLoaded", snapshot.cacheLoaded)
+            put("cacheFilePresent", snapshot.cacheFilePresent)
+            put("cachedEntryCount", snapshot.cachedEntryCount)
+        }
+    }
+
     fun syncRepository(url: String): JsonObject {
         repoService.updateRepoIndexUrl(url)
         ConfigManager.setRepoUrl(url)
@@ -546,6 +557,9 @@ class BridgeService(
         chapterUrl: String,
         chapterName: String,
         chapterNumber: Double?,
+        downloadTaskId: String,
+        attemptOwner: String,
+        ensureOwnership: suspend () -> Unit,
         onProgress: (downloadedPages: Int, totalPages: Int) -> Unit,
     ): JsonObject {
         val config = ConfigManager.config.downloads
@@ -577,49 +591,56 @@ class BridgeService(
                 chapterUrl = chapterUrl,
                 chapterName = chapterName,
                 chapterNumber = chapterNumber,
+                downloadTaskId = downloadTaskId,
+                attemptOwner = attemptOwner,
             )
+        try {
+            if (totalPages > 0) {
+                val nextIndex = AtomicInteger(0)
+                val completedPages = AtomicInteger(0)
 
-        if (totalPages > 0) {
-            val nextIndex = AtomicInteger(0)
-            val completedPages = AtomicInteger(0)
+                // Reduce concurrency to 1 if source is being throttled due to rate limits
+                val effectiveConcurrency = if (rateLimiter.isThrottled(sourceId)) {
+                    logger.debug { "Source $sourceId is throttled, using sequential download (concurrency=1)" }
+                    1
+                } else {
+                    minOf(DOWNLOAD_PAGE_CONCURRENCY, totalPages)
+                }
 
-            // Reduce concurrency to 1 if source is being throttled due to rate limits
-            val effectiveConcurrency = if (rateLimiter.isThrottled(sourceId)) {
-                logger.debug { "Source $sourceId is throttled, using sequential download (concurrency=1)" }
-                1
-            } else {
-                minOf(DOWNLOAD_PAGE_CONCURRENCY, totalPages)
-            }
-
-            coroutineScope {
-                repeat(effectiveConcurrency) {
-                    launch(Dispatchers.IO) {
-                        while (true) {
-                            val index = nextIndex.getAndIncrement()
-                            if (index >= totalPages) {
-                                return@launch
+                coroutineScope {
+                    repeat(effectiveConcurrency) {
+                        launch(Dispatchers.IO) {
+                            while (true) {
+                                val index = nextIndex.getAndIncrement()
+                                if (index >= totalPages) {
+                                    return@launch
+                                }
+                                val image = fetchPageImageWithRetry(sourceId, chapterUrl, chapterName, index)
+                                downloadStorage.writePage(workspace, index, image)
+                                onProgress(completedPages.incrementAndGet(), totalPages)
                             }
-                            val image = fetchPageImageWithRetry(sourceId, chapterUrl, chapterName, index)
-                            downloadStorage.writePage(workspace, index, image)
-                            onProgress(completedPages.incrementAndGet(), totalPages)
                         }
                     }
                 }
             }
-        }
 
-        val stored = downloadStorage.finalizeChapterDownload(workspace)
+            ensureOwnership()
+            val stored = downloadStorage.finalizeChapterDownload(workspace)
 
-        // Record chapter completion for rate limiting purposes
-        rateLimiter.recordChapterCompletion(sourceId)
+            // Record chapter completion for rate limiting purposes
+            rateLimiter.recordChapterCompletion(sourceId)
 
-        return buildJsonObject {
-            put("ok", true)
-            put("totalPages", totalPages)
-            put("downloadedPages", totalPages)
-            put("storageKind", stored.storageKind)
-            put("localRelativePath", stored.localRelativePath)
-            put("fileSizeBytes", stored.fileSizeBytes)
+            return buildJsonObject {
+                put("ok", true)
+                put("totalPages", totalPages)
+                put("downloadedPages", totalPages)
+                put("storageKind", stored.storageKind)
+                put("localRelativePath", stored.localRelativePath)
+                put("fileSizeBytes", stored.fileSizeBytes)
+            }
+        } catch (error: Exception) {
+            downloadStorage.cleanupChapterWorkspace(workspace)
+            throw error
         }
     }
 

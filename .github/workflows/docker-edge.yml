@@ -211,6 +211,41 @@ jobs:
             type=raw,value=edge
             type=sha,prefix=sha-,format=short
 
+      - name: Build edge candidate image locally
+        uses: docker/build-push-action@v6
+        with:
+          context: .artifacts/ci-context
+          file: .artifacts/ci-context/Dockerfile.ci
+          platforms: linux/amd64
+          load: true
+          provenance: false
+          build-args: |
+            MANGARR_BASE_IMAGE=ghcr.io/${{ github.repository }}-base:sha-${{ github.sha }}
+          tags: mangarr-edge:local
+          cache-from: type=gha,scope=docker-edge-app-amd64
+
+      - name: Smoke edge candidate image
+        run: |
+          mkdir -p "$RUNNER_TEMP/mangarr-config" "$RUNNER_TEMP/mangarr-downloads"
+          docker rm -f mangarr-edge >/dev/null 2>&1 || true
+          docker run -d --name mangarr-edge \
+            -e MANGARR_PUBLIC_URL=http://127.0.0.1:3837 \
+            -p 3837:3737 \
+            -v "$RUNNER_TEMP/mangarr-config:/app/config" \
+            -v "$RUNNER_TEMP/mangarr-downloads:/app/downloads" \
+            mangarr-edge:local
+          for i in $(seq 1 24); do
+            if curl -fsS http://127.0.0.1:3837/login >/dev/null 2>/dev/null; then
+              break
+            fi
+            sleep 5
+            if [ "$i" -eq 24 ]; then
+              docker logs mangarr-edge >&2 || true
+              exit 1
+            fi
+          done
+          docker rm -f mangarr-edge >/dev/null 2>&1 || true
+
       - name: Build and push edge image
         uses: docker/build-push-action@v6
         with:
