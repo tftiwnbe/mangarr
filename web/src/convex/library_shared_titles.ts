@@ -360,12 +360,18 @@ export async function setTitlePreferredVariant(
 	}
 
 	if (preferredVariant) {
+		const canonicalVariant =
+			[...variants].sort((left, right) => left.createdAt - right.createdAt)[0] ?? null;
 		await applyVariantSnapshotToTitle(ctx, title._id, {
 			sourceId: preferredVariant.sourceId,
 			sourcePkg: preferredVariant.sourcePkg,
 			sourceLang: preferredVariant.sourceLang,
 			titleUrl: preferredVariant.titleUrl,
-			title: pickString(preferredVariant.title, title.title) ?? preferredVariant.title,
+			title: pickStablePreferredTitle(
+				title.title,
+				canonicalVariant?.title ?? null,
+				preferredVariant.title
+			),
 			author: pickString(preferredVariant.author, title.author),
 			artist: pickString(preferredVariant.artist, title.artist),
 			description: pickString(preferredVariant.description, title.description),
@@ -383,6 +389,20 @@ export async function setTitlePreferredVariant(
 		updatedAt: now
 	});
 	return undefined;
+}
+
+export function pickStablePreferredTitle(
+	currentTitle: string | null | undefined,
+	canonicalVariantTitle: string | null | undefined,
+	preferredVariantTitle: string | null | undefined
+) {
+	return (
+		pickString(canonicalVariantTitle, currentTitle, preferredVariantTitle) ??
+		preferredVariantTitle ??
+		canonicalVariantTitle ??
+		currentTitle ??
+		''
+	);
 }
 
 export async function markTitleListedInLibrary(

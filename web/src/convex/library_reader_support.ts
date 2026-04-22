@@ -27,12 +27,16 @@ type ChapterOrderItem = {
 };
 
 export function buildTitleRouteSegments<
-	T extends { _id: GenericId<'libraryTitles'>; title: string }
+	T extends {
+		_id: GenericId<'libraryTitles'>;
+		title: string;
+		routeBase?: string | null;
+	}
 >(titles: readonly T[]) {
 	return buildUniqueRouteSegmentMap({
 		items: titles,
 		getId: (title) => String(title._id),
-		getBase: (title) => buildTitleRouteBase(title.title)
+		getBase: (title) => title.routeBase?.trim() || buildTitleRouteBase(title.title)
 	});
 }
 
@@ -104,9 +108,14 @@ export function sortLibraryChaptersInReadingOrder<T extends ChapterOrderItem>(
  */
 export async function resolveOwnerTitleRouteSegment(
 	ctx: QueryCtx,
-	title: { _id: GenericId<'libraryTitles'>; ownerUserId: GenericId<'users'>; title: string }
+	title: {
+		_id: GenericId<'libraryTitles'>;
+		ownerUserId: GenericId<'users'>;
+		title: string;
+		routeBase?: string | null;
+	}
 ): Promise<string> {
-	const base = buildTitleRouteBase(title.title);
+	const base = title.routeBase?.trim() || buildTitleRouteBase(title.title);
 	const candidates = await ctx.db
 		.query('libraryTitles')
 		.withIndex('by_owner_user_id_route_base', (q) =>
@@ -125,6 +134,38 @@ export async function resolveOwnerTitleRouteSegment(
 
 	const segments = buildTitleRouteSegments(pool);
 	return segments.get(String(title._id)) ?? base;
+}
+
+export function findTitleByAliasRouteSegment<
+	T extends {
+		_id: GenericId<'libraryTitles'>;
+		title: string;
+		routeBase?: string | null;
+	}
+>(
+	titles: readonly T[],
+	routeSegment: string,
+	variantTitlesByTitleId: ReadonlyMap<string, readonly string[]>
+) {
+	const delimIdx = routeSegment.lastIndexOf(ROUTE_COLLISION_DELIMITER);
+	const base = delimIdx >= 0 ? routeSegment.slice(0, delimIdx) : routeSegment;
+
+	const aliasMatches = titles.filter((title) => {
+		const titleId = String(title._id);
+		const variantTitles = variantTitlesByTitleId.get(titleId) ?? [];
+		return variantTitles.some((variantTitle) => buildTitleRouteBase(variantTitle) === base);
+	});
+	if (aliasMatches.length === 0) {
+		return null;
+	}
+
+	const aliasSegments = buildUniqueRouteSegmentMap({
+		items: aliasMatches,
+		getId: (title) => String(title._id),
+		getBase: () => base
+	});
+
+	return aliasMatches.find((title) => aliasSegments.get(String(title._id)) === routeSegment) ?? null;
 }
 
 /**
@@ -157,7 +198,36 @@ export async function findOwnedTitleByRouteSegment(
 					.collect();
 
 	const segments = buildTitleRouteSegments(pool);
-	return pool.find((t) => segments.get(String(t._id)) === routeSegment) ?? null;
+	const canonicalMatch = pool.find((title) => segments.get(String(title._id)) === routeSegment) ?? null;
+	if (canonicalMatch) {
+		return canonicalMatch;
+	}
+
+	const allTitles =
+		candidates.length > 0
+			? await ctx.db
+					.query('libraryTitles')
+					.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+					.collect()
+			: pool;
+	const aliasVariantRows = await Promise.all(
+		allTitles.map((title) =>
+			ctx.db
+				.query('titleVariants')
+				.withIndex('by_owner_user_id_library_title_id', (q) =>
+					q.eq('ownerUserId', ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.collect()
+		)
+	);
+	const variantTitlesByTitleId = new Map<string, readonly string[]>(
+		allTitles.map((title, index) => [
+			String(title._id),
+			aliasVariantRows[index]?.map((variant) => variant.title) ?? []
+		])
+	);
+
+	return findTitleByAliasRouteSegment(allTitles, routeSegment, variantTitlesByTitleId);
 }
 
 export function summarizeDownloadStats(

@@ -1,6 +1,7 @@
 import { v } from 'convex/values';
 
 import { mutation } from './_generated/server';
+import { mergeOwnedTitles } from './library_shared_merge';
 import {
 	applyVariantSnapshotToTitle,
 	loadInstalledSourceCatalog,
@@ -43,7 +44,37 @@ export const linkVariant = mutation({
 
 		if (existing) {
 			if (existing.libraryTitleId !== title._id) {
-				throw new Error('Linked to another title');
+				const conflictingTitle = await ctx.db.get(existing.libraryTitleId);
+				if (!conflictingTitle || conflictingTitle.ownerUserId !== title.ownerUserId) {
+					throw new Error('Linked to another title');
+				}
+
+				await mergeOwnedTitles(ctx, title, conflictingTitle, now);
+				const mergedVariant = await ctx.db
+					.query('titleVariants')
+					.withIndex('by_library_title_id_source_id_title_url', (q) =>
+						q.eq('libraryTitleId', title._id)
+							.eq('sourceId', args.sourceId)
+							.eq('titleUrl', args.titleUrl)
+					)
+					.unique();
+				if (!mergedVariant) {
+					throw new Error('Merged source variant not found');
+				}
+
+				await refreshTitleVariantCount(ctx, title, now);
+				await scheduleTitleStatsRefresh(ctx, {
+					libraryTitleId: title._id,
+					ownerUserId: title.ownerUserId,
+					now
+				});
+
+				return {
+					ok: true,
+					variantId: mergedVariant._id,
+					alreadyLinked: true,
+					mergedTitleId: conflictingTitle._id
+				};
 			}
 
 			await ctx.db.patch(existing._id, {

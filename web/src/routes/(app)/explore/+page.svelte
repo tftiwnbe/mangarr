@@ -90,6 +90,8 @@
 
 	type SearchResult = {
 		items: ExploreItem[];
+		page: number;
+		hasNextPage: boolean;
 	};
 
 	type ForYouResult = {
@@ -155,6 +157,7 @@
 	let exhaustedFeedSources = $state<Record<string, boolean>>({});
 	let lastFeedLoadSignature = $state('');
 	let canLoadMoreFeed = $state(false);
+	let canLoadMoreSearch = $state(false);
 	let autoLoadFeedPending = false;
 	let feedSentinel = $state<HTMLDivElement | null>(null);
 	let feedIntersectionObserver: IntersectionObserver | null = null;
@@ -172,6 +175,8 @@
 
 	let liveFeedResults = $state<Record<string, FeedResult>>({});
 	let liveSearchResults = $state<Record<string, SearchResult>>({});
+	let loadedSearchPagesBySource = $state<Record<string, number>>({});
+	let exhaustedSearchSources = $state<Record<string, boolean>>({});
 	let sourceFailures = $state<Record<string, SourceFailure>>({});
 	let cards = $state<ExploreCard[]>([]);
 	let stableCardOrder: string[] = [];
@@ -614,9 +619,10 @@
 	function searchResultKey(
 		sourceId: string,
 		query: string,
-		searchFilters: Record<string, unknown>
+		searchFilters: Record<string, unknown>,
+		page: number
 	): string {
-		return `explore.search:${sourceId}:${query.trim().toLowerCase()}:${JSON.stringify(searchFilters)}`;
+		return `explore.search:${sourceId}:${query.trim().toLowerCase()}:${page}:${JSON.stringify(searchFilters)}`;
 	}
 
 	function latestFeedResult(
@@ -630,9 +636,10 @@
 	function latestSearchResult(
 		sourceId: string,
 		query: string,
-		searchFilters: Record<string, unknown>
+		searchFilters: Record<string, unknown>,
+		page: number
 	): SearchResult | null {
-		const key = searchResultKey(sourceId, query, searchFilters);
+		const key = searchResultKey(sourceId, query, searchFilters, page);
 		return liveSearchResults[key] ?? null;
 	}
 
@@ -654,7 +661,35 @@
 		const query = searchQuery.trim();
 		const filters = selectedSourceId === sourceId ? selectedSourceAppliedFilters : {};
 		if (!query && Object.keys(filters).length === 0) return [];
-		return latestSearchResult(sourceId, query, filters)?.items ?? [];
+		const maxPage = selectedSourceId === sourceId ? loadedSearchPagesBySource[sourceId] ?? 1 : 1;
+		const items: ExploreItem[] = [];
+		for (let page = 1; page <= maxPage; page += 1) {
+			items.push(...(latestSearchResult(sourceId, query, filters, page)?.items ?? []));
+		}
+		return items;
+	}
+
+	function searchQueryLooksLikeTitleUrl(query: string): boolean {
+		const trimmed = query.trim();
+		return (
+			trimmed.startsWith('http://') ||
+			trimmed.startsWith('https://') ||
+			trimmed.startsWith('/')
+		);
+	}
+
+	function searchQueryToTitleUrl(query: string): string | null {
+		const trimmed = query.trim();
+		if (!trimmed) return null;
+		if (trimmed.startsWith('/')) {
+			return trimmed;
+		}
+		try {
+			const parsed = new URL(trimmed);
+			return `${parsed.pathname}${parsed.search}${parsed.hash}` || null;
+		} catch {
+			return null;
+		}
 	}
 
 	function sourceHasMore(commandType: string, sourceId: string): boolean {
@@ -681,6 +716,7 @@
 		searchRunGeneration += 1;
 		activeTab = value as TabValue;
 		error = null;
+		canLoadMoreSearch = false;
 		if (activeTab !== 'search') {
 			searchQuery = '';
 			selectedSourceId = '';
@@ -995,34 +1031,57 @@
 		}
 
 		loading = true;
+		loadingMore = false;
 		error = null;
 		const failures: string[] = [];
 		const nextLiveSearchResults = { ...liveSearchResults };
+		const nextLoadedPagesBySource: Record<string, number> = {};
+		const nextExhaustedSearchSources: Record<string, boolean> = {};
+		const directTitleUrl =
+			selectedSourceId && searchQueryLooksLikeTitleUrl(value) ? searchQueryToTitleUrl(value) : null;
 
 		await runWithConcurrency(sourceIds, COMMAND_CONCURRENCY, async (sourceId) => {
 			try {
 				const searchFilters = selectedSourceId === sourceId ? selectedSourceAppliedFilters : {};
-				const payload: Record<string, unknown> = {
-					query: value,
-					sourceId,
-					limit: 42
-				};
-				if (Object.keys(searchFilters).length > 0) {
-					payload.searchFilters = searchFilters;
+				if (directTitleUrl && selectedSourceId === sourceId) {
+					const { commandId } = await client.mutation(convexApi.commands.enqueueExploreTitleFetch, {
+						sourceId,
+						titleUrl: directTitleUrl,
+						contextKey: `explore:${sourceId}`
+					});
+					const command = await waitForCommand(client, commandId);
+					const title = (command.result?.title as ExploreItem | undefined) ?? null;
+					nextLiveSearchResults[searchResultKey(sourceId, value, searchFilters, 1)] = {
+						items: title ? [title] : [],
+						page: 1,
+						hasNextPage: false
+					};
+					nextLoadedPagesBySource[sourceId] = 1;
+					nextExhaustedSearchSources[sourceId] = true;
+					clearSourceFailure(sourceId, 'search');
+					return;
 				}
 				const { commandId } = await client.mutation(convexApi.commands.enqueueExploreSearch, {
 					sourceId,
 					query: value,
 					limit: 42,
+					page: 1,
 					...(Object.keys(searchFilters).length > 0 ? { searchFilters } : {})
 				});
 				const command = await waitForCommand(client, commandId);
 				clearSourceFailure(sourceId, 'search');
-				nextLiveSearchResults[searchResultKey(sourceId, value, searchFilters)] = {
-					items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[]
+				const hasNextPage = Boolean(command.result?.hasNextPage ?? false);
+				nextLiveSearchResults[searchResultKey(sourceId, value, searchFilters, 1)] = {
+					items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[],
+					page: Number(command.result?.page ?? 1),
+					hasNextPage
 				};
+				nextLoadedPagesBySource[sourceId] = 1;
+				nextExhaustedSearchSources[sourceId] = !hasNextPage;
 			} catch (cause) {
 				recordSourceFailure(sourceId, 'search', cause);
+				nextLoadedPagesBySource[sourceId] = 0;
+				nextExhaustedSearchSources[sourceId] = true;
 				failures.push(
 					cause instanceof Error ? cause.message : `Search failed for ${sourceNameFor(sourceId)}`
 				);
@@ -1035,8 +1094,71 @@
 		}
 
 		liveSearchResults = nextLiveSearchResults;
+		loadedSearchPagesBySource = nextLoadedPagesBySource;
+		exhaustedSearchSources = nextExhaustedSearchSources;
+		canLoadMoreSearch =
+			Boolean(selectedSourceId) &&
+			sourceIds.length === 1 &&
+			nextLoadedPagesBySource[selectedSourceId] > 0 &&
+			nextExhaustedSearchSources[selectedSourceId] !== true;
 		error = failures[0] ?? null;
 		loading = false;
+	}
+
+	async function loadMoreSearch() {
+		if (
+			loading ||
+			loadingMore ||
+			activeTab !== 'search' ||
+			!selectedSourceId ||
+			!canLoadMoreSearch
+		) {
+			return;
+		}
+
+		const query = searchQuery.trim();
+		if (!query) return;
+
+		const sourceId = selectedSourceId;
+		const searchFilters = selectedSourceAppliedFilters;
+		const nextPage = (loadedSearchPagesBySource[sourceId] ?? 1) + 1;
+		loadingMore = true;
+		try {
+			const { commandId } = await client.mutation(convexApi.commands.enqueueExploreSearch, {
+				sourceId,
+				query,
+				limit: 42,
+				page: nextPage,
+				...(Object.keys(searchFilters).length > 0 ? { searchFilters } : {})
+			});
+			const command = await waitForCommand(client, commandId);
+			const hasNextPage = Boolean(command.result?.hasNextPage ?? false);
+			liveSearchResults = {
+				...liveSearchResults,
+				[searchResultKey(sourceId, query, searchFilters, nextPage)]: {
+					items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[],
+					page: Number(command.result?.page ?? nextPage),
+					hasNextPage
+				}
+			};
+			loadedSearchPagesBySource = {
+				...loadedSearchPagesBySource,
+				[sourceId]: nextPage
+			};
+			exhaustedSearchSources = {
+				...exhaustedSearchSources,
+				[sourceId]: !hasNextPage
+			};
+			canLoadMoreSearch = hasNextPage;
+			clearSourceFailure(sourceId, 'search');
+		} catch (cause) {
+			recordSourceFailure(sourceId, 'search', cause);
+			canLoadMoreSearch = false;
+			error =
+				cause instanceof Error ? cause.message : `Search failed for ${sourceNameFor(sourceId)}`;
+		} finally {
+			loadingMore = false;
+		}
 	}
 
 	async function openSearchFilters(sourceId: string) {
@@ -1176,16 +1298,24 @@
 		});
 	}
 
-	async function maybeAutoLoadFeed() {
+	async function maybeAutoLoadResults() {
 		if (renderCardLimit < cards.length) {
 			renderCardLimit = Math.min(renderCardLimit + CARD_RENDER_PAGE_SIZE, cards.length);
 			return;
 		}
-		if (autoLoadFeedPending || activeTab === 'search' || currentLoading || !canLoadMoreFeed) return;
+		if (autoLoadFeedPending || currentLoading) return;
 
 		autoLoadFeedPending = true;
 		try {
-			await loadMoreFeed();
+			if (activeTab === 'search') {
+				if (canLoadMoreSearch) {
+					await loadMoreSearch();
+				}
+				return;
+			}
+			if (canLoadMoreFeed) {
+				await loadMoreFeed();
+			}
 		} finally {
 			autoLoadFeedPending = false;
 		}
@@ -1202,7 +1332,7 @@
 		feedIntersectionObserver = new IntersectionObserver(
 			(entries) => {
 				if (entries.some((entry) => entry.isIntersecting)) {
-					void maybeAutoLoadFeed();
+					void maybeAutoLoadResults();
 				}
 			},
 			{
@@ -1230,6 +1360,7 @@
 	$effect(() => {
 		if (selectedSourceId && !searchSources.some((source) => source.id === selectedSourceId)) {
 			selectedSourceId = '';
+			canLoadMoreSearch = false;
 		}
 	});
 
@@ -1256,6 +1387,12 @@
 	});
 
 	$effect(() => {
+		if (activeTab !== 'search') {
+			canLoadMoreSearch = false;
+		}
+	});
+
+	$effect(() => {
 		void renderContextKey;
 		renderCardLimit = INITIAL_CARD_RENDER_LIMIT;
 	});
@@ -1265,9 +1402,10 @@
 		void cards.length;
 		void currentLoading;
 		void canLoadMoreFeed;
+		void canLoadMoreSearch;
 		void feedSentinel;
 		observeFeedSentinel();
-		void maybeAutoLoadFeed();
+		void maybeAutoLoadResults();
 		return () => {
 			resetFeedObserver();
 		};
@@ -1306,6 +1444,7 @@
 						class="absolute top-1/2 right-3 -translate-y-1/2 text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
 						onclick={() => {
 							searchQuery = '';
+							canLoadMoreSearch = false;
 							if (selectedSourceId && Object.keys(selectedSourceAppliedFilters).length > 0) {
 								void runSearch();
 							} else {
@@ -1347,6 +1486,7 @@
 								: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
 							onclick={() => {
 								selectedSourceId = '';
+								canLoadMoreSearch = false;
 								if (canRunSearch) void runSearch();
 							}}
 						>
@@ -1362,6 +1502,7 @@
 									: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
 								onclick={() => {
 									selectedSourceId = source.id;
+									canLoadMoreSearch = false;
 									if (searchQuery.trim() || appliedSearchFiltersBySource[source.id])
 										void runSearch();
 								}}
@@ -1565,10 +1706,13 @@
 				</a>
 			{/each}
 		</div>
-		{#if activeTab === 'popular' || activeTab === 'latest' || visibleCards.length < cards.length}
+		{#if visibleCards.length < cards.length ||
+			((activeTab === 'popular' || activeTab === 'latest') && canLoadMoreFeed) ||
+			(activeTab === 'search' && canLoadMoreSearch)}
 			<div bind:this={feedSentinel} class="h-px w-full" aria-hidden="true"></div>
 		{/if}
-		{#if (activeTab === 'popular' || activeTab === 'latest') && canLoadMoreFeed}
+		{#if ((activeTab === 'popular' || activeTab === 'latest') && canLoadMoreFeed) ||
+			(activeTab === 'search' && canLoadMoreSearch)}
 			<div class="flex items-center justify-center py-4">
 				{#if loadingMore}
 					<p class="flex items-center gap-2 text-sm text-[var(--text-ghost)]">

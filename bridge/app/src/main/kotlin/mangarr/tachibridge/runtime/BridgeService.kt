@@ -316,10 +316,13 @@ class BridgeService(
         limit: Int,
         sourceId: String? = null,
         searchFilters: JsonObject? = null,
+        page: Int = 1,
     ): JsonObject {
         extensionManager.awaitReady()
         val cappedLimit = limit.coerceIn(1, 100)
+        val normalizedPage = page.coerceAtLeast(1)
         val items = mutableListOf<JsonObject>()
+        var hasNextPage = false
 
         val selectedSourceId = sourceId?.trim()?.takeIf { it.isNotEmpty() }
         val sources =
@@ -348,10 +351,13 @@ class BridgeService(
                         extensionManager.searchTitle(
                             source.id,
                             query,
-                            1,
+                            normalizedPage,
                             normalizeFilterInput(searchFilters),
                         )
                     }
+                if (selectedSourceId != null) {
+                    hasNextPage = page.hasNextPage
+                }
                 for (title in page.titlesList) {
                     if (items.size >= cappedLimit) {
                         break
@@ -386,6 +392,8 @@ class BridgeService(
         return buildJsonObject {
             put("ok", true)
             put("items", JsonArray(items))
+            put("page", normalizedPage)
+            put("hasNextPage", hasNextPage)
         }
     }
 

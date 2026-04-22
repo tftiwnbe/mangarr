@@ -6,7 +6,12 @@ import { buildTitleRouteBase } from '../lib/utils/route-segments';
 import { requireBridgeIdentity } from './bridge_auth';
 import { insertCommand } from './command_payloads';
 import { STATUS } from './commands';
-import { chapterBelongsToVariant, getPreferredVariantForTitle } from './library_shared_titles';
+import {
+	chapterBelongsToVariant,
+	findVariantForTitle,
+	getPreferredVariantForTitle,
+	setTitlePreferredVariant
+} from './library_shared_titles';
 
 const REUSABLE_COMMAND_STATUSES = new Set<string>([STATUS.QUEUED, STATUS.SUCCEEDED]);
 
@@ -104,17 +109,29 @@ export const beginTitleOpen = mutation({
 			titleUrl: args.titleUrl
 		});
 		if (existingTitle) {
-			const hasChapters =
-				(
-					await ctx.db
-						.query('libraryChapters')
-						.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', existingTitle._id))
-						.take(1)
-				).length > 0;
+			const now = Date.now();
+			const activeVariant = await ensureOpenVariantForTitle(ctx, existingTitle, {
+				sourceId: args.sourceId,
+				sourcePkg: args.sourcePkg,
+				sourceLang: args.sourceLang,
+				titleUrl: args.titleUrl,
+				fallbackTitle: args.fallbackTitle,
+				fallbackAuthor: args.fallbackAuthor,
+				fallbackArtist: args.fallbackArtist,
+				fallbackDescription: args.fallbackDescription,
+				fallbackCoverUrl: args.fallbackCoverUrl,
+				fallbackGenre: args.fallbackGenre,
+				now
+			});
+			const chapters = await ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', existingTitle._id))
+				.collect();
+			const hasChapters = chapters.some((chapter) => chapterBelongsToVariant(chapter, activeVariant));
 			return {
 				state: hasChapters ? ('ready' as const) : ('syncing' as const),
 				titleId: existingTitle._id,
-				title: existingTitle.title,
+				title: activeVariant.title,
 				commandId: null
 			};
 		}
@@ -519,6 +536,105 @@ async function findOwnedTitleForOpen(
 	return title;
 }
 
+async function ensureOpenVariantForTitle(
+	ctx: MutationCtx,
+	title: DocLike<'libraryTitles'>,
+	args: {
+		sourceId: string;
+		sourcePkg: string;
+		sourceLang: string;
+		titleUrl: string;
+		fallbackTitle?: string;
+		fallbackAuthor?: string;
+		fallbackArtist?: string;
+		fallbackDescription?: string;
+		fallbackCoverUrl?: string;
+		fallbackGenre?: string;
+		now: number;
+	}
+) {
+	const fallbackTitle = normalizeOptionalString(args.fallbackTitle);
+	const fallbackAuthor = normalizeOptionalString(args.fallbackAuthor);
+	const fallbackArtist = normalizeOptionalString(args.fallbackArtist);
+	const fallbackDescription = normalizeOptionalString(args.fallbackDescription);
+	const fallbackCoverUrl = normalizeOptionalString(args.fallbackCoverUrl);
+	const fallbackGenre = normalizeOptionalString(args.fallbackGenre);
+
+	let variant = await findVariantForTitle(ctx, title._id, args.sourceId, args.titleUrl);
+	if (variant) {
+		const variantPatch: Partial<{
+			sourcePkg: string;
+			sourceLang: string;
+			title: string;
+			author: string;
+			artist: string;
+			description: string;
+			coverUrl: string;
+			genre: string;
+			updatedAt: number;
+			lastSyncedAt: number;
+		}> = {};
+		if (variant.sourcePkg !== args.sourcePkg) {
+			variantPatch.sourcePkg = args.sourcePkg;
+		}
+		if (variant.sourceLang !== args.sourceLang) {
+			variantPatch.sourceLang = args.sourceLang;
+		}
+		if (fallbackTitle && variant.title !== fallbackTitle) {
+			variantPatch.title = fallbackTitle;
+		}
+		if (fallbackAuthor && variant.author !== fallbackAuthor) {
+			variantPatch.author = fallbackAuthor;
+		}
+		if (fallbackArtist && variant.artist !== fallbackArtist) {
+			variantPatch.artist = fallbackArtist;
+		}
+		if (fallbackDescription && variant.description !== fallbackDescription) {
+			variantPatch.description = fallbackDescription;
+		}
+		if (fallbackCoverUrl && variant.coverUrl !== fallbackCoverUrl) {
+			variantPatch.coverUrl = fallbackCoverUrl;
+		}
+		if (fallbackGenre && variant.genre !== fallbackGenre) {
+			variantPatch.genre = fallbackGenre;
+		}
+		if (Object.keys(variantPatch).length > 0) {
+			variantPatch.updatedAt = args.now;
+			variantPatch.lastSyncedAt = args.now;
+			await ctx.db.patch(variant._id, variantPatch);
+			variant = (await ctx.db.get(variant._id)) ?? variant;
+		}
+	} else {
+		const variantId = await ctx.db.insert('titleVariants', {
+			ownerUserId: title.ownerUserId,
+			libraryTitleId: title._id,
+			sourceId: args.sourceId,
+			sourcePkg: args.sourcePkg,
+			sourceLang: args.sourceLang,
+			titleUrl: args.titleUrl,
+			title: fallbackTitle ?? title.title,
+			author: fallbackAuthor,
+			artist: fallbackArtist,
+			description: fallbackDescription,
+			coverUrl: fallbackCoverUrl,
+			genre: fallbackGenre,
+			status: undefined,
+			isPreferred: false,
+			createdAt: args.now,
+			updatedAt: args.now,
+			lastSyncedAt: args.now
+		});
+		variant = await ctx.db.get(variantId);
+	}
+
+	if (!variant) {
+		throw new Error('Failed to resolve title variant for source open');
+	}
+
+	await setTitlePreferredVariant(ctx, title._id, variant._id, args.now);
+	return (await ctx.db.get(variant._id)) ?? variant;
+}
+
 async function ensureChapterSyncForTitle(
 	ctx: MutationCtx,
 	title: DocLike<'libraryTitles'>,
@@ -563,6 +679,11 @@ async function ensureChapterSyncForTitle(
 		runAfter: now,
 		now
 	});
+}
+
+function normalizeOptionalString(value: string | undefined) {
+	const trimmed = value?.trim();
+	return trimmed ? trimmed : undefined;
 }
 
 async function ensureCoverCacheForTitle(

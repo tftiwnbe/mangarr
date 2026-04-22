@@ -679,9 +679,12 @@ class BridgeCommandRunner(
             "explore.search" -> {
                 val query = payload["query"]?.jsonPrimitive?.contentOrNull.orEmpty()
                 val limit = payload.optionalInt("limit") ?: 30
+                val page = payload.optionalInt("page") ?: 1
                 val sourceId = payload.optionalString("sourceId")
                 val searchFilters = payload["searchFilters"]?.jsonObject
-                kotlinx.coroutines.runBlocking { service.searchTitles(query, limit, sourceId, searchFilters) }
+                kotlinx.coroutines.runBlocking {
+                    service.searchTitles(query, limit, sourceId, searchFilters, page)
+                }
             }
             "explore.popular" -> {
                 val sourceId = payload.requiredString("sourceId")

@@ -388,6 +388,7 @@ export const enqueueExploreSearch = mutation({
 		sourceId: v.string(),
 		query: v.string(),
 		limit: v.float64(),
+		page: v.optional(v.float64()),
 		searchFilters: v.optional(v.any())
 	},
 	handler: (ctx, args) =>
@@ -397,9 +398,10 @@ export const enqueueExploreSearch = mutation({
 				sourceId: args.sourceId,
 				query: args.query,
 				limit: args.limit,
+				...(args.page !== undefined ? { page: args.page } : {}),
 				...(args.searchFilters !== undefined ? { searchFilters: args.searchFilters } : {})
 			},
-			idempotencyKey: `explore.search:${args.sourceId}:${args.query.trim().toLowerCase()}:${args.limit}:${stableKeySegment(args.searchFilters ?? {})}`
+			idempotencyKey: `explore.search:${args.sourceId}:${args.query.trim().toLowerCase()}:${args.page ?? 1}:${args.limit}:${stableKeySegment(args.searchFilters ?? {})}`
 		})
 });
 
