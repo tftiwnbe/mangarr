@@ -1,10 +1,9 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-import { waitForCommand } from '$lib/client/commands';
 import { normalizePreferenceValue } from '$lib/extensions/source-preferences';
 import { convexApi } from '$lib/server/convex-api';
-import { commandFailure, requireAdminConvexClient } from '$lib/server/extensions-admin';
+import { requireAdminConvexClient } from '$lib/server/extensions-admin';
 
 type SourcePreferenceEntry = {
 	key: string;
@@ -23,15 +22,13 @@ export const GET: RequestHandler = async (event) => {
 		sourceId
 	});
 
-	try {
-		const completed = await waitForCommand(client, enqueued.commandId, {
-			timeoutMs: 30_000,
-			pollIntervalMs: 300
-		});
-		return json(completed.result ?? null);
-	} catch (cause) {
-		throw error(502, commandFailure(cause, 'Failed to load source preferences'));
-	}
+	return json(
+		{
+			accepted: true,
+			commandId: enqueued.commandId
+		},
+		{ status: 202 }
+	);
 };
 
 export const PUT: RequestHandler = async (event) => {
@@ -66,13 +63,11 @@ export const PUT: RequestHandler = async (event) => {
 		entries: normalizedEntries
 	});
 
-	try {
-		await waitForCommand(client, enqueued.commandId, {
-			timeoutMs: 30_000,
-			pollIntervalMs: 300
-		});
-		return json({ ok: true });
-	} catch (cause) {
-		throw error(502, commandFailure(cause, 'Failed to save source preferences'));
-	}
+	return json(
+		{
+			accepted: true,
+			commandId: enqueued.commandId
+		},
+		{ status: 202 }
+	);
 };

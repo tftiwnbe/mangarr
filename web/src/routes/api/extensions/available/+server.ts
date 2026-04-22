@@ -1,9 +1,8 @@
-import { error, json } from '@sveltejs/kit';
+import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-import { waitForCommand } from '$lib/client/commands';
 import { convexApi } from '$lib/server/convex-api';
-import { commandFailure, requireAdminConvexClient } from '$lib/server/extensions-admin';
+import { requireAdminConvexClient } from '$lib/server/extensions-admin';
 
 export const GET: RequestHandler = async (event) => {
 	const { client } = await requireAdminConvexClient(event);
@@ -19,17 +18,11 @@ export const GET: RequestHandler = async (event) => {
 		limit
 	});
 
-	try {
-		const completed = await waitForCommand(client, enqueued.commandId, {
-			timeoutMs: 30_000,
-			pollIntervalMs: 300
-		});
-		const result = completed.result as { items?: unknown[] } | null;
-		return json({
-			ok: true,
-			items: Array.isArray(result?.items) ? result.items : []
-		});
-	} catch (cause) {
-		throw error(502, commandFailure(cause, 'Failed to load available extensions'));
-	}
+	return json(
+		{
+			accepted: true,
+			commandId: enqueued.commandId
+		},
+		{ status: 202 }
+	);
 };

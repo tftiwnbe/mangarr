@@ -1,9 +1,8 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-import { waitForCommand } from '$lib/client/commands';
 import { convexApi } from '$lib/server/convex-api';
-import { commandFailure, requireAdminConvexClient } from '$lib/server/extensions-admin';
+import { requireAdminConvexClient } from '$lib/server/extensions-admin';
 
 export const POST: RequestHandler = async (event) => {
 	const { client } = await requireAdminConvexClient(event);
@@ -22,16 +21,11 @@ export const POST: RequestHandler = async (event) => {
 
 	const enqueued = await client.mutation(convexApi.commands.enqueueExtensionUninstall, { pkg });
 
-	try {
-		const completed = await waitForCommand(client, enqueued.commandId, {
-			timeoutMs: 30_000,
-			pollIntervalMs: 300
-		});
-		return json({
-			ok: true,
-			result: completed.result ?? null
-		});
-	} catch (cause) {
-		throw error(502, commandFailure(cause, 'Failed to uninstall extension'));
-	}
+	return json(
+		{
+			accepted: true,
+			commandId: enqueued.commandId
+		},
+		{ status: 202 }
+	);
 };

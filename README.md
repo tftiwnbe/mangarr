@@ -29,6 +29,14 @@ Production example:
 docker compose up -d
 ```
 
+Repo-built runtime with local Docker build and explicit host mounts:
+
+```bash
+MANGARR_HOST_CONFIG_DIR=./config \
+MANGARR_HOST_DOWNLOADS_DIR=./data \
+docker compose -f compose.yaml -f compose.repo.yaml up -d --build
+```
+
 Images:
 
 - `ghcr.io/tftiwnbe/mangarr:edge`

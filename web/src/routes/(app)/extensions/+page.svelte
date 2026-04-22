@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { useConvexClient } from 'convex-svelte';
 	import { onMount } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
+	import { get } from 'svelte/store';
 	import { slide } from 'svelte/transition';
 	import {
 		ArrowsClockwiseIcon,
@@ -16,6 +18,8 @@
 		XIcon
 	} from 'phosphor-svelte';
 
+	import type { Id } from '$convex/_generated/dataModel';
+	import { type AcceptedCommandResponse, waitForCommand } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { Switch } from '$lib/elements/switch';
@@ -87,6 +91,10 @@
 		value: unknown;
 	};
 
+	type AvailableExtensionsResult = {
+		items?: RepoItem[];
+	};
+
 	let activeTab = $state<TabValue>('installed');
 	let loading = $state(true);
 	let availableLoading = $state(false);
@@ -119,6 +127,7 @@
 	let authImportSaving = $state(false);
 	let authImportError = $state<string | null>(null);
 	let authImportSuccess = $state<string | null>(null);
+	const convexClient = useConvexClient();
 
 	const trimmedSearch = $derived(searchQuery.trim().toLowerCase());
 
@@ -221,6 +230,17 @@
 		return data as T;
 	}
 
+	async function waitForAcceptedCommand<TResult = Record<string, unknown>>(
+		accepted: AcceptedCommandResponse,
+		timeoutMs = 30_000
+	): Promise<TResult | null> {
+		const command = await waitForCommand(convexClient, accepted.commandId as Id<'commands'>, {
+			timeoutMs,
+			pollIntervalMs: 300
+		});
+		return (command.result ?? null) as TResult | null;
+	}
+
 	function displayExtensionName(name: string) {
 		return name.replace(/^tachiyomi:\s*/i, '').trim();
 	}
@@ -317,10 +337,11 @@
 	async function loadAvailableExtensions() {
 		availableLoading = true;
 		try {
-			const result = await fetchJson<{ items?: RepoItem[] }>(
+			const accepted = await fetchJson<AcceptedCommandResponse>(
 				'/api/extensions/available?limit=5000'
 			);
-			const items = (result.items ?? []).filter(Boolean);
+			const result = await waitForAcceptedCommand<AvailableExtensionsResult>(accepted);
+			const items = (result?.items ?? []).filter(Boolean);
 			availableExtensions = items
 				.filter((item) => !isInstalled(item.pkg))
 				.map((item) => ({
@@ -330,6 +351,37 @@
 			scheduleRenderMore();
 		} finally {
 			availableLoading = false;
+		}
+	}
+
+	async function applyPreferredSourceState(extension: InstalledExtension) {
+		const enabledLangs = new Set(toMainContentLanguages(get(contentLanguages)));
+		for (const source of extension.sources) {
+			const normalizedLang = normalizeContentLanguageCode(source.lang);
+			const shouldEnable =
+				normalizedLang !== null &&
+				(enabledLangs.has(normalizedLang) || normalizedLang === 'multi');
+			source.enabled = shouldEnable;
+			if (shouldEnable) {
+				continue;
+			}
+
+			try {
+				await fetchJson<{ ok: boolean }>('/api/internal/bridge/extensions/source-enabled', {
+					method: 'PUT',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({
+						pkg: extension.pkg,
+						sourceId: source.id,
+						enabled: false
+					})
+				});
+			} catch (cause) {
+				if (cause instanceof Error && cause.message === 'Source not found') {
+					continue;
+				}
+				throw cause;
+			}
 		}
 	}
 
@@ -361,11 +413,15 @@
 		installingPkg = pkg;
 		error = null;
 		try {
-			await fetchJson<{ ok: boolean }>('/api/extensions/install', {
+			const accepted = await fetchJson<AcceptedCommandResponse>('/api/extensions/install', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ pkg })
 			});
+			const result = await waitForAcceptedCommand<InstalledExtension>(accepted);
+			if (result) {
+				await applyPreferredSourceState(result);
+			}
 			await Promise.all([loadInstalledExtensions(), loadAvailableExtensions()]);
 			activeTab = 'installed';
 			expandedPkg = pkg;
@@ -380,11 +436,12 @@
 		uninstallingPkg = pkg;
 		error = null;
 		try {
-			await fetchJson<{ ok: boolean }>('/api/extensions/uninstall', {
+			const accepted = await fetchJson<AcceptedCommandResponse>('/api/extensions/uninstall', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ pkg })
 			});
+			await waitForAcceptedCommand(accepted);
 			if (expandedPkg === pkg) expandedPkg = null;
 			await Promise.all([loadInstalledExtensions(), loadAvailableExtensions()]);
 		} catch (cause) {
@@ -453,9 +510,13 @@
 		pendingPreferenceChanges.clear();
 		advancedOpen = false;
 		try {
-			const bundle = await fetchJson<PreferenceBundle>(
+			const accepted = await fetchJson<AcceptedCommandResponse>(
 				`/api/extensions/source-preferences?sourceId=${encodeURIComponent(sourceId)}`
 			);
+			const bundle = await waitForAcceptedCommand<PreferenceBundle>(accepted);
+			if (!bundle) {
+				throw new Error('Source preferences command returned no result');
+			}
 			sourceSettingsData = mapSourcePreferencesBundle(bundle);
 			authImportText = serializeImportedStorage(sourceSettingsData);
 		} catch (cause) {
@@ -495,7 +556,7 @@
 			const entries = buildPreferenceEntries(
 				pendingPreferenceChanges.entries()
 			) as SourcePreferenceEntry[];
-			await fetchJson<{ ok: boolean }>('/api/extensions/source-preferences', {
+			const accepted = await fetchJson<AcceptedCommandResponse>('/api/extensions/source-preferences', {
 				method: 'PUT',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({
@@ -503,6 +564,7 @@
 					entries
 				})
 			});
+			await waitForAcceptedCommand(accepted);
 			await openSourceSettings(sourceSettingsData.source_id);
 		} catch (cause) {
 			sourceSettingsError =
@@ -513,7 +575,7 @@
 	}
 
 	async function saveImportedStorageEntries(sourceId: string, entries: SourcePreferenceEntry[]) {
-		await fetchJson<{ ok: boolean }>('/api/extensions/source-preferences', {
+		const accepted = await fetchJson<AcceptedCommandResponse>('/api/extensions/source-preferences', {
 			method: 'PUT',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({
@@ -521,6 +583,7 @@
 				entries
 			})
 		});
+		await waitForAcceptedCommand(accepted);
 	}
 
 	async function importAuthStorage() {

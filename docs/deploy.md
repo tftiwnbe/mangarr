@@ -16,6 +16,16 @@ Bring it up with:
 docker compose up -d
 ```
 
+To build the runtime locally from the checked-out repo instead of pulling `ghcr.io`, use the repo override:
+
+```bash
+MANGARR_HOST_CONFIG_DIR=./config \
+MANGARR_HOST_DOWNLOADS_DIR=./data \
+docker compose -f compose.yaml -f compose.repo.yaml up -d --build
+```
+
+That keeps the production runtime target and lets you point persistence at any host directories without editing tracked compose files.
+
 Default example values:
 
 - web app on `https://mangarr.hmphin.space`

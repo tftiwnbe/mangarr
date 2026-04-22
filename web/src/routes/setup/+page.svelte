@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { useConvexClient } from 'convex-svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { get } from 'svelte/store';
 	import { goto } from '$app/navigation';
@@ -8,6 +7,7 @@
 	import type { Id } from '$convex/_generated/dataModel';
 	import { ClientError } from '$lib/client/auth';
 	import { waitForCommand } from '$lib/client/commands';
+	import { setupConvexClient } from '$lib/convex/client';
 	import { getExtensionRepository, updateExtensionRepository } from '$lib/client/setup';
 	import { Button } from '$lib/elements/button';
 	import { Input } from '$lib/elements/input';
@@ -35,7 +35,7 @@
 	let checkingAuth = $state(true);
 	let mounted = $state(false);
 
-	const convexClient = useConvexClient();
+	let convexClient = $state<ReturnType<typeof setupConvexClient>>(null);
 	let repositoryLanguages = $state<string[]>([]);
 	let selectedContentLangs = $state<Set<string>>(new Set());
 
@@ -47,6 +47,7 @@
 
 	onMount(async () => {
 		mounted = true;
+		convexClient = setupConvexClient();
 
 		try {
 			const [repository] = await Promise.all([getExtensionRepository(), loadContentLanguages()]);
@@ -70,6 +71,9 @@
 
 		try {
 			const update = await updateExtensionRepository({ url: repoUrl.trim() });
+			if (!convexClient) {
+				throw new Error('Convex client is unavailable');
+			}
 			await waitForCommand(convexClient, update.syncCommandId as Id<'commands'>, {
 				timeoutMs: 30_000,
 				pollIntervalMs: 300

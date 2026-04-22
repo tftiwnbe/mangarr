@@ -1,8 +1,10 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { afterNavigate } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 
+	import { setupConvexClient } from '$lib/convex/client';
 	import { StarField } from '$lib/elements/starfield';
 	import { BookIcon, CompassIcon, DownloadIcon, PuzzlePieceIcon, GearIcon } from 'phosphor-svelte';
 	import { _ } from '$lib/i18n';
@@ -12,6 +14,11 @@
 	import { resolvedTheme } from '$lib/stores/theme';
 
 	let { children } = $props();
+
+	// App routes are the only surfaces that require Convex auth/bootstrap.
+	if (browser) {
+		setupConvexClient();
+	}
 
 	const navItems = [
 		{ href: '/library', icon: BookIcon, label: 'library' },

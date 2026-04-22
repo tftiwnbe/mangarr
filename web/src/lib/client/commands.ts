@@ -2,6 +2,11 @@ import type { Id } from '$convex/_generated/dataModel';
 import type { FunctionReference } from 'convex/server';
 import { convexApi } from '$lib/convex/api';
 
+export type AcceptedCommandResponse = {
+	accepted: true;
+	commandId: Id<'commands'>;
+};
+
 export type CommandState<TResult = Record<string, unknown>> = {
 	id?: string;
 	commandType: string;

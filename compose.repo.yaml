@@ -1,0 +1,10 @@
+services:
+  mangarr:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: mangarr-runtime
+    volumes:
+      - ${MANGARR_HOST_CONFIG_DIR:-./config}:/app/config
+      - ${MANGARR_HOST_DOWNLOADS_DIR:-./data}:/app/downloads

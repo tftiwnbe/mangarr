@@ -4,7 +4,6 @@
 
 	import {
 		ClientError,
-		getMe,
 		getPostLoginRedirect,
 		getSetupStatus,
 		login,
@@ -47,14 +46,6 @@
 			needsSetup = status.needs_setup;
 		} catch {
 			needsSetup = false;
-		}
-
-		try {
-			await getMe();
-			await redirectToApp();
-			return;
-		} catch {
-			// Ignore and show form.
 		} finally {
 			checkingSession = false;
 		}
