@@ -4,6 +4,8 @@ import { v } from 'convex/values';
 import { query } from './_generated/server';
 import { buildChapterRouteBase, buildTitleRouteBase } from '../lib/utils/route-segments';
 import {
+	chapterBelongsToVariant,
+	getPreferredVariantForTitle,
 	getOwnedChapterProgressRow,
 	loadOwnerCollectionIdsByTitleId,
 	loadOwnerCollectionMap,
@@ -287,11 +289,12 @@ export const listTitleChapters = query({
 	},
 	handler: async (ctx, args) => {
 		const title = await requireOwnedTitle(ctx, args.titleId);
-		const [chapters, progressRows] = await Promise.all([
+		const [chapters, preferredVariant, progressRows] = await Promise.all([
 			ctx.db
 				.query('libraryChapters')
 				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
 				.collect(),
+			getPreferredVariantForTitle(ctx, title),
 			ctx.db
 				.query('chapterProgress')
 				.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
@@ -299,12 +302,19 @@ export const listTitleChapters = query({
 				)
 				.collect()
 		]);
-		const chapterRouteSegments = buildChapterRouteSegments(chapters);
+		const activeChapterSource = preferredVariant ?? title;
+		const activeChapters = chapters.filter((chapter) =>
+			chapterBelongsToVariant(chapter, activeChapterSource)
+		);
+		const activeChapterIds = new Set(activeChapters.map((chapter) => String(chapter._id)));
+		const chapterRouteSegments = buildChapterRouteSegments(activeChapters);
 		const progressByChapterId = new Map(
-			progressRows.map((row) => [String(row.chapterId), row] as const)
+			progressRows
+				.filter((row) => activeChapterIds.has(String(row.chapterId)))
+				.map((row) => [String(row.chapterId), row] as const)
 		);
 
-		return sortLibraryChaptersInReadingOrder(chapters).map((chapter) => {
+		return sortLibraryChaptersInReadingOrder(activeChapters).map((chapter) => {
 			const progress = progressByChapterId.get(String(chapter._id)) ?? null;
 			return {
 				...chapter,

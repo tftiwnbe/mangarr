@@ -367,20 +367,22 @@
 				title?.variants.map((variant) => sourceVariantKey(variant.sourceId, variant.titleUrl)) ?? []
 			)
 	);
+	const enabledMatchSources = $derived.by(() => {
+		if (!title) return [] as SourceItem[];
+		return [...sources].sort((left, right) => {
+			const leftScore = left.lang === title.sourceLang ? 0 : 1;
+			const rightScore = right.lang === title.sourceLang ? 0 : 1;
+			if (leftScore !== rightScore) return leftScore - rightScore;
+			if (left.extensionName !== right.extensionName) {
+				return left.extensionName.localeCompare(right.extensionName);
+			}
+			return left.name.localeCompare(right.name);
+		});
+	});
 	const availableMatchSources = $derived.by(() => {
 		if (!title) return [] as SourceItem[];
 		const linkedSourceIds = new Set(title.variants.map((variant) => variant.sourceId));
-		return [...sources]
-			.filter((source) => !linkedSourceIds.has(source.id))
-			.sort((left, right) => {
-				const leftScore = left.lang === title.sourceLang ? 0 : 1;
-				const rightScore = right.lang === title.sourceLang ? 0 : 1;
-				if (leftScore !== rightScore) return leftScore - rightScore;
-				if (left.extensionName !== right.extensionName) {
-					return left.extensionName.localeCompare(right.extensionName);
-				}
-				return left.name.localeCompare(right.name);
-			});
+		return enabledMatchSources.filter((source) => !linkedSourceIds.has(source.id));
 	});
 	const hasStaleVariants = $derived.by(
 		() => title?.variants.some((variant) => variant.isStale) ?? false
@@ -472,7 +474,7 @@
 	});
 
 	$effect(() => {
-		if (availableMatchSources.length === 0) {
+		if (enabledMatchSources.length === 0) {
 			if (manualSearchSourceId !== '') {
 				manualSearchSourceId = '';
 			}
@@ -481,12 +483,12 @@
 
 		if (
 			manualSearchSourceId &&
-			availableMatchSources.some((source) => source.id === manualSearchSourceId)
+			enabledMatchSources.some((source) => source.id === manualSearchSourceId)
 		) {
 			return;
 		}
 
-		const nextSource = availableMatchSources[0]?.id ?? '';
+		const nextSource = enabledMatchSources[0]?.id ?? '';
 		if (manualSearchSourceId !== nextSource) {
 			manualSearchSourceId = nextSource;
 		}
@@ -897,12 +899,13 @@
 		const rankedQueries = suggestionQueries.length > 0 ? suggestionQueries : [query];
 		const candidateSources = manual
 			? manualSearchSourceId
-				? availableMatchSources.filter((source) => source.id === manualSearchSourceId)
-				: availableMatchSources
+				? enabledMatchSources.filter((source) => source.id === manualSearchSourceId)
+				: enabledMatchSources
 			: availableMatchSources;
 		if (candidateSources.length === 0) {
 			sourceMatches = [];
 			sourceMatchesAttempted = true;
+			sourceMatchesOpen = true;
 			return;
 		}
 
@@ -1567,7 +1570,7 @@
 							variant="outline"
 							size="sm"
 							onclick={() => void loadSourceMatches()}
-							disabled={sourceMatchesLoading || availableMatchSources.length === 0}
+							disabled={sourceMatchesLoading || enabledMatchSources.length === 0}
 							loading={sourceMatchesLoading}
 						>
 							{$_('title.findOtherSources')}
@@ -1700,7 +1703,7 @@
 									bind:value={manualSearchSourceId}
 								>
 									<option value="">{$_('title.allEnabledSources')}</option>
-									{#each availableMatchSources as source (source.id)}
+									{#each enabledMatchSources as source (source.id)}
 										<option value={source.id}>{source.name} [{source.lang}]</option>
 									{/each}
 								</select>
@@ -1708,7 +1711,7 @@
 									variant="outline"
 									size="sm"
 									onclick={() => void loadSourceMatches({ manual: true })}
-									disabled={sourceMatchesLoading || availableMatchSources.length === 0}
+									disabled={sourceMatchesLoading || enabledMatchSources.length === 0}
 									loading={sourceMatchesLoading}
 								>
 									{$_('common.search')}
@@ -1722,7 +1725,6 @@
 					<p class="text-xs text-[var(--error)]">{sourceManagementError}</p>
 				{/if}
 			</div>
-
 		</div>
 	</SlidePanel>
 {/if}

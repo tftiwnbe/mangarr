@@ -42,6 +42,29 @@ export async function getPreferredVariantForTitle(
 	);
 }
 
+export function chapterBelongsToVariant(
+	chapter: {
+		titleVariantId?: GenericId<'titleVariants'>;
+		sourceId: string;
+		sourcePkg: string;
+		titleUrl: string;
+	},
+	variant: {
+		_id?: GenericId<'titleVariants'>;
+		sourceId: string;
+		sourcePkg: string;
+		titleUrl: string;
+	}
+) {
+	return (
+		chapter.titleVariantId === variant._id ||
+		(!chapter.titleVariantId &&
+			chapter.sourceId === variant.sourceId &&
+			chapter.sourcePkg === variant.sourcePkg &&
+			chapter.titleUrl === variant.titleUrl)
+	);
+}
+
 export async function findVariantForTitle(
 	ctx: QueryCtx | MutationCtx,
 	titleId: GenericId<'libraryTitles'>,
@@ -342,13 +365,13 @@ export async function setTitlePreferredVariant(
 			sourcePkg: preferredVariant.sourcePkg,
 			sourceLang: preferredVariant.sourceLang,
 			titleUrl: preferredVariant.titleUrl,
-			title: pickString(title.title, preferredVariant.title) ?? preferredVariant.title,
-			author: pickString(title.author, preferredVariant.author),
-			artist: pickString(title.artist, preferredVariant.artist),
-			description: pickString(title.description, preferredVariant.description),
-			coverUrl: pickString(title.coverUrl, preferredVariant.coverUrl),
-			genre: pickString(title.genre, preferredVariant.genre),
-			status: pickNumber(title.status, preferredVariant.status),
+			title: pickString(preferredVariant.title, title.title) ?? preferredVariant.title,
+			author: pickString(preferredVariant.author, title.author),
+			artist: pickString(preferredVariant.artist, title.artist),
+			description: pickString(preferredVariant.description, title.description),
+			coverUrl: pickString(preferredVariant.coverUrl, title.coverUrl),
+			genre: pickString(preferredVariant.genre, title.genre),
+			status: pickNumber(preferredVariant.status, title.status),
 			preferredVariantId: preferredVariant._id,
 			now
 		});

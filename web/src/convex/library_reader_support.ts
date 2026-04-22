@@ -8,6 +8,8 @@ import {
 	buildUniqueRouteSegmentMap
 } from '../lib/utils/route-segments';
 import {
+	chapterBelongsToVariant,
+	getPreferredVariantForTitle,
 	listCollectionsForTitle,
 	listVariantsForTitle,
 	resolveOwnedTitleUserStatus
@@ -246,42 +248,59 @@ export function summarizeOfflineReadiness(
  * getMineOverviewByRouteSegment in a single parallel batch.
  */
 export async function loadTitleOverviewContext(ctx: QueryCtx, title: Doc<'libraryTitles'>) {
-	const [routeSegment, chapters, userStatus, collections, variants, progressRows, downloadProfile] =
-		await Promise.all([
-			resolveOwnerTitleRouteSegment(ctx, title),
-			ctx.db
-				.query('libraryChapters')
-				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
-				.collect(),
-			resolveOwnedTitleUserStatus(ctx, title),
-			listCollectionsForTitle(ctx, title),
-			listVariantsForTitle(ctx, title),
-			ctx.db
-				.query('chapterProgress')
-				.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
-					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-				)
-				.collect(),
-			ctx.db
-				.query('downloadProfiles')
-				.withIndex('by_owner_user_id_library_title_id', (q) =>
-					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-				)
-				.unique()
-		]);
-
-	const latestProgress =
-		[...progressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
-
-	const chapterStats = summarizeDownloadStats(chapters);
-
-	return {
+	const [
 		routeSegment,
 		chapters,
+		preferredVariant,
 		userStatus,
 		collections,
 		variants,
 		progressRows,
+		downloadProfile
+	] = await Promise.all([
+		resolveOwnerTitleRouteSegment(ctx, title),
+		ctx.db
+			.query('libraryChapters')
+			.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+			.collect(),
+		getPreferredVariantForTitle(ctx, title),
+		resolveOwnedTitleUserStatus(ctx, title),
+		listCollectionsForTitle(ctx, title),
+		listVariantsForTitle(ctx, title),
+		ctx.db
+			.query('chapterProgress')
+			.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+			)
+			.collect(),
+		ctx.db
+			.query('downloadProfiles')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+			)
+			.unique()
+	]);
+
+	const activeChapterSource = preferredVariant ?? title;
+	const activeChapters = chapters.filter((chapter) =>
+		chapterBelongsToVariant(chapter, activeChapterSource)
+	);
+	const activeChapterIds = new Set(activeChapters.map((chapter) => String(chapter._id)));
+	const activeProgressRows = progressRows.filter((row) =>
+		activeChapterIds.has(String(row.chapterId))
+	);
+	const latestProgress =
+		[...activeProgressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
+
+	const chapterStats = summarizeDownloadStats(activeChapters);
+
+	return {
+		routeSegment,
+		chapters: activeChapters,
+		userStatus,
+		collections,
+		variants,
+		progressRows: activeProgressRows,
 		latestProgress,
 		downloadProfile,
 		chapterStats,

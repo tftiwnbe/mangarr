@@ -6,6 +6,7 @@ import { buildTitleRouteBase } from '../lib/utils/route-segments';
 import { requireBridgeIdentity } from './bridge_auth';
 import { insertCommand } from './command_payloads';
 import { STATUS } from './commands';
+import { chapterBelongsToVariant, getPreferredVariantForTitle } from './library_shared_titles';
 
 const REUSABLE_COMMAND_STATUSES = new Set<string>([STATUS.QUEUED, STATUS.SUCCEEDED]);
 
@@ -523,17 +524,19 @@ async function ensureChapterSyncForTitle(
 	title: DocLike<'libraryTitles'>,
 	now: number
 ) {
-	const existingChapters = await ctx.db
-		.query('libraryChapters')
-		.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
-		.take(1);
-	if (existingChapters.length > 0) {
+	const preferredVariant = await getPreferredVariantForTitle(ctx, title);
+	const activeChapterSource = preferredVariant ?? title;
+	const sourceId = activeChapterSource.sourceId.trim();
+	const titleUrl = activeChapterSource.titleUrl.trim();
+	if (!sourceId || !titleUrl) {
 		return null;
 	}
 
-	const sourceId = title.sourceId.trim();
-	const titleUrl = title.titleUrl.trim();
-	if (!sourceId || !titleUrl) {
+	const existingChapters = await ctx.db
+		.query('libraryChapters')
+		.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+		.collect();
+	if (existingChapters.some((chapter) => chapterBelongsToVariant(chapter, activeChapterSource))) {
 		return null;
 	}
 
