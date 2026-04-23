@@ -500,6 +500,11 @@ export async function refreshTitleChapterStats(
 	now: number
 ) {
 	try {
+		const title = await ctx.db.get(libraryTitleId);
+		if (!title) {
+			return;
+		}
+		const preferredVariant = await getPreferredVariantForTitle(ctx, title);
 		const chapters = await ctx.db
 			.query('libraryChapters')
 			.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', libraryTitleId))
@@ -510,7 +515,12 @@ export async function refreshTitleChapterStats(
 		let downloaded = 0;
 		let failed = 0;
 		let downloadedBytes = 0;
-		const availableChapters = chapters.filter((chapter) => chapter.isAvailableFromSource !== false);
+		const activeChapterSource = preferredVariant ?? title;
+		const availableChapters = chapters.filter(
+			(chapter) =>
+				chapter.isAvailableFromSource !== false &&
+				chapterBelongsToVariant(chapter, activeChapterSource)
+		);
 		for (const chapter of availableChapters) {
 			switch (chapter.downloadStatus) {
 				case DOWNLOAD_STATUS.QUEUED:
