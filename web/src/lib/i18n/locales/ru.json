@@ -261,7 +261,16 @@
 		"manageCollectionsInLibrary": "Создавайте и управляйте коллекциями в настройках",
 		"notFound": "Тайтл не найден",
 		"notFoundDescription": "Запрошенный тайтл не существует",
-		"backToLibrary": "Назад в библиотеку"
+		"backToLibrary": "Назад в библиотеку",
+		"editMetadata": "Редактировать метаданные",
+		"editName": "Название",
+		"editGenresPlaceholder": "Добавить жанр...",
+		"editFromSources": "из источников",
+		"editAlsoKnownAs": "также известно как",
+		"editSaveChanges": "Сохранить",
+		"editNoSuggestions": "Нет альтернативных предложений от связанных источников",
+		"editDescriptionAlternatives": "Альтернативные описания из связанных источников",
+		"editUseThis": "использовать"
 	},
 
 	"preview": {

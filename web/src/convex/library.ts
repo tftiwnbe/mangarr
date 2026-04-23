@@ -54,6 +54,7 @@ export {
 	listUserStatuses,
 	mergeTitles,
 	updateCollection,
+	updateTitleCustomMetadata,
 	updateTitlePreferences,
 	updateUserStatus
 } from './library_organization';

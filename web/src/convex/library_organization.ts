@@ -586,3 +586,28 @@ export const mergeTitles = mutation({
 		};
 	}
 });
+
+export const updateTitleCustomMetadata = mutation({
+	args: {
+		titleId: v.id('libraryTitles'),
+		title: v.string(),
+		description: v.union(v.string(), v.null()),
+		genre: v.union(v.string(), v.null()),
+		author: v.union(v.string(), v.null()),
+		artist: v.union(v.string(), v.null())
+	},
+	handler: async (ctx, args) => {
+		const titleRecord = await requireOwnedTitle(ctx, args.titleId);
+		const now = Date.now();
+		const trimmedTitle = args.title.trim();
+		await ctx.db.patch(titleRecord._id, {
+			title: trimmedTitle || titleRecord.title,
+			description: args.description?.trim() || undefined,
+			genre: args.genre?.trim() || undefined,
+			author: args.author?.trim() || undefined,
+			artist: args.artist?.trim() || undefined,
+			updatedAt: now
+		});
+		return { ok: true };
+	}
+});

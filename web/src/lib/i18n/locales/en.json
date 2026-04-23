@@ -261,7 +261,16 @@
 		"manageCollectionsInLibrary": "Create and manage collections from Settings",
 		"notFound": "Title not found",
 		"notFoundDescription": "The title you're looking for doesn't exist",
-		"backToLibrary": "Back to Library"
+		"backToLibrary": "Back to Library",
+		"editMetadata": "Edit Metadata",
+		"editName": "Name",
+		"editGenresPlaceholder": "Add genre...",
+		"editFromSources": "from sources",
+		"editAlsoKnownAs": "also known as",
+		"editSaveChanges": "Save Changes",
+		"editNoSuggestions": "No alternative suggestions from linked sources",
+		"editDescriptionAlternatives": "Alternative descriptions from linked sources",
+		"editUseThis": "use this"
 	},
 
 	"preview": {

@@ -11,6 +11,7 @@
 		CaretDownIcon,
 		CaretLeftIcon,
 		GearIcon,
+		PencilLineIcon,
 		PlayIcon,
 		PlusIcon,
 		StarIcon,
@@ -20,6 +21,7 @@
 	import type { Id } from '$convex/_generated/dataModel';
 	import TitleChaptersTab from '$lib/components/title-chapters-tab.svelte';
 	import TitleCommentsTab from '$lib/components/title-comments-tab.svelte';
+	import TitleEditPanel from '$lib/components/title-edit-panel.svelte';
 	import TitleInfoTab from '$lib/components/title-info-tab.svelte';
 	import { convexApi } from '$lib/convex/api';
 	import { waitForCommand } from '$lib/client/commands';
@@ -191,6 +193,7 @@
 	let activeTab = $state<'info' | 'chapters' | 'comments'>('info');
 	let showFullDescription = $state(false);
 	let showManagementPanel = $state(false);
+	let showEditPanel = $state(false);
 	let downloadingChapterIds = $state<string[]>([]);
 	let updatingDownloadProfile = $state(false);
 	let actionError = $state<string | null>(null);
@@ -1353,11 +1356,21 @@
 					</div>
 
 					<div class="flex items-start justify-between gap-4">
-						<h1
-							class="text-display text-2xl leading-tight text-[var(--text)] sm:text-3xl md:text-2xl"
-						>
-							{title.title}
-						</h1>
+						<div class="flex min-w-0 flex-1 items-start gap-2">
+							<h1
+								class="text-display min-w-0 text-2xl leading-tight text-[var(--text)] sm:text-3xl md:text-2xl"
+							>
+								{title.title}
+							</h1>
+							<button
+								type="button"
+								class="mt-1 shrink-0 text-[var(--void-6)] transition-colors hover:text-[var(--text-ghost)]"
+								onclick={() => (showEditPanel = true)}
+								aria-label={$_('title.editMetadata')}
+							>
+								<PencilLineIcon size={14} />
+							</button>
+						</div>
 						<div class="hidden shrink-0 items-center gap-0.5 md:flex">
 							{#each Array.from({ length: 5 }) as _unused, i (i)}
 								{@const value = i + 1}
@@ -1539,6 +1552,10 @@
 		</div>
 	{/if}
 </div>
+
+{#if title}
+	<TitleEditPanel open={showEditPanel} title={title} onclose={() => (showEditPanel = false)} />
+{/if}
 
 {#if title}
 	<SlidePanel
