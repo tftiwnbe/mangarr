@@ -25,6 +25,7 @@
 	import TitleInfoTab from '$lib/components/title-info-tab.svelte';
 	import { convexApi } from '$lib/convex/api';
 	import { waitForCommand } from '$lib/client/commands';
+	import { Alert } from '$lib/elements/alert';
 	import { Button } from '$lib/elements/button';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { SlidePanel } from '$lib/elements/slide-panel';
@@ -1446,7 +1447,7 @@
 				</div>
 
 				{#if actionError}
-					<p class="mt-3 text-xs text-[var(--error)]">{actionError}</p>
+					<Alert variant="error" class="mt-3">{actionError}</Alert>
 				{/if}
 
 				<div class="mt-8 flex gap-1">

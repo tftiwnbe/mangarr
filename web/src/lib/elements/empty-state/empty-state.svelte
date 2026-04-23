@@ -27,14 +27,26 @@
 
 <div class="flex flex-col items-center justify-center py-16 text-center {className}">
 	{#if Icon}
-		<Icon size={40} class="text-[var(--void-5)]" />
-		<div class="mt-5"></div>
+		<!-- Instrument crosshair frame around the icon -->
+		<div class="relative flex h-16 w-16 items-center justify-center">
+			<!-- Corner brackets -->
+			<span class="absolute top-0 left-0 h-3 w-3 border-t border-l border-[var(--void-5)]"></span>
+			<span class="absolute top-0 right-0 h-3 w-3 border-t border-r border-[var(--void-5)]"></span>
+			<span class="absolute bottom-0 left-0 h-3 w-3 border-b border-l border-[var(--void-5)]"></span>
+			<span class="absolute bottom-0 right-0 h-3 w-3 border-b border-r border-[var(--void-5)]"></span>
+			<Icon size={26} class="animate-float text-[var(--void-6)]" />
+		</div>
+
+		<!-- HUD "no data" label -->
+		<span class="mt-4 text-[10px] tracking-[0.24em] text-[var(--void-6)] uppercase">
+			no data
+		</span>
 	{/if}
 
-	<h3 class="text-display text-sm text-[var(--text)]">{title}</h3>
+	<h3 class="text-display mt-2 text-sm text-[var(--text)]">{title}</h3>
 
 	{#if description}
-		<p class="mt-2 max-w-[280px] text-xs leading-relaxed text-[var(--text-ghost)]">
+		<p class="mt-2 max-w-[260px] text-xs leading-relaxed text-[var(--text-ghost)]">
 			{description}
 		</p>
 	{/if}

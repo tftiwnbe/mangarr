@@ -45,6 +45,13 @@
 	--success: #86efac;
 	--success-soft: rgba(134, 239, 172, 0.12);
 
+	/* Cosmic accent — the periwinkle signal color used on progress, glows, active dots */
+	--cosmic: rgba(199, 210, 254, 0.9);
+	--cosmic-dim: rgba(199, 210, 254, 0.5);
+	--cosmic-glow: rgba(165, 180, 252, 0.7);
+	--cosmic-halo: rgba(165, 180, 252, 0.18);
+	--cosmic-soft: rgba(199, 210, 254, 0.12);
+
 	/* Surfaces */
 	--surface: var(--void-2);
 	--surface-raised: var(--void-3);
@@ -107,6 +114,13 @@
 	--error-soft: rgba(220, 38, 38, 0.08);
 	--success: #16a34a;
 	--success-soft: rgba(22, 163, 74, 0.08);
+
+	/* Cosmic accent — deeper indigo for light mode legibility */
+	--cosmic: rgba(99, 102, 241, 0.9);
+	--cosmic-dim: rgba(99, 102, 241, 0.5);
+	--cosmic-glow: rgba(99, 102, 241, 0.5);
+	--cosmic-halo: rgba(99, 102, 241, 0.1);
+	--cosmic-soft: rgba(99, 102, 241, 0.08);
 
 	/* Surfaces */
 	--surface: var(--void-2);

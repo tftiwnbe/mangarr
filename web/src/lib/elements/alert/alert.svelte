@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { CheckCircleIcon, InfoIcon, WarningCircleIcon, XCircleIcon, XIcon } from 'phosphor-svelte';
+	import { XIcon } from 'phosphor-svelte';
 
 	type Variant = 'error' | 'success' | 'info' | 'warning';
 
@@ -22,41 +22,69 @@
 		children
 	}: Props = $props();
 
-	const configs: Record<Variant, { borderColor: string; iconColor: string; bg: string; Icon: typeof InfoIcon }> = {
-		error:   { borderColor: 'border-l-[var(--error)]',   iconColor: 'text-[var(--error)]',      bg: 'bg-[var(--error-soft)]',    Icon: XCircleIcon },
-		success: { borderColor: 'border-l-[var(--success)]', iconColor: 'text-[var(--success)]',    bg: 'bg-[var(--success-soft)]',  Icon: CheckCircleIcon },
-		info:    { borderColor: 'border-l-[var(--void-7)]',  iconColor: 'text-[var(--text-ghost)]', bg: '',                          Icon: InfoIcon },
-		warning: { borderColor: 'border-l-amber-500',         iconColor: 'text-amber-400',           bg: 'bg-amber-500/5',            Icon: WarningCircleIcon },
+	const configs: Record<
+		Variant,
+		{ dot: string; label: string; border: string; bg: string; pulse: boolean }
+	> = {
+		error: {
+			dot: 'bg-[var(--error)] shadow-[0_0_6px_var(--error)]',
+			label: 'alert',
+			border: 'border-l-[var(--error)]',
+			bg: 'bg-[var(--error-soft)]',
+			pulse: true
+		},
+		success: {
+			dot: 'bg-[var(--success)] shadow-[0_0_6px_var(--success)]',
+			label: 'ok',
+			border: 'border-l-[var(--success)]',
+			bg: 'bg-[var(--success-soft)]',
+			pulse: false
+		},
+		info: {
+			dot: 'bg-[var(--cosmic)] shadow-[0_0_6px_var(--cosmic-glow)]',
+			label: 'info',
+			border: 'border-l-[var(--void-6)]',
+			bg: 'bg-[var(--cosmic-soft)]',
+			pulse: false
+		},
+		warning: {
+			dot: 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.6)]',
+			label: 'warn',
+			border: 'border-l-amber-500',
+			bg: 'bg-amber-500/5',
+			pulse: false
+		}
 	};
 
 	const config = $derived(configs[variant]);
 </script>
 
 <div
-	class="flex gap-3 border-l-[3px] px-4 py-3 {config.borderColor} {config.bg} {className}"
+	class="border-l-[3px] px-4 py-3 {config.border} {config.bg} {className}"
 	role={variant === 'error' ? 'alert' : 'status'}
 >
-	<div class="mt-px shrink-0 {config.iconColor}">
-		<config.Icon size={15} weight="fill" />
-	</div>
-
-	<div class="flex min-w-0 flex-1 flex-col gap-1">
-		{#if title}
-			<p class="text-label">{title}</p>
+	<!-- HUD header row -->
+	<div class="mb-2 flex items-center gap-2">
+		<span
+			class="h-1 w-1 shrink-0 rounded-full {config.dot} {config.pulse ? 'animate-pulse' : ''}"
+		></span>
+		<span class="text-[10px] tracking-[0.24em] text-[var(--text-ghost)] uppercase">
+			{title ?? config.label}
+		</span>
+		{#if dismissible}
+			<button
+				type="button"
+				class="ml-auto shrink-0 text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
+				onclick={onDismiss}
+				aria-label="Dismiss"
+			>
+				<XIcon size={12} />
+			</button>
 		{/if}
-		<div class="text-xs leading-relaxed text-[var(--text-muted)]">
-			{@render children()}
-		</div>
 	</div>
 
-	{#if dismissible}
-		<button
-			type="button"
-			class="shrink-0 self-start text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
-			onclick={onDismiss}
-			aria-label="Dismiss"
-		>
-			<XIcon size={14} />
-		</button>
-	{/if}
+	<!-- Message body -->
+	<div class="pl-3 text-xs leading-relaxed text-[var(--text-muted)]">
+		{@render children()}
+	</div>
 </div>

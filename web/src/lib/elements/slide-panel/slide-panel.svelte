@@ -34,26 +34,30 @@
 	>
 		<!-- Panel -->
 		<div
-			class="animate-slide-in-right absolute top-0 right-0 h-full w-full max-w-sm bg-[var(--void-0)]"
+			class="animate-slide-in-right absolute top-0 right-0 h-full w-full max-w-sm
+				border-l border-[var(--void-4)] bg-[var(--void-1)]"
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="slide-panel-title"
 		>
-			<!-- Header -->
-			<div class="flex h-11 items-center justify-between px-4">
-				<h2
-					id="slide-panel-title"
-					class="text-xs tracking-wider text-[var(--text-muted)] uppercase"
-				>
-					{title}
-				</h2>
+			<!-- HUD header -->
+			<div class="flex h-11 items-center justify-between border-b border-[var(--void-3)] px-4">
+				<div class="flex items-center gap-2">
+					<span class="h-1 w-1 shrink-0 rounded-full bg-[var(--void-6)]"></span>
+					<h2
+						id="slide-panel-title"
+						class="text-[10px] tracking-[0.24em] text-[var(--text-ghost)] uppercase"
+					>
+						{title}
+					</h2>
+				</div>
 				<button
 					type="button"
-					class="flex h-8 w-8 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
+					class="flex h-7 w-7 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
 					onclick={onclose}
 					aria-label="Close panel"
 				>
-					<XIcon size={16} />
+					<XIcon size={14} />
 				</button>
 			</div>
 
@@ -69,21 +73,13 @@
 
 <style>
 	@keyframes fade-in {
-		from {
-			opacity: 0;
-		}
-		to {
-			opacity: 1;
-		}
+		from { opacity: 0; }
+		to   { opacity: 1; }
 	}
 
 	@keyframes slide-in-right {
-		from {
-			transform: translateX(100%);
-		}
-		to {
-			transform: translateX(0);
-		}
+		from { transform: translateX(100%); }
+		to   { transform: translateX(0); }
 	}
 
 	.animate-fade-in {
@@ -91,6 +87,6 @@
 	}
 
 	.animate-slide-in-right {
-		animation: slide-in-right 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+		animation: slide-in-right 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 	}
 </style>

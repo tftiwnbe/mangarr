@@ -16,7 +16,9 @@
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import { convexApi } from '$lib/convex/api';
+	import { Alert } from '$lib/elements/alert';
 	import { Button } from '$lib/elements/button';
+	import { EmptyState } from '$lib/elements/empty-state';
 	import { Input } from '$lib/elements/input';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { SlidePanel } from '$lib/elements/slide-panel';
@@ -464,7 +466,7 @@
 			>
 				<FunnelIcon size={14} />
 				{#if hasActiveControls}
-					<span class="absolute top-1 right-1 h-1.5 w-1.5 bg-[var(--text-muted)]"></span>
+					<span class="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-[var(--cosmic)] shadow-[0_0_4px_var(--cosmic-glow)]"></span>
 				{/if}
 			</button>
 		{/if}
@@ -519,11 +521,7 @@
 	{/if}
 
 	{#if error}
-		<div
-			class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]"
-		>
-			{error}
-		</div>
+		<Alert variant="error">{error}</Alert>
 	{/if}
 
 	{#if loading}
@@ -531,7 +529,7 @@
 			{#each Array(18) as _, i (i)}
 				<div class="flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)]">
 					<div
-						class="aspect-[2/3] animate-pulse bg-[var(--void-6)]"
+						class="aspect-[2/3] animate-pulse bg-[var(--void-5)]"
 						style="animation-delay: {i * 40}ms"
 					></div>
 					<div class="flex flex-col gap-1.5 p-2">
@@ -540,7 +538,7 @@
 							style="animation-delay: {i * 40}ms"
 						></div>
 						<div
-							class="h-2 w-3/5 animate-pulse bg-[var(--void-5)]"
+							class="h-2 w-3/5 animate-pulse bg-[var(--void-3)]"
 							style="animation-delay: {i * 40 + 20}ms"
 						></div>
 					</div>
@@ -548,21 +546,11 @@
 			{/each}
 		</div>
 	{:else if isEmpty}
-		<div class="flex flex-col items-center gap-4 py-16 text-center">
-			<div
-				class="flex h-16 w-16 items-center justify-center border border-[var(--line)] bg-[var(--void-3)]"
-			>
-				<BookIcon size={24} class="text-[var(--text-ghost)]" />
-			</div>
-			<div>
-				<p class="text-[var(--text)]">{$_('library.empty')}</p>
-				<p class="mt-1 text-sm text-[var(--text-ghost)]">{$_('library.emptyDescription')}</p>
-				{#if hiddenImportsCount > 0}
-					<p class="mt-2 max-w-xl text-sm text-[var(--text-ghost)]">
-						{$_('library.hiddenImports', { values: { count: hiddenImportsCount } })}
-					</p>
-				{/if}
-			</div>
+		<EmptyState
+			icon={BookIcon}
+			title={$_('library.empty')}
+			description={$_('library.emptyDescription')}
+		>
 			<div class="flex flex-wrap items-center justify-center gap-2">
 				{#if hiddenImportsCount > 0}
 					<Button variant="ghost" onclick={() => (hiddenPanelOpen = true)}>
@@ -573,7 +561,7 @@
 					{$_('library.addFirst')}
 				</Button>
 			</div>
-		</div>
+		</EmptyState>
 	{:else}
 		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
 			{#each visibleFilteredTitles as title (title.id)}

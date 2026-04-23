@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { CheckCircleIcon, InfoIcon, WarningCircleIcon, XCircleIcon } from 'phosphor-svelte';
 	import { fly } from 'svelte/transition';
 	import { toast, type ToastVariant } from './toast.store.svelte';
 
@@ -15,35 +14,31 @@
 
 	const configs: Record<
 		ToastVariant,
-		{ borderColor: string; iconColor: string; drainColor: string; label: string; Icon: typeof InfoIcon }
+		{ dot: string; label: string; border: string; pulse: boolean }
 	> = {
 		success: {
-			borderColor: 'border-l-[var(--success)]',
-			iconColor: 'text-[var(--success)]',
-			drainColor: 'bg-[var(--success)]',
-			label: 'success',
-			Icon: CheckCircleIcon
+			dot: 'bg-[var(--success)] shadow-[0_0_6px_var(--success)]',
+			label: 'ok',
+			border: 'border-l-[var(--success)]',
+			pulse: false
 		},
 		error: {
-			borderColor: 'border-l-[var(--error)]',
-			iconColor: 'text-[var(--error)]',
-			drainColor: 'bg-[var(--error)]',
-			label: 'error',
-			Icon: XCircleIcon
+			dot: 'bg-[var(--error)] shadow-[0_0_6px_var(--error)]',
+			label: 'alert',
+			border: 'border-l-[var(--error)]',
+			pulse: true
 		},
 		info: {
-			borderColor: 'border-l-[var(--void-7)]',
-			iconColor: 'text-[var(--text-ghost)]',
-			drainColor: 'bg-[var(--void-7)]',
+			dot: 'bg-[var(--cosmic)] shadow-[0_0_6px_var(--cosmic-glow)]',
 			label: 'info',
-			Icon: InfoIcon
+			border: 'border-l-[var(--void-6)]',
+			pulse: false
 		},
 		warning: {
-			borderColor: 'border-l-amber-500',
-			iconColor: 'text-amber-400',
-			drainColor: 'bg-amber-500',
-			label: 'warning',
-			Icon: WarningCircleIcon
+			dot: 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.6)]',
+			label: 'warn',
+			border: 'border-l-amber-500',
+			pulse: false
 		}
 	};
 
@@ -51,10 +46,10 @@
 </script>
 
 <div
-	class="pointer-events-auto relative overflow-hidden border-l-[3px] bg-[var(--void-2)] shadow-xl
-		{config.borderColor}"
-	in:fly={{ x: -16, duration: 200, opacity: 0 }}
-	out:fly={{ x: -16, duration: 150, opacity: 0 }}
+	class="pointer-events-auto relative overflow-hidden border-l-[3px] bg-[var(--void-2)]
+		shadow-[0_0_0_1px_var(--void-4),0_8px_32px_-8px_rgba(0,0,0,0.6)] {config.border}"
+	in:fly={{ x: -16, duration: 220, opacity: 0 }}
+	out:fly={{ x: -16, duration: 140, opacity: 0 }}
 	role="status"
 	aria-live="polite"
 >
@@ -63,24 +58,24 @@
 		class="flex w-full items-start gap-3 px-4 py-3 text-left"
 		onclick={() => toast.dismiss(id)}
 	>
-		<div class="mt-px shrink-0 {config.iconColor}">
-			<config.Icon size={15} weight="fill" />
-		</div>
-
-		<div class="min-w-0 flex-1">
-			{#if title}
-				<p class="text-label mb-0.5">{title}</p>
-			{:else}
-				<p class="text-label mb-0.5">{config.label}</p>
-			{/if}
-			<p class="text-xs leading-relaxed text-[var(--text-muted)]">{message}</p>
+		<!-- HUD label row -->
+		<div class="flex min-w-0 flex-1 flex-col gap-1.5">
+			<div class="flex items-center gap-2">
+				<span
+					class="h-1 w-1 shrink-0 rounded-full {config.dot} {config.pulse ? 'animate-pulse' : ''}"
+				></span>
+				<span class="text-[10px] tracking-[0.24em] text-[var(--text-ghost)] uppercase">
+					{title ?? config.label}
+				</span>
+			</div>
+			<p class="pl-3 text-xs leading-relaxed text-[var(--text-muted)]">{message}</p>
 		</div>
 	</button>
 
-	<!-- Drain bar — animates from full width to 0 over `duration` ms -->
-	<div class="absolute bottom-0 left-0 h-[2px] w-full overflow-hidden">
+	<!-- Cosmic drain bar — always indigo, the system's signal color -->
+	<div class="absolute bottom-0 left-0 h-[2px] w-full bg-[var(--void-4)]">
 		<div
-			class="h-full origin-left {config.drainColor}"
+			class="h-full origin-left bg-[var(--cosmic)] shadow-[0_0_8px_var(--cosmic-glow)]"
 			style="animation: toast-drain {duration}ms linear forwards;"
 		></div>
 	</div>
@@ -88,11 +83,7 @@
 
 <style>
 	@keyframes toast-drain {
-		from {
-			transform: scaleX(1);
-		}
-		to {
-			transform: scaleX(0);
-		}
+		from { transform: scaleX(1); }
+		to   { transform: scaleX(0); }
 	}
 </style>

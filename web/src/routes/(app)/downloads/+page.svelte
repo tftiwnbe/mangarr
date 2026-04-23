@@ -333,7 +333,7 @@
 			</div>
 			<div class="relative h-[2px] w-full overflow-hidden bg-[var(--void-4)]">
 				<div
-					class="absolute inset-y-0 left-0 bg-[rgba(199,210,254,0.5)]"
+					class="absolute inset-y-0 left-0 bg-[var(--cosmic-dim)]"
 					style="width: {chapterProgress}%"
 				></div>
 			</div>
@@ -374,7 +374,7 @@
 		<header class="flex items-center gap-2 px-0.5">
 			<span
 				class="h-1 w-1 rounded-full {activeDownloads.length > 0
-					? 'bg-[rgba(199,210,254,0.9)] shadow-[0_0_8px_rgba(165,180,252,0.8)] animate-pulse'
+					? 'bg-[var(--cosmic)] shadow-[0_0_8px_var(--cosmic-glow)] animate-pulse'
 					: 'bg-[var(--void-6)]'}"
 			></span>
 			<h2 class="text-[10px] tracking-[0.24em] text-[var(--text-ghost)] uppercase">
@@ -399,7 +399,7 @@
 					<article class="flex h-[72px] gap-3 py-2">
 						<a href={buildTitlePath(task.titleId, task.title)} class="shrink-0">
 							<div
-								class="relative h-14 w-10 overflow-hidden bg-[var(--void-3)] shadow-[0_0_0_1px_rgba(199,210,254,0.28),0_0_14px_-4px_rgba(165,180,252,0.35)]"
+								class="relative h-14 w-10 overflow-hidden bg-[var(--void-3)] shadow-[0_0_0_1px_var(--cosmic-halo),0_0_14px_-4px_var(--cosmic-halo)]"
 							>
 								<LazyImage
 									src={coverSrc(task)}
@@ -424,12 +424,12 @@
 							<div class="relative h-[2px] w-full overflow-hidden bg-[var(--void-4)]">
 								{#if task.progressPercent > 0}
 									<div
-										class="absolute inset-y-0 left-0 bg-[rgba(199,210,254,0.9)] shadow-[0_0_10px_rgba(165,180,252,0.7)] transition-[width] duration-300"
+										class="absolute inset-y-0 left-0 bg-[var(--cosmic)] shadow-[0_0_10px_var(--cosmic-glow)] transition-[width] duration-300"
 										style="width: {task.progressPercent}%"
 									></div>
 								{:else}
 									<div
-										class="absolute inset-y-0 left-0 w-full animate-pulse bg-[rgba(199,210,254,0.35)]"
+										class="absolute inset-y-0 left-0 w-full animate-pulse bg-[var(--cosmic-soft)]"
 									></div>
 								{/if}
 							</div>
@@ -531,7 +531,7 @@
 
 							<div class="flex items-center justify-end gap-2">
 								{#if item.queuedTasks > 0 && !(item.nextRetryAt != null && item.nextRetryAt > Date.now())}
-									<span class="mr-auto text-[10px] tabular-nums text-[rgba(199,210,254,0.75)]">
+									<span class="mr-auto text-[10px] tabular-nums text-[var(--cosmic-dim)]">
 										+{item.queuedTasks} {$_('downloads.queued').toLowerCase()}
 									</span>
 								{/if}
@@ -567,7 +567,7 @@
 							<div class="relative h-[2px] w-full overflow-hidden bg-[var(--void-4)]">
 								<div
 									class="absolute inset-y-0 left-0 transition-[width] {isDownloading
-										? 'bg-[rgba(199,210,254,0.85)] shadow-[0_0_10px_rgba(165,180,252,0.6)] animate-pulse'
+										? 'bg-[var(--cosmic)] shadow-[0_0_10px_var(--cosmic-glow)] animate-pulse'
 										: 'bg-[var(--void-7)]'}"
 									style="width: {progress}%"
 								></div>

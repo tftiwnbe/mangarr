@@ -37,30 +37,40 @@
 >
 	<Dialog.Portal>
 		<Dialog.Overlay
-			class="animate-fade-in fixed inset-0 z-50 bg-[var(--void-0)]/80 backdrop-blur-sm"
+			class="animate-fade-in fixed inset-0 z-50 bg-[var(--void-0)]/85 backdrop-blur-sm"
 		/>
 		<Dialog.Content
 			class="animate-scale-in fixed top-1/2 left-1/2 z-50 w-full max-w-xs -translate-x-1/2
-				-translate-y-1/2 border border-[var(--void-3)] bg-[var(--void-1)]
-				shadow-2xl focus:outline-none"
+				-translate-y-1/2 border border-[var(--void-4)] bg-[var(--void-1)]
+				shadow-[0_0_0_1px_var(--void-5),0_24px_64px_-16px_rgba(0,0,0,0.8)] focus:outline-none"
 		>
-			<!-- Header -->
-			<div class="px-5 pt-5 pb-4">
-				<Dialog.Title class="text-sm font-medium text-[var(--text)]">
+			<!-- HUD header bar -->
+			<div class="flex items-center gap-2 border-b border-[var(--void-3)] px-4 py-3">
+				<span
+					class="h-1 w-1 shrink-0 rounded-full {variant === 'danger'
+						? 'bg-[var(--error)] shadow-[0_0_6px_var(--error)] animate-pulse'
+						: 'bg-[var(--void-6)]'}"
+				></span>
+				<Dialog.Title
+					class="text-[10px] tracking-[0.24em] text-[var(--text-ghost)] uppercase"
+				>
 					{title}
 				</Dialog.Title>
-				{#if description}
-					<Dialog.Description class="mt-1.5 text-xs leading-relaxed text-[var(--text-ghost)]">
-						{description}
-					</Dialog.Description>
-				{/if}
 			</div>
 
-			<!-- Divider -->
-			<div class="h-px bg-[var(--void-3)]"></div>
+			<!-- Content -->
+			{#if description}
+				<div class="px-5 py-4">
+					<Dialog.Description class="text-xs leading-relaxed text-[var(--text-muted)]">
+						{description}
+					</Dialog.Description>
+				</div>
+			{:else}
+				<div class="py-2"></div>
+			{/if}
 
 			<!-- Actions -->
-			<div class="flex items-center justify-end gap-2 px-4 py-3">
+			<div class="flex items-center justify-end gap-2 border-t border-[var(--void-3)] px-4 py-3">
 				<Button variant="ghost" size="sm" onclick={onCancel} disabled={loading}>
 					{cancelLabel}
 				</Button>
@@ -68,7 +78,7 @@
 					variant="solid"
 					size="sm"
 					class={variant === 'danger'
-						? 'border-[var(--error)] bg-[var(--error)]/80 text-white hover:bg-[var(--error)]'
+						? 'border-[var(--error)]/60 bg-[var(--error)]/15 text-[var(--error)] hover:bg-[var(--error)]/25'
 						: ''}
 					onclick={onConfirm}
 					{loading}
@@ -94,16 +104,12 @@
 	}
 
 	@keyframes fade-in {
-		from {
-			opacity: 0;
-		}
-		to {
-			opacity: 1;
-		}
+		from { opacity: 0; }
+		to   { opacity: 1; }
 	}
 
 	:global(.animate-scale-in) {
-		animation: scale-in 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+		animation: scale-in 0.14s cubic-bezier(0.16, 1, 0.3, 1);
 	}
 
 	:global(.animate-fade-in) {
