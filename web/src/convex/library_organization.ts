@@ -22,7 +22,11 @@ import { scoreMergeSnapshot } from './title_identity';
 export const listUserStatuses = query({
 	args: {},
 	handler: async (ctx) => {
-		const userId = await requireViewerUserId(ctx);
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return [];
+		}
+		const userId = identity.subject as GenericId<'users'>;
 		const rows = await ctx.db
 			.query('libraryUserStatuses')
 			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
@@ -171,7 +175,11 @@ export const deleteUserStatus = mutation({
 export const listCollections = query({
 	args: {},
 	handler: async (ctx) => {
-		const userId = await requireViewerUserId(ctx);
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return [];
+		}
+		const userId = identity.subject as GenericId<'users'>;
 		const [rows, collectionTitleRows] = await Promise.all([
 			ctx.db
 				.query('libraryCollections')
