@@ -16,8 +16,12 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import kotlin.math.min
+import kotlin.random.Random
 
 private val JSON_MEDIA_TYPE = "application/json".toMediaType()
+private const val CONVEX_OCC_MAX_ATTEMPTS = 4
+private const val CONVEX_OCC_BASE_BACKOFF_MS = 150L
 
 @Serializable
 data class LeaseCommand(
@@ -157,6 +161,21 @@ class ConvexBridgeClient(
         call("/api/mutation", path, args)
 
     private inline fun <reified T> call(endpoint: String, path: String, args: JsonObject): T {
+        var attempt = 0
+        while (true) {
+            try {
+                return callOnce(endpoint, path, args)
+            } catch (error: IllegalStateException) {
+                attempt += 1
+                if (!isRetryableConvexOcc(error.message) || attempt >= CONVEX_OCC_MAX_ATTEMPTS) {
+                    throw error
+                }
+                Thread.sleep(convexOccBackoffMs(attempt))
+            }
+        }
+    }
+
+    private inline fun <reified T> callOnce(endpoint: String, path: String, args: JsonObject): T {
         val requestBody =
             buildJsonObject {
                 put("path", path)
@@ -201,4 +220,14 @@ class ConvexBridgeClient(
     }
 
     fun payload(baseArgs: JsonObject = buildJsonObject { }): JsonObject = baseArgs
+}
+
+private fun isRetryableConvexOcc(message: String?): Boolean =
+    message?.contains("Documents read from or written to", ignoreCase = true) == true &&
+        message.contains("changed while this mutation was being run", ignoreCase = true)
+
+private fun convexOccBackoffMs(attempt: Int): Long {
+    val exponential = CONVEX_OCC_BASE_BACKOFF_MS * (1L shl (attempt - 1).coerceAtLeast(0))
+    val jitter = Random.nextLong(0L, 75L)
+    return min(exponential + jitter, 1_250L)
 }
