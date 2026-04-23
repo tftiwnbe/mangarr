@@ -24,7 +24,7 @@
 </script>
 
 <DropdownMenu.Root bind:open>
-	<DropdownMenu.Trigger class={triggerClass}>
+	<DropdownMenu.Trigger class={triggerClass} {disabled}>
 		{@render trigger()}
 	</DropdownMenu.Trigger>
 

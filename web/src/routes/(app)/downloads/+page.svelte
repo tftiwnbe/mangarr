@@ -86,7 +86,7 @@
 	const dashboardQuery = useQuery(
 		convexApi.library.getDownloadDashboard,
 		() => ({
-			watchedLimit: 30,
+			watchedLimit: 100,
 			activeLimit: 100,
 			recentLimit: 40
 		})

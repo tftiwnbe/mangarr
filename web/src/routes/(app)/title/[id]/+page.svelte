@@ -32,7 +32,10 @@
 	import { navigateBack, navHistoryRevision, resolveNavBackTarget } from '$lib/stores/nav-history';
 	import { panelOverlayOpen } from '$lib/stores/ui';
 	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
-	import { directSourceTitleUrlCandidates } from '$lib/utils/source-title-url';
+	import {
+		directSourceTitleUrlCandidates,
+		sourceTitleUrlSearchQueries
+	} from '$lib/utils/source-title-url';
 	import { TITLE_STATUS } from '$lib/utils/title-status';
 
 	const { data } = $props<{ data: { titleSegment: string | null } }>();
@@ -833,7 +836,10 @@
 		if (!title) return [] as string[];
 		const seen: Record<string, true> = {};
 		const queries: string[] = [];
-		for (const candidate of [title.variants.map((variant) => variant.title), title.title].flat()) {
+		const slugQueries = title.variants.flatMap((variant) =>
+			sourceTitleUrlSearchQueries(variant.titleUrl)
+		);
+		for (const candidate of [title.variants.map((variant) => variant.title), title.title, slugQueries].flat()) {
 			const trimmed = candidate.trim();
 			const normalized = normalizeMatchTitle(trimmed);
 			if (!normalized || seen[normalized] === true) continue;
@@ -847,15 +853,17 @@
 		if (!title) return 0;
 		const normalizedQuery = normalizeMatchTitle(query);
 		const normalizedTitle = normalizeMatchTitle(item.title);
-		if (!normalizedQuery || !normalizedTitle) return 0;
+		if (!normalizedQuery) return 0;
 
 		let score = 0;
-		if (normalizedTitle === normalizedQuery) {
-			score += 120;
-		} else if (normalizedTitle.startsWith(normalizedQuery)) {
-			score += 95;
-		} else if (normalizedTitle.includes(normalizedQuery)) {
-			score += 75 - Math.min(20, Math.max(0, normalizedTitle.length - normalizedQuery.length));
+		if (normalizedTitle) {
+			if (normalizedTitle === normalizedQuery) {
+				score += 120;
+			} else if (normalizedTitle.startsWith(normalizedQuery)) {
+				score += 95;
+			} else if (normalizedTitle.includes(normalizedQuery)) {
+				score += 75 - Math.min(20, Math.max(0, normalizedTitle.length - normalizedQuery.length));
+			}
 		}
 
 		const queryTokens = normalizedQuery.split(' ').filter((token) => token.length > 1);
@@ -872,6 +880,15 @@
 
 		if (item.sourceLang === title.sourceLang) {
 			score += 10;
+		}
+
+		const urlSlugMatches = sourceTitleUrlSearchQueries(item.titleUrl)
+			.map(normalizeMatchTitle)
+			.filter(Boolean);
+		if (urlSlugMatches.includes(normalizedQuery)) {
+			score += 130;
+		} else if (urlSlugMatches.some((slug) => slug.includes(normalizedQuery))) {
+			score += 80;
 		}
 
 		if (normalizedTitle.includes('doujinshi')) score -= 70;

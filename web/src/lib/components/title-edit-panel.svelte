@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { useConvexClient } from 'convex-svelte';
-	import { CheckIcon, PencilLineIcon, PlusIcon, XIcon } from 'phosphor-svelte';
+	import { CheckIcon, PlusIcon, XIcon } from 'phosphor-svelte';
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import { Button } from '$lib/elements/button';
@@ -73,61 +73,61 @@
 
 	// Suggestions from variants — deduplicated, excluding the current value
 	const titleSuggestions = $derived.by(() => {
-		const seen = new Set<string>();
+		const seen: string[] = [];
 		const current = editTitle.trim().toLowerCase();
 		return title.variants
 			.map((v) => v.title.trim())
 			.filter((t) => {
 				const lower = t.toLowerCase();
-				if (!t || lower === current || seen.has(lower)) return false;
-				seen.add(lower);
+				if (!t || lower === current || seen.includes(lower)) return false;
+				seen.push(lower);
 				return true;
 			});
 	});
 
 	const authorSuggestions = $derived.by(() => {
-		const seen = new Set<string>();
+		const seen: string[] = [];
 		const current = editAuthor.trim().toLowerCase();
 		return title.variants
 			.map((v) => (v.author ?? '').trim())
 			.filter((t) => {
 				const lower = t.toLowerCase();
-				if (!t || lower === current || seen.has(lower)) return false;
-				seen.add(lower);
+				if (!t || lower === current || seen.includes(lower)) return false;
+				seen.push(lower);
 				return true;
 			});
 	});
 
 	const artistSuggestions = $derived.by(() => {
-		const seen = new Set<string>();
+		const seen: string[] = [];
 		const current = editArtist.trim().toLowerCase();
 		return title.variants
 			.map((v) => (v.artist ?? '').trim())
 			.filter((t) => {
 				const lower = t.toLowerCase();
-				if (!t || lower === current || seen.has(lower)) return false;
-				seen.add(lower);
+				if (!t || lower === current || seen.includes(lower)) return false;
+				seen.push(lower);
 				return true;
 			});
 	});
 
 	const descriptionAlternatives = $derived.by(() => {
-		const seen = new Set<string>();
+		const seen: string[] = [];
 		const current = editDescription.trim().slice(0, 60).toLowerCase();
 		return title.variants
 			.map((v) => (v.description ?? '').trim())
 			.filter((t) => {
 				const key = t.slice(0, 60).toLowerCase();
-				if (!t || key === current || seen.has(key)) return false;
-				seen.add(key);
+				if (!t || key === current || seen.includes(key)) return false;
+				seen.push(key);
 				return true;
 			})
 			.slice(0, 4);
 	});
 
 	const genreSuggestions = $derived.by(() => {
-		const seen = new Set<string>();
-		const active = new Set(editGenres.map((g) => g.toLowerCase()));
+		const seen: string[] = [];
+		const active = editGenres.map((g) => g.toLowerCase());
 		const suggestions: string[] = [];
 		for (const variant of title.variants) {
 			const genres = String(variant.genre ?? '')
@@ -136,8 +136,8 @@
 				.filter(Boolean);
 			for (const genre of genres) {
 				const lower = genre.toLowerCase();
-				if (!seen.has(lower) && !active.has(lower)) {
-					seen.add(lower);
+				if (!seen.includes(lower) && !active.includes(lower)) {
+					seen.push(lower);
 					suggestions.push(genre);
 				}
 			}
