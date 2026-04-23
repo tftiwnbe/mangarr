@@ -189,6 +189,18 @@
 </script>
 
 <SlidePanel open={open} title={$_('title.editMetadata')} onclose={onclose}>
+	{#snippet footer()}
+		{#if saveError}
+			<p class="mb-2 text-[10px] tracking-[0.16em] text-[var(--error)] uppercase">{saveError}</p>
+		{/if}
+		<Button variant="solid" class="w-full" onclick={handleSave} disabled={saving} loading={saving}>
+			{#if !saving}
+				<CheckIcon size={14} />
+			{/if}
+			{$_('title.editSaveChanges')}
+		</Button>
+	{/snippet}
+
 	<div class="flex flex-col divide-y divide-[var(--void-2)]">
 		<!-- Name -->
 		<div class="flex flex-col gap-3 py-5">
@@ -362,23 +374,5 @@
 			{/if}
 		</div>
 
-		<!-- Save -->
-		<div class="pt-5 pb-2">
-			{#if saveError}
-				<p class="mb-3 text-xs text-[var(--error)]">{saveError}</p>
-			{/if}
-			<Button
-				variant="solid"
-				class="w-full"
-				onclick={handleSave}
-				disabled={saving}
-				loading={saving}
-			>
-				{#if !saving}
-					<CheckIcon size={14} />
-				{/if}
-				{$_('title.editSaveChanges')}
-			</Button>
-		</div>
 	</div>
 </SlidePanel>

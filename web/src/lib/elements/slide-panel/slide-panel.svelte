@@ -1,14 +1,16 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { XIcon } from 'phosphor-svelte';
 
 	interface Props {
 		open: boolean;
 		title?: string;
 		onclose: () => void;
-		children?: import('svelte').Snippet;
+		children?: Snippet;
+		footer?: Snippet;
 	}
 
-	let { open = false, title = '', onclose, children }: Props = $props();
+	let { open = false, title = '', onclose, children, footer }: Props = $props();
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape' && open) {
@@ -34,14 +36,14 @@
 	>
 		<!-- Panel -->
 		<div
-			class="animate-slide-in-right absolute top-0 right-0 h-full w-full max-w-sm
+			class="animate-slide-in-right absolute top-0 right-0 flex h-full w-full max-w-sm flex-col
 				border-l border-[var(--void-4)] bg-[var(--void-1)]"
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="slide-panel-title"
 		>
 			<!-- HUD header -->
-			<div class="flex h-11 items-center justify-between border-b border-[var(--void-3)] px-4">
+			<div class="flex h-11 shrink-0 items-center justify-between border-b border-[var(--void-3)] px-4">
 				<div class="flex items-center gap-2">
 					<span class="h-1 w-1 shrink-0 rounded-full bg-[var(--void-6)]"></span>
 					<h2
@@ -61,12 +63,19 @@
 				</button>
 			</div>
 
-			<!-- Content -->
-			<div class="no-scrollbar h-[calc(100%-44px)] overflow-y-auto px-4 pb-4">
+			<!-- Scrollable content -->
+			<div class="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-4">
 				{#if children}
 					{@render children()}
 				{/if}
 			</div>
+
+			<!-- Sticky footer (optional) -->
+			{#if footer}
+				<div class="shrink-0 border-t border-[var(--void-3)] px-4 py-3">
+					{@render footer()}
+				</div>
+			{/if}
 		</div>
 	</div>
 {/if}

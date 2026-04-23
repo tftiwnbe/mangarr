@@ -23,6 +23,7 @@
 	import type { Id } from '$convex/_generated/dataModel';
 	import { convexApi } from '$lib/convex/api';
 	import { waitForCommand, type CommandState } from '$lib/client/commands';
+	import { Alert } from '$lib/elements/alert';
 	import { Button } from '$lib/elements/button';
 	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
 	import { SlidePanel } from '$lib/elements/slide-panel';
@@ -1114,7 +1115,7 @@
 		</div>
 
 		{#if commentsError}
-			<p class="text-xs text-[var(--error)]">{commentsError}</p>
+			<Alert variant="error">{commentsError}</Alert>
 		{/if}
 
 		<button

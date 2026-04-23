@@ -15,6 +15,7 @@
 	import { convexApi } from '$lib/convex/api';
 	import { getCachedCoverUrl } from '$lib/api/covers';
 	import { waitForCommand } from '$lib/client/commands';
+	import { Alert } from '$lib/elements/alert';
 	import { Button } from '$lib/elements/button';
 	import { Checkbox } from '$lib/elements/checkbox';
 	import { Input } from '$lib/elements/input';
@@ -1748,17 +1749,21 @@
 		: $_('explore.advancedFilters')}
 	onclose={closeSearchFilters}
 >
+	{#snippet footer()}
+		{#if searchFiltersData && searchFiltersData.searchFilters.length > 0}
+			<div class="flex gap-2">
+				<Button variant="outline" size="sm" onclick={closeSearchFilters}>Cancel</Button>
+				<Button size="sm" onclick={() => void applySearchFilters()}>Apply</Button>
+			</div>
+		{/if}
+	{/snippet}
 	{#if searchFiltersLoading}
 		<div class="flex flex-col items-center gap-4 py-12">
 			<SpinnerIcon size={24} class="animate-spin text-[var(--text-muted)]" />
 			<p class="text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
 		</div>
 	{:else if searchFiltersError}
-		<div
-			class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]"
-		>
-			{searchFiltersError}
-		</div>
+		<Alert variant="error" class="mt-4">{searchFiltersError}</Alert>
 	{:else if searchFiltersData}
 		<div class="flex flex-col gap-4">
 			{#if searchFiltersData.searchFilters.length === 0}
@@ -1817,10 +1822,6 @@
 							{/if}
 						</div>
 					{/each}
-				</div>
-				<div class="flex gap-2 pt-2">
-					<Button variant="outline" size="sm" onclick={closeSearchFilters}>Cancel</Button>
-					<Button size="sm" onclick={() => void applySearchFilters()}>Apply</Button>
 				</div>
 			{/if}
 		</div>

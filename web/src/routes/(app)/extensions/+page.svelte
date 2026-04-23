@@ -20,6 +20,7 @@
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import { type AcceptedCommandResponse, waitForCommand } from '$lib/client/commands';
+	import { Alert } from '$lib/elements/alert';
 	import { Button } from '$lib/elements/button';
 	import { Input } from '$lib/elements/input';
 	import { SlidePanel } from '$lib/elements/slide-panel';
@@ -961,17 +962,27 @@
 		: $_('extensions.sourceSettings')}
 	onclose={closeSourceSettings}
 >
+	{#snippet footer()}
+		{#if pendingPreferenceChanges.size > 0}
+			<Button
+				variant="solid"
+				size="md"
+				onclick={() => void saveSourceSettings()}
+				disabled={sourceSettingsSaving}
+				loading={sourceSettingsSaving}
+				class="w-full"
+			>
+				{$_('common.save')} ({pendingPreferenceChanges.size})
+			</Button>
+		{/if}
+	{/snippet}
 	{#if sourceSettingsLoading}
 		<div class="flex flex-col items-center gap-4 py-16">
 			<SpinnerIcon size={20} class="animate-spin text-[var(--text-muted)]" />
 			<p class="text-xs text-[var(--text-ghost)]">{$_('common.loading')}</p>
 		</div>
 	{:else if sourceSettingsError}
-		<div
-			class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-xs text-[var(--error)]"
-		>
-			{sourceSettingsError}
-		</div>
+		<Alert variant="error" class="mt-4">{sourceSettingsError}</Alert>
 	{:else if sourceSettingsData}
 		{@const visiblePrefs = sourceSettingsData.preferences.filter((pref) => pref.visible)}
 		{@const hasAnyPrefs = visiblePrefs.length > 0 || importedStoragePreferences.length > 0}
@@ -1132,20 +1143,6 @@
 					</div>
 				{/if}
 
-				{#if pendingPreferenceChanges.size > 0}
-					<div class="sticky bottom-0 border-t border-[var(--line-soft)] bg-[var(--void-0)] pt-3 pb-1">
-						<Button
-							variant="solid"
-							size="md"
-							onclick={() => void saveSourceSettings()}
-							disabled={sourceSettingsSaving}
-							loading={sourceSettingsSaving}
-							class="w-full"
-						>
-							{$_('common.save')} ({pendingPreferenceChanges.size})
-						</Button>
-					</div>
-				{/if}
 			</div>
 		{/if}
 	{/if}
