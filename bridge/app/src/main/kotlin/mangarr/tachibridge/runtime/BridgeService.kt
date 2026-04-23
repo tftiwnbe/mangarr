@@ -724,8 +724,8 @@ class BridgeService(
 
     private fun shouldRetryPageFetch(error: Exception): Boolean =
         when (error) {
-            is HttpException -> error.code == 429 || error.code in 500..599
-            is java.io.IOException -> true
+            is HttpException -> isRetryableHttpStatus(error.code)
+            is java.io.IOException -> parseHttpStatusCode(error)?.let(::isRetryableHttpStatus) ?: true
             else -> false
         }
 
@@ -1100,17 +1100,15 @@ class BridgeService(
 
     private fun shouldRetrySourceRequest(error: Exception): Boolean =
         when (error) {
-            is HttpException -> error.code == 429 || error.code in 500..599
-            is java.io.IOException -> true
+            is HttpException -> isRetryableHttpStatus(error.code)
+            is java.io.IOException -> parseHttpStatusCode(error)?.let(::isRetryableHttpStatus) ?: true
             else -> {
                 val statusCode = parseHttpStatusCode(error)
-                when {
-                    statusCode == null -> false
-                    statusCode == 429 || statusCode in 500..599 -> true
-                    else -> false
-                }
+                statusCode?.let(::isRetryableHttpStatus) ?: false
             }
         }
+
+    private fun isRetryableHttpStatus(statusCode: Int): Boolean = statusCode == 429 || statusCode in 500..599
 
     private fun parseHttpStatusCode(error: Throwable): Int? {
         var current: Throwable? = error
