@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Checkbox } from 'bits-ui';
+	import { CheckIcon, MinusIcon } from 'phosphor-svelte';
 
 	interface Props {
 		checked?: boolean;
@@ -12,7 +13,7 @@
 
 	let {
 		checked = $bindable(false),
-		indeterminate = false,
+		indeterminate = $bindable(false),
 		disabled = false,
 		class: className = '',
 		label,
@@ -31,19 +32,21 @@
 	<Checkbox.Root
 		{id}
 		bind:checked
-		{indeterminate}
+		bind:indeterminate
 		{disabled}
 		{onCheckedChange}
-		class="relative flex h-4 w-4 shrink-0 items-center justify-center border border-[var(--line)] bg-[var(--void-2)]
-			transition-all
-			group-hover:border-[var(--void-5)] focus-visible:ring-1
-			focus-visible:ring-[var(--accent-line)] focus-visible:outline-none
-			data-[state=checked]:border-[var(--void-6)] data-[state=checked]:bg-[var(--void-5)] data-[state=indeterminate]:border-[var(--void-5)]
-			data-[state=indeterminate]:bg-[var(--void-4)]"
+		class="relative flex h-4 w-4 shrink-0 items-center justify-center border border-[var(--line)]
+			bg-[var(--void-2)] transition-all
+			group-hover:border-[var(--void-5)]
+			focus-visible:ring-1 focus-visible:ring-[var(--void-6)] focus-visible:outline-none
+			data-[state=checked]:border-[var(--void-6)] data-[state=checked]:bg-[var(--void-5)]
+			data-[state=indeterminate]:border-[var(--void-5)] data-[state=indeterminate]:bg-[var(--void-4)]"
 	>
-		{#snippet child({ props })}
-			<span {...props}></span>
-		{/snippet}
+		{#if indeterminate}
+			<MinusIcon size={9} class="text-[var(--text-muted)]" />
+		{:else if checked}
+			<CheckIcon size={9} class="text-[var(--text)]" />
+		{/if}
 	</Checkbox.Root>
 
 	{#if label}

@@ -11,12 +11,15 @@
 	let { tabs, value, class: className = '', onValueChange }: Props = $props();
 </script>
 
-<div class="flex gap-6 {className}">
+<div class="flex gap-6 {className}" role="tablist">
 	{#each tabs as tab (tab.value)}
 		{@const isActive = value === tab.value}
 
 		<button
 			type="button"
+			role="tab"
+			aria-selected={isActive}
+			tabindex={isActive ? 0 : -1}
 			class="relative pb-2 text-xs font-medium tracking-wide transition-colors focus-visible:outline-none
 				{isActive ? 'text-[var(--text)]' : 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 			onclick={() => onValueChange?.(tab.value)}

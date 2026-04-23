@@ -16,9 +16,13 @@
 	import { getCachedCoverUrl } from '$lib/api/covers';
 	import { waitForCommand } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
+	import { Checkbox } from '$lib/elements/checkbox';
+	import { Input } from '$lib/elements/input';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { SearchInput } from '$lib/elements/search-input';
+	import { Select } from '$lib/elements/select';
 	import { SlidePanel } from '$lib/elements/slide-panel';
+	import { Switch } from '$lib/elements/switch';
 	import { Tabs } from '$lib/elements/tabs';
 	import { _ } from '$lib/i18n';
 	import { contentLanguages } from '$lib/stores/content-languages';
@@ -1775,47 +1779,40 @@
 							</div>
 
 							{#if meta.type === 'toggle'}
-								<label class="flex items-center gap-3 text-sm text-[var(--text)]">
-									<input
-										type="checkbox"
-										checked={Boolean(getCurrentSearchFilterValue(meta))}
-										onchange={(event) =>
-											handleSearchFilterChange(meta.key, event.currentTarget.checked)}
-									/>
-									<span>Enabled</span>
-								</label>
+								<Switch
+									checked={Boolean(getCurrentSearchFilterValue(meta))}
+									onCheckedChange={(enabled) =>
+										handleSearchFilterChange(meta.key, enabled)}
+								/>
 							{:else if meta.type === 'list'}
-								<select
-									class="h-11 border border-[var(--void-4)] bg-[var(--void-2)] px-3 text-sm text-[var(--text)]"
+								<Select
 									value={String(getCurrentSearchFilterValue(meta) ?? '')}
-									onchange={(event) =>
-										handleSearchFilterChange(meta.key, event.currentTarget.value)}
-								>
-									{#each meta.entry_values ?? [] as value, index (`${meta.key}:${value}:${index}`)}
-										<option {value}>{meta.entries?.[index] ?? value}</option>
-									{/each}
-								</select>
+									options={(meta.entry_values ?? []).map((val, i) => ({
+										value: val,
+										label: meta.entries?.[i] ?? val
+									}))}
+									onValueChange={(val) => handleSearchFilterChange(meta.key, val)}
+								/>
 							{:else if meta.type === 'multi_select'}
-								<div class="grid gap-2">
-									{#each meta.entry_values ?? [] as value, index (`${meta.key}:${value}:${index}`)}
-										<label class="flex items-center gap-3 text-sm text-[var(--text)]">
-											<input
-												type="checkbox"
-												checked={Array.isArray(getCurrentSearchFilterValue(meta)) &&
-													(getCurrentSearchFilterValue(meta) as string[]).includes(value)}
-												onchange={(event) =>
-													toggleMultiSelectValue(meta.key, value, event.currentTarget.checked)}
-											/>
-											<span>{meta.entries?.[index] ?? value}</span>
-										</label>
+								<div class="flex flex-col gap-2">
+									{#each meta.entry_values ?? [] as val, index (`${meta.key}:${val}:${index}`)}
+										<Checkbox
+											checked={Array.isArray(getCurrentSearchFilterValue(meta)) &&
+												(getCurrentSearchFilterValue(meta) as string[]).includes(val)}
+											label={meta.entries?.[index] ?? val}
+											onCheckedChange={(chk) =>
+												toggleMultiSelectValue(meta.key, val, chk)}
+										/>
 									{/each}
 								</div>
 							{:else}
-								<input
-									class="h-11 border border-[var(--void-4)] bg-[var(--void-2)] px-3 text-sm text-[var(--text)]"
-									type="text"
+								<Input
 									value={String(getCurrentSearchFilterValue(meta) ?? '')}
-									oninput={(event) => handleSearchFilterChange(meta.key, event.currentTarget.value)}
+									oninput={(event) =>
+										handleSearchFilterChange(
+											meta.key,
+											(event.currentTarget as HTMLInputElement).value
+										)}
 								/>
 							{/if}
 						</div>

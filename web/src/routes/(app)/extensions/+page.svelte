@@ -21,6 +21,7 @@
 	import type { Id } from '$convex/_generated/dataModel';
 	import { type AcceptedCommandResponse, waitForCommand } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
+	import { Input } from '$lib/elements/input';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { Switch } from '$lib/elements/switch';
 	import { Tabs } from '$lib/elements/tabs';
@@ -1058,12 +1059,14 @@
 
 						{#if pref.type === 'text'}
 							<div class="mt-3">
-								<input
-									type="text"
-									class="h-10 w-full border border-[var(--line-soft)] bg-[var(--void-1)] px-3 text-sm text-[var(--text)] outline-none transition-colors focus:border-[var(--void-5)] disabled:opacity-40"
+								<Input
 									value={String(getCurrentValue(pref) ?? '')}
 									disabled={!pref.enabled}
-									oninput={(event) => handlePreferenceChange(pref.key, event.currentTarget.value)}
+									oninput={(event) =>
+										handlePreferenceChange(
+											pref.key,
+											(event.currentTarget as HTMLInputElement).value
+										)}
 								/>
 							</div>
 						{/if}
