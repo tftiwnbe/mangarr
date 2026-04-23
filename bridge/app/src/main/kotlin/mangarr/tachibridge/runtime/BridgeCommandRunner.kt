@@ -328,8 +328,6 @@ class BridgeCommandRunner(
             )
 
             try {
-                renewLeaseOrThrowStale(client, command)
-
                 val result = executeCommand(client, command)
                 val completion =
                     client.completeCommand(
