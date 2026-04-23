@@ -3,7 +3,6 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { useConvexClient, useQuery } from 'convex-svelte';
-	import { DropdownMenu } from 'bits-ui';
 	import {
 		BellIcon,
 		BellSlashIcon,
@@ -17,6 +16,7 @@
 		StarIcon,
 		SpinnerIcon
 	} from 'phosphor-svelte';
+	import { Dropdown, DropdownItem } from '$lib/elements/dropdown';
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import TitleChaptersTab from '$lib/components/title-chapters-tab.svelte';
@@ -1236,40 +1236,22 @@
 
 			{#snippet chipRow()}
 				<div class="flex flex-wrap items-center gap-1.5 text-xs">
-					<DropdownMenu.Root>
-						<DropdownMenu.Trigger
-							class="flex items-center gap-1 px-2.5 py-1 transition-colors {selectedStatus
-								? 'bg-[var(--void-5)] text-[var(--text)] hover:bg-[var(--void-6)]'
-								: 'bg-[var(--void-3)] text-[var(--text-ghost)] hover:bg-[var(--void-4)] hover:text-[var(--text)]'} data-[state=open]:bg-[var(--void-5)] data-[state=open]:text-[var(--text)]"
-						>
+					<Dropdown
+						triggerClass="flex items-center gap-1 px-2.5 py-1 transition-colors {selectedStatus
+							? 'bg-[var(--void-5)] text-[var(--text)] hover:bg-[var(--void-6)]'
+							: 'bg-[var(--void-3)] text-[var(--text-ghost)] hover:bg-[var(--void-4)] hover:text-[var(--text)]'} data-[state=open]:bg-[var(--void-5)] data-[state=open]:text-[var(--text)]"
+					>
+						{#snippet trigger()}
 							<span>{selectedStatus?.label ?? $_('title.status')}</span>
 							<CaretDownIcon size={10} />
-						</DropdownMenu.Trigger>
-						<DropdownMenu.Portal>
-							<DropdownMenu.Content
-								class="z-50 min-w-[160px] bg-[var(--void-3)] py-1 shadow-lg"
-								sideOffset={4}
-							>
-								<DropdownMenu.Item
-									class="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-4)] hover:text-[var(--text)] data-[highlighted]:bg-[var(--void-4)] data-[highlighted]:text-[var(--text)]"
-									onclick={() => setStatus(null)}
-								>
-									{$_('common.clear')}
-								</DropdownMenu.Item>
-								{#each availableStatuses as status (status.id)}
-									<DropdownMenu.Item
-										class="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-[var(--void-4)] hover:text-[var(--text)] data-[highlighted]:bg-[var(--void-4)] data-[highlighted]:text-[var(--text)] {selectedStatusId ===
-										status.id
-											? 'text-[var(--text)]'
-											: 'text-[var(--text-ghost)]'}"
-										onclick={() => setStatus(status.id)}
-									>
-										{status.label}
-									</DropdownMenu.Item>
-								{/each}
-							</DropdownMenu.Content>
-						</DropdownMenu.Portal>
-					</DropdownMenu.Root>
+						{/snippet}
+						<DropdownItem onSelect={() => setStatus(null)}>{$_('common.clear')}</DropdownItem>
+						{#each availableStatuses as status (status.id)}
+							<DropdownItem onSelect={() => setStatus(status.id)}>
+								{status.label}
+							</DropdownItem>
+						{/each}
+					</Dropdown>
 
 					<button
 						type="button"
@@ -1302,31 +1284,21 @@
 						</button>
 					{/each}
 					{#if unselectedCollections.length > 0}
-						<DropdownMenu.Root>
-							<DropdownMenu.Trigger
-								class="flex items-center gap-1 bg-[var(--void-3)] px-2.5 py-1 text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-4)] hover:text-[var(--text)] data-[state=open]:bg-[var(--void-5)] data-[state=open]:text-[var(--text)]"
-							>
+						<Dropdown
+							triggerClass="flex items-center gap-1 bg-[var(--void-3)] px-2.5 py-1 text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-4)] hover:text-[var(--text)] data-[state=open]:bg-[var(--void-5)] data-[state=open]:text-[var(--text)]"
+						>
+							{#snippet trigger()}
 								<PlusIcon size={12} />
 								{#if selectedCollections.length === 0}
 									<span>{$_('title.collections')}</span>
 								{/if}
-							</DropdownMenu.Trigger>
-							<DropdownMenu.Portal>
-								<DropdownMenu.Content
-									class="z-50 min-w-[180px] bg-[var(--void-3)] py-1 shadow-lg"
-									sideOffset={4}
-								>
-									{#each unselectedCollections as collection (collection.id)}
-										<DropdownMenu.Item
-											class="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-4)] hover:text-[var(--text)] data-[highlighted]:bg-[var(--void-4)] data-[highlighted]:text-[var(--text)]"
-											onclick={() => toggleCollection(collection.id)}
-										>
-											{collection.name}
-										</DropdownMenu.Item>
-									{/each}
-								</DropdownMenu.Content>
-							</DropdownMenu.Portal>
-						</DropdownMenu.Root>
+							{/snippet}
+							{#each unselectedCollections as collection (collection.id)}
+								<DropdownItem onSelect={() => toggleCollection(collection.id)}>
+									{collection.name}
+								</DropdownItem>
+							{/each}
+						</Dropdown>
 					{/if}
 					{#if prefsSaving}
 						<SpinnerIcon size={12} class="animate-spin text-[var(--void-6)]" />

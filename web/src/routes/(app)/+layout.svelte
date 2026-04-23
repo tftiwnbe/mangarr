@@ -6,6 +6,7 @@
 
 	import { setupConvexClient } from '$lib/convex/client';
 	import { StarField } from '$lib/elements/starfield';
+	import { ToastContainer } from '$lib/elements/toast';
 	import { BookIcon, CompassIcon, DownloadIcon, PuzzlePieceIcon, GearIcon } from 'phosphor-svelte';
 	import { _ } from '$lib/i18n';
 	import { loadContentLanguages } from '$lib/stores/content-languages';
@@ -115,6 +116,8 @@
 			</div>
 		</nav>
 	{/if}
+
+	<ToastContainer />
 
 	<aside
 		class="fixed inset-y-0 left-0 z-40 hidden w-16 flex-col border-r border-[var(--line)] bg-[var(--void-1)] {isReaderRoute

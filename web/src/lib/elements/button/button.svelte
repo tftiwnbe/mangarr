@@ -32,7 +32,6 @@
 		focus-visible:outline-none
 	`;
 
-	// Glow effect on hover for solid buttons
 	const glowStyle = `
 		hover:shadow-[0_0_12px_rgba(255,255,255,0.15),0_0_24px_rgba(180,180,200,0.1)]
 		active:shadow-[0_0_16px_rgba(255,255,255,0.2),0_0_32px_rgba(180,180,200,0.15)]
@@ -70,7 +69,26 @@
 		'icon-sm': 'h-8 w-8 p-0',
 		icon: 'h-10 w-10 p-0'
 	};
+
+	// Icon-only buttons: hide children and show spinner alone when loading
+	const isIconSize = $derived(size === 'icon' || size === 'icon-sm');
+
+	// Spinner size matches button size
+	const spinnerClass = $derived(size === 'sm' || size === 'icon-sm' ? 'h-3 w-3' : size === 'lg' ? 'h-5 w-5' : 'h-4 w-4');
 </script>
+
+{#snippet spinner()}
+	<svg
+		class="{spinnerClass} animate-spin"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="2"
+	>
+		<circle cx="12" cy="12" r="10" stroke-opacity="0.2" />
+		<path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round" />
+	</svg>
+{/snippet}
 
 {#if href}
 	<a
@@ -80,18 +98,11 @@
 		class:opacity-40={disabled || loading}
 	>
 		{#if loading}
-			<svg
-				class="h-4 w-4 animate-spin"
-				viewBox="0 0 24 24"
-				fill="none"
-				stroke="currentColor"
-				stroke-width="2"
-			>
-				<circle cx="12" cy="12" r="10" stroke-opacity="0.2" />
-				<path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round" />
-			</svg>
+			{@render spinner()}
 		{/if}
-		{@render children()}
+		{#if !loading || !isIconSize}
+			{@render children()}
+		{/if}
 	</a>
 {:else}
 	<button
@@ -100,17 +111,10 @@
 		{...restProps}
 	>
 		{#if loading}
-			<svg
-				class="h-4 w-4 animate-spin"
-				viewBox="0 0 24 24"
-				fill="none"
-				stroke="currentColor"
-				stroke-width="2"
-			>
-				<circle cx="12" cy="12" r="10" stroke-opacity="0.2" />
-				<path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round" />
-			</svg>
+			{@render spinner()}
 		{/if}
-		{@render children()}
+		{#if !loading || !isIconSize}
+			{@render children()}
+		{/if}
 	</button>
 {/if}

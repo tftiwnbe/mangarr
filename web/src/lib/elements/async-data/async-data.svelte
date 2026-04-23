@@ -5,14 +5,25 @@
 	interface Props {
 		isLoading: boolean;
 		error?: string | null;
+		isEmpty?: boolean;
 		/** Rendered when loading for the first time (no data yet). */
 		loadingSnippet?: Snippet;
 		/** Rendered in place of the error message when an error is set. */
 		errorSnippet?: Snippet<[string]>;
+		/** Rendered when isEmpty is true. */
+		emptySnippet?: Snippet;
 		children: Snippet;
 	}
 
-	let { isLoading, error = null, loadingSnippet, errorSnippet, children }: Props = $props();
+	let {
+		isLoading,
+		error = null,
+		isEmpty = false,
+		loadingSnippet,
+		errorSnippet,
+		emptySnippet,
+		children
+	}: Props = $props();
 </script>
 
 {#if isLoading}
@@ -31,6 +42,8 @@
 			<p class="text-sm text-[var(--error)]">{error}</p>
 		</div>
 	{/if}
+{:else if isEmpty && emptySnippet}
+	{@render emptySnippet()}
 {:else}
 	{@render children()}
 {/if}
