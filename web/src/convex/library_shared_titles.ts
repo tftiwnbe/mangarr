@@ -510,7 +510,8 @@ export async function refreshTitleChapterStats(
 		let downloaded = 0;
 		let failed = 0;
 		let downloadedBytes = 0;
-		for (const chapter of chapters) {
+		const availableChapters = chapters.filter((chapter) => chapter.isAvailableFromSource !== false);
+		for (const chapter of availableChapters) {
 			switch (chapter.downloadStatus) {
 				case DOWNLOAD_STATUS.QUEUED:
 					queued++;
@@ -529,7 +530,7 @@ export async function refreshTitleChapterStats(
 		}
 
 		await ctx.db.patch(libraryTitleId, {
-			chapterCount: chapters.length,
+			chapterCount: availableChapters.length,
 			downloadedChapterCount: downloaded,
 			downloadedChapterBytes: downloadedBytes,
 			queuedChapterCount: queued,

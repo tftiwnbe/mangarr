@@ -249,13 +249,15 @@ export async function findOwnedTitleByRouteSegment(
 export function summarizeDownloadStats(
 	chapters: Array<{
 		downloadStatus: (typeof DOWNLOAD_STATUS)[keyof typeof DOWNLOAD_STATUS];
+		isAvailableFromSource?: boolean;
 	}>
 ) {
 	let queued = 0;
 	let downloading = 0;
 	let downloaded = 0;
 	let failed = 0;
-	for (const chapter of chapters) {
+	const availableChapters = chapters.filter((chapter) => chapter.isAvailableFromSource !== false);
+	for (const chapter of availableChapters) {
 		switch (chapter.downloadStatus) {
 			case DOWNLOAD_STATUS.QUEUED:
 				queued += 1;
@@ -273,7 +275,7 @@ export function summarizeDownloadStats(
 	}
 
 	return {
-		total: chapters.length,
+		total: availableChapters.length,
 		queued,
 		downloading,
 		downloaded,
