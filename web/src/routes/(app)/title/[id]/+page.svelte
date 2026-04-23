@@ -975,7 +975,7 @@
 			const searchSourceBatch = async (sourceBatch: SourceItem[]) => {
 				await runWithConcurrency(sourceBatch, MATCH_SEARCH_CONCURRENCY, async (source) => {
 					if (manual) {
-						const directTitleUrlCandidates = directSourceTitleUrlCandidates(query, source);
+						const directTitleUrlCandidates = directSourceTitleUrlCandidates(query);
 						if (directTitleUrlCandidates.length > 0) {
 							let lastError: unknown = null;
 							for (const titleUrl of directTitleUrlCandidates) {

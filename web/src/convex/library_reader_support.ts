@@ -184,6 +184,15 @@ export async function findOwnedTitleByRouteSegment(
 	ownerUserId: GenericId<'users'>,
 	routeSegment: string
 ) {
+	try {
+		const titleById = await ctx.db.get(routeSegment as GenericId<'libraryTitles'>);
+		if (titleById && titleById.ownerUserId === ownerUserId) {
+			return titleById;
+		}
+	} catch {
+		// Non-id slugs continue through the routeBase/alias resolver below.
+	}
+
 	const delimIdx = routeSegment.lastIndexOf(ROUTE_COLLISION_DELIMITER);
 	const base = delimIdx >= 0 ? routeSegment.slice(0, delimIdx) : routeSegment;
 

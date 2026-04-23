@@ -1015,8 +1015,8 @@
 		const nextLiveSearchResults = { ...liveSearchResults };
 		const nextLoadedPagesBySource: Record<string, number> = {};
 		const nextExhaustedSearchSources: Record<string, boolean> = {};
-		const directTitleUrlCandidates = selectedSource
-			? directSourceTitleUrlCandidates(value, selectedSource)
+		const directTitleUrlCandidates = selectedSourceId
+			? directSourceTitleUrlCandidates(value)
 			: [];
 
 		await runWithConcurrency(sourceIds, COMMAND_CONCURRENCY, async (sourceId) => {
