@@ -567,7 +567,6 @@ class BridgeService(
         chapterNumber: Double?,
         downloadTaskId: String,
         attemptOwner: String,
-        ensureOwnership: suspend () -> Unit,
         onProgress: (downloadedPages: Int, totalPages: Int) -> Unit,
     ): JsonObject {
         val config = ConfigManager.config.downloads
@@ -632,7 +631,6 @@ class BridgeService(
                 }
             }
 
-            ensureOwnership()
             val stored = downloadStorage.finalizeChapterDownload(workspace)
 
             // Record chapter completion for rate limiting purposes
