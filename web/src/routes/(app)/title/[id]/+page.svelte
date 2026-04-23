@@ -30,6 +30,7 @@
 	import { navigateBack, navHistoryRevision, resolveNavBackTarget } from '$lib/stores/nav-history';
 	import { panelOverlayOpen } from '$lib/stores/ui';
 	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
+	import { directSourceTitleUrlCandidates } from '$lib/utils/source-title-url';
 	import { TITLE_STATUS } from '$lib/utils/title-status';
 
 	const { data } = $props<{ data: { titleSegment: string | null } }>();
@@ -637,29 +638,6 @@
 		return `${sourceId}::${titleUrl}`;
 	}
 
-	function searchQueryLooksLikeTitleUrl(query: string): boolean {
-		const trimmed = query.trim();
-		return (
-			trimmed.startsWith('http://') ||
-			trimmed.startsWith('https://') ||
-			trimmed.startsWith('/')
-		);
-	}
-
-	function searchQueryToTitleUrl(query: string): string | null {
-		const trimmed = query.trim();
-		if (!trimmed) return null;
-		if (trimmed.startsWith('/')) {
-			return trimmed;
-		}
-		try {
-			const parsed = new URL(trimmed);
-			return `${parsed.pathname}${parsed.search}${parsed.hash}` || null;
-		} catch {
-			return null;
-		}
-	}
-
 	async function retryTitleHydration() {
 		if (!title) return;
 		readinessRequested = false;
@@ -918,8 +896,6 @@
 
 		const manual = options?.manual === true;
 		const query = (manual ? manualSearchQuery : title.title).trim() || title.title;
-		const directTitleUrl =
-			manual && searchQueryLooksLikeTitleUrl(query) ? searchQueryToTitleUrl(query) : null;
 		const suggestionQueries = manual ? [query] : uniqueMatchQueries();
 		const rankedQueries = suggestionQueries.length > 0 ? suggestionQueries : [query];
 		const candidateSources = manual
@@ -999,8 +975,20 @@
 			const searchSourceBatch = async (sourceBatch: SourceItem[]) => {
 				await runWithConcurrency(sourceBatch, MATCH_SEARCH_CONCURRENCY, async (source) => {
 					if (manual) {
-						if (directTitleUrl) {
-							await fetchDirectVariant(source, directTitleUrl);
+						const directTitleUrlCandidates = directSourceTitleUrlCandidates(query, source);
+						if (directTitleUrlCandidates.length > 0) {
+							let lastError: unknown = null;
+							for (const titleUrl of directTitleUrlCandidates) {
+								try {
+									await fetchDirectVariant(source, titleUrl);
+									return;
+								} catch (cause) {
+									lastError = cause;
+								}
+							}
+							if (lastError) {
+								throw lastError;
+							}
 							return;
 						}
 						await searchSource(source, query);

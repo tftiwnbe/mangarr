@@ -34,6 +34,7 @@
 		sourceHealthLabelKey,
 		type SourceHealthEntry
 	} from '$lib/utils/source-health';
+	import { directSourceTitleUrlCandidates } from '$lib/utils/source-title-url';
 	import type { FilterMeta, PreferenceBundle } from '$lib/extensions/source-preferences';
 
 	type TabValue = 'forYou' | 'popular' | 'latest' | 'search';
@@ -669,29 +670,6 @@
 		return items;
 	}
 
-	function searchQueryLooksLikeTitleUrl(query: string): boolean {
-		const trimmed = query.trim();
-		return (
-			trimmed.startsWith('http://') ||
-			trimmed.startsWith('https://') ||
-			trimmed.startsWith('/')
-		);
-	}
-
-	function searchQueryToTitleUrl(query: string): string | null {
-		const trimmed = query.trim();
-		if (!trimmed) return null;
-		if (trimmed.startsWith('/')) {
-			return trimmed;
-		}
-		try {
-			const parsed = new URL(trimmed);
-			return `${parsed.pathname}${parsed.search}${parsed.hash}` || null;
-		} catch {
-			return null;
-		}
-	}
-
 	function sourceHasMore(commandType: string, sourceId: string): boolean {
 		if (exhaustedFeedSources[sourceId]) return false;
 		const currentPage = loadedPagesBySource[sourceId] ?? 0;
@@ -1037,20 +1015,36 @@
 		const nextLiveSearchResults = { ...liveSearchResults };
 		const nextLoadedPagesBySource: Record<string, number> = {};
 		const nextExhaustedSearchSources: Record<string, boolean> = {};
-		const directTitleUrl =
-			selectedSourceId && searchQueryLooksLikeTitleUrl(value) ? searchQueryToTitleUrl(value) : null;
+		const directTitleUrlCandidates = selectedSource
+			? directSourceTitleUrlCandidates(value, selectedSource)
+			: [];
 
 		await runWithConcurrency(sourceIds, COMMAND_CONCURRENCY, async (sourceId) => {
 			try {
 				const searchFilters = selectedSourceId === sourceId ? selectedSourceAppliedFilters : {};
-				if (directTitleUrl && selectedSourceId === sourceId) {
-					const { commandId } = await client.mutation(convexApi.commands.enqueueExploreTitleFetch, {
-						sourceId,
-						titleUrl: directTitleUrl,
-						contextKey: `explore:${sourceId}`
-					});
-					const command = await waitForCommand(client, commandId);
-					const title = (command.result?.title as ExploreItem | undefined) ?? null;
+				if (directTitleUrlCandidates.length > 0 && selectedSourceId === sourceId) {
+					let title: ExploreItem | null = null;
+					let lastError: unknown = null;
+					for (const titleUrl of directTitleUrlCandidates) {
+						try {
+							const { commandId } = await client.mutation(
+								convexApi.commands.enqueueExploreTitleFetch,
+								{
+									sourceId,
+									titleUrl,
+									contextKey: `explore:${sourceId}`
+								}
+							);
+							const command = await waitForCommand(client, commandId);
+							title = (command.result?.title as ExploreItem | undefined) ?? null;
+							if (title) break;
+						} catch (cause) {
+							lastError = cause;
+						}
+					}
+					if (!title && lastError) {
+						throw lastError;
+					}
 					nextLiveSearchResults[searchResultKey(sourceId, value, searchFilters, 1)] = {
 						items: title ? [title] : [],
 						page: 1,
