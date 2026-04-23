@@ -1085,13 +1085,12 @@ class BridgeCommandRunner(
                             ) { downloadedPages, totalPages ->
                                 val now = System.currentTimeMillis()
                                 val (shouldRenewLease, shouldPushProgress) =
-                                    synchronized(downloadProgressLock) {
-                                        val renewLease =
-                                            downloadedPages >= totalPages ||
-                                                now - lastDownloadLeaseRenewAt >= DOWNLOAD_LEASE_RENEW_INTERVAL_MS
-                                        if (renewLease) {
-                                            lastDownloadLeaseRenewAt = now
-                                        }
+								 synchronized(downloadProgressLock) {
+									 val renewLease =
+										 now - lastDownloadLeaseRenewAt >= DOWNLOAD_LEASE_RENEW_INTERVAL_MS
+									 if (renewLease) {
+										 lastDownloadLeaseRenewAt = now
+									 }
 
                                         val pushProgress =
                                             downloadedPages >= totalPages ||
