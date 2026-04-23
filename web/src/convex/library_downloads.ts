@@ -110,9 +110,6 @@ export const requestChapterDownload = mutation({
 	},
 	handler: async (ctx, args) => {
 		const chapter = await requireOwnedChapter(ctx, args.chapterId);
-		if (!isChapterAvailableFromSource(chapter)) {
-			throw new Error('Chapter is no longer available from the source');
-		}
 		const title = await ctx.db.get(chapter.libraryTitleId);
 		if (!title || title.ownerUserId !== chapter.ownerUserId) {
 			throw new Error('Library title not found');
@@ -343,7 +340,6 @@ export const requestMissingDownloads = mutation({
 			.filter((chapter, index, chapters) =>
 				chapters.findIndex((entry) => entry._id === chapter._id) === index
 			)
-			.filter((chapter) => isChapterAvailableFromSource(chapter))
 			.sort((left, right) => left.sequence - right.sequence);
 		for (const chapter of eligibleRetryChapters) {
 			await queueDownloadAttempt(ctx, {
@@ -356,9 +352,9 @@ export const requestMissingDownloads = mutation({
 			});
 		}
 
-		const eligible = [...missingChapters, ...failedChapters]
-			.filter((chapter) => isChapterAvailableFromSource(chapter))
-			.sort((left, right) => left.sequence - right.sequence);
+		const eligible = [...missingChapters, ...failedChapters].sort(
+			(left, right) => left.sequence - right.sequence
+		);
 		const remainingSlots = await remainingDownloadCapacityForUser(ctx, userId);
 		if (remainingSlots <= 0) {
 			return {
