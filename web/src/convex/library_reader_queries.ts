@@ -547,14 +547,20 @@ export const getReaderByChapterId = query({
 			throw new Error('Library title not found');
 		}
 
-		const [titleRouteSegment, chapters] = await Promise.all([
+		const [titleRouteSegment, chapters, preferredVariant] = await Promise.all([
 			resolveOwnerTitleRouteSegment(ctx, title),
 			ctx.db
 				.query('libraryChapters')
 				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
-				.collect()
+				.collect(),
+			getPreferredVariantForTitle(ctx, title)
 		]);
-		const chapterRouteSegments = buildChapterRouteSegments(chapters);
+		const activeChapterSource = preferredVariant ?? title;
+		const activeChapters = chapters.filter(
+			(item) =>
+				item.isAvailableFromSource !== false && chapterBelongsToVariant(item, activeChapterSource)
+		);
+		const chapterRouteSegments = buildChapterRouteSegments(activeChapters);
 
 		const progress = await getOwnedChapterProgressRow(ctx, chapter._id);
 
@@ -569,7 +575,7 @@ export const getReaderByChapterId = query({
 					chapterRouteSegments.get(String(chapter._id)) ??
 					buildChapterRouteBase(chapter.chapterName, chapter.chapterNumber ?? null)
 			},
-			chapters: chapters
+			chapters: activeChapters
 				.sort((left, right) => left.sequence - right.sequence)
 				.map((item) => ({
 					...item,
@@ -612,9 +618,15 @@ export const getReaderByRouteSegments = query({
 			.query('libraryChapters')
 			.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
 			.collect();
-		const chapterRouteSegments = buildChapterRouteSegments(chapters);
+		const preferredVariant = await getPreferredVariantForTitle(ctx, title);
+		const activeChapterSource = preferredVariant ?? title;
+		const activeChapters = chapters.filter(
+			(item) =>
+				item.isAvailableFromSource !== false && chapterBelongsToVariant(item, activeChapterSource)
+		);
+		const chapterRouteSegments = buildChapterRouteSegments(activeChapters);
 		const chapter =
-			chapters.find(
+			activeChapters.find(
 				(item) =>
 					(chapterRouteSegments.get(String(item._id)) ??
 						buildChapterRouteBase(item.chapterName, item.chapterNumber ?? null)) ===
@@ -637,7 +649,7 @@ export const getReaderByRouteSegments = query({
 					chapterRouteSegments.get(String(chapter._id)) ??
 					buildChapterRouteBase(chapter.chapterName, chapter.chapterNumber ?? null)
 			},
-			chapters: chapters
+			chapters: activeChapters
 				.sort((left, right) => left.sequence - right.sequence)
 				.map((item) => ({
 					...item,
