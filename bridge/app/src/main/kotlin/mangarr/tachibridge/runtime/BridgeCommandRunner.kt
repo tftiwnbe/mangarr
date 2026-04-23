@@ -51,7 +51,7 @@ private val discoveryCapabilities = listOf("discovery.feed", "discovery.metadata
 private const val DOWNLOAD_COMMAND_CONCURRENCY = 2
 private const val INTERACTIVE_COMMAND_CONCURRENCY = 2
 private const val DISCOVERY_COMMAND_CONCURRENCY = 1
-private const val DOWNLOAD_PROGRESS_UPDATE_INTERVAL_MS = 1_250L
+private const val DOWNLOAD_PROGRESS_UPDATE_INTERVAL_MS = 5_000L
 private const val DOWNLOAD_LEASE_RENEW_INTERVAL_MS = 5_000L
 private const val DISCOVERY_RETRY_DELAY_MS = 15 * 60 * 1000L
 
@@ -1092,19 +1092,18 @@ class BridgeCommandRunner(
 											lastDownloadLeaseRenewAt = now
 										}
 
-                                        val pushProgress =
-                                            downloadedPages >= totalPages ||
-                                                downloadedPages <= 1 ||
-                                                now - lastDownloadProgressUpdateAt >= DOWNLOAD_PROGRESS_UPDATE_INTERVAL_MS
-                                        if (pushProgress) {
-                                            lastDownloadProgressUpdateAt = now
-                                        }
+										val pushProgress =
+											downloadedPages <= 1 ||
+												now - lastDownloadProgressUpdateAt >= DOWNLOAD_PROGRESS_UPDATE_INTERVAL_MS
+										if (pushProgress) {
+											lastDownloadProgressUpdateAt = now
+										}
 
-                                        renewLease to pushProgress
-                                    }
-                                if (shouldRenewLease) {
-                                    renewLeaseOrThrowStale(client, command, now)
-                                }
+										renewLease to pushProgress
+									}
+								if (shouldRenewLease) {
+									renewLeaseOrThrowStale(client, command, now)
+								}
 
                                 if (shouldPushProgress) {
                                     client.setLibraryChapterDownloadState(

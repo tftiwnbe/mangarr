@@ -433,29 +433,38 @@ export const setChapterDownloadState = mutation({
 		const oldStatus = chapter.downloadStatus;
 		const oldFileSizeBytes = chapter.fileSizeBytes;
 		const newFileSizeBytes = args.fileSizeBytes === undefined ? chapter.fileSizeBytes : args.fileSizeBytes;
+		const isProgressOnlyUpdate =
+			args.status === DOWNLOAD_STATUS.DOWNLOADING &&
+			oldStatus === DOWNLOAD_STATUS.DOWNLOADING &&
+			args.localRelativePath === undefined &&
+			args.storageKind === undefined &&
+			args.fileSizeBytes === undefined &&
+			args.lastErrorMessage === undefined;
 
-		await ctx.db.patch(chapter._id, {
-			downloadStatus: args.status,
-			downloadedPages: args.downloadedPages ?? chapter.downloadedPages,
-			totalPages: args.totalPages ?? chapter.totalPages,
-			localRelativePath:
-				args.localRelativePath === undefined
-					? chapter.localRelativePath
-					: (args.localRelativePath ?? undefined),
-			storageKind:
-				args.storageKind === undefined ? chapter.storageKind : (args.storageKind ?? undefined),
-			fileSizeBytes: newFileSizeBytes,
-			lastErrorMessage:
-				args.lastErrorMessage === undefined
-					? chapter.lastErrorMessage
-					: normalizeOptionalString(args.lastErrorMessage),
-			downloadedAt: args.status === DOWNLOAD_STATUS.DOWNLOADED ? args.now : chapter.downloadedAt,
-			updatedAt: args.now
-		});
+		if (!isProgressOnlyUpdate) {
+			await ctx.db.patch(chapter._id, {
+				downloadStatus: args.status,
+				downloadedPages: args.downloadedPages ?? chapter.downloadedPages,
+				totalPages: args.totalPages ?? chapter.totalPages,
+				localRelativePath:
+					args.localRelativePath === undefined
+						? chapter.localRelativePath
+						: (args.localRelativePath ?? undefined),
+				storageKind:
+					args.storageKind === undefined ? chapter.storageKind : (args.storageKind ?? undefined),
+				fileSizeBytes: newFileSizeBytes,
+				lastErrorMessage:
+					args.lastErrorMessage === undefined
+						? chapter.lastErrorMessage
+						: normalizeOptionalString(args.lastErrorMessage),
+				downloadedAt: args.status === DOWNLOAD_STATUS.DOWNLOADED ? args.now : chapter.downloadedAt,
+				updatedAt: args.now
+			});
+		}
 
 		const statusChanged = oldStatus !== args.status;
 		const sizeChanged = (oldFileSizeBytes ?? 0) !== (newFileSizeBytes ?? 0);
-		if (statusChanged || sizeChanged) {
+		if (!isProgressOnlyUpdate && (statusChanged || sizeChanged)) {
 			await scheduleTitleStatsRefresh(ctx, {
 				libraryTitleId: chapter.libraryTitleId,
 				ownerUserId: chapter.ownerUserId,
