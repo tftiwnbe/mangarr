@@ -2,7 +2,7 @@ import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
 
 import { query } from './_generated/server';
-import { buildChapterRouteBase, buildTitleRouteBase } from '../lib/utils/route-segments';
+import { buildChapterRouteBase, buildTitleRouteBaseFromUrl } from '../lib/utils/route-segments';
 import {
 	chapterBelongsToVariant,
 	getPreferredVariantForTitle,
@@ -120,7 +120,9 @@ export const listHiddenMine = query({
 				sourcePkg: title.sourcePkg,
 				sourceLang: title.sourceLang,
 				titleUrl: title.titleUrl,
-				routeSegment: titleRouteSegments.get(String(title._id)) ?? buildTitleRouteBase(title.title),
+				routeSegment:
+					titleRouteSegments.get(String(title._id)) ??
+					buildTitleRouteBaseFromUrl(title.titleUrl, title.title),
 				coverUrl: title.coverUrl ?? null,
 				localCoverPath: title.localCoverPath ?? null,
 				createdAt: title.createdAt,
@@ -263,7 +265,9 @@ export const getMineImportedSourceLookup = query({
 				titleUrl: title.titleUrl,
 				libraryId: String(title._id),
 				listedInLibrary: title.listedInLibrary !== false,
-				routeSegment: titleRouteSegments.get(String(title._id)) ?? buildTitleRouteBase(title.title)
+				routeSegment:
+					titleRouteSegments.get(String(title._id)) ??
+					buildTitleRouteBaseFromUrl(title.titleUrl, title.title)
 			});
 		}
 		for (const variant of variants) {
@@ -276,7 +280,7 @@ export const getMineImportedSourceLookup = query({
 				listedInLibrary: primaryEntry?.listedInLibrary !== false,
 				routeSegment:
 					titleRouteSegments.get(String(variant.libraryTitleId)) ??
-					buildTitleRouteBase(primaryEntry?.title ?? '')
+					buildTitleRouteBaseFromUrl(primaryEntry?.titleUrl, primaryEntry?.title ?? '')
 			});
 		}
 		return entries;

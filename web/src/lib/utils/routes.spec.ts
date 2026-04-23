@@ -6,7 +6,7 @@ import {
 	parseReaderChapterParam,
 	parseTitleRouteParam
 } from './routes';
-import { slugifySegment } from './route-segments';
+import { buildTitleRouteBaseFromUrl, slugifySegment } from './route-segments';
 
 describe('routes', () => {
 	it('slugifies readable title segments', () => {
@@ -14,20 +14,29 @@ describe('routes', () => {
 		expect(slugifySegment('Человек-бензопила')).toBe('chelovek-benzopila');
 	});
 
-	it('builds and parses title routes with slugs', () => {
+	it('builds title route bases from bridge title urls', () => {
+		expect(buildTitleRouteBaseFromUrl('/manga/77bee52c-d2d6-44ad-a33a-1734c1fe696a')).toBe(
+			'77bee52c-d2d6-44ad-a33a-1734c1fe696a'
+		);
+		expect(buildTitleRouteBaseFromUrl('https://site.test/title/chainsaw-man')).toBe('chainsaw-man');
+	});
+
+	it('builds and parses title routes with route segments', () => {
 		const path = buildTitlePath('ignored', 'Chainsaw Man');
-		expect(path).toBe('/title/chainsaw-man');
-		expect(parseTitleRouteParam('chainsaw-man')).toBe('chainsaw-man');
+		expect(path).toBe('/title/ignored');
+		expect(parseTitleRouteParam('ignored')).toBe('ignored');
 	});
 
 	it('builds reader routes with chapter number and name context', () => {
 		const path = buildReaderPath({
+			titleId: 'title-id',
 			titleName: 'Sophisticated Senpai',
+			chapterId: 'chapter-id',
 			chapterName: 'Chapter 1 - Meet Cute',
 			chapterNumber: 1
-		} as never);
+		});
 
-		expect(path).toBe('/reader/sophisticated-senpai/ch-1');
+		expect(path).toBe('/reader/title-id/ch-1');
 		expect(parseReaderChapterParam('ch-1')).toBe('ch-1');
 	});
 

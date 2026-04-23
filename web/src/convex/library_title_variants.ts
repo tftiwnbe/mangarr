@@ -3,7 +3,7 @@ import { v } from 'convex/values';
 import { mutation } from './_generated/server';
 import { mergeOwnedTitles } from './library_shared_merge';
 import {
-	applyVariantSnapshotToTitle,
+	applyVariantMetadataToTitle,
 	loadInstalledSourceCatalog,
 	pickVariantNormalizationAssignments,
 	refreshTitleVariantCount,
@@ -53,7 +53,8 @@ export const linkVariant = mutation({
 				const mergedVariant = await ctx.db
 					.query('titleVariants')
 					.withIndex('by_library_title_id_source_id_title_url', (q) =>
-						q.eq('libraryTitleId', title._id)
+						q
+							.eq('libraryTitleId', title._id)
 							.eq('sourceId', args.sourceId)
 							.eq('titleUrl', args.titleUrl)
 					)
@@ -91,12 +92,7 @@ export const linkVariant = mutation({
 				lastSyncedAt: now
 			});
 			if (title.preferredVariantId === existing._id) {
-				await applyVariantSnapshotToTitle(ctx, title._id, {
-					sourceId: args.sourceId,
-					sourcePkg: args.sourcePkg,
-					sourceLang: args.sourceLang,
-					titleUrl: args.titleUrl,
-					title: args.title,
+				await applyVariantMetadataToTitle(ctx, title._id, {
 					author: args.author ?? undefined,
 					artist: args.artist ?? undefined,
 					description: args.description ?? undefined,

@@ -1,7 +1,7 @@
 import type { GenericId } from 'convex/values';
 
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { buildTitleRouteBase } from '../lib/utils/route-segments';
+import { buildTitleRouteBaseFromUrl } from '../lib/utils/route-segments';
 import { insertCommand } from './command_payloads';
 import { DOWNLOAD_STATUS } from './library_shared_access';
 import { loadInstalledSourceCatalog, variantInstalledSourceRecord } from './library_shared_sources';
@@ -360,18 +360,7 @@ export async function setTitlePreferredVariant(
 	}
 
 	if (preferredVariant) {
-		const canonicalVariant =
-			[...variants].sort((left, right) => left.createdAt - right.createdAt)[0] ?? null;
-		await applyVariantSnapshotToTitle(ctx, title._id, {
-			sourceId: preferredVariant.sourceId,
-			sourcePkg: preferredVariant.sourcePkg,
-			sourceLang: preferredVariant.sourceLang,
-			titleUrl: preferredVariant.titleUrl,
-			title: pickStablePreferredTitle(
-				title.title,
-				canonicalVariant?.title ?? null,
-				preferredVariant.title
-			),
+		await applyVariantMetadataToTitle(ctx, title._id, {
 			author: pickString(preferredVariant.author, title.author),
 			artist: pickString(preferredVariant.artist, title.artist),
 			description: pickString(preferredVariant.description, title.description),
@@ -403,6 +392,43 @@ export function pickStablePreferredTitle(
 		currentTitle ??
 		''
 	);
+}
+
+export async function applyVariantMetadataToTitle(
+	ctx: MutationCtx,
+	titleId: GenericId<'libraryTitles'>,
+	args: {
+		author?: string;
+		artist?: string;
+		description?: string;
+		coverUrl?: string;
+		genre?: string;
+		status?: number;
+		preferredVariantId?: GenericId<'titleVariants'>;
+		now: number;
+	}
+) {
+	const patch: {
+		author?: string;
+		artist?: string;
+		description?: string;
+		coverUrl?: string;
+		genre?: string;
+		status?: number;
+		preferredVariantId?: GenericId<'titleVariants'>;
+		updatedAt: number;
+	} = {
+		updatedAt: args.now
+	};
+	if (args.preferredVariantId !== undefined) patch.preferredVariantId = args.preferredVariantId;
+	if (args.author !== undefined) patch.author = args.author;
+	if (args.artist !== undefined) patch.artist = args.artist;
+	if (args.description !== undefined) patch.description = args.description;
+	if (args.coverUrl !== undefined) patch.coverUrl = args.coverUrl;
+	if (args.genre !== undefined) patch.genre = args.genre;
+	if (args.status !== undefined) patch.status = args.status;
+
+	await ctx.db.patch(titleId, patch);
 }
 
 export async function markTitleListedInLibrary(
@@ -446,7 +472,7 @@ export async function applyVariantSnapshotToTitle(
 ) {
 	await ctx.db.patch(titleId, {
 		title: args.title,
-		routeBase: buildTitleRouteBase(args.title),
+		routeBase: buildTitleRouteBaseFromUrl(args.titleUrl, args.title),
 		sourceId: args.sourceId,
 		sourcePkg: args.sourcePkg,
 		sourceLang: args.sourceLang,

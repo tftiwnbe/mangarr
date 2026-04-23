@@ -5,6 +5,7 @@ import type { QueryCtx } from './_generated/server';
 import {
 	buildChapterRouteBase,
 	buildTitleRouteBase,
+	buildTitleRouteBaseFromUrl,
 	buildUniqueRouteSegmentMap
 } from '../lib/utils/route-segments';
 import {
@@ -30,13 +31,15 @@ export function buildTitleRouteSegments<
 	T extends {
 		_id: GenericId<'libraryTitles'>;
 		title: string;
+		titleUrl?: string | null;
 		routeBase?: string | null;
 	}
 >(titles: readonly T[]) {
 	return buildUniqueRouteSegmentMap({
 		items: titles,
 		getId: (title) => String(title._id),
-		getBase: (title) => title.routeBase?.trim() || buildTitleRouteBase(title.title)
+		getBase: (title) =>
+			title.routeBase?.trim() || buildTitleRouteBaseFromUrl(title.titleUrl, title.title)
 	});
 }
 
@@ -112,10 +115,11 @@ export async function resolveOwnerTitleRouteSegment(
 		_id: GenericId<'libraryTitles'>;
 		ownerUserId: GenericId<'users'>;
 		title: string;
+		titleUrl?: string | null;
 		routeBase?: string | null;
 	}
 ): Promise<string> {
-	const base = title.routeBase?.trim() || buildTitleRouteBase(title.title);
+	const base = title.routeBase?.trim() || buildTitleRouteBaseFromUrl(title.titleUrl, title.title);
 	const candidates = await ctx.db
 		.query('libraryTitles')
 		.withIndex('by_owner_user_id_route_base', (q) =>
@@ -165,7 +169,9 @@ export function findTitleByAliasRouteSegment<
 		getBase: () => base
 	});
 
-	return aliasMatches.find((title) => aliasSegments.get(String(title._id)) === routeSegment) ?? null;
+	return (
+		aliasMatches.find((title) => aliasSegments.get(String(title._id)) === routeSegment) ?? null
+	);
 }
 
 /**
@@ -198,7 +204,8 @@ export async function findOwnedTitleByRouteSegment(
 					.collect();
 
 	const segments = buildTitleRouteSegments(pool);
-	const canonicalMatch = pool.find((title) => segments.get(String(title._id)) === routeSegment) ?? null;
+	const canonicalMatch =
+		pool.find((title) => segments.get(String(title._id)) === routeSegment) ?? null;
 	if (canonicalMatch) {
 		return canonicalMatch;
 	}

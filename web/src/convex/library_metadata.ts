@@ -2,11 +2,12 @@ import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
 
 import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
-import { buildTitleRouteBase } from '../lib/utils/route-segments';
+import { buildTitleRouteBaseFromUrl } from '../lib/utils/route-segments';
 import { requireBridgeIdentity } from './bridge_auth';
 import { insertCommand } from './command_payloads';
 import { STATUS } from './commands';
 import {
+	applyVariantMetadataToTitle,
 	chapterBelongsToVariant,
 	findVariantForTitle,
 	getPreferredVariantForTitle,
@@ -127,7 +128,9 @@ export const beginTitleOpen = mutation({
 				.query('libraryChapters')
 				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', existingTitle._id))
 				.collect();
-			const hasChapters = chapters.some((chapter) => chapterBelongsToVariant(chapter, activeVariant));
+			const hasChapters = chapters.some((chapter) =>
+				chapterBelongsToVariant(chapter, activeVariant)
+			);
 			return {
 				state: hasChapters ? ('ready' as const) : ('syncing' as const),
 				titleId: existingTitle._id,
@@ -396,7 +399,7 @@ export const upsertTitleMetadataFromBridge = mutation({
 			matchingTitleIds.add(String(title._id));
 			await ctx.db.patch(title._id, {
 				title: args.title,
-				routeBase: buildTitleRouteBase(args.title),
+				routeBase: buildTitleRouteBaseFromUrl(args.titleUrl, args.title),
 				sourcePkg: sourcePkg ?? title.sourcePkg,
 				sourceLang: sourceLang ?? title.sourceLang,
 				author,
@@ -418,12 +421,7 @@ export const upsertTitleMetadataFromBridge = mutation({
 				continue;
 			}
 
-			await applyVariantSnapshotToTitle(ctx, title._id, {
-				sourceId: args.sourceId,
-				sourcePkg: sourcePkg ?? title.sourcePkg,
-				sourceLang: sourceLang ?? title.sourceLang,
-				titleUrl: args.titleUrl,
-				title: args.title,
+			await applyVariantMetadataToTitle(ctx, title._id, {
 				author,
 				artist,
 				description,
@@ -760,43 +758,6 @@ async function requireViewerIdentity(ctx: QueryCtx | MutationCtx) {
 async function requireViewerUserId(ctx: QueryCtx | MutationCtx) {
 	const identity = await requireViewerIdentity(ctx);
 	return identity.subject as GenericId<'users'>;
-}
-
-async function applyVariantSnapshotToTitle(
-	ctx: MutationCtx,
-	titleId: GenericId<'libraryTitles'>,
-	args: {
-		sourceId: string;
-		sourcePkg: string;
-		sourceLang: string;
-		titleUrl: string;
-		title: string;
-		author?: string;
-		artist?: string;
-		description?: string;
-		coverUrl?: string;
-		genre?: string;
-		status?: number;
-		preferredVariantId?: GenericId<'titleVariants'>;
-		now: number;
-	}
-) {
-	await ctx.db.patch(titleId, {
-		title: args.title,
-		routeBase: buildTitleRouteBase(args.title),
-		sourceId: args.sourceId,
-		sourcePkg: args.sourcePkg,
-		sourceLang: args.sourceLang,
-		titleUrl: args.titleUrl,
-		author: args.author,
-		artist: args.artist,
-		description: args.description,
-		coverUrl: args.coverUrl,
-		genre: args.genre,
-		status: args.status,
-		preferredVariantId: args.preferredVariantId,
-		updatedAt: args.now
-	});
 }
 
 type DocLike<TableName extends keyof import('./_generated/dataModel').DataModel> =

@@ -2,9 +2,10 @@ import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
 
 import { mutation, type MutationCtx } from './_generated/server';
-import { buildTitleRouteBase } from '../lib/utils/route-segments';
+import { buildTitleRouteBaseFromUrl } from '../lib/utils/route-segments';
 import { requireBridgeIdentity } from './bridge_auth';
 import {
+	applyVariantMetadataToTitle,
 	applyVariantSnapshotToTitle,
 	DOWNLOAD_STATUS,
 	findVariantForTitle,
@@ -435,17 +436,27 @@ async function importForUserCore(
 			lastSyncedAt: args.now
 		});
 
-		const shouldRefreshTitleSnapshot =
-			existingTitle.preferredVariantId === existingVariant._id ||
-			(existingTitle.sourceId === existingVariant.sourceId &&
-				existingTitle.titleUrl === existingVariant.titleUrl);
-		if (shouldRefreshTitleSnapshot) {
+		const isTitleIdentityVariant =
+			existingTitle.sourceId === existingVariant.sourceId &&
+			existingTitle.titleUrl === existingVariant.titleUrl;
+		if (isTitleIdentityVariant) {
 			await applyVariantSnapshotToTitle(ctx, existingTitle._id, {
 				sourceId: args.sourceId,
 				sourcePkg: args.sourcePkg,
 				sourceLang: args.sourceLang,
 				titleUrl: args.titleUrl,
 				title: args.title,
+				author: args.author,
+				artist: args.artist,
+				description: args.description,
+				coverUrl: args.coverUrl,
+				genre: args.genre,
+				status: args.status,
+				preferredVariantId: existingVariant._id,
+				now: args.now
+			});
+		} else if (existingTitle.preferredVariantId === existingVariant._id) {
+			await applyVariantMetadataToTitle(ctx, existingTitle._id, {
 				author: args.author,
 				artist: args.artist,
 				description: args.description,
@@ -533,7 +544,7 @@ async function importForUserCore(
 		ownerUserId: args.userId,
 		canonicalKey: args.canonicalKey,
 		title: args.title,
-		routeBase: buildTitleRouteBase(args.title),
+		routeBase: buildTitleRouteBaseFromUrl(args.titleUrl, args.title),
 		sourcePkg: args.sourcePkg,
 		sourceLang: args.sourceLang,
 		sourceId: args.sourceId,

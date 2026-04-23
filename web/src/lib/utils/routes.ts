@@ -1,11 +1,11 @@
-import { buildChapterRouteBase, buildTitleRouteBase, decodeRouteSegment } from './route-segments';
+import { buildChapterRouteBase, decodeRouteSegment } from './route-segments';
 
 export function buildTitlePath(
-	_titleId: string,
-	titleName: string,
+	titleId: string,
+	_titleName: string,
 	routeSegment?: string | null
 ): string {
-	return `/title/${encodeURIComponent(routeSegment ?? buildTitleRouteBase(titleName))}`;
+	return `/title/${encodeURIComponent(routeSegment ?? titleId)}`;
 }
 
 export function parseTitleRouteParam(value: string | null | undefined): string | null {
@@ -21,7 +21,7 @@ export function buildReaderPath(params: {
 	chapterNumber?: number | null;
 	chapterRouteSegment?: string | null;
 }): string {
-	const titleSegment = params.titleRouteSegment ?? buildTitleRouteBase(params.titleName ?? '');
+	const titleSegment = params.titleRouteSegment ?? params.titleId;
 	const chapterSegment =
 		params.chapterRouteSegment ?? buildChapterRouteBase(params.chapterName, params.chapterNumber);
 	return `/reader/${encodeURIComponent(titleSegment)}/${encodeURIComponent(chapterSegment)}`;

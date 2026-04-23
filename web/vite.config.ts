@@ -3,6 +3,20 @@ import { playwright } from '@vitest/browser-playwright';
 import tailwindcss from '@tailwindcss/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 
+function packageChunkName(id: string): string {
+	const lastNodeModules = id.lastIndexOf('/node_modules/');
+	if (lastNodeModules === -1) {
+		return 'vendor';
+	}
+	const packagePath = id.slice(lastNodeModules + '/node_modules/'.length);
+	const parts = packagePath.split('/');
+	const packageName = parts[0]?.startsWith('@') ? `${parts[0]}/${parts[1]}` : parts[0];
+	if (!packageName) {
+		return 'vendor';
+	}
+	return `vendor-${packageName.replace(/^@/, '').replace(/[^a-zA-Z0-9_-]+/g, '-')}`;
+}
+
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],
 	server: {
@@ -22,6 +36,12 @@ export default defineConfig({
 					if (!id.includes('node_modules')) {
 						return;
 					}
+					if (id.includes('/svelte/') || id.includes('/@sveltejs/kit/')) {
+						return 'framework';
+					}
+					if (id.includes('/svelte-i18n/')) {
+						return 'i18n';
+					}
 					if (id.includes('/convex/') || id.includes('/convex-svelte/')) {
 						return 'convex';
 					}
@@ -35,7 +55,10 @@ export default defineConfig({
 					if (id.includes('/phosphor-svelte/')) {
 						return 'icons';
 					}
-					return 'vendor';
+					if (id.includes('/jose/')) {
+						return 'security';
+					}
+					return packageChunkName(id);
 				}
 			}
 		}
