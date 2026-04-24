@@ -9,6 +9,7 @@
 	import { waitForCommand } from '$lib/client/commands';
 	import { setupConvexClient } from '$lib/convex/client';
 	import { getExtensionRepository, updateExtensionRepository } from '$lib/client/setup';
+	import { Alert } from '$lib/elements/alert';
 	import { Button } from '$lib/elements/button';
 	import { Input } from '$lib/elements/input';
 	import { _ } from '$lib/i18n';
@@ -266,11 +267,7 @@
 							/>
 
 							{#if error}
-								<div
-									class="animate-fade-in border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]"
-								>
-									{error}
-								</div>
+								<Alert variant="error">{error}</Alert>
 							{/if}
 
 							<Button

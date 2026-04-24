@@ -13,6 +13,8 @@
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import { convexApi } from '$lib/convex/api';
+	import { Alert } from '$lib/elements/alert';
+	import { EmptyState } from '$lib/elements/empty-state';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { Switch } from '$lib/elements/switch';
 	import { _ } from '$lib/i18n';
@@ -356,17 +358,13 @@
 				</p>
 			{/if}
 			{#if reconcileError}
-				<p class="text-xs text-[var(--error)]">{reconcileError}</p>
+				<Alert variant="error">{reconcileError}</Alert>
 			{/if}
 		</div>
 	{/if}
 
 	{#if actionError}
-		<div
-			class="border-l-2 border-[var(--error)] bg-[var(--error-soft)] px-3 py-2 text-xs text-[var(--error)]"
-		>
-			{actionError}
-		</div>
+		<Alert variant="error">{actionError}</Alert>
 	{/if}
 
 	<!-- Inflight -->
@@ -459,12 +457,11 @@
 				<SpinnerIcon size={16} class="animate-spin text-[var(--text-ghost)]" />
 			</div>
 		{:else if dashboard.watchedTitles.length === 0}
-			<div class="flex flex-col items-center gap-1 py-16">
-				<p class="text-sm text-[var(--text-muted)]">{$_('downloads.noWatched')}</p>
-				<p class="text-[11px] text-[var(--text-ghost)]">
-					{$_('downloads.noWatchedDescription')}
-				</p>
-			</div>
+			<EmptyState
+				icon={HardDriveIcon}
+				title={$_('downloads.noWatched')}
+				description={$_('downloads.noWatchedDescription')}
+			/>
 		{:else}
 			<ul class="flex flex-col">
 				{#each dashboard.watchedTitles as item (item.titleId)}

@@ -5,13 +5,11 @@
 
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import {
-		FunnelIcon,
-		MagnifyingGlassIcon,
-		XIcon,
 		BookIcon,
-		ImageIcon,
 		CaretDownIcon,
-		CaretUpIcon
+		CaretUpIcon,
+		FunnelIcon,
+		ImageIcon
 	} from 'phosphor-svelte';
 
 	import type { Id } from '$convex/_generated/dataModel';
@@ -19,8 +17,8 @@
 	import { Alert } from '$lib/elements/alert';
 	import { Button } from '$lib/elements/button';
 	import { EmptyState } from '$lib/elements/empty-state';
-	import { Input } from '$lib/elements/input';
 	import { LazyImage } from '$lib/elements/lazy-image';
+	import { SearchInput } from '$lib/elements/search-input';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { DebouncedValue } from '$lib/hooks/use-debounced-value.svelte';
 	import { _ } from '$lib/i18n';
@@ -472,27 +470,11 @@
 		{/if}
 	</div>
 
-	<div class="relative">
-		<MagnifyingGlassIcon
-			size={14}
-			class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-ghost)]"
-		/>
-		<Input
-			type="search"
-			placeholder={$_('library.searchPlaceholder')}
-			bind:value={searchQuery}
-			class="h-9 pl-9 text-sm"
-		/>
-		{#if searchQuery}
-			<button
-				type="button"
-				class="absolute top-1/2 right-3 -translate-y-1/2 text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
-				onclick={() => (searchQuery = '')}
-			>
-				<XIcon size={14} />
-			</button>
-		{/if}
-	</div>
+	<SearchInput
+		bind:value={searchQuery}
+		placeholder={$_('library.searchPlaceholder')}
+		inputSize="sm"
+	/>
 
 	{#if collections.length > 0}
 		<div class="no-scrollbar flex items-center gap-1 overflow-x-auto pb-0.5">

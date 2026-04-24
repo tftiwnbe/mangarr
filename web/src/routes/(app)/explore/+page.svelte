@@ -1569,11 +1569,7 @@
 	{/if}
 
 	{#if error}
-		<div
-			class="border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]"
-		>
-			{error}
-		</div>
+		<Alert variant="error">{error}</Alert>
 	{/if}
 
 	{#if activeSourceFailures.length > 0}

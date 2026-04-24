@@ -11,18 +11,18 @@
 		CaretRightIcon,
 		CheckIcon,
 		GearIcon,
-		MagnifyingGlassIcon,
 		PlusIcon,
 		PuzzlePieceIcon,
-		SpinnerIcon,
-		XIcon
+		SpinnerIcon
 	} from 'phosphor-svelte';
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import { type AcceptedCommandResponse, waitForCommand } from '$lib/client/commands';
 	import { Alert } from '$lib/elements/alert';
 	import { Button } from '$lib/elements/button';
+	import { EmptyState } from '$lib/elements/empty-state';
 	import { Input } from '$lib/elements/input';
+	import { SearchInput } from '$lib/elements/search-input';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { Switch } from '$lib/elements/switch';
 	import { Tabs } from '$lib/elements/tabs';
@@ -653,29 +653,13 @@
 		onValueChange={(value) => switchTab(value as TabValue)}
 	/>
 
-	<div class="relative">
-		<MagnifyingGlassIcon
-			size={13}
-			class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-ghost)]"
-		/>
-		<input
-			type="search"
-			placeholder={activeTab === 'installed'
-				? 'search extensions or sources...'
-				: $_('extensions.searchPlaceholder')}
-			bind:value={searchQuery}
-			class="h-9 w-full border-b border-[var(--line-soft)] bg-transparent pr-8 pl-8 text-sm text-[var(--text)] transition-colors placeholder:text-[var(--text-ghost)] focus:border-[var(--void-6)] focus:outline-none"
-		/>
-		{#if searchQuery}
-			<button
-				type="button"
-				class="absolute top-1/2 right-2 -translate-y-1/2 text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
-				onclick={() => (searchQuery = '')}
-			>
-				<XIcon size={13} />
-			</button>
-		{/if}
-	</div>
+	<SearchInput
+		bind:value={searchQuery}
+		placeholder={activeTab === 'installed'
+			? 'search extensions or sources...'
+			: $_('extensions.searchPlaceholder')}
+		inputSize="sm"
+	/>
 
 	{#if activeTab === 'available' && availableLangs.length > 2}
 		<div class="no-scrollbar -mx-1 flex items-center gap-0.5 overflow-x-auto px-1 py-1">
@@ -696,7 +680,7 @@
 	{/if}
 
 	{#if error}
-		<div class="bg-[var(--error-soft)] px-4 py-3 text-xs text-[var(--error)]">{error}</div>
+		<Alert variant="error">{error}</Alert>
 	{/if}
 
 	{#if loading}
@@ -718,18 +702,13 @@
 		</div>
 	{:else if activeTab === 'installed'}
 		{#if installedExtensions.length === 0}
-			<div class="flex flex-col items-center gap-5 py-20 text-center">
-				<div class="flex h-16 w-16 items-center justify-center bg-[var(--void-2)]">
-					<PuzzlePieceIcon size={24} class="text-[var(--text-ghost)]" />
-				</div>
-				<div>
-					<p class="text-sm text-[var(--text)]">{$_('extensions.noExtensions')}</p>
-					<p class="mt-1.5 text-xs text-[var(--text-ghost)]">{$_('extensions.installFromRepo')}</p>
-				</div>
-				<Button variant="ghost" size="sm" onclick={() => switchTab('available')}>
-					{$_('extensions.browseAvailable')}
-				</Button>
-			</div>
+			<EmptyState
+				icon={PuzzlePieceIcon}
+				title={$_('extensions.noExtensions')}
+				description={$_('extensions.installFromRepo')}
+				actionLabel={$_('extensions.browseAvailable')}
+				onAction={() => switchTab('available')}
+			/>
 		{:else if filteredInstalled.length === 0}
 			<div class="py-12 text-center">
 				<p class="text-xs text-[var(--text-muted)]">{$_('common.noResults')}</p>
@@ -1117,15 +1096,11 @@
 								></textarea>
 
 								{#if authImportError}
-									<div class="border-l-2 border-[var(--error)] bg-[var(--error-soft)] px-3 py-2 text-[11px] text-[var(--error)]">
-										{authImportError}
-									</div>
+									<Alert variant="error">{authImportError}</Alert>
 								{/if}
 
 								{#if authImportSuccess}
-									<div class="border-l-2 border-[var(--success)] bg-[var(--success)]/10 px-3 py-2 text-[11px] text-[var(--success)]">
-										{authImportSuccess}
-									</div>
+									<Alert variant="success">{authImportSuccess}</Alert>
 								{/if}
 
 								<Button

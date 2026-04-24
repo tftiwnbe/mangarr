@@ -9,6 +9,7 @@
 		login,
 		registerFirstUser
 	} from '$lib/client/auth';
+	import { Alert } from '$lib/elements/alert';
 	import { Button } from '$lib/elements/button';
 	import { Input } from '$lib/elements/input';
 	import { Switch } from '$lib/elements/switch';
@@ -211,11 +212,7 @@
 
 						<!-- Error message -->
 						{#if error}
-							<div
-								class="animate-fade-in border border-[var(--error)]/20 bg-[var(--error-soft)] px-4 py-3 text-sm text-[var(--error)]"
-							>
-								{error}
-							</div>
+							<Alert variant="error">{error}</Alert>
 						{/if}
 
 						<Button
