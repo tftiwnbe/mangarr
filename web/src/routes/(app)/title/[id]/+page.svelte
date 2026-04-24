@@ -663,7 +663,7 @@
 				client.mutation(convexApi.library.ensureTitleMetadata, {
 					titleId: title._id
 				}),
-				client.mutation(convexApi.library.ensureTitleReady, {
+				client.mutation(convexApi.library.requestChapterSync, {
 					titleId: title._id
 				})
 			]);

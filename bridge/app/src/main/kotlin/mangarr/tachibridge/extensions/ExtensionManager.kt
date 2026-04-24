@@ -393,7 +393,13 @@ class ExtensionManager(
     ): TitleResponse =
         withSource<Source, TitleResponse>(sourceId) { source ->
             val normalizedUrl = normalizeSourceUrl(source, mangaUrl)
-            val manga = SManga.create().apply { url = normalizedUrl }
+            val manga =
+                SManga.create().apply {
+                    url = normalizedUrl
+                    // Some sources touch title during details/chapter resolution even for
+                    // placeholder manga objects created from a stored URL.
+                    title = normalizedUrl
+                }
             val result = source.getMangaDetails(manga)
             TitleResponse
                 .newBuilder()
@@ -407,7 +413,13 @@ class ExtensionManager(
     ): ChaptersListResponse =
         withSource<Source, ChaptersListResponse>(sourceId) { source ->
             val normalizedUrl = normalizeSourceUrl(source, mangaUrl)
-            val manga = SManga.create().apply { url = normalizedUrl }
+            val manga =
+                SManga.create().apply {
+                    url = normalizedUrl
+                    // ReadManga/MintManga/SeiManga-family sources can access manga.title while
+                    // building chapter requests. Initialize it to avoid lateinit crashes.
+                    title = normalizedUrl
+                }
             val chapters = source.getChapterList(manga).reversed()
             ChaptersListResponse
                 .newBuilder()
