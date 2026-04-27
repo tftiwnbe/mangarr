@@ -4,7 +4,47 @@
 	<head>
 		<meta charset="utf-8" />
 
-		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1, viewport-fit=cover"
+		/>
+
+		<meta name="application-name" content="Mangarr" />
+		<meta name="description" content="Self-hosted manga library, reader, and downloader." />
+
+		<link rel="manifest" href="/manifest.webmanifest" />
+
+		<link rel="icon" href="/favicon.ico" sizes="32x32" />
+		<link rel="icon" type="image/svg+xml" href="/icon.svg" />
+		<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+		<meta name="theme-color" content="#050507" media="(prefers-color-scheme: dark)" />
+		<meta name="theme-color" content="#f4f4f7" media="(prefers-color-scheme: light)" />
+
+		<!-- iOS: home-screen / standalone behavior -->
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-title" content="Mangarr" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+		<meta name="format-detection" content="telephone=no" />
+
+		<script>
+			// Apply persisted theme before paint to avoid flash.
+			(function () {
+				try {
+					var pref = localStorage.getItem('mangarr-theme') || 'dark';
+					var resolved =
+						pref === 'system'
+							? window.matchMedia('(prefers-color-scheme: light)').matches
+								? 'light'
+								: 'dark'
+							: pref;
+					document.documentElement.setAttribute('data-theme', resolved);
+				} catch (_) {
+					document.documentElement.setAttribute('data-theme', 'dark');
+				}
+			})();
+		</script>
 
 		%sveltekit.head%
 	</head>

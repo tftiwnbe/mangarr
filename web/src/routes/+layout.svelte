@@ -1,6 +1,5 @@
 <script lang="ts">
 	import '../app.css';
-	import favicon from '$lib/assets/favicon.svg';
 	import { initI18n } from '$lib/i18n';
 	import { initTheme } from '$lib/stores/theme';
 	import { isLoading } from 'svelte-i18n';
@@ -13,10 +12,6 @@
 
 	let { children } = $props();
 </script>
-
-<svelte:head>
-	<link rel="icon" href={favicon} />
-</svelte:head>
 
 {#if $isLoading}
 	<!-- Minimal loading state while translations load -->

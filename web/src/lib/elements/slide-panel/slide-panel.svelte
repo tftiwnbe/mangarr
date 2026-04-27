@@ -46,6 +46,7 @@
 		<div
 			class="animate-slide-in-right absolute top-0 right-0 flex h-full w-full max-w-sm flex-col
 				border-l border-[var(--void-4)] bg-[var(--void-1)]"
+			style="padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); padding-right: env(safe-area-inset-right);"
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="slide-panel-title"

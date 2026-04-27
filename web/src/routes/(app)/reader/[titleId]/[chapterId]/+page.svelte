@@ -804,7 +804,7 @@
 	{/if}
 
 	<div
-		class="fixed inset-x-0 top-0 z-40 bg-[var(--void-0)]/90 backdrop-blur-sm transition-transform duration-200 {readerHeaderVisible
+		class="fixed inset-x-0 top-0 z-40 bg-[var(--void-0)]/90 pt-[env(safe-area-inset-top)] backdrop-blur-sm transition-transform duration-200 {readerHeaderVisible
 			? 'translate-y-0'
 			: 'pointer-events-none -translate-y-full'}"
 		role="banner"
@@ -1003,7 +1003,7 @@
 
 	{#if pages.length > 0}
 		<div
-			class="fixed inset-x-0 bottom-0 z-40 bg-[var(--void-0)]/90 backdrop-blur-sm transition-transform duration-200 md:hidden {readerHeaderVisible
+			class="fixed inset-x-0 bottom-0 z-40 bg-[var(--void-0)]/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-sm transition-transform duration-200 md:hidden {readerHeaderVisible
 				? 'translate-y-0'
 				: 'pointer-events-none translate-y-full'}"
 		>

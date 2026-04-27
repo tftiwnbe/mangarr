@@ -88,8 +88,13 @@
 			{@render children()}
 		</main>
 	{:else}
-		<main class="relative z-10 pb-20 md:pb-6 md:pl-16">
-			<div class="mx-auto w-full max-w-5xl px-4 py-6 md:px-6 md:py-8">
+		<main
+			class="relative z-10 pt-[env(safe-area-inset-top)] pb-[calc(3rem+env(safe-area-inset-bottom))] md:pt-0 md:pb-6 md:pl-16"
+		>
+			<div
+				class="mx-auto w-full max-w-5xl py-1 md:px-6 md:py-8"
+				style="padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right));"
+			>
 				{@render children()}
 			</div>
 		</main>
@@ -98,6 +103,7 @@
 	{#if !isReaderRoute && !$panelOverlayOpen}
 		<nav
 			class="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--line)] bg-[var(--void-1)]/95 backdrop-blur-sm md:hidden"
+			style="padding-bottom: env(safe-area-inset-bottom);"
 		>
 			<div class="flex items-center justify-around">
 				{#each navItems as item (item.href)}
@@ -105,7 +111,7 @@
 					{@const NavIcon = item.icon}
 					<a
 						href={item.href}
-						class="flex flex-1 flex-col items-center gap-1 py-3 text-xs transition-colors {isActive
+						class="flex flex-1 flex-col items-center gap-0.5 py-1.5 text-xs transition-colors {isActive
 							? 'text-[var(--text)]'
 							: 'text-[var(--text-ghost)]'}"
 					>
