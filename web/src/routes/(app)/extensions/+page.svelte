@@ -39,7 +39,6 @@
 	} from '$lib/extensions/source-preferences';
 	import { _ } from '$lib/i18n';
 	import { contentLanguages, setKnownContentLanguages } from '$lib/stores/content-languages';
-	import { panelOverlayOpen } from '$lib/stores/ui';
 	import {
 		normalizeContentLanguageCode,
 		toMainContentLanguages
@@ -169,11 +168,6 @@
 	const visibleAvailable = $derived(filteredAvailable.slice(0, renderLimit));
 
 	const importedStoragePreferences = $derived.by(() => getHiddenStorageKeys(sourceSettingsData));
-
-	$effect(() => {
-		panelOverlayOpen.set(sourceSettingsOpen);
-		return () => panelOverlayOpen.set(false);
-	});
 
 	$effect(() => {
 		const allLangs = [
@@ -361,8 +355,7 @@
 		for (const source of extension.sources) {
 			const normalizedLang = normalizeContentLanguageCode(source.lang);
 			const shouldEnable =
-				normalizedLang !== null &&
-				(enabledLangs.has(normalizedLang) || normalizedLang === 'multi');
+				normalizedLang !== null && (enabledLangs.has(normalizedLang) || normalizedLang === 'multi');
 			source.enabled = shouldEnable;
 			if (shouldEnable) {
 				continue;
@@ -558,14 +551,17 @@
 			const entries = buildPreferenceEntries(
 				pendingPreferenceChanges.entries()
 			) as SourcePreferenceEntry[];
-			const accepted = await fetchJson<AcceptedCommandResponse>('/api/extensions/source-preferences', {
-				method: 'PUT',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					sourceId: sourceSettingsData.source_id,
-					entries
-				})
-			});
+			const accepted = await fetchJson<AcceptedCommandResponse>(
+				'/api/extensions/source-preferences',
+				{
+					method: 'PUT',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({
+						sourceId: sourceSettingsData.source_id,
+						entries
+					})
+				}
+			);
 			await waitForAcceptedCommand(accepted);
 			await openSourceSettings(sourceSettingsData.source_id);
 		} catch (cause) {
@@ -577,14 +573,17 @@
 	}
 
 	async function saveImportedStorageEntries(sourceId: string, entries: SourcePreferenceEntry[]) {
-		const accepted = await fetchJson<AcceptedCommandResponse>('/api/extensions/source-preferences', {
-			method: 'PUT',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({
-				sourceId,
-				entries
-			})
-		});
+		const accepted = await fetchJson<AcceptedCommandResponse>(
+			'/api/extensions/source-preferences',
+			{
+				method: 'PUT',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					sourceId,
+					entries
+				})
+			}
+		);
 		await waitForAcceptedCommand(accepted);
 	}
 
@@ -781,12 +780,19 @@
 										{:else}
 											{#each visibleSources as source (source.id)}
 												<div
-													class="flex items-center gap-3 py-2 transition-opacity {source.enabled === false ? 'opacity-40' : ''}"
+													class="flex items-center gap-3 py-2 transition-opacity {source.enabled ===
+													false
+														? 'opacity-40'
+														: ''}"
 												>
 													<div class="min-w-0 flex-1">
 														<div class="flex items-center gap-2">
-															<span class="truncate text-xs text-[var(--text-soft)]">{source.name}</span>
-															<span class="shrink-0 border border-[var(--void-4)] px-1 py-px text-[9px] tracking-wider text-[var(--text-ghost)] uppercase">
+															<span class="truncate text-xs text-[var(--text-soft)]"
+																>{source.name}</span
+															>
+															<span
+																class="shrink-0 border border-[var(--void-4)] px-1 py-px text-[9px] tracking-wider text-[var(--text-ghost)] uppercase"
+															>
 																{source.lang}
 															</span>
 														</div>
@@ -814,7 +820,9 @@
 									<!-- Extension controls -->
 									<div class="flex items-center gap-4 border-t border-[var(--line-soft)] pt-3">
 										<div class="flex flex-1 items-center gap-3">
-											<span class="text-[11px] text-[var(--text-ghost)]">{$_('extensions.proxy').toLowerCase()}</span>
+											<span class="text-[11px] text-[var(--text-ghost)]"
+												>{$_('extensions.proxy').toLowerCase()}</span
+											>
 											<Switch
 												checked={ext.use_proxy}
 												disabled={isTogglingProxy}
@@ -1002,13 +1010,19 @@
 										type="button"
 										class="flex items-center gap-3 px-2 py-2 text-xs transition-colors {isSelected
 											? 'text-[var(--text)]'
-											: 'text-[var(--text-muted)] hover:text-[var(--text-soft)] hover:bg-[var(--void-2)]'}"
+											: 'text-[var(--text-muted)] hover:bg-[var(--void-2)] hover:text-[var(--text-soft)]'}"
 										onclick={() => handlePreferenceChange(pref.key, entryVal)}
 										disabled={!pref.enabled}
 									>
-										<span class="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border {isSelected ? 'border-[var(--text)] bg-[var(--text)]' : 'border-[var(--void-6)]'}">
+										<span
+											class="group-radio relative flex h-3.5 w-3.5 shrink-0 items-center justify-center border transition-colors {isSelected
+												? 'border-[var(--cosmic)] bg-[var(--cosmic-soft)]'
+												: 'border-[var(--void-6)]'}"
+										>
 											{#if isSelected}
-												<span class="h-1.5 w-1.5 rounded-full bg-[var(--void-0)]"></span>
+												<span
+													class="h-1.5 w-1.5 bg-[var(--cosmic)] shadow-[0_0_4px_var(--cosmic-glow)]"
+												></span>
 											{/if}
 										</span>
 										{entry}
@@ -1027,7 +1041,7 @@
 										type="button"
 										class="flex items-center gap-3 px-2 py-2 text-xs transition-colors {isSelected
 											? 'text-[var(--text)]'
-											: 'text-[var(--text-muted)] hover:text-[var(--text-soft)] hover:bg-[var(--void-2)]'}"
+											: 'text-[var(--text-muted)] hover:bg-[var(--void-2)] hover:text-[var(--text-soft)]'}"
 										onclick={() => {
 											const next = isSelected
 												? val.filter((item) => item !== entryVal)
@@ -1036,7 +1050,11 @@
 										}}
 										disabled={!pref.enabled}
 									>
-										<span class="flex h-3.5 w-3.5 shrink-0 items-center justify-center border {isSelected ? 'border-[var(--text)] bg-[var(--text)]' : 'border-[var(--void-6)]'}">
+										<span
+											class="flex h-3.5 w-3.5 shrink-0 items-center justify-center border transition-colors {isSelected
+												? 'border-[var(--cosmic)] bg-[var(--cosmic)] shadow-[0_0_4px_var(--cosmic-glow)]'
+												: 'border-[var(--void-6)]'}"
+										>
 											{#if isSelected}
 												<CheckIcon size={9} class="text-[var(--void-0)]" />
 											{/if}
@@ -1078,7 +1096,9 @@
 							<span class="tracking-wider uppercase">storage import</span>
 							{#if importedStoragePreferences.length > 0}
 								<span class="ml-auto text-[10px] text-[var(--text-ghost)]">
-									{importedStoragePreferences.length} key{importedStoragePreferences.length === 1 ? '' : 's'}
+									{importedStoragePreferences.length} key{importedStoragePreferences.length === 1
+										? ''
+										: 's'}
 								</span>
 							{/if}
 						</button>
@@ -1117,7 +1137,6 @@
 						{/if}
 					</div>
 				{/if}
-
 			</div>
 		{/if}
 	{/if}

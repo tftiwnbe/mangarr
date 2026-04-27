@@ -2,6 +2,8 @@
 	import type { Snippet } from 'svelte';
 	import { XIcon } from 'phosphor-svelte';
 
+	import { popPanelOverlay, pushPanelOverlay } from '$lib/stores/ui';
+
 	interface Props {
 		open: boolean;
 		title?: string;
@@ -23,6 +25,12 @@
 			onclose();
 		}
 	}
+
+	$effect(() => {
+		if (!open) return;
+		pushPanelOverlay();
+		return () => popPanelOverlay();
+	});
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -30,7 +38,7 @@
 {#if open}
 	<!-- Backdrop -->
 	<div
-		class="animate-fade-in fixed inset-0 z-50 bg-[var(--void-0)]/85 backdrop-blur-sm"
+		class="animate-fade-in fixed inset-0 z-[60] bg-[var(--void-0)]/85 backdrop-blur-sm"
 		onclick={handleBackdropClick}
 		role="presentation"
 	>
@@ -43,9 +51,12 @@
 			aria-labelledby="slide-panel-title"
 		>
 			<!-- HUD header -->
-			<div class="flex h-11 shrink-0 items-center justify-between border-b border-[var(--void-3)] px-4">
+			<div
+				class="flex h-11 shrink-0 items-center justify-between border-b border-[var(--void-3)] px-4"
+			>
 				<div class="flex items-center gap-2">
-					<span class="h-1 w-1 shrink-0 rounded-full bg-[var(--void-6)]"></span>
+					<span class="h-1 w-1 shrink-0 bg-[var(--cosmic)] shadow-[0_0_4px_var(--cosmic-glow)]"
+					></span>
 					<h2
 						id="slide-panel-title"
 						class="text-[10px] tracking-[0.24em] text-[var(--text-ghost)] uppercase"
@@ -72,7 +83,7 @@
 
 			<!-- Sticky footer (optional) -->
 			{#if footer}
-				<div class="shrink-0 border-t border-[var(--void-3)] px-4 py-3">
+				<div class="shrink-0 border-t border-[var(--void-3)] bg-[var(--void-1)] px-4 py-3">
 					{@render footer()}
 				</div>
 			{/if}
@@ -82,13 +93,21 @@
 
 <style>
 	@keyframes fade-in {
-		from { opacity: 0; }
-		to   { opacity: 1; }
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
 	}
 
 	@keyframes slide-in-right {
-		from { transform: translateX(100%); }
-		to   { transform: translateX(0); }
+		from {
+			transform: translateX(100%);
+		}
+		to {
+			transform: translateX(0);
+		}
 	}
 
 	.animate-fade-in {

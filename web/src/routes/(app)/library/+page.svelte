@@ -23,7 +23,6 @@
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { DebouncedValue } from '$lib/hooks/use-debounced-value.svelte';
 	import { _ } from '$lib/i18n';
-	import { panelOverlayOpen } from '$lib/stores/ui';
 	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
 	import { TITLE_STATUS } from '$lib/utils/title-status';
 
@@ -110,11 +109,6 @@
 	});
 
 	const debouncedSearch = new DebouncedValue(() => searchQuery, 150);
-
-	$effect(() => {
-		panelOverlayOpen.set(filterPanelOpen || hiddenPanelOpen);
-		return () => panelOverlayOpen.set(false);
-	});
 
 	const SORT_MODES: Array<{ value: SortMode; labelKey: string }> = [
 		{ value: 'added', labelKey: 'library.sortModes.added' },
@@ -600,7 +594,6 @@
 					</a>
 				{/each}
 			</div>
-
 		</section>
 	{/if}
 

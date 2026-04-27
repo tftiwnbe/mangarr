@@ -27,7 +27,6 @@
 	import { Tabs } from '$lib/elements/tabs';
 	import { _ } from '$lib/i18n';
 	import { contentLanguages } from '$lib/stores/content-languages';
-	import { panelOverlayOpen } from '$lib/stores/ui';
 	import {
 		normalizeContentLanguageCode,
 		toMainContentLanguages
@@ -250,10 +249,10 @@
 			activeTab === 'forYou'
 				? []
 				: activeTab === 'search'
-				? selectedSourceId
-					? [selectedSourceId]
-					: searchSources.map((source) => source.id)
-				: visibleSources.map((source) => source.id)
+					? selectedSourceId
+						? [selectedSourceId]
+						: searchSources.map((source) => source.id)
+					: visibleSources.map((source) => source.id)
 	}));
 
 	const importedLibraryIds = $derived.by(() => {
@@ -418,10 +417,10 @@
 						activeTab,
 						count: forYouResult.items.length
 					})
-			: JSON.stringify({
-					activeTab,
-					selectedExtensionPkgs: [...selectedExtensionPkgs].sort()
-				});
+				: JSON.stringify({
+						activeTab,
+						selectedExtensionPkgs: [...selectedExtensionPkgs].sort()
+					});
 	});
 	const visibleCards = $derived(cards.slice(0, renderCardLimit));
 
@@ -668,7 +667,7 @@
 		const query = searchQuery.trim();
 		const filters = selectedSourceId === sourceId ? selectedSourceAppliedFilters : {};
 		if (!query && Object.keys(filters).length === 0) return [];
-		const maxPage = selectedSourceId === sourceId ? loadedSearchPagesBySource[sourceId] ?? 1 : 1;
+		const maxPage = selectedSourceId === sourceId ? (loadedSearchPagesBySource[sourceId] ?? 1) : 1;
 		const items: ExploreItem[] = [];
 		for (let page = 1; page <= maxPage; page += 1) {
 			items.push(...(latestSearchResult(sourceId, query, filters, page)?.items ?? []));
@@ -1021,9 +1020,7 @@
 		const nextLiveSearchResults = { ...liveSearchResults };
 		const nextLoadedPagesBySource: Record<string, number> = {};
 		const nextExhaustedSearchSources: Record<string, boolean> = {};
-		const directTitleUrlCandidates = selectedSourceId
-			? directSourceTitleUrlCandidates(value)
-			: [];
+		const directTitleUrlCandidates = selectedSourceId ? directSourceTitleUrlCandidates(value) : [];
 
 		await runWithConcurrency(sourceIds, COMMAND_CONCURRENCY, async (sourceId) => {
 			try {
@@ -1348,13 +1345,7 @@
 		return () => {
 			if (searchTimer) clearTimeout(searchTimer);
 			resetFeedObserver();
-			panelOverlayOpen.set(false);
 		};
-	});
-
-	$effect(() => {
-		panelOverlayOpen.set(searchFiltersOpen);
-		return () => panelOverlayOpen.set(false);
 	});
 
 	$effect(() => {
@@ -1639,7 +1630,7 @@
 						class={`relative aspect-[2/3] overflow-hidden bg-[var(--void-3)] transition-all duration-200 ${
 							isOwned
 								? ''
-								: 'ring-1 ring-[var(--void-1)] group-hover:ring-[var(--void-6)] group-hover:shadow-[0_8px_28px_-8px_rgba(0,0,0,0.6)]'
+								: 'ring-1 ring-[var(--void-1)] group-hover:shadow-[0_8px_28px_-8px_rgba(0,0,0,0.6)] group-hover:ring-[var(--void-6)]'
 						}`}
 					>
 						{#if item.thumbnailUrl}
@@ -1684,13 +1675,10 @@
 				</a>
 			{/each}
 		</div>
-		{#if visibleCards.length < cards.length ||
-			((activeTab === 'popular' || activeTab === 'latest') && canLoadMoreFeed) ||
-			(activeTab === 'search' && canLoadMoreSearch)}
+		{#if visibleCards.length < cards.length || ((activeTab === 'popular' || activeTab === 'latest') && canLoadMoreFeed) || (activeTab === 'search' && canLoadMoreSearch)}
 			<div bind:this={feedSentinel} class="h-px w-full" aria-hidden="true"></div>
 		{/if}
-		{#if ((activeTab === 'popular' || activeTab === 'latest') && canLoadMoreFeed) ||
-			(activeTab === 'search' && canLoadMoreSearch)}
+		{#if ((activeTab === 'popular' || activeTab === 'latest') && canLoadMoreFeed) || (activeTab === 'search' && canLoadMoreSearch)}
 			<div class="flex items-center justify-center py-4">
 				{#if loadingMore}
 					<p class="flex items-center gap-2 text-sm text-[var(--text-ghost)]">
@@ -1782,8 +1770,7 @@
 							{#if meta.type === 'toggle'}
 								<Switch
 									checked={Boolean(getCurrentSearchFilterValue(meta))}
-									onCheckedChange={(enabled) =>
-										handleSearchFilterChange(meta.key, enabled)}
+									onCheckedChange={(enabled) => handleSearchFilterChange(meta.key, enabled)}
 								/>
 							{:else if meta.type === 'list'}
 								<Select
@@ -1801,8 +1788,7 @@
 											checked={Array.isArray(getCurrentSearchFilterValue(meta)) &&
 												(getCurrentSearchFilterValue(meta) as string[]).includes(val)}
 											label={meta.entries?.[index] ?? val}
-											onCheckedChange={(chk) =>
-												toggleMultiSelectValue(meta.key, val, chk)}
+											onCheckedChange={(chk) => toggleMultiSelectValue(meta.key, val, chk)}
 										/>
 									{/each}
 								</div>

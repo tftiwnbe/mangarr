@@ -46,7 +46,6 @@
 	let saving = $state(false);
 	let saveError = $state<string | null>(null);
 
-	let genreInputEl = $state<HTMLInputElement | null>(null);
 	let descriptionEl = $state<HTMLTextAreaElement | null>(null);
 
 	$effect(() => {
@@ -63,15 +62,13 @@
 		saveError = null;
 	});
 
-	// Auto-resize textarea when description changes
 	$effect(() => {
 		if (!descriptionEl) return;
-		void editDescription; // track
+		void editDescription;
 		descriptionEl.style.height = 'auto';
 		descriptionEl.style.height = `${descriptionEl.scrollHeight}px`;
 	});
 
-	// Suggestions from variants — deduplicated, excluding the current value
 	const titleSuggestions = $derived.by(() => {
 		const seen: string[] = [];
 		const current = editTitle.trim().toLowerCase();
@@ -188,150 +185,169 @@
 	}
 </script>
 
-<SlidePanel open={open} title={$_('title.editMetadata')} onclose={onclose}>
+{#snippet sectionLabel(text: string, hint?: string)}
+	<div class="flex items-baseline gap-2">
+		<span class="font-mono text-[10px] tracking-[0.18em] text-[var(--text-ghost)] uppercase">
+			{text}
+		</span>
+		{#if hint}
+			<span class="font-mono text-[9px] tracking-wider text-[var(--text-dim)] uppercase">
+				{hint}
+			</span>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet chipPill(label: string, onclick: () => void)}
+	<button
+		type="button"
+		class="flex items-center gap-1 border border-[var(--void-4)] bg-[var(--void-2)] px-2 py-0.5 text-[11px] text-[var(--text-ghost)] transition-colors hover:border-[var(--cosmic-halo)] hover:bg-[var(--void-3)] hover:text-[var(--text)]"
+		{onclick}
+	>
+		<PlusIcon size={9} class="text-[var(--cosmic)]" />
+		{label}
+	</button>
+{/snippet}
+
+<SlidePanel {open} title={$_('title.editMetadata')} {onclose}>
 	{#snippet footer()}
 		{#if saveError}
-			<p class="mb-2 text-[10px] tracking-[0.16em] text-[var(--error)] uppercase">{saveError}</p>
+			<p class="mb-2 font-mono text-[10px] tracking-[0.16em] text-[var(--error)] uppercase">
+				{saveError}
+			</p>
 		{/if}
-		<Button variant="solid" class="w-full" onclick={handleSave} disabled={saving} loading={saving}>
-			{#if !saving}
-				<CheckIcon size={14} />
-			{/if}
-			{$_('title.editSaveChanges')}
-		</Button>
+		<div class="flex items-center gap-2">
+			<Button variant="ghost" class="flex-1" onclick={onclose} disabled={saving}>
+				{$_('common.cancel')}
+			</Button>
+			<Button
+				variant="solid"
+				class="flex-1"
+				onclick={handleSave}
+				disabled={saving}
+				loading={saving}
+			>
+				{#if !saving}
+					<CheckIcon size={13} />
+				{/if}
+				{$_('title.editSaveChanges')}
+			</Button>
+		</div>
 	{/snippet}
 
-	<div class="flex flex-col divide-y divide-[var(--void-2)]">
-		<!-- Name -->
-		<div class="flex flex-col gap-3 py-5">
-			<span class="text-label text-[var(--text-ghost)]">{$_('title.editName')}</span>
+	<div class="flex flex-col">
+		<!-- IDENTITY ── name -->
+		<section class="flex flex-col gap-3 border-b border-[var(--void-3)] py-5">
+			{@render sectionLabel($_('title.editName'), '01')}
 			<input
 				type="text"
 				bind:value={editTitle}
-				class="w-full border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] outline-none transition-colors focus:border-[var(--text-ghost)] placeholder:text-[var(--void-6)]"
+				class="w-full border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] focus:border-[var(--cosmic)]"
 				placeholder={title.title}
 			/>
 			{#if titleSuggestions.length > 0}
 				<div class="flex flex-col gap-1.5">
-					<span class="text-[10px] tracking-wide text-[var(--void-6)] uppercase"
-						>{$_('title.editAlsoKnownAs')}</span
-					>
+					<span class="font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] uppercase">
+						{$_('title.editAlsoKnownAs')}
+					</span>
 					<div class="flex flex-wrap gap-1.5">
 						{#each titleSuggestions as suggestion (suggestion)}
-							<button
-								type="button"
-								class="flex items-center gap-1 border border-dashed border-[var(--void-4)] px-2 py-0.5 text-xs text-[var(--text-ghost)] transition-colors hover:border-[var(--void-6)] hover:text-[var(--text-muted)]"
-								onclick={() => (editTitle = suggestion)}
-							>
-								<PlusIcon size={9} />
-								{suggestion}
-							</button>
+							{@render chipPill(suggestion, () => (editTitle = suggestion))}
 						{/each}
 					</div>
 				</div>
 			{/if}
-		</div>
+		</section>
 
-		<!-- Author -->
-		<div class="flex flex-col gap-3 py-5">
-			<span class="text-label text-[var(--text-ghost)]">{$_('title.author')}</span>
+		<!-- IDENTITY ── author -->
+		<section class="flex flex-col gap-3 border-b border-[var(--void-3)] py-5">
+			{@render sectionLabel($_('title.author'), '02')}
 			<input
 				type="text"
 				bind:value={editAuthor}
-				class="w-full border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] outline-none transition-colors focus:border-[var(--text-ghost)] placeholder:text-[var(--void-6)]"
+				class="w-full border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] focus:border-[var(--cosmic)]"
 				placeholder="—"
 			/>
 			{#if authorSuggestions.length > 0}
 				<div class="flex flex-wrap gap-1.5">
 					{#each authorSuggestions as suggestion (suggestion)}
-						<button
-							type="button"
-							class="flex items-center gap-1 border border-dashed border-[var(--void-4)] px-2 py-0.5 text-xs text-[var(--text-ghost)] transition-colors hover:border-[var(--void-6)] hover:text-[var(--text-muted)]"
-							onclick={() => (editAuthor = suggestion)}
-						>
-							<PlusIcon size={9} />
-							{suggestion}
-						</button>
+						{@render chipPill(suggestion, () => (editAuthor = suggestion))}
 					{/each}
 				</div>
 			{/if}
-		</div>
+		</section>
 
-		<!-- Artist -->
-		<div class="flex flex-col gap-3 py-5">
-			<span class="text-label text-[var(--text-ghost)]">{$_('title.artist')}</span>
+		<!-- IDENTITY ── artist -->
+		<section class="flex flex-col gap-3 border-b border-[var(--void-3)] py-5">
+			{@render sectionLabel($_('title.artist'), '03')}
 			<input
 				type="text"
 				bind:value={editArtist}
-				class="w-full border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] outline-none transition-colors focus:border-[var(--text-ghost)] placeholder:text-[var(--void-6)]"
+				class="w-full border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] focus:border-[var(--cosmic)]"
 				placeholder="—"
 			/>
 			{#if artistSuggestions.length > 0}
 				<div class="flex flex-wrap gap-1.5">
 					{#each artistSuggestions as suggestion (suggestion)}
-						<button
-							type="button"
-							class="flex items-center gap-1 border border-dashed border-[var(--void-4)] px-2 py-0.5 text-xs text-[var(--text-ghost)] transition-colors hover:border-[var(--void-6)] hover:text-[var(--text-muted)]"
-							onclick={() => (editArtist = suggestion)}
-						>
-							<PlusIcon size={9} />
-							{suggestion}
-						</button>
+						{@render chipPill(suggestion, () => (editArtist = suggestion))}
 					{/each}
 				</div>
 			{/if}
-		</div>
+		</section>
 
-		<!-- Description -->
-		<div class="flex flex-col gap-3 py-5">
-			<span class="text-label text-[var(--text-ghost)]">{$_('title.description')}</span>
+		<!-- DESCRIPTION -->
+		<section class="flex flex-col gap-3 border-b border-[var(--void-3)] py-5">
+			{@render sectionLabel($_('title.description'), '04')}
 			<textarea
 				bind:this={descriptionEl}
 				bind:value={editDescription}
 				rows={4}
-				class="w-full resize-none border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm leading-relaxed text-[var(--text)] outline-none transition-colors focus:border-[var(--text-ghost)] placeholder:text-[var(--void-6)]"
+				class="w-full resize-none border-b border-[var(--void-4)] bg-transparent py-1.5 font-mono text-[12px] leading-relaxed text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] focus:border-[var(--cosmic)]"
 				placeholder={$_('title.noDescription')}
 			></textarea>
 
 			{#if descriptionAlternatives.length > 0}
-				<div class="flex flex-col gap-2">
-					<span class="text-[10px] tracking-wide text-[var(--void-6)] uppercase"
-						>{$_('title.editDescriptionAlternatives')}</span
-					>
+				<div class="flex flex-col gap-2 pt-1">
+					<span class="font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] uppercase">
+						{$_('title.editDescriptionAlternatives')}
+					</span>
 					{#each descriptionAlternatives as alt, i (i)}
-						<div class="group relative border border-[var(--void-2)] bg-[var(--void-1)] p-3">
+						<div
+							class="group relative border-l-2 border-[var(--void-4)] bg-[var(--void-1)] py-2 pr-2 pl-3 transition-colors hover:border-[var(--cosmic)] hover:bg-[var(--void-2)]"
+						>
 							<p
-								class="line-clamp-3 text-xs leading-relaxed text-[var(--text-ghost)] transition-colors group-hover:text-[var(--text-muted)]"
+								class="line-clamp-3 text-[12px] leading-relaxed text-[var(--text-ghost)] transition-colors group-hover:text-[var(--text-soft)]"
 							>
 								{alt}
 							</p>
 							<button
 								type="button"
-								class="mt-2 text-[10px] tracking-wide text-[var(--void-6)] uppercase transition-colors hover:text-[var(--text-ghost)]"
+								class="mt-2 flex items-center gap-1 font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] uppercase transition-colors hover:text-[var(--cosmic)]"
 								onclick={() => (editDescription = alt)}
 							>
+								<PlusIcon size={9} />
 								{$_('title.editUseThis')}
 							</button>
 						</div>
 					{/each}
 				</div>
 			{/if}
-		</div>
+		</section>
 
-		<!-- Genres -->
-		<div class="flex flex-col gap-3 py-5">
-			<span class="text-label text-[var(--text-ghost)]">{$_('title.genres')}</span>
+		<!-- GENRES -->
+		<section class="flex flex-col gap-3 py-5">
+			{@render sectionLabel($_('title.genres'), '05')}
 
-			<!-- Active genre tags + input -->
 			<div
-				class="flex min-h-[36px] flex-wrap items-center gap-1.5 border-b border-[var(--void-4)] pb-2 transition-colors focus-within:border-[var(--text-ghost)]"
+				class="flex min-h-[40px] flex-wrap items-center gap-1.5 border border-[var(--void-4)] bg-[var(--void-2)] px-2 py-1.5 transition-colors focus-within:border-[var(--cosmic)]"
 				role="group"
 				aria-label="Genres"
 			>
 				{#each editGenres as genre, i (genre)}
 					<span
-						class="flex items-center gap-1 bg-[var(--void-3)] px-2 py-0.5 text-xs text-[var(--text)]"
+						class="flex items-center gap-1.5 border border-[var(--cosmic-halo)] bg-[var(--cosmic-soft)] px-1.5 py-0.5 text-[11px] text-[var(--text)]"
 					>
+						<span class="h-1 w-1 bg-[var(--cosmic)] shadow-[0_0_3px_var(--cosmic-glow)]"></span>
 						{genre}
 						<button
 							type="button"
@@ -344,35 +360,26 @@
 					</span>
 				{/each}
 				<input
-					bind:this={genreInputEl}
 					type="text"
 					bind:value={genreInput}
 					onkeydown={handleGenreKeydown}
-					class="min-w-[120px] flex-1 bg-transparent py-1 text-sm text-[var(--text)] outline-none placeholder:text-[var(--void-6)]"
+					class="min-w-[120px] flex-1 bg-transparent py-0.5 text-sm text-[var(--text)] outline-none placeholder:text-[var(--void-6)]"
 					placeholder={editGenres.length === 0 ? $_('title.editGenresPlaceholder') : ''}
 				/>
 			</div>
 
 			{#if genreSuggestions.length > 0}
 				<div class="flex flex-col gap-1.5">
-					<span class="text-[10px] tracking-wide text-[var(--void-6)] uppercase"
-						>{$_('title.editFromSources')}</span
-					>
+					<span class="font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] uppercase">
+						{$_('title.editFromSources')}
+					</span>
 					<div class="flex flex-wrap gap-1.5">
 						{#each genreSuggestions as genre (genre)}
-							<button
-								type="button"
-								class="flex items-center gap-1 border border-dashed border-[var(--void-4)] px-2 py-0.5 text-xs text-[var(--text-ghost)] transition-colors hover:border-[var(--void-6)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]"
-								onclick={() => addGenre(genre)}
-							>
-								<PlusIcon size={9} />
-								{genre}
-							</button>
+							{@render chipPill(genre, () => addGenre(genre))}
 						{/each}
 					</div>
 				</div>
 			{/if}
-		</div>
-
+		</section>
 	</div>
 </SlidePanel>

@@ -13,11 +13,15 @@
 		ClockIcon,
 		FileIcon,
 		ListIcon,
+		PencilSimpleIcon,
 		PlusIcon,
 		SkipBackIcon,
 		SkipForwardIcon,
+		SortAscendingIcon,
 		SpinnerIcon,
-		WarningCircleIcon
+		TrashIcon,
+		WarningCircleIcon,
+		XIcon
 	} from 'phosphor-svelte';
 
 	import type { Id } from '$convex/_generated/dataModel';
@@ -29,7 +33,6 @@
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
 	import { navigateBack } from '$lib/stores/nav-history';
-	import { panelOverlayOpen } from '$lib/stores/ui';
 	import { getReaderProgress, setReaderProgress } from '$lib/utils/reader-progress';
 	import {
 		formatChapterNumberValue,
@@ -557,11 +560,6 @@
 	}
 
 	$effect(() => {
-		panelOverlayOpen.set(showChapterPanel || showCommentsPanel);
-		return () => panelOverlayOpen.set(false);
-	});
-
-	$effect(() => {
 		if (!canonicalReaderPath) return;
 		if (page.url.pathname !== canonicalReaderPath) {
 			void goto(canonicalReaderPath, { replaceState: true, noScroll: true });
@@ -916,7 +914,12 @@
 		</div>
 	{:else}
 		{#if mode === 'vertical'}
-			<div class="flex flex-col pt-10 md:mx-auto md:max-w-3xl" role="presentation" onclick={handleReaderTap} onkeydown={undefined}>
+			<div
+				class="flex flex-col pt-10 md:mx-auto md:max-w-3xl"
+				role="presentation"
+				onclick={handleReaderTap}
+				onkeydown={undefined}
+			>
 				{#each pages as readerPage (readerPage.id)}
 					<div
 						data-reader-page-index={readerPage.pageIndex}
@@ -1085,28 +1088,51 @@
 	title={$_('reader.comments')}
 	onclose={() => (showCommentsPanel = false)}
 >
-	<div class="flex flex-col gap-4">
-		<div class="flex flex-col gap-2">
+	<div class="flex flex-col gap-4 pt-1">
+		<!-- Compose card -->
+		<div
+			class="relative border border-[var(--void-3)] bg-[var(--void-2)] focus-within:border-[var(--cosmic-halo)]"
+		>
+			<div class="flex items-center justify-between border-b border-[var(--void-3)] px-2.5 py-1.5">
+				<span class="font-mono text-[10px] tracking-[0.18em] text-[var(--text-ghost)] uppercase">
+					{#if editingCommentId}
+						<span class="text-[var(--cosmic)]">// edit</span>
+					{:else}
+						// new entry
+					{/if}
+				</span>
+				<span class="font-mono text-[10px] text-[var(--text-ghost)] tabular-nums">
+					p.{(currentPage?.pageIndex ?? 0) + 1}
+				</span>
+			</div>
 			<textarea
-				class="min-h-20 w-full bg-[var(--void-2)] px-3 py-2 text-xs text-[var(--text)] placeholder:text-[var(--text-ghost)] focus:outline-none"
+				class="block min-h-[88px] w-full resize-none bg-transparent px-2.5 py-2 font-mono text-[12px] leading-relaxed text-[var(--text)] placeholder:text-[var(--text-ghost)] focus:outline-none"
 				placeholder={$_('reader.commentPlaceholder')}
 				bind:value={commentDraft}
 			></textarea>
-			<div class="flex items-center justify-between">
-				<p class="text-[10px] text-[var(--text-ghost)]">
-					{$_('reader.commentAutoPage', { values: { page: (currentPage?.pageIndex ?? 0) + 1 } })}
-				</p>
+			<div
+				class="flex items-center justify-between gap-2 border-t border-[var(--void-3)] px-2 py-1.5"
+			>
+				<span class="px-1 font-mono text-[9px] tracking-wider text-[var(--text-dim)] uppercase">
+					{commentDraft.length}c
+				</span>
 				<div class="flex items-center gap-1.5">
 					{#if editingCommentId}
-						<Button variant="ghost" size="sm" onclick={startNewComment}
-							>{$_('common.cancel')}</Button
-						>
+						<Button variant="ghost" size="sm" onclick={startNewComment}>
+							<XIcon size={11} />
+							{$_('common.cancel')}
+						</Button>
 					{/if}
-					<Button variant="ghost" size="sm" onclick={saveComment} disabled={commentSubmitting}>
+					<Button
+						variant="solid"
+						size="sm"
+						onclick={saveComment}
+						disabled={commentSubmitting || !commentDraft.trim()}
+					>
 						{#if commentSubmitting}
-							<SpinnerIcon size={12} class="animate-spin" />
+							<SpinnerIcon size={11} class="animate-spin" />
 						{:else}
-							<PlusIcon size={12} />
+							<PlusIcon size={11} />
 						{/if}
 						{$_('reader.comment')}
 					</Button>
@@ -1118,56 +1144,86 @@
 			<Alert variant="error">{commentsError}</Alert>
 		{/if}
 
-		<button
-			type="button"
-			class="flex items-center gap-1.5 text-[10px] text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
-			onclick={() => (commentsSortMode = commentsSortMode === 'time' ? 'page' : 'time')}
-		>
-			<ClockIcon size={12} />
-			{commentsSortMode === 'time' ? $_('reader.sortByTime') : $_('reader.sortByPage')}
-		</button>
+		<!-- Log header -->
+		<div class="flex items-center gap-2 border-b border-[var(--void-3)] pb-2">
+			<span class="font-mono text-[10px] tracking-[0.18em] text-[var(--text-ghost)] uppercase">
+				log
+			</span>
+			<span class="text-[10px] text-[var(--text-dim)] tabular-nums">
+				{sortedComments.length}
+			</span>
+			<span class="h-px flex-1 bg-[var(--void-3)]"></span>
+			<button
+				type="button"
+				class="flex items-center gap-1 font-mono text-[10px] tracking-[0.16em] text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--cosmic)]"
+				onclick={() => (commentsSortMode = commentsSortMode === 'time' ? 'page' : 'time')}
+			>
+				<SortAscendingIcon size={10} />
+				{commentsSortMode === 'time' ? 'time' : 'page'}
+			</button>
+		</div>
 
 		{#if commentsQuery.isLoading}
-			<div class="flex items-center justify-center py-8">
+			<div class="flex items-center justify-center py-10">
 				<SpinnerIcon size={16} class="animate-spin text-[var(--text-ghost)]" />
 			</div>
 		{:else if sortedComments.length === 0}
-			<p class="py-8 text-center text-xs text-[var(--text-ghost)]">{$_('reader.noComments')}</p>
+			<div class="flex flex-col items-center gap-1.5 py-10 text-center">
+				<ChatIcon size={20} class="text-[var(--void-6)]" />
+				<p class="font-mono text-[10px] tracking-[0.16em] text-[var(--text-ghost)] uppercase">
+					{$_('reader.noComments')}
+				</p>
+			</div>
 		{:else}
-			<div class="flex flex-col gap-3">
+			<ul class="flex flex-col">
 				{#each sortedComments as comment (comment._id)}
-					<div class="flex flex-col gap-1.5">
-						<div class="flex items-center justify-between text-[10px] text-[var(--text-ghost)]">
+					{@const isEditingThis = editingCommentId === comment._id}
+					<li
+						class="group relative flex flex-col gap-1.5 border-l-2 py-2.5 pr-1 pl-3 transition-colors {isEditingThis
+							? 'border-[var(--cosmic)] bg-[var(--cosmic-soft)]'
+							: 'border-[var(--void-3)] hover:border-[var(--void-6)] hover:bg-[var(--void-2)]'}"
+					>
+						<div class="flex items-center gap-2 font-mono text-[10px] text-[var(--text-ghost)]">
 							<button
 								type="button"
-								class="transition-colors hover:text-[var(--text-muted)]"
+								class="border border-[var(--void-4)] px-1.5 py-px tabular-nums transition-colors hover:border-[var(--cosmic-halo)] hover:text-[var(--cosmic)]"
 								onclick={() => jumpToPage(comment.pageIndex)}
+								title={$_('reader.page') + ' ' + (comment.pageIndex + 1)}
 							>
 								p.{comment.pageIndex + 1}
 							</button>
-							<span>{formatTimestamp(comment.createdAt)}</span>
+							<span class="ml-auto text-[var(--text-dim)]">
+								{formatTimestamp(comment.createdAt)}
+							</span>
 						</div>
-						<p class="text-xs whitespace-pre-wrap text-[var(--text-soft)]">{comment.message}</p>
-						<div class="flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
+						<p class="text-[12px] leading-relaxed whitespace-pre-wrap text-[var(--text-soft)]">
+							{comment.message}
+						</p>
+						<div
+							class="flex items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100"
+						>
 							<button
 								type="button"
-								class="transition-colors hover:text-[var(--text-muted)]"
+								class="flex items-center gap-1 font-mono text-[10px] tracking-wider text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text)]"
 								onclick={() => startEditComment(comment)}
 							>
+								<PencilSimpleIcon size={10} />
 								{$_('common.edit')}
 							</button>
+							<span class="text-[var(--void-5)]">·</span>
 							<button
 								type="button"
-								class="transition-colors hover:text-[var(--error)]"
+								class="flex items-center gap-1 font-mono text-[10px] tracking-wider text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--error)]"
 								onclick={() => (deleteCommentConfirmId = comment._id)}
 								disabled={deletingCommentId === comment._id}
 							>
+								<TrashIcon size={10} />
 								{$_('common.delete')}
 							</button>
 						</div>
-					</div>
+					</li>
 				{/each}
-			</div>
+			</ul>
 		{/if}
 	</div>
 </SlidePanel>

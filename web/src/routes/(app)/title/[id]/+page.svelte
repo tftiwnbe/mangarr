@@ -31,7 +31,6 @@
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
 	import { navigateBack, navHistoryRevision, resolveNavBackTarget } from '$lib/stores/nav-history';
-	import { panelOverlayOpen } from '$lib/stores/ui';
 	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
 	import {
 		directSourceTitleUrlCandidates,
@@ -427,11 +426,6 @@
 	const unselectedCollections = $derived(
 		availableCollections.filter((collection) => !selectedCollectionIds.includes(collection.id))
 	);
-	$effect(() => {
-		panelOverlayOpen.set(showManagementPanel);
-		return () => panelOverlayOpen.set(false);
-	});
-
 	onMount(() => {
 		void Promise.all([
 			client.mutation(convexApi.library.ensureDefaultUserStatuses, {}),
@@ -840,7 +834,11 @@
 		const slugQueries = title.variants.flatMap((variant) =>
 			sourceTitleUrlSearchQueries(variant.titleUrl)
 		);
-		for (const candidate of [title.variants.map((variant) => variant.title), title.title, slugQueries].flat()) {
+		for (const candidate of [
+			title.variants.map((variant) => variant.title),
+			title.title,
+			slugQueries
+		].flat()) {
 			const trimmed = candidate.trim();
 			const normalized = normalizeMatchTitle(trimmed);
 			if (!normalized || seen[normalized] === true) continue;
@@ -1544,7 +1542,7 @@
 </div>
 
 {#if title}
-	<TitleEditPanel open={showEditPanel} title={title} onclose={() => (showEditPanel = false)} />
+	<TitleEditPanel open={showEditPanel} {title} onclose={() => (showEditPanel = false)} />
 {/if}
 
 {#if title}

@@ -37,10 +37,10 @@
 >
 	<Dialog.Portal>
 		<Dialog.Overlay
-			class="animate-fade-in fixed inset-0 z-50 bg-[var(--void-0)]/85 backdrop-blur-sm"
+			class="animate-fade-in fixed inset-0 z-[70] bg-[var(--void-0)]/85 backdrop-blur-sm"
 		/>
 		<Dialog.Content
-			class="animate-scale-in fixed top-1/2 left-1/2 z-50 w-full max-w-xs -translate-x-1/2
+			class="animate-scale-in fixed top-1/2 left-1/2 z-[70] w-full max-w-xs -translate-x-1/2
 				-translate-y-1/2 border border-[var(--void-4)] bg-[var(--void-1)]
 				shadow-[0_0_0_1px_var(--void-5),0_24px_64px_-16px_rgba(0,0,0,0.8)] focus:outline-none"
 		>
