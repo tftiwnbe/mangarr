@@ -10,7 +10,6 @@
 		CaretLeftIcon,
 		CaretRightIcon,
 		ChatIcon,
-		ClockIcon,
 		FileIcon,
 		ListIcon,
 		PencilSimpleIcon,
@@ -32,7 +31,6 @@
 	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
-	import { navigateBack } from '$lib/stores/nav-history';
 	import { getReaderProgress, setReaderProgress } from '$lib/utils/reader-progress';
 	import {
 		formatChapterNumberValue,
@@ -106,8 +104,6 @@
 	type ReaderPage =
 		| { id: string; pageIndex: number; kind: 'remote'; index: number }
 		| { id: string; pageIndex: number; kind: 'local'; index: number };
-
-	const readerBackSkipPrefixes = ['/reader/'];
 
 	const client = useConvexClient();
 	const readerQuery = useQuery(convexApi.library.getReaderByRouteSegments, () =>
@@ -491,7 +487,11 @@
 
 	function syncReaderHeaderVisibility() {
 		if (isTouchDevice) {
-			readerHeaderVisible = isReaderAtTop;
+			// On touch the header is user-controlled via tap (handleReaderTap).
+			// Force-show only when at the top of the chapter; otherwise leave the
+			// current state alone so a tap-revealed header stays revealed long
+			// enough for the user to interact with it (back button, title link).
+			if (isReaderAtTop) readerHeaderVisible = true;
 			return;
 		}
 		readerHeaderVisible = isReaderAtTop || showTopZone || isPointerInHeader;
@@ -822,8 +822,7 @@
 				<Button
 					variant="ghost"
 					size="icon-sm"
-					onclick={() =>
-						void navigateBack(canonicalTitlePath, { skipPrefixes: readerBackSkipPrefixes })}
+					onclick={() => void goto(canonicalTitlePath)}
 				>
 					<CaretLeftIcon size={18} />
 				</Button>
@@ -915,7 +914,7 @@
 	{:else}
 		{#if mode === 'vertical'}
 			<div
-				class="flex flex-col pt-10 md:mx-auto md:max-w-3xl"
+				class="flex flex-col pt-[calc(2.5rem+env(safe-area-inset-top))] md:mx-auto md:max-w-3xl md:pt-10"
 				role="presentation"
 				onclick={handleReaderTap}
 				onkeydown={undefined}
