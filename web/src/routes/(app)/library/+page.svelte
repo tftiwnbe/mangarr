@@ -6,6 +6,7 @@
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import {
 		BookIcon,
+		BookOpenIcon,
 		CaretDownIcon,
 		CaretUpIcon,
 		FunnelIcon,
@@ -23,7 +24,7 @@
 	import { DebouncedValue } from '$lib/hooks/use-debounced-value.svelte';
 	import { _ } from '$lib/i18n';
 	import { panelOverlayOpen } from '$lib/stores/ui';
-	import { buildTitlePath } from '$lib/utils/routes';
+	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
 	import { TITLE_STATUS } from '$lib/utils/title-status';
 
 	type RawUserStatus = {
@@ -55,7 +56,9 @@
 		offline_readiness: TitleItem['offlineReadiness'];
 	};
 
-	type HiddenTitleSummary = Awaited<(typeof convexApi.library.listHiddenMine)['_returnType']>[number];
+	type HiddenTitleSummary = Awaited<
+		(typeof convexApi.library.listHiddenMine)['_returnType']
+	>[number];
 
 	type SortMode = 'updated' | 'added' | 'reading' | 'alpha' | 'status';
 	const INITIAL_LIBRARY_RENDER_LIMIT = 60;
@@ -63,6 +66,10 @@
 
 	const client = useConvexClient();
 	const library = useQuery(convexApi.library.listMine, () => ({}));
+	const CONTINUE_READING_LIMIT = 6;
+	const continueReading = useQuery(convexApi.library.listContinueReading, () => ({
+		limit: CONTINUE_READING_LIMIT
+	}));
 	const hiddenLibraryTitles = useQuery(convexApi.library.listHiddenMine, () => ({}));
 	const collectionsQuery = useQuery(convexApi.library.listCollections, () => ({}));
 	const totalCountQuery = useQuery(convexApi.library.getMineTotalCount, () => ({}));
@@ -71,7 +78,7 @@
 	let selectedCollectionId = $state<string | null>(null);
 	let filterPanelOpen = $state(false);
 	let hiddenPanelOpen = $state(false);
-	let sortMode = $state<SortMode>('updated');
+	let sortMode = $state<SortMode>('added');
 	let sortDesc = $state(true);
 	let activeReadingStatusIds = $state<string[]>([]);
 	let activeSourceStatusKeys = $state<string[]>([]);
@@ -110,8 +117,8 @@
 	});
 
 	const SORT_MODES: Array<{ value: SortMode; labelKey: string }> = [
-		{ value: 'updated', labelKey: 'library.sortModes.updated' },
 		{ value: 'added', labelKey: 'library.sortModes.added' },
+		{ value: 'updated', labelKey: 'library.sortModes.updated' },
 		{ value: 'reading', labelKey: 'library.sortModes.reading' },
 		{ value: 'alpha', labelKey: 'library.sortModes.alpha' },
 		{ value: 'status', labelKey: 'library.sortModes.status' }
@@ -131,6 +138,13 @@
 	const loading = $derived(library.isLoading);
 	const error = $derived(library.error instanceof Error ? library.error.message : null);
 	const hiddenTitles = $derived((hiddenLibraryTitles.data ?? []).slice());
+	const continueReadingItems = $derived(
+		(continueReading.data?.items ?? []).map((item) => ({
+			...item,
+			coverSrc: continueCoverSrc(item)
+		}))
+	);
+	const continueReadingLoading = $derived(continueReading.isLoading);
 	const hiddenImportsCount = $derived(hiddenTitles.length);
 	const renderContextKey = $derived(
 		JSON.stringify({
@@ -206,7 +220,7 @@
 			activeGenres.length > 0
 	);
 
-	const hasActiveControls = $derived(hasActiveFilters || sortMode !== 'updated' || !sortDesc);
+	const hasActiveControls = $derived(hasActiveFilters || sortMode !== 'added' || !sortDesc);
 	const isEmpty = $derived(!loading && titles.length === 0);
 
 	const filteredTitles = $derived.by(() => {
@@ -360,6 +374,36 @@
 		};
 	}
 
+	function continueCoverSrc(item: { localCoverPath: string | null; coverUrl: string | null }) {
+		if (item.localCoverPath) {
+			const params = new URLSearchParams({ path: item.localCoverPath });
+			return `/api/internal/bridge/library/cover?${params.toString()}`;
+		}
+		if (!browserOnline) return null;
+		return item.coverUrl ?? null;
+	}
+
+	function continueProgressPercent(item: {
+		chapter: { totalPages: number | null; pageIndex: number; hasProgress: boolean };
+		chaptersTotal: number;
+		chaptersRead: number;
+	}): number {
+		const { chapter, chaptersTotal, chaptersRead } = item;
+		if (
+			chapter.hasProgress &&
+			chapter.totalPages !== null &&
+			chapter.totalPages > 0 &&
+			chapter.pageIndex >= 0
+		) {
+			const ratio = (chapter.pageIndex + 1) / chapter.totalPages;
+			return Math.max(2, Math.min(100, Math.round(ratio * 100)));
+		}
+		if (chaptersTotal > 0) {
+			return Math.max(0, Math.min(100, Math.round((chaptersRead / chaptersTotal) * 100)));
+		}
+		return 0;
+	}
+
 	function coverSrc(title: Pick<TitleItem, 'localCoverPath' | 'coverUrl'>) {
 		if (title.localCoverPath) {
 			const params = new URLSearchParams({ path: title.localCoverPath });
@@ -464,11 +508,101 @@
 			>
 				<FunnelIcon size={14} />
 				{#if hasActiveControls}
-					<span class="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-[var(--cosmic)] shadow-[0_0_4px_var(--cosmic-glow)]"></span>
+					<span
+						class="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-[var(--cosmic)] shadow-[0_0_4px_var(--cosmic-glow)]"
+					></span>
 				{/if}
 			</button>
 		{/if}
 	</div>
+
+	{#if continueReadingLoading && continueReadingItems.length === 0}
+		<div class="flex flex-col gap-3">
+			<div class="flex items-center gap-1.5">
+				<BookOpenIcon size={11} class="text-[var(--text-ghost)]" />
+				<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
+					{$_('library.continueReading').toLowerCase()}
+				</span>
+				<span class="ml-1 h-px flex-1 bg-[var(--void-3)]"></span>
+			</div>
+			<div
+				class="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
+			>
+				{#each Array(CONTINUE_READING_LIMIT) as _, i (i)}
+					<div class="aspect-[2/3] animate-pulse bg-[var(--void-3)]"></div>
+				{/each}
+			</div>
+		</div>
+	{:else if continueReadingItems.length > 0}
+		<section class="flex flex-col gap-3" aria-label={$_('library.continueReading')}>
+			<div class="flex items-center gap-1.5">
+				<BookOpenIcon size={11} class="text-[var(--text-ghost)]" />
+				<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
+					{$_('library.continueReading').toLowerCase()}
+				</span>
+				<span class="ml-1 h-px flex-1 bg-[var(--void-3)]"></span>
+			</div>
+			<div
+				class="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
+			>
+				{#each continueReadingItems as item (item.titleId)}
+					{@const tPct = continueProgressPercent(item)}
+					<a
+						href={buildReaderPath({
+							titleId: String(item.titleId),
+							titleRouteSegment: item.routeSegment,
+							chapterId: String(item.chapter.id),
+							chapterName: item.chapter.name,
+							chapterNumber: item.chapter.number,
+							chapterRouteSegment: item.chapter.routeSegment
+						})}
+						class="group relative block aspect-[2/3] overflow-hidden bg-[var(--void-3)] ring-1 ring-[var(--void-1)] transition-all duration-300 hover:shadow-[0_0_28px_-6px_var(--cosmic-glow)] hover:ring-[var(--cosmic-halo)]"
+						aria-label={item.title}
+					>
+						{#if item.coverSrc}
+							<LazyImage
+								src={item.coverSrc}
+								alt={item.title}
+								class="h-full w-full"
+								imgClass="transition-transform duration-500 group-hover:scale-[1.05]"
+							/>
+						{:else}
+							<div class="flex h-full w-full items-center justify-center bg-[var(--void-4)]">
+								<ImageIcon size={28} class="text-[var(--text-ghost)]" />
+							</div>
+						{/if}
+
+						<div
+							class="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/95 via-black/65 to-transparent"
+						></div>
+
+						<div class="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-2 p-2.5">
+							<p
+								class="line-clamp-2 text-[13px] leading-tight font-medium text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.85)]"
+							>
+								{item.title}
+							</p>
+
+							<div class="relative h-[3px] w-full overflow-hidden bg-white/15">
+								<div
+									class="h-full bg-[var(--cosmic)] shadow-[0_0_8px_var(--cosmic-glow)]"
+									style:width="{tPct}%"
+								></div>
+							</div>
+						</div>
+
+						<div
+							class="pointer-events-none absolute top-0 left-0 h-3 w-3 border-t border-l border-[var(--cosmic)] opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+						></div>
+						<div
+							class="pointer-events-none absolute right-0 bottom-0 h-3 w-3 border-r border-b border-[var(--cosmic)] opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+						></div>
+					</a>
+				{/each}
+			</div>
+
+		</section>
+	{/if}
 
 	<SearchInput
 		bind:value={searchQuery}
@@ -553,7 +687,7 @@
 					class="group flex flex-col gap-2"
 				>
 					<div
-						class="relative aspect-[2/3] overflow-hidden bg-[var(--void-3)] ring-1 ring-[var(--void-1)] transition-all duration-200 group-hover:ring-[var(--void-6)] group-hover:shadow-[0_8px_28px_-8px_rgba(0,0,0,0.6)]"
+						class="relative aspect-[2/3] overflow-hidden bg-[var(--void-3)] ring-1 ring-[var(--void-1)] transition-all duration-200 group-hover:shadow-[0_8px_28px_-8px_rgba(0,0,0,0.6)] group-hover:ring-[var(--void-6)]"
 					>
 						{#if title.thumbnail_url}
 							<LazyImage

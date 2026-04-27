@@ -793,6 +793,117 @@ export const listAllMineChapters = query({
 	}
 });
 
+export const listContinueReading = query({
+	args: {
+		limit: v.optional(v.float64())
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) return { items: [], totalInProgress: 0 };
+
+		const userId = identity.subject as GenericId<'users'>;
+		const limit = Math.min(Math.max(1, Math.floor(args.limit ?? 5)), 12);
+
+		const titles = await ctx.db
+			.query('libraryTitles')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+			.collect();
+
+		const inProgress = titles
+			.filter(
+				(title) =>
+					title.listedInLibrary !== false &&
+					typeof title.lastReadAt === 'number' &&
+					title.lastReadAt > 0
+			)
+			.sort((left, right) => (right.lastReadAt ?? 0) - (left.lastReadAt ?? 0));
+
+		const totalInProgress = inProgress.length;
+		const candidates = inProgress.slice(0, limit * 4);
+
+		if (candidates.length === 0) return { items: [], totalInProgress: 0 };
+
+		const titleRouteSegments = buildTitleRouteSegments(candidates);
+
+		const enriched = await Promise.all(
+			candidates.map(async (title) => {
+				const [chapters, preferredVariant, allProgress] = await Promise.all([
+					ctx.db
+						.query('libraryChapters')
+						.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+						.collect(),
+					getPreferredVariantForTitle(ctx, title),
+					ctx.db
+						.query('chapterProgress')
+						.withIndex('by_owner_user_id_library_title_id_updated_at', (q) =>
+							q.eq('ownerUserId', userId).eq('libraryTitleId', title._id)
+						)
+						.collect()
+				]);
+
+				const activeChapterSource = preferredVariant ?? title;
+				const activeChapters = chapters.filter((chapter) =>
+					chapterBelongsToVariant(chapter, activeChapterSource)
+				);
+				const orderedChapters = sortLibraryChaptersInReadingOrder(activeChapters);
+				const chapterRouteSegments = buildChapterRouteSegments(activeChapters);
+
+				const activeChapterIds = new Set(activeChapters.map((c) => String(c._id)));
+				const activeProgress = allProgress.filter((row) =>
+					activeChapterIds.has(String(row.chapterId))
+				);
+				const latestProgress =
+					[...activeProgress].sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null;
+
+				const progressChapter = latestProgress
+					? (activeChapters.find((c) => String(c._id) === String(latestProgress.chapterId)) ?? null)
+					: null;
+				const targetChapter = progressChapter ?? orderedChapters[0] ?? null;
+				if (!targetChapter) return null;
+
+				const chaptersRead = activeProgress.length;
+
+				if (activeChapters.length > 0 && chaptersRead >= activeChapters.length) {
+					return null;
+				}
+
+				return {
+					titleId: title._id,
+					title: title.title,
+					routeSegment:
+						titleRouteSegments.get(String(title._id)) ??
+						buildTitleRouteBaseFromUrl(title.titleUrl, title.title),
+					coverUrl: title.coverUrl ?? null,
+					localCoverPath: title.localCoverPath ?? null,
+					lastReadAt: title.lastReadAt ?? 0,
+					chaptersTotal: activeChapters.length,
+					chaptersRead,
+					chapter: {
+						id: targetChapter._id,
+						name: targetChapter.chapterName,
+						number: targetChapter.chapterNumber ?? null,
+						routeSegment:
+							chapterRouteSegments.get(String(targetChapter._id)) ??
+							buildChapterRouteBase(targetChapter.chapterName, targetChapter.chapterNumber ?? null),
+						totalPages: targetChapter.totalPages ?? null,
+						pageIndex: latestProgress?.pageIndex ?? 0,
+						hasProgress: latestProgress !== null
+					}
+				};
+			})
+		);
+
+		const items = enriched
+			.filter(
+				(entry): entry is NonNullable<typeof entry> => entry !== null && entry.chapter !== null
+			)
+			.sort((left, right) => right.lastReadAt - left.lastReadAt)
+			.slice(0, limit);
+
+		return { items, totalInProgress };
+	}
+});
+
 export const getMineChapterById = query({
 	args: {
 		chapterId: v.id('libraryChapters')

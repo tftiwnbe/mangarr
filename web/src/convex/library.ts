@@ -33,6 +33,7 @@ export {
 	listTitleComments,
 	listAllMineChapters,
 	listChapterComments,
+	listContinueReading,
 	listMine,
 	listTitleChapters,
 	markChaptersReadThrough,
