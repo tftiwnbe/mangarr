@@ -994,7 +994,9 @@
 			</div>
 		{/if}
 
-		<div class="flex flex-col items-center gap-6 px-6 py-16">
+		<div
+			class="flex flex-col items-center gap-6 px-6 pt-16 pb-[calc(7rem+env(safe-area-inset-bottom))] md:pb-16"
+		>
 			{#if chapter?.chapterName}
 				<p class="text-xs text-[var(--text-ghost)]">{chapter.chapterName}</p>
 			{/if}
