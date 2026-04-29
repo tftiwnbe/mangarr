@@ -4,6 +4,7 @@
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import { Button } from '$lib/elements/button';
+	import { PanelSection } from '$lib/elements/panel-section';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { convexApi } from '$lib/convex/api';
 	import { _ } from '$lib/i18n';
@@ -69,44 +70,38 @@
 		descriptionEl.style.height = `${descriptionEl.scrollHeight}px`;
 	});
 
-	const titleSuggestions = $derived.by(() => {
-		const seen: string[] = [];
-		const current = editTitle.trim().toLowerCase();
-		return title.variants
-			.map((v) => v.title.trim())
-			.filter((t) => {
-				const lower = t.toLowerCase();
-				if (!t || lower === current || seen.includes(lower)) return false;
-				seen.push(lower);
-				return true;
-			});
-	});
+	function uniqueTrimmed(values: Iterable<string>, current: string) {
+		const cur = current.trim().toLowerCase();
+		const seen = new Set<string>();
+		const out: string[] = [];
+		for (const raw of values) {
+			const t = (raw ?? '').trim();
+			const k = t.toLowerCase();
+			if (!t || k === cur || seen.has(k)) continue;
+			seen.add(k);
+			out.push(t);
+		}
+		return out;
+	}
 
-	const authorSuggestions = $derived.by(() => {
-		const seen: string[] = [];
-		const current = editAuthor.trim().toLowerCase();
-		return title.variants
-			.map((v) => (v.author ?? '').trim())
-			.filter((t) => {
-				const lower = t.toLowerCase();
-				if (!t || lower === current || seen.includes(lower)) return false;
-				seen.push(lower);
-				return true;
-			});
-	});
-
-	const artistSuggestions = $derived.by(() => {
-		const seen: string[] = [];
-		const current = editArtist.trim().toLowerCase();
-		return title.variants
-			.map((v) => (v.artist ?? '').trim())
-			.filter((t) => {
-				const lower = t.toLowerCase();
-				if (!t || lower === current || seen.includes(lower)) return false;
-				seen.push(lower);
-				return true;
-			});
-	});
+	const titleSuggestions = $derived(
+		uniqueTrimmed(
+			title.variants.map((v) => v.title),
+			editTitle
+		)
+	);
+	const authorSuggestions = $derived(
+		uniqueTrimmed(
+			title.variants.map((v) => v.author ?? ''),
+			editAuthor
+		)
+	);
+	const artistSuggestions = $derived(
+		uniqueTrimmed(
+			title.variants.map((v) => v.artist ?? ''),
+			editArtist
+		)
+	);
 
 	const descriptionAlternatives = $derived.by(() => {
 		const seen: string[] = [];
@@ -185,19 +180,6 @@
 	}
 </script>
 
-{#snippet sectionLabel(text: string, hint?: string)}
-	<div class="flex items-baseline gap-2">
-		<span class="font-mono text-[10px] tracking-[0.18em] text-[var(--text-ghost)] uppercase">
-			{text}
-		</span>
-		{#if hint}
-			<span class="font-mono text-[9px] tracking-wider text-[var(--text-dim)] uppercase">
-				{hint}
-			</span>
-		{/if}
-	</div>
-{/snippet}
-
 {#snippet chipPill(label: string, onclick: () => void)}
 	<button
 		type="button"
@@ -205,7 +187,7 @@
 		{onclick}
 	>
 		<PlusIcon size={9} class="text-[var(--cosmic)]" />
-		{label}
+		<span class="truncate max-w-[220px]">{label}</span>
 	</button>
 {/snippet}
 
@@ -235,151 +217,143 @@
 		</div>
 	{/snippet}
 
-	<div class="flex flex-col">
-		<!-- IDENTITY ── name -->
-		<section class="flex flex-col gap-3 border-b border-[var(--void-3)] py-5">
-			{@render sectionLabel($_('title.editName'), '01')}
-			<input
-				type="text"
-				bind:value={editTitle}
-				class="w-full border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] focus:border-[var(--cosmic)]"
-				placeholder={title.title}
-			/>
-			{#if titleSuggestions.length > 0}
-				<div class="flex flex-col gap-1.5">
-					<span class="font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] uppercase">
-						{$_('title.editAlsoKnownAs')}
-					</span>
-					<div class="flex flex-wrap gap-1.5">
-						{#each titleSuggestions as suggestion (suggestion)}
-							{@render chipPill(suggestion, () => (editTitle = suggestion))}
-						{/each}
-					</div>
-				</div>
-			{/if}
-		</section>
-
-		<!-- IDENTITY ── author -->
-		<section class="flex flex-col gap-3 border-b border-[var(--void-3)] py-5">
-			{@render sectionLabel($_('title.author'), '02')}
-			<input
-				type="text"
-				bind:value={editAuthor}
-				class="w-full border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] focus:border-[var(--cosmic)]"
-				placeholder="—"
-			/>
-			{#if authorSuggestions.length > 0}
+	<PanelSection label={$_('title.editName')} index="01">
+		<input
+			type="text"
+			bind:value={editTitle}
+			class="w-full border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] focus:border-[var(--cosmic)]"
+			placeholder={title.title}
+		/>
+		{#if titleSuggestions.length > 0}
+			<div class="flex flex-col gap-1.5">
+				<span class="font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] uppercase">
+					{$_('title.editAlsoKnownAs')}
+				</span>
 				<div class="flex flex-wrap gap-1.5">
-					{#each authorSuggestions as suggestion (suggestion)}
-						{@render chipPill(suggestion, () => (editAuthor = suggestion))}
+					{#each titleSuggestions as suggestion (suggestion)}
+						{@render chipPill(suggestion, () => (editTitle = suggestion))}
 					{/each}
 				</div>
-			{/if}
-		</section>
+			</div>
+		{/if}
+	</PanelSection>
 
-		<!-- IDENTITY ── artist -->
-		<section class="flex flex-col gap-3 border-b border-[var(--void-3)] py-5">
-			{@render sectionLabel($_('title.artist'), '03')}
-			<input
-				type="text"
-				bind:value={editArtist}
-				class="w-full border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] focus:border-[var(--cosmic)]"
-				placeholder="—"
-			/>
-			{#if artistSuggestions.length > 0}
-				<div class="flex flex-wrap gap-1.5">
-					{#each artistSuggestions as suggestion (suggestion)}
-						{@render chipPill(suggestion, () => (editArtist = suggestion))}
-					{/each}
-				</div>
-			{/if}
-		</section>
+	<PanelSection label={$_('title.author')} index="02">
+		<input
+			type="text"
+			bind:value={editAuthor}
+			class="w-full border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] focus:border-[var(--cosmic)]"
+			placeholder="—"
+		/>
+		{#if authorSuggestions.length > 0}
+			<div class="flex flex-wrap gap-1.5">
+				{#each authorSuggestions as suggestion (suggestion)}
+					{@render chipPill(suggestion, () => (editAuthor = suggestion))}
+				{/each}
+			</div>
+		{/if}
+	</PanelSection>
 
-		<!-- DESCRIPTION -->
-		<section class="flex flex-col gap-3 border-b border-[var(--void-3)] py-5">
-			{@render sectionLabel($_('title.description'), '04')}
-			<textarea
-				bind:this={descriptionEl}
-				bind:value={editDescription}
-				rows={4}
-				class="w-full resize-none border-b border-[var(--void-4)] bg-transparent py-1.5 font-mono text-[12px] leading-relaxed text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] focus:border-[var(--cosmic)]"
-				placeholder={$_('title.noDescription')}
-			></textarea>
+	<PanelSection label={$_('title.artist')} index="03">
+		<input
+			type="text"
+			bind:value={editArtist}
+			class="w-full border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] focus:border-[var(--cosmic)]"
+			placeholder="—"
+		/>
+		{#if artistSuggestions.length > 0}
+			<div class="flex flex-wrap gap-1.5">
+				{#each artistSuggestions as suggestion (suggestion)}
+					{@render chipPill(suggestion, () => (editArtist = suggestion))}
+				{/each}
+			</div>
+		{/if}
+	</PanelSection>
 
-			{#if descriptionAlternatives.length > 0}
-				<div class="flex flex-col gap-2 pt-1">
-					<span class="font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] uppercase">
-						{$_('title.editDescriptionAlternatives')}
-					</span>
-					{#each descriptionAlternatives as alt, i (i)}
-						<div
-							class="group relative border-l-2 border-[var(--void-4)] bg-[var(--void-1)] py-2 pr-2 pl-3 transition-colors hover:border-[var(--cosmic)] hover:bg-[var(--void-2)]"
-						>
-							<p
-								class="line-clamp-3 text-[12px] leading-relaxed text-[var(--text-ghost)] transition-colors group-hover:text-[var(--text-soft)]"
-							>
-								{alt}
-							</p>
-							<button
-								type="button"
-								class="mt-2 flex items-center gap-1 font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] uppercase transition-colors hover:text-[var(--cosmic)]"
-								onclick={() => (editDescription = alt)}
-							>
-								<PlusIcon size={9} />
-								{$_('title.editUseThis')}
-							</button>
-						</div>
-					{/each}
-				</div>
-			{/if}
-		</section>
+	<PanelSection label={$_('title.description')} index="04">
+		<textarea
+			bind:this={descriptionEl}
+			bind:value={editDescription}
+			rows={4}
+			class="w-full resize-none border-b border-[var(--void-4)] bg-transparent py-1.5 font-mono text-[12px] leading-relaxed text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] focus:border-[var(--cosmic)]"
+			placeholder={$_('title.noDescription')}
+		></textarea>
 
-		<!-- GENRES -->
-		<section class="flex flex-col gap-3 py-5">
-			{@render sectionLabel($_('title.genres'), '05')}
-
-			<div
-				class="flex min-h-[40px] flex-wrap items-center gap-1.5 border border-[var(--void-4)] bg-[var(--void-2)] px-2 py-1.5 transition-colors focus-within:border-[var(--cosmic)]"
-				role="group"
-				aria-label="Genres"
-			>
-				{#each editGenres as genre, i (genre)}
-					<span
-						class="flex items-center gap-1.5 border border-[var(--cosmic-halo)] bg-[var(--cosmic-soft)] px-1.5 py-0.5 text-[11px] text-[var(--text)]"
+		{#if descriptionAlternatives.length > 0}
+			<div class="flex flex-col gap-2 pt-1">
+				<span class="font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] uppercase">
+					{$_('title.editDescriptionAlternatives')}
+				</span>
+				{#each descriptionAlternatives as alt, i (i)}
+					<div
+						class="group relative border-l-2 border-[var(--void-4)] bg-[var(--void-1)] py-2 pr-2 pl-3 transition-colors hover:border-[var(--cosmic)] hover:bg-[var(--void-2)]"
 					>
-						<span class="h-1 w-1 bg-[var(--cosmic)] shadow-[0_0_3px_var(--cosmic-glow)]"></span>
-						{genre}
+						<p
+							class="line-clamp-3 text-[12px] leading-relaxed text-[var(--text-ghost)] transition-colors group-hover:text-[var(--text-soft)]"
+						>
+							{alt}
+						</p>
 						<button
 							type="button"
-							class="text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
-							onclick={() => removeGenre(i)}
-							aria-label={`Remove ${genre}`}
+							class="mt-2 flex items-center gap-1 font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] uppercase transition-colors hover:text-[var(--cosmic)]"
+							onclick={() => (editDescription = alt)}
 						>
-							<XIcon size={10} />
+							<PlusIcon size={9} />
+							{$_('title.editUseThis')}
 						</button>
-					</span>
-				{/each}
-				<input
-					type="text"
-					bind:value={genreInput}
-					onkeydown={handleGenreKeydown}
-					class="min-w-[120px] flex-1 bg-transparent py-0.5 text-sm text-[var(--text)] outline-none placeholder:text-[var(--void-6)]"
-					placeholder={editGenres.length === 0 ? $_('title.editGenresPlaceholder') : ''}
-				/>
-			</div>
-
-			{#if genreSuggestions.length > 0}
-				<div class="flex flex-col gap-1.5">
-					<span class="font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] uppercase">
-						{$_('title.editFromSources')}
-					</span>
-					<div class="flex flex-wrap gap-1.5">
-						{#each genreSuggestions as genre (genre)}
-							{@render chipPill(genre, () => addGenre(genre))}
-						{/each}
 					</div>
+				{/each}
+			</div>
+		{/if}
+	</PanelSection>
+
+	<PanelSection
+		label={$_('title.genres')}
+		index="05"
+		count={editGenres.length}
+		divider={false}
+	>
+		<div
+			class="flex min-h-[40px] flex-wrap items-center gap-1.5 border border-[var(--void-4)] bg-[var(--void-2)] px-2 py-1.5 transition-colors focus-within:border-[var(--cosmic)]"
+			role="group"
+			aria-label="Genres"
+		>
+			{#each editGenres as genre, i (genre)}
+				<span
+					class="flex items-center gap-1.5 border border-[var(--cosmic-halo)] bg-[var(--cosmic-soft)] px-1.5 py-0.5 text-[11px] text-[var(--text)]"
+				>
+					<span class="h-1 w-1 bg-[var(--cosmic)] shadow-[0_0_3px_var(--cosmic-glow)]"></span>
+					{genre}
+					<button
+						type="button"
+						class="text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
+						onclick={() => removeGenre(i)}
+						aria-label={`Remove ${genre}`}
+					>
+						<XIcon size={10} />
+					</button>
+				</span>
+			{/each}
+			<input
+				type="text"
+				bind:value={genreInput}
+				onkeydown={handleGenreKeydown}
+				class="min-w-[120px] flex-1 bg-transparent py-0.5 text-sm text-[var(--text)] outline-none placeholder:text-[var(--void-6)]"
+				placeholder={editGenres.length === 0 ? $_('title.editGenresPlaceholder') : ''}
+			/>
+		</div>
+
+		{#if genreSuggestions.length > 0}
+			<div class="flex flex-col gap-1.5">
+				<span class="font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] uppercase">
+					{$_('title.editFromSources')}
+				</span>
+				<div class="flex flex-wrap gap-1.5">
+					{#each genreSuggestions as genre (genre)}
+						{@render chipPill(genre, () => addGenre(genre))}
+					{/each}
 				</div>
-			{/if}
-		</section>
-	</div>
+			</div>
+		{/if}
+	</PanelSection>
 </SlidePanel>

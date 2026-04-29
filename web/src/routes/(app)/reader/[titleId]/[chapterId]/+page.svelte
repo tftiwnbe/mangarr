@@ -1085,6 +1085,7 @@
 <SlidePanel
 	open={showCommentsPanel}
 	title={$_('reader.comments')}
+	badge={sortedComments.length > 0 ? sortedComments.length : undefined}
 	onclose={() => (showCommentsPanel = false)}
 >
 	<div class="flex flex-col gap-4 pt-1">

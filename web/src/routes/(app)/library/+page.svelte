@@ -19,6 +19,7 @@
 	import { Button } from '$lib/elements/button';
 	import { EmptyState } from '$lib/elements/empty-state';
 	import { LazyImage } from '$lib/elements/lazy-image';
+	import { PanelSection } from '$lib/elements/panel-section';
 	import { SearchInput } from '$lib/elements/search-input';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { DebouncedValue } from '$lib/hooks/use-debounced-value.svelte';
@@ -214,7 +215,18 @@
 			activeGenres.length > 0
 	);
 
+	const activeFilterCount = $derived(
+		activeReadingStatusIds.length + activeSourceStatusKeys.length + activeGenres.length
+	);
+
 	const hasActiveControls = $derived(hasActiveFilters || sortMode !== 'added' || !sortDesc);
+
+	let genreSearch = $state('');
+	const filteredGenreOptions = $derived.by(() => {
+		const q = genreSearch.trim().toLowerCase();
+		if (!q) return allGenres;
+		return allGenres.filter((g) => g.toLowerCase().includes(q));
+	});
 	const isEmpty = $derived(!loading && titles.length === 0);
 
 	const filteredTitles = $derived.by(() => {
@@ -801,116 +813,132 @@
 <SlidePanel
 	open={filterPanelOpen}
 	title={$_('library.sortAndFilter')}
+	badge={activeFilterCount > 0 ? activeFilterCount : undefined}
 	onclose={() => (filterPanelOpen = false)}
 >
-	<div class="flex flex-col gap-3 border-b border-[var(--void-3)] pt-1 pb-5">
-		<div class="flex items-center justify-between">
-			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
-				{$_('library.sort')}
-			</span>
+	{#snippet footer()}
+		<div class="flex items-center gap-2">
+			<Button variant="ghost" class="flex-1" onclick={() => (filterPanelOpen = false)}>
+				{$_('common.close')}
+			</Button>
+			<Button
+				variant="outline"
+				class="flex-1"
+				onclick={clearFilters}
+				disabled={!hasActiveControls}
+			>
+				{$_('library.clearFilters')}
+				{#if activeFilterCount > 0}
+					<span class="ml-1 font-mono text-[10px] tabular-nums opacity-70">·{activeFilterCount}</span>
+				{/if}
+			</Button>
+		</div>
+	{/snippet}
+
+	<PanelSection label={$_('library.sort')} index="01">
+		{#snippet actions()}
 			<button
 				type="button"
-				class="flex items-center gap-1.5 text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
+				class="flex items-center gap-1.5 border border-[var(--void-4)] bg-[var(--void-2)] px-2 py-0.5 font-mono text-[10px] tracking-[0.16em] text-[var(--text-ghost)] uppercase transition-colors hover:border-[var(--cosmic-halo)] hover:text-[var(--text)]"
 				onclick={() => (sortDesc = !sortDesc)}
 			>
-				{#if sortDesc}<CaretDownIcon size={12} />{:else}<CaretUpIcon size={12} />{/if}
+				{#if sortDesc}<CaretDownIcon size={10} />{:else}<CaretUpIcon size={10} />{/if}
 				<span>{sortDesc ? $_('library.desc') : $_('library.asc')}</span>
 			</button>
-		</div>
+		{/snippet}
 		<div class="flex flex-wrap gap-1.5">
 			{#each SORT_MODES as mode (mode.value)}
 				<button
 					type="button"
-					class="px-2.5 py-1 text-xs transition-colors {sortMode === mode.value
-						? 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text)]'
-						: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+					class="border px-2.5 py-1 text-xs transition-colors {sortMode === mode.value
+						? 'border-[var(--cosmic-halo)] bg-[var(--cosmic-soft)] text-[var(--text)]'
+						: 'border-[var(--void-3)] bg-[var(--void-2)] text-[var(--text-ghost)] hover:border-[var(--void-5)] hover:text-[var(--text-muted)]'}"
 					onclick={() => (sortMode = mode.value)}
 				>
 					{sortModeLabel(mode.labelKey)}
 				</button>
 			{/each}
 		</div>
-	</div>
+	</PanelSection>
 
 	{#if allUserStatuses.length > 0}
-		<div class="flex flex-col gap-3 border-b border-[var(--void-3)] py-5">
-			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase"
-				>{$_('library.readingStatus')}</span
-			>
+		<PanelSection
+			label={$_('library.readingStatus')}
+			index="02"
+			count={activeReadingStatusIds.length}
+		>
 			<div class="flex flex-wrap gap-1.5">
 				{#each allUserStatuses as status (status.id)}
 					{@const active = activeReadingStatusIds.includes(status.id)}
 					<button
 						type="button"
-						class="px-2.5 py-1 text-xs transition-colors {active
-							? 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text)]'
-							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+						class="border px-2.5 py-1 text-xs transition-colors {active
+							? 'border-[var(--cosmic-halo)] bg-[var(--cosmic-soft)] text-[var(--text)]'
+							: 'border-[var(--void-3)] bg-[var(--void-2)] text-[var(--text-ghost)] hover:border-[var(--void-5)] hover:text-[var(--text-muted)]'}"
 						onclick={() => toggleReadingStatus(status.id)}
 					>
 						{status.label}
 					</button>
 				{/each}
 			</div>
-		</div>
+		</PanelSection>
 	{/if}
 
 	{#if presentSourceStatusKeys.length > 0}
-		<div
-			class="flex flex-col gap-3 py-5 {allGenres.length > 0
-				? 'border-b border-[var(--void-3)]'
-				: ''}"
+		<PanelSection
+			label={$_('library.sourceStatus')}
+			index="03"
+			count={activeSourceStatusKeys.length}
 		>
-			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase"
-				>{$_('library.sourceStatus')}</span
-			>
 			<div class="flex flex-wrap gap-1.5">
 				{#each SOURCE_STATUS_FILTERS.filter( (filter) => presentSourceStatusKeys.includes(filter.key) ) as sourceFilter (sourceFilter.key)}
 					{@const active = activeSourceStatusKeys.includes(sourceFilter.key)}
 					<button
 						type="button"
-						class="px-2.5 py-1 text-xs transition-colors {active
-							? 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text)]'
-							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+						class="border px-2.5 py-1 text-xs transition-colors {active
+							? 'border-[var(--cosmic-halo)] bg-[var(--cosmic-soft)] text-[var(--text)]'
+							: 'border-[var(--void-3)] bg-[var(--void-2)] text-[var(--text-ghost)] hover:border-[var(--void-5)] hover:text-[var(--text-muted)]'}"
 						onclick={() => toggleSourceStatus(sourceFilter.key)}
 					>
 						{sourceStatusLabel(sourceFilter.labelKey)}
 					</button>
 				{/each}
 			</div>
-		</div>
+		</PanelSection>
 	{/if}
 
 	{#if allGenres.length > 0}
-		<div class="flex flex-col gap-3 py-5">
-			<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
-				{$_('library.genres')}
-			</span>
+		<PanelSection
+			label={$_('library.genres')}
+			index="04"
+			count={activeGenres.length}
+			divider={false}
+		>
+			{#if allGenres.length > 12}
+				<SearchInput
+					bind:value={genreSearch}
+					inputSize="sm"
+					placeholder={$_('library.searchGenres')}
+				/>
+			{/if}
 			<div class="flex flex-wrap gap-1.5">
-				{#each allGenres as genre (genre)}
+				{#each filteredGenreOptions as genre (genre)}
 					{@const active = activeGenres.includes(genre)}
 					<button
 						type="button"
-						class="px-2.5 py-1 text-xs transition-colors {active
-							? 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text)]'
-							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+						class="border px-2.5 py-1 text-xs transition-colors {active
+							? 'border-[var(--cosmic-halo)] bg-[var(--cosmic-soft)] text-[var(--text)]'
+							: 'border-[var(--void-3)] bg-[var(--void-2)] text-[var(--text-ghost)] hover:border-[var(--void-5)] hover:text-[var(--text-muted)]'}"
 						onclick={() => toggleGenre(genre)}
 					>
 						{genre}
 					</button>
+				{:else}
+					<span class="font-mono text-[10px] tracking-[0.16em] text-[var(--text-ghost)] uppercase">
+						{$_('common.empty')}
+					</span>
 				{/each}
 			</div>
-		</div>
-	{/if}
-
-	{#if hasActiveFilters}
-		<div class="border-t border-[var(--void-3)] pt-4">
-			<button
-				type="button"
-				onclick={clearFilters}
-				class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text-muted)]"
-			>
-				{$_('library.clearFilters')}
-			</button>
-		</div>
+		</PanelSection>
 	{/if}
 </SlidePanel>

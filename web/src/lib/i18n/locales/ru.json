@@ -104,6 +104,7 @@
 		"readingStatus": "Статус чтения",
 		"sourceStatus": "Статус источника",
 		"genres": "Жанры",
+		"searchGenres": "Поиск жанров…",
 		"clearFilters": "Сбросить фильтры",
 		"filterByStatus": "Фильтр по статусу",
 		"sortBy": "Сортировать по",

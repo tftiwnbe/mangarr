@@ -7,12 +7,22 @@
 	interface Props {
 		open: boolean;
 		title?: string;
+		badge?: string | number;
 		onclose: () => void;
 		children?: Snippet;
+		header?: Snippet;
 		footer?: Snippet;
 	}
 
-	let { open = false, title = '', onclose, children, footer }: Props = $props();
+	let {
+		open = false,
+		title = '',
+		badge,
+		onclose,
+		children,
+		header,
+		footer
+	}: Props = $props();
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape' && open) {
@@ -52,27 +62,40 @@
 			aria-labelledby="slide-panel-title"
 		>
 			<!-- HUD header -->
-			<div
-				class="flex h-11 shrink-0 items-center justify-between border-b border-[var(--void-3)] px-4"
-			>
-				<div class="flex items-center gap-2">
-					<span class="h-1 w-1 shrink-0 bg-[var(--cosmic)] shadow-[0_0_4px_var(--cosmic-glow)]"
-					></span>
-					<h2
-						id="slide-panel-title"
-						class="text-[10px] tracking-[0.24em] text-[var(--text-ghost)] uppercase"
+			<div class="shrink-0 border-b border-[var(--void-3)]">
+				<div class="flex h-11 items-center justify-between px-4">
+					<div class="flex items-center gap-2">
+						<span
+							class="h-1 w-1 shrink-0 bg-[var(--cosmic)] shadow-[0_0_4px_var(--cosmic-glow)]"
+						></span>
+						<h2
+							id="slide-panel-title"
+							class="font-mono text-[10px] tracking-[0.24em] text-[var(--text-ghost)] uppercase"
+						>
+							{title}
+						</h2>
+						{#if badge !== undefined && badge !== '' && badge !== 0}
+							<span
+								class="border border-[var(--cosmic-halo)] bg-[var(--cosmic-soft)] px-1.5 py-px font-mono text-[9px] tracking-[0.16em] text-[var(--cosmic)] tabular-nums"
+							>
+								{badge}
+							</span>
+						{/if}
+					</div>
+					<button
+						type="button"
+						class="flex h-7 w-7 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
+						onclick={onclose}
+						aria-label="Close panel"
 					>
-						{title}
-					</h2>
+						<XIcon size={14} />
+					</button>
 				</div>
-				<button
-					type="button"
-					class="flex h-7 w-7 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
-					onclick={onclose}
-					aria-label="Close panel"
-				>
-					<XIcon size={14} />
-				</button>
+				{#if header}
+					<div class="border-t border-[var(--void-3)] px-4 py-2">
+						{@render header()}
+					</div>
+				{/if}
 			</div>
 
 			<!-- Scrollable content -->

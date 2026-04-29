@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { SpinnerIcon } from 'phosphor-svelte';
+	import { ChatIcon, SpinnerIcon } from 'phosphor-svelte';
 
 	import { _ } from '$lib/i18n';
 
@@ -25,27 +25,56 @@
 </script>
 
 {#if loading}
-	<div class="flex items-center justify-center gap-2 py-6 text-sm text-[var(--text-ghost)]">
-		<SpinnerIcon size={16} class="animate-spin" />
+	<div
+		class="flex items-center justify-center gap-2 py-10 font-mono text-[10px] tracking-[0.16em] text-[var(--text-ghost)] uppercase"
+	>
+		<SpinnerIcon size={14} class="animate-spin" />
 		<span>{$_('common.loading')}</span>
 	</div>
 {:else if titleComments.length === 0}
-	<p class="py-6 text-center text-sm text-[var(--text-ghost)]">{$_('title.noComments')}</p>
+	<div class="flex flex-col items-center gap-1.5 py-12 text-center">
+		<ChatIcon size={20} class="text-[var(--void-6)]" />
+		<p class="font-mono text-[10px] tracking-[0.18em] text-[var(--text-ghost)] uppercase">
+			{$_('title.noComments')}
+		</p>
+	</div>
 {:else}
-	<div class="flex flex-col gap-4">
+	<div class="flex items-baseline gap-2 border-b border-[var(--void-3)] pb-2">
+		<span
+			class="h-1 w-1 translate-y-[-1px] bg-[var(--cosmic)] shadow-[0_0_4px_var(--cosmic-glow)]"
+		></span>
+		<span class="font-mono text-[10px] tracking-[0.22em] text-[var(--text-ghost)] uppercase">
+			log
+		</span>
+		<span class="font-mono text-[10px] text-[var(--text-dim)] tabular-nums">
+			{titleComments.length}
+		</span>
+	</div>
+	<ul class="flex flex-col">
 		{#each titleComments as comment (comment._id)}
-			<div class="flex flex-col gap-1.5 py-2">
-				<div class="flex items-center justify-between gap-4 text-[10px] text-[var(--text-ghost)]">
-					<span class="truncate">
-						{comment.chapterName}
+			<li
+				class="group flex flex-col gap-1.5 border-l-2 border-[var(--void-3)] py-2.5 pr-1 pl-3 transition-colors hover:border-[var(--void-6)] hover:bg-[var(--void-2)]"
+			>
+				<div class="flex items-center gap-2 font-mono text-[10px] text-[var(--text-ghost)]">
+					<span
+						class="border border-[var(--void-4)] px-1.5 py-px tabular-nums"
+						title={comment.chapterName}
+					>
 						{#if comment.chapterNumber != null}
-							· {$_('reader.page')} {comment.pageIndex + 1}
+							ch.{comment.chapterNumber}·p.{comment.pageIndex + 1}
+						{:else}
+							p.{comment.pageIndex + 1}
 						{/if}
 					</span>
-					<span class="shrink-0">{formatTimestamp(comment.createdAt)}</span>
+					<span class="truncate text-[var(--text-dim)]">{comment.chapterName}</span>
+					<span class="ml-auto shrink-0 text-[var(--text-dim)]">
+						{formatTimestamp(comment.createdAt)}
+					</span>
 				</div>
-				<p class="text-sm whitespace-pre-wrap text-[var(--text-soft)]">{comment.message}</p>
-			</div>
+				<p class="text-[12px] leading-relaxed whitespace-pre-wrap text-[var(--text-soft)]">
+					{comment.message}
+				</p>
+			</li>
 		{/each}
-	</div>
+	</ul>
 {/if}

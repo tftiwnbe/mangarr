@@ -104,6 +104,7 @@
 		"readingStatus": "Reading status",
 		"sourceStatus": "Source status",
 		"genres": "Genres",
+		"searchGenres": "Search genres…",
 		"clearFilters": "Clear filters",
 		"filterByStatus": "Filter by status",
 		"sortBy": "Sort by",
