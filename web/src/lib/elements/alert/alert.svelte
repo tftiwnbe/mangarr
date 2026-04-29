@@ -65,8 +65,7 @@
 >
 	<!-- HUD header row -->
 	<div class="mb-2 flex items-center gap-2">
-		<span
-			class="h-1 w-1 shrink-0 rounded-full {config.dot} {config.pulse ? 'animate-pulse' : ''}"
+		<span class="h-1 w-1 shrink-0 rounded-full {config.dot} {config.pulse ? 'animate-pulse' : ''}"
 		></span>
 		<span class="text-[10px] tracking-[0.24em] text-[var(--text-ghost)] uppercase">
 			{title ?? config.label}

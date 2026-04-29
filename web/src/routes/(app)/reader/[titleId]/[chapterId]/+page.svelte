@@ -841,11 +841,7 @@
 	>
 		<div class="flex h-10 items-center justify-between px-2">
 			<div class="flex min-w-0 flex-1 items-center gap-1.5">
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					onclick={() => void goto(canonicalTitlePath)}
-				>
+				<Button variant="ghost" size="icon-sm" onclick={() => void goto(canonicalTitlePath)}>
 					<CaretLeftIcon size={18} />
 				</Button>
 				<a
@@ -1119,9 +1115,7 @@
 		<div
 			class="relative border border-[var(--void-3)] bg-[var(--void-2)] focus-within:border-[var(--cosmic-halo)]"
 		>
-			<div
-				class="flex items-center justify-between border-b border-[var(--void-3)] px-2.5 py-1.5"
-			>
+			<div class="flex items-center justify-between border-b border-[var(--void-3)] px-2.5 py-1.5">
 				<span class="font-mono text-[10px] tracking-[0.18em] text-[var(--text-ghost)] uppercase">
 					{#if editingCommentId}
 						<span class="text-[var(--cosmic)]">// edit</span>

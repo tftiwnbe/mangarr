@@ -16,7 +16,7 @@
 <DropdownMenu.Item
 	{disabled}
 	{onSelect}
-	class="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs outline-none transition-colors
+	class="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs transition-colors outline-none
 		disabled:pointer-events-none disabled:opacity-40
 		{variant === 'danger'
 		? 'text-[var(--text-ghost)] data-[highlighted]:bg-[var(--error-soft)] data-[highlighted]:text-[var(--error)]'

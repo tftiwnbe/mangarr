@@ -35,8 +35,9 @@ describe('source title URL input normalization', () => {
 			'hwange-pyeha-seugi-peulojegteu',
 			'hwange pyeha seugi peulojegteu'
 		]);
-		expect(
-			sourceTitleUrlSearchQueries('/content/the-pet-of-the-villainess#id=78d918dc')
-		).toEqual(['the-pet-of-the-villainess', 'the pet of the villainess']);
+		expect(sourceTitleUrlSearchQueries('/content/the-pet-of-the-villainess#id=78d918dc')).toEqual([
+			'the-pet-of-the-villainess',
+			'the pet of the villainess'
+		]);
 	});
 });

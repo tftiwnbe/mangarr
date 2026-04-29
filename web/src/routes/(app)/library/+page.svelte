@@ -821,15 +821,12 @@
 			<Button variant="ghost" class="flex-1" onclick={() => (filterPanelOpen = false)}>
 				{$_('common.close')}
 			</Button>
-			<Button
-				variant="outline"
-				class="flex-1"
-				onclick={clearFilters}
-				disabled={!hasActiveControls}
-			>
+			<Button variant="outline" class="flex-1" onclick={clearFilters} disabled={!hasActiveControls}>
 				{$_('library.clearFilters')}
 				{#if activeFilterCount > 0}
-					<span class="ml-1 font-mono text-[10px] tabular-nums opacity-70">·{activeFilterCount}</span>
+					<span class="ml-1 font-mono text-[10px] tabular-nums opacity-70"
+						>·{activeFilterCount}</span
+					>
 				{/if}
 			</Button>
 		</div>

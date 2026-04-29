@@ -1,7 +1,13 @@
 import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
 
-import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
+import {
+	internalMutation,
+	mutation,
+	query,
+	type MutationCtx,
+	type QueryCtx
+} from './_generated/server';
 import { STATUS } from './commands';
 import { requireBridgeIdentity } from './bridge_auth';
 import { requireOwnedTitle, requireViewerUserId } from './library_shared_access';
@@ -94,7 +100,9 @@ function sanitizeDiscoveryItem(item: DiscoveryItemPayload): DiscoveryItemPayload
 		return null;
 	}
 	return {
-		canonicalKey: (item.canonicalKey?.trim() || buildDiscoveryCanonicalKey(sourceId, titleUrl)).trim(),
+		canonicalKey: (
+			item.canonicalKey?.trim() || buildDiscoveryCanonicalKey(sourceId, titleUrl)
+		).trim(),
 		sourceId,
 		sourcePkg: item.sourcePkg?.trim() || undefined,
 		sourceLang: item.sourceLang?.trim() || undefined,
@@ -105,7 +113,8 @@ function sanitizeDiscoveryItem(item: DiscoveryItemPayload): DiscoveryItemPayload
 		coverUrl: item.coverUrl?.trim() || undefined,
 		author: item.author?.trim() || undefined,
 		genre: item.genre?.trim() || undefined,
-		status: typeof item.status === 'number' && Number.isFinite(item.status) ? item.status : undefined
+		status:
+			typeof item.status === 'number' && Number.isFinite(item.status) ? item.status : undefined
 	};
 }
 
@@ -114,7 +123,9 @@ async function getPreferredContentLanguages(ctx: QueryCtx | MutationCtx) {
 		.query('installation')
 		.withIndex('by_key', (q) => q.eq('key', 'main'))
 		.unique();
-	return (installation?.preferredContentLanguages ?? []).map((language) => language.trim()).filter(Boolean);
+	return (installation?.preferredContentLanguages ?? [])
+		.map((language) => language.trim())
+		.filter(Boolean);
 }
 
 async function listDiscoverySources(ctx: MutationCtx | QueryCtx) {
@@ -126,7 +137,9 @@ async function listDiscoverySources(ctx: MutationCtx | QueryCtx) {
 		ctx.db.query('installedExtensions').collect()
 	]);
 	const preferredLanguages = new Set(
-		(installation?.preferredContentLanguages ?? []).map((language) => normalizeMergeText(language)).filter(Boolean)
+		(installation?.preferredContentLanguages ?? [])
+			.map((language) => normalizeMergeText(language))
+			.filter(Boolean)
 	);
 
 	return extensions
@@ -152,7 +165,9 @@ async function ensureDiscoveryCrawlStateRows(ctx: MutationCtx, now: number) {
 	const sources = await listDiscoverySources(ctx);
 	let created = 0;
 	for (const source of sources) {
-		for (const feedType of (source.supportsLatest ? (['popular', 'latest'] as const) : (['popular'] as const))) {
+		for (const feedType of source.supportsLatest
+			? (['popular', 'latest'] as const)
+			: (['popular'] as const)) {
 			const existing = await ctx.db
 				.query('discoveryCrawlState')
 				.withIndex('by_source_id_feed_type', (q) =>
@@ -190,13 +205,17 @@ async function ingestFeedPageCore(
 		updateCrawlState: boolean;
 	}
 ) {
-	const sanitizedItems = args.items.map(sanitizeDiscoveryItem).filter((item): item is DiscoveryItemPayload => item !== null);
+	const sanitizedItems = args.items
+		.map(sanitizeDiscoveryItem)
+		.filter((item): item is DiscoveryItemPayload => item !== null);
 	const discoveryIds: GenericId<'discoveryTitles'>[] = [];
 
 	for (const item of sanitizedItems) {
 		const existing = (await ctx.db
 			.query('discoveryTitles')
-			.withIndex('by_source_id_title_url', (q) => q.eq('sourceId', item.sourceId).eq('titleUrl', item.titleUrl))
+			.withIndex('by_source_id_title_url', (q) =>
+				q.eq('sourceId', item.sourceId).eq('titleUrl', item.titleUrl)
+			)
 			.unique()) as DiscoveryTitleDoc | null;
 
 		const patch = {
@@ -213,10 +232,8 @@ async function ingestFeedPageCore(
 			...(item.genre ? { genre: item.genre } : {}),
 			...(typeof item.status === 'number' ? { status: item.status } : {}),
 			lastSeenAt: args.now,
-			popularSeenCount:
-				(existing?.popularSeenCount ?? 0) + (args.feedType === 'popular' ? 1 : 0),
-			latestSeenCount:
-				(existing?.latestSeenCount ?? 0) + (args.feedType === 'latest' ? 1 : 0),
+			popularSeenCount: (existing?.popularSeenCount ?? 0) + (args.feedType === 'popular' ? 1 : 0),
+			latestSeenCount: (existing?.latestSeenCount ?? 0) + (args.feedType === 'latest' ? 1 : 0),
 			lastPopularSeenAt:
 				args.feedType === 'popular' ? args.now : (existing?.lastPopularSeenAt ?? undefined),
 			lastLatestSeenAt:
@@ -255,8 +272,7 @@ async function ingestFeedPageCore(
 				.unique();
 			if (existingEdge) {
 				await ctx.db.patch(existingEdge._id, {
-					popularCount:
-						existingEdge.popularCount + (args.feedType === 'popular' ? 1 : 0),
+					popularCount: existingEdge.popularCount + (args.feedType === 'popular' ? 1 : 0),
 					latestCount: existingEdge.latestCount + (args.feedType === 'latest' ? 1 : 0),
 					lastObservedAt: args.now,
 					updatedAt: args.now
@@ -402,12 +418,14 @@ function isImportedDiscoveryCandidate(
 	if (imported.importedKeys.has(candidate.canonicalKey)) {
 		return true;
 	}
-	const normalizedTitle = candidate.normalizedTitle || buildDiscoveryNormalizedTitle(candidate.title);
+	const normalizedTitle =
+		candidate.normalizedTitle || buildDiscoveryNormalizedTitle(candidate.title);
 	if (!normalizedTitle) return false;
 	if (imported.normalizedTitleKeys.has(normalizedTitle)) {
 		return true;
 	}
-	const normalizedAuthor = candidate.normalizedAuthor || buildDiscoveryNormalizedAuthor(candidate.author);
+	const normalizedAuthor =
+		candidate.normalizedAuthor || buildDiscoveryNormalizedAuthor(candidate.author);
 	return normalizedAuthor
 		? imported.normalizedTitleKeys.has(`${normalizedTitle}::${normalizedAuthor}`)
 		: false;
@@ -486,7 +504,9 @@ async function listFallbackRecentTitles(
 		limit: number;
 	}
 ) {
-	const preferredLanguages = new Set(args.preferredLanguages.map((language) => normalizeMergeText(language)).filter(Boolean));
+	const preferredLanguages = new Set(
+		args.preferredLanguages.map((language) => normalizeMergeText(language)).filter(Boolean)
+	);
 	const rows = (await ctx.db
 		.query('discoveryTitles')
 		.withIndex('by_last_seen_at', (q) => q.gt('lastSeenAt', 0))
@@ -496,13 +516,19 @@ async function listFallbackRecentTitles(
 	return rows
 		.filter(
 			(row) =>
-				!isImportedDiscoveryCandidate(row, buildImportedDiscoverySets({
-					importedKeys: args.importedKeys,
-					titles: args.importedTitles,
-					variants: args.importedVariants
-				}))
+				!isImportedDiscoveryCandidate(
+					row,
+					buildImportedDiscoverySets({
+						importedKeys: args.importedKeys,
+						titles: args.importedTitles,
+						variants: args.importedVariants
+					})
+				)
 		)
-		.filter((row) => preferredLanguages.size === 0 || preferredLanguages.has(normalizeMergeText(row.sourceLang)))
+		.filter(
+			(row) =>
+				preferredLanguages.size === 0 || preferredLanguages.has(normalizeMergeText(row.sourceLang))
+		)
 		.slice(0, args.limit)
 		.map(mapDiscoveryItem);
 }
@@ -513,7 +539,10 @@ function discoveryHydrationPriority(title: DiscoveryTitleDoc, now: number) {
 		(typeof title.description === 'string' && title.description.trim().length > 80 ? 0 : 5) +
 		(typeof title.author === 'string' && title.author.trim().length > 0 ? 0 : 3) +
 		(typeof title.genre === 'string' && title.genre.trim().length > 0 ? 0 : 3);
-	const freshnessBoost = Math.max(0, 14 - Math.floor((now - title.lastSeenAt) / (24 * 60 * 60 * 1000)));
+	const freshnessBoost = Math.max(
+		0,
+		14 - Math.floor((now - title.lastSeenAt) / (24 * 60 * 60 * 1000))
+	);
 	return seenScore + missingMetadataScore + freshnessBoost;
 }
 
@@ -528,9 +557,12 @@ function shouldHydrateDiscoveryTitle(title: DiscoveryTitleDoc, now: number) {
 	}
 
 	const hasEnoughMetadata =
-		(typeof title.description === 'string' && title.description.trim().length > 80) &&
-		(typeof title.author === 'string' && title.author.trim().length > 0) &&
-		(typeof title.genre === 'string' && title.genre.trim().length > 0);
+		typeof title.description === 'string' &&
+		title.description.trim().length > 80 &&
+		typeof title.author === 'string' &&
+		title.author.trim().length > 0 &&
+		typeof title.genre === 'string' &&
+		title.genre.trim().length > 0;
 	if (hasEnoughMetadata && title.detailsHydratedAt) {
 		return false;
 	}
@@ -691,81 +723,81 @@ export const listForYou = query({
 		);
 		const { titles, importedKeys } = await loadImportedTitlesOnly(ctx, ownerUserId);
 		const importedSets = buildImportedDiscoverySets({ titles, variants: [], importedKeys });
-			const rankedSeeds = titles
-				.map((title) => ({
-					title,
-					weight: scoreSeedWeight({
-						statusKey: title.userStatusId ? statusById.get(String(title.userStatusId))?.key : null,
-						userRating: title.userRating ?? null,
-						lastReadAt: title.lastReadAt ?? null
+		const rankedSeeds = titles
+			.map((title) => ({
+				title,
+				weight: scoreSeedWeight({
+					statusKey: title.userStatusId ? statusById.get(String(title.userStatusId))?.key : null,
+					userRating: title.userRating ?? null,
+					lastReadAt: title.lastReadAt ?? null
+				})
+			}))
+			.sort((left, right) => right.weight - left.weight)
+			.slice(0, DISCOVERY_FOR_YOU_SEED_LIMIT);
+
+		const aggregate = new Map<
+			string,
+			{ title: DiscoveryTitleDoc; score: number; matchedSeeds: number }
+		>();
+
+		const candidateRows = (await ctx.db
+			.query('discoveryTitles')
+			.withIndex('by_last_seen_at', (q) => q.gt('lastSeenAt', 0))
+			.order('desc')
+			.take(DISCOVERY_FOR_YOU_CANDIDATE_SCAN_LIMIT)) as DiscoveryTitleDoc[];
+
+		for (const candidate of candidateRows) {
+			if (isImportedDiscoveryCandidate(candidate, importedSets)) continue;
+			for (const seed of rankedSeeds) {
+				const anchor = {
+					title: seed.title.title,
+					author: seed.title.author ?? null,
+					description: seed.title.description ?? null,
+					genre: seed.title.genre ?? null,
+					sourcePkg: seed.title.sourcePkg,
+					sourceLang: seed.title.sourceLang,
+					titleUrl: seed.title.titleUrl
+				};
+				if (
+					isDiscoverySameWork(anchor, {
+						title: candidate.title,
+						author: candidate.author,
+						sourcePkg: candidate.sourcePkg,
+						sourceLang: candidate.sourceLang,
+						titleUrl: candidate.titleUrl
 					})
-				}))
-				.sort((left, right) => right.weight - left.weight)
-				.slice(0, DISCOVERY_FOR_YOU_SEED_LIMIT);
-
-			const aggregate = new Map<
-				string,
-				{ title: DiscoveryTitleDoc; score: number; matchedSeeds: number }
-			>();
-
-			const candidateRows = (await ctx.db
-				.query('discoveryTitles')
-				.withIndex('by_last_seen_at', (q) => q.gt('lastSeenAt', 0))
-				.order('desc')
-				.take(DISCOVERY_FOR_YOU_CANDIDATE_SCAN_LIMIT)) as DiscoveryTitleDoc[];
-
-			for (const candidate of candidateRows) {
-				if (isImportedDiscoveryCandidate(candidate, importedSets)) continue;
-				for (const seed of rankedSeeds) {
-					const anchor = {
-						title: seed.title.title,
-						author: seed.title.author ?? null,
-						description: seed.title.description ?? null,
-						genre: seed.title.genre ?? null,
-						sourcePkg: seed.title.sourcePkg,
-						sourceLang: seed.title.sourceLang,
-						titleUrl: seed.title.titleUrl
-					};
-					if (
-						isDiscoverySameWork(anchor, {
-							title: candidate.title,
-							author: candidate.author,
-							sourcePkg: candidate.sourcePkg,
-							sourceLang: candidate.sourceLang,
-							titleUrl: candidate.titleUrl
-						})
-					) {
-						continue;
-					}
-					if (
-						!isDiscoveryMetadataRecommendationStrong({
-							anchor,
-							candidate,
-							preferredLanguages
-						})
-					) {
-						continue;
-					}
-					const score = rankForYouCandidate({
-						seedWeight: seed.weight,
+				) {
+					continue;
+				}
+				if (
+					!isDiscoveryMetadataRecommendationStrong({
 						anchor,
 						candidate,
-						edge: EMPTY_DISCOVERY_EDGE,
 						preferredLanguages
+					})
+				) {
+					continue;
+				}
+				const score = rankForYouCandidate({
+					seedWeight: seed.weight,
+					anchor,
+					candidate,
+					edge: EMPTY_DISCOVERY_EDGE,
+					preferredLanguages
+				});
+				const existing = aggregate.get(candidate.canonicalKey);
+				if (existing) {
+					existing.score += score;
+					existing.matchedSeeds += 1;
+				} else {
+					aggregate.set(candidate.canonicalKey, {
+						title: candidate,
+						score,
+						matchedSeeds: 1
 					});
-					const existing = aggregate.get(candidate.canonicalKey);
-					if (existing) {
-						existing.score += score;
-						existing.matchedSeeds += 1;
-					} else {
-						aggregate.set(candidate.canonicalKey, {
-							title: candidate,
-							score,
-							matchedSeeds: 1
-						});
-					}
 				}
 			}
+		}
 
 		const items = [...aggregate.values()]
 			.sort((left, right) => {
@@ -954,8 +986,9 @@ export const listSimilarForLibraryTitle = query({
 				? ranked
 				: softFallback.filter(
 						(entry, index, all) =>
-							all.findIndex((candidate) => candidate.title.canonicalKey === entry.title.canonicalKey) ===
-							index
+							all.findIndex(
+								(candidate) => candidate.title.canonicalKey === entry.title.canonicalKey
+							) === index
 					);
 
 		return {
@@ -1073,13 +1106,17 @@ export const runScheduler = internalMutation({
 			const activeCommands = await ctx.db
 				.query('commands')
 				.withIndex('by_idempotency_key', (q) =>
-					q.eq('idempotencyKey', `discovery.feed.crawl:${state.sourceId}:${state.feedType}:${state.nextPage}`)
+					q.eq(
+						'idempotencyKey',
+						`discovery.feed.crawl:${state.sourceId}:${state.feedType}:${state.nextPage}`
+					)
 				)
 				.collect();
-			const hasActive = activeCommands.some((command) =>
-				command.status === STATUS.QUEUED ||
-				command.status === STATUS.LEASED ||
-				command.status === STATUS.RUNNING
+			const hasActive = activeCommands.some(
+				(command) =>
+					command.status === STATUS.QUEUED ||
+					command.status === STATUS.LEASED ||
+					command.status === STATUS.RUNNING
 			);
 			if (hasActive) continue;
 			await ctx.db.insert('commands', {
@@ -1114,7 +1151,10 @@ export const runScheduler = internalMutation({
 		const hydrationCountsBySource = new Map<string, number>();
 		for (const title of recentTitles
 			.filter((item) => shouldHydrateDiscoveryTitle(item, now))
-			.sort((left, right) => discoveryHydrationPriority(right, now) - discoveryHydrationPriority(left, now))) {
+			.sort(
+				(left, right) =>
+					discoveryHydrationPriority(right, now) - discoveryHydrationPriority(left, now)
+			)) {
 			if (enqueuedHydrations >= DISCOVERY_HYDRATE_BATCH_SIZE) break;
 			const sourceHydrations = hydrationCountsBySource.get(title.sourceId) ?? 0;
 			if (sourceHydrations >= DISCOVERY_HYDRATE_MAX_PER_SOURCE) continue;
@@ -1124,10 +1164,11 @@ export const runScheduler = internalMutation({
 				.query('commands')
 				.withIndex('by_idempotency_key', (q) => q.eq('idempotencyKey', idempotencyKey))
 				.collect();
-			const hasActive = activeCommands.some((command) =>
-				command.status === STATUS.QUEUED ||
-				command.status === STATUS.LEASED ||
-				command.status === STATUS.RUNNING
+			const hasActive = activeCommands.some(
+				(command) =>
+					command.status === STATUS.QUEUED ||
+					command.status === STATUS.LEASED ||
+					command.status === STATUS.RUNNING
 			);
 			if (hasActive) continue;
 

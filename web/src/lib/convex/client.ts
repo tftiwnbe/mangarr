@@ -36,10 +36,7 @@ export function getConvexUrl() {
 	return resolveBrowserConvexUrl(configured, window.location);
 }
 
-export function resolveBrowserConvexUrl(
-	configuredUrl: string,
-	locationLike: BrowserLocationLike
-) {
+export function resolveBrowserConvexUrl(configuredUrl: string, locationLike: BrowserLocationLike) {
 	try {
 		const url = new URL(configuredUrl);
 		const browserHost = locationLike.hostname.trim();
@@ -75,7 +72,9 @@ function resolveAgainstBrowserOrigin(url: URL, locationLike: BrowserLocationLike
 		return normalizeConvexUrl(url.toString());
 	}
 
-	return normalizeConvexUrl(new URL(`${url.pathname}${url.search}${url.hash}`, browserOrigin).toString());
+	return normalizeConvexUrl(
+		new URL(`${url.pathname}${url.search}${url.hash}`, browserOrigin).toString()
+	);
 }
 
 function resolveBrowserOrigin(locationLike: BrowserLocationLike) {

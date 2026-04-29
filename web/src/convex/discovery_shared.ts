@@ -98,7 +98,10 @@ export function computeDiscoveryFailureState(args: {
 		DISCOVERY_FAILURE_MAX_DELAY_MS,
 		DISCOVERY_FAILURE_BASE_DELAY_MS * 2 ** (nextFailures - 1)
 	);
-	const dueAt = Math.max(args.now + exponentialDelay, args.now + Math.max(0, args.retryAfterMs ?? 0));
+	const dueAt = Math.max(
+		args.now + exponentialDelay,
+		args.now + Math.max(0, args.retryAfterMs ?? 0)
+	);
 	return {
 		dueAt,
 		cooldownUntil: dueAt,
@@ -180,13 +183,13 @@ function scoreGenreOverlap(left: string | null | undefined, right: string | null
 	return 0;
 }
 
-
 function scoreAuthorMatch(left: string | null | undefined, right: string | null | undefined) {
 	const normalizedLeft = normalizeMergeText(left);
 	const normalizedRight = normalizeMergeText(right);
 	if (!normalizedLeft || !normalizedRight) return 0;
 	if (normalizedLeft === normalizedRight) return 38;
-	if (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft)) return 18;
+	if (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft))
+		return 18;
 	return 0;
 }
 
@@ -212,7 +215,10 @@ export function rankSimilarCandidateBreakdown(args: {
 	);
 	const similarity = scoreMergeSnapshot(args.anchor, args.candidate);
 	const edgeScore = Math.min(42, args.edge.popularCount * 6 + args.edge.latestCount * 4);
-	const freshnessScore = scoreFreshness(args.candidate.lastSeenAt ?? args.edge.lastObservedAt ?? null, args.now);
+	const freshnessScore = scoreFreshness(
+		args.candidate.lastSeenAt ?? args.edge.lastObservedAt ?? null,
+		args.now
+	);
 	const preferredLanguageBonus =
 		preferredLanguages.size > 0 &&
 		preferredLanguages.has(normalizeMergeText(args.candidate.sourceLang))
@@ -220,10 +226,7 @@ export function rankSimilarCandidateBreakdown(args: {
 			: 0;
 	const titleBonus = Math.min(52, Math.floor(similarity / 4));
 	const authorBonus = scoreAuthorMatch(args.anchor.author, args.candidate.author);
-	const genreScore = scoreGenreOverlap(
-		args.anchor.genre ?? null,
-		args.candidate.genre ?? null
-	);
+	const genreScore = scoreGenreOverlap(args.anchor.genre ?? null, args.candidate.genre ?? null);
 	const descriptionScore = 0;
 	return {
 		similarity,

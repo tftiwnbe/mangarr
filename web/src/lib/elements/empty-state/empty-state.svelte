@@ -32,15 +32,15 @@
 			<!-- Corner brackets -->
 			<span class="absolute top-0 left-0 h-3 w-3 border-t border-l border-[var(--void-5)]"></span>
 			<span class="absolute top-0 right-0 h-3 w-3 border-t border-r border-[var(--void-5)]"></span>
-			<span class="absolute bottom-0 left-0 h-3 w-3 border-b border-l border-[var(--void-5)]"></span>
-			<span class="absolute bottom-0 right-0 h-3 w-3 border-b border-r border-[var(--void-5)]"></span>
+			<span class="absolute bottom-0 left-0 h-3 w-3 border-b border-l border-[var(--void-5)]"
+			></span>
+			<span class="absolute right-0 bottom-0 h-3 w-3 border-r border-b border-[var(--void-5)]"
+			></span>
 			<Icon size={26} class="animate-float text-[var(--void-6)]" />
 		</div>
 
 		<!-- HUD "no data" label -->
-		<span class="mt-4 text-[10px] tracking-[0.24em] text-[var(--void-6)] uppercase">
-			no data
-		</span>
+		<span class="mt-4 text-[10px] tracking-[0.24em] text-[var(--void-6)] uppercase"> no data </span>
 	{/if}
 
 	<h3 class="text-display mt-2 text-sm text-[var(--text)]">{title}</h3>

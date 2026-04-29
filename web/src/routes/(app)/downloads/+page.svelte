@@ -85,14 +85,11 @@
 	};
 
 	const client = useConvexClient();
-	const dashboardQuery = useQuery(
-		convexApi.library.getDownloadDashboard,
-		() => ({
-			watchedLimit: 100,
-			activeLimit: 100,
-			recentLimit: 40
-		})
-	);
+	const dashboardQuery = useQuery(convexApi.library.getDownloadDashboard, () => ({
+		watchedLimit: 100,
+		activeLimit: 100,
+		recentLimit: 40
+	}));
 
 	let runningAction = $state<string | null>(null);
 	let profileActionTitleId = $state<string | null>(null);
@@ -327,7 +324,9 @@
 		<div class="flex flex-col gap-2">
 			<div class="flex items-baseline justify-between gap-3">
 				<span class="text-display text-2xl leading-none text-[var(--text)] tabular-nums">
-					{chapterStat.downloaded}<span class="text-[var(--text-ghost)] text-base">/{chapterStat.total}</span>
+					{chapterStat.downloaded}<span class="text-base text-[var(--text-ghost)]"
+						>/{chapterStat.total}</span
+					>
 				</span>
 				<span class="text-[10px] leading-none tracking-[0.24em] text-[var(--text-ghost)] uppercase">
 					{$_('downloads.chaptersShort')}
@@ -341,11 +340,22 @@
 			</div>
 		</div>
 		<div class="flex items-center gap-3 text-[11px] text-[var(--text-muted)] tabular-nums">
-			<span>{formatBytes(dashboard.overview.avgChapterSizeBytes)} <span class="text-[var(--text-ghost)] tracking-[0.12em] uppercase">avg</span></span>
+			<span
+				>{formatBytes(dashboard.overview.avgChapterSizeBytes)}
+				<span class="tracking-[0.12em] text-[var(--text-ghost)] uppercase">avg</span></span
+			>
 			<span class="text-[var(--void-6)]">·</span>
-			<span>{capacityStat.capacity} <span class="text-[var(--text-ghost)] tracking-[0.12em] uppercase">{$_('downloads.capacityShort')}</span></span>
+			<span
+				>{capacityStat.capacity}
+				<span class="tracking-[0.12em] text-[var(--text-ghost)] uppercase"
+					>{$_('downloads.capacityShort')}</span
+				></span
+			>
 			<span class="text-[var(--void-6)]">·</span>
-			<span>{capacityStat.free} <span class="text-[var(--text-ghost)] tracking-[0.12em] uppercase">free</span></span>
+			<span
+				>{capacityStat.free}
+				<span class="tracking-[0.12em] text-[var(--text-ghost)] uppercase">free</span></span
+			>
 		</div>
 	</section>
 
@@ -372,13 +382,11 @@
 		<header class="flex items-center gap-2 px-0.5">
 			<span
 				class="h-1 w-1 rounded-full {activeDownloads.length > 0
-					? 'bg-[var(--cosmic)] shadow-[0_0_8px_var(--cosmic-glow)] animate-pulse'
+					? 'animate-pulse bg-[var(--cosmic)] shadow-[0_0_8px_var(--cosmic-glow)]'
 					: 'bg-[var(--void-6)]'}"
 			></span>
 			<h2 class="text-[10px] tracking-[0.24em] text-[var(--text-ghost)] uppercase">
-				{activeDownloads.length > 0
-					? $_('downloads.inflight')
-					: $_('downloads.standby')}
+				{activeDownloads.length > 0 ? $_('downloads.inflight') : $_('downloads.standby')}
 			</h2>
 			{#if activeDownloads.length > 0}
 				<span class="text-[10px] text-[var(--text-ghost)] tabular-nums">
@@ -407,16 +415,25 @@
 							</div>
 						</a>
 						<div class="flex min-w-0 flex-1 flex-col justify-center gap-1">
-							<a href={buildTitlePath(task.titleId, task.title)} class="flex items-baseline justify-between gap-2">
+							<a
+								href={buildTitlePath(task.titleId, task.title)}
+								class="flex items-baseline justify-between gap-2"
+							>
 								<p class="line-clamp-1 text-sm leading-tight text-[var(--text)]">{task.title}</p>
-								<span class="shrink-0 text-[11px] leading-none text-[var(--text-soft)] tabular-nums">
+								<span
+									class="shrink-0 text-[11px] leading-none text-[var(--text-soft)] tabular-nums"
+								>
 									{task.progressPercent > 0 ? `${task.progressPercent}%` : '···'}
 								</span>
 							</a>
 							<div class="flex items-center gap-2">
-								<p class="min-w-0 truncate text-xs leading-tight text-[var(--text-muted)]">{task.chapter}</p>
+								<p class="min-w-0 truncate text-xs leading-tight text-[var(--text-muted)]">
+									{task.chapter}
+								</p>
 								{#if task.fileSizeBytes && task.fileSizeBytes > 0}
-									<span class="shrink-0 text-[10px] text-[var(--text-ghost)] tabular-nums">{formatBytes(task.fileSizeBytes)}</span>
+									<span class="shrink-0 text-[10px] text-[var(--text-ghost)] tabular-nums"
+										>{formatBytes(task.fileSizeBytes)}</span
+									>
 								{/if}
 							</div>
 							<div class="relative h-[2px] w-full overflow-hidden bg-[var(--void-4)]">
@@ -471,11 +488,7 @@
 							: 0}
 					{@const isDownloading = item.queuedTasks > 0}
 					{@const retryActive = taskActionLoading('retry-title', item.titleId)}
-					<li
-						class="group flex gap-3 py-3 transition-opacity {item.enabled
-							? ''
-							: 'opacity-35'}"
-					>
+					<li class="group flex gap-3 py-3 transition-opacity {item.enabled ? '' : 'opacity-35'}">
 						<a href={buildTitlePath(item.titleId, item.title)} class="shrink-0 self-start">
 							<div
 								class="relative h-20 w-14 overflow-hidden bg-[var(--void-3)] ring-1 ring-[var(--void-4)] transition-all group-hover:ring-[var(--void-6)]"
@@ -488,7 +501,10 @@
 							</div>
 						</a>
 						<div class="flex min-w-0 flex-1 flex-col gap-1.5">
-							<a href={buildTitlePath(item.titleId, item.title)} class="flex min-w-0 flex-col gap-0.5">
+							<a
+								href={buildTitlePath(item.titleId, item.title)}
+								class="flex min-w-0 flex-col gap-0.5"
+							>
 								<div class="flex items-baseline justify-between gap-2">
 									<p class="line-clamp-1 text-sm text-[var(--text)]">{item.title}</p>
 									<span
@@ -519,7 +535,9 @@
 									</div>
 								{/if}
 								{#if item.lastError}
-									<div class="flex min-w-0 items-start gap-1 text-[10px] leading-tight text-[rgba(248,113,113,0.7)]">
+									<div
+										class="flex min-w-0 items-start gap-1 text-[10px] leading-tight text-[rgba(248,113,113,0.7)]"
+									>
 										<WarningCircleIcon size={10} class="mt-px shrink-0 opacity-70" />
 										<span class="line-clamp-2 min-w-0">{item.lastError}</span>
 									</div>
@@ -528,12 +546,15 @@
 
 							<div class="flex items-center justify-end gap-2">
 								{#if item.queuedTasks > 0 && !(item.nextRetryAt != null && item.nextRetryAt > Date.now())}
-									<span class="mr-auto text-[10px] tabular-nums text-[var(--cosmic-dim)]">
-										+{item.queuedTasks} {$_('downloads.queued').toLowerCase()}
+									<span class="mr-auto text-[10px] text-[var(--cosmic-dim)] tabular-nums">
+										+{item.queuedTasks}
+										{$_('downloads.queued').toLowerCase()}
 									</span>
 								{/if}
 								{#if item.nextRetryAt != null && item.nextRetryAt > Date.now()}
-									<span class="flex items-center gap-1 text-[10px] tabular-nums text-[var(--text-ghost)]">
+									<span
+										class="flex items-center gap-1 text-[10px] text-[var(--text-ghost)] tabular-nums"
+									>
 										<ClockCountdownIcon size={10} class="shrink-0" />
 										{formatRetryIn(item.nextRetryAt)}
 									</span>
@@ -564,7 +585,7 @@
 							<div class="relative h-[2px] w-full overflow-hidden bg-[var(--void-4)]">
 								<div
 									class="absolute inset-y-0 left-0 transition-[width] {isDownloading
-										? 'bg-[var(--cosmic)] shadow-[0_0_10px_var(--cosmic-glow)] animate-pulse'
+										? 'animate-pulse bg-[var(--cosmic)] shadow-[0_0_10px_var(--cosmic-glow)]'
 										: 'bg-[var(--void-7)]'}"
 									style="width: {progress}%"
 								></div>

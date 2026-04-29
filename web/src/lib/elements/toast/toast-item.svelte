@@ -83,7 +83,11 @@
 
 <style>
 	@keyframes toast-drain {
-		from { transform: scaleX(1); }
-		to   { transform: scaleX(0); }
+		from {
+			transform: scaleX(1);
+		}
+		to {
+			transform: scaleX(0);
+		}
 	}
 </style>

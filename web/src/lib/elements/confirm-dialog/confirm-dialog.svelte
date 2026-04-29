@@ -48,12 +48,10 @@
 			<div class="flex items-center gap-2 border-b border-[var(--void-3)] px-4 py-3">
 				<span
 					class="h-1 w-1 shrink-0 rounded-full {variant === 'danger'
-						? 'bg-[var(--error)] shadow-[0_0_6px_var(--error)] animate-pulse'
+						? 'animate-pulse bg-[var(--error)] shadow-[0_0_6px_var(--error)]'
 						: 'bg-[var(--void-6)]'}"
 				></span>
-				<Dialog.Title
-					class="text-[10px] tracking-[0.24em] text-[var(--text-ghost)] uppercase"
-				>
+				<Dialog.Title class="text-[10px] tracking-[0.24em] text-[var(--text-ghost)] uppercase">
 					{title}
 				</Dialog.Title>
 			</div>
@@ -104,8 +102,12 @@
 	}
 
 	@keyframes fade-in {
-		from { opacity: 0; }
-		to   { opacity: 1; }
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
 	}
 
 	:global(.animate-scale-in) {

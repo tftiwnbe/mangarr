@@ -118,9 +118,7 @@ export const recomputeChapterCounts = internalMutation({
 		for (const title of batch) {
 			const chapters = await ctx.db
 				.query('libraryChapters')
-				.withIndex('by_library_title_id', (q) =>
-					q.eq('libraryTitleId', title._id)
-				)
+				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
 				.collect();
 
 			let downloaded = 0;
@@ -130,13 +128,19 @@ export const recomputeChapterCounts = internalMutation({
 			let failed = 0;
 			for (const ch of chapters) {
 				switch (ch.downloadStatus) {
-					case 'queued': queued++; break;
-					case 'downloading': downloading++; break;
+					case 'queued':
+						queued++;
+						break;
+					case 'downloading':
+						downloading++;
+						break;
 					case 'downloaded':
 						downloaded++;
 						downloadedBytes += ch.fileSizeBytes ?? 0;
 						break;
-					case 'failed': failed++; break;
+					case 'failed':
+						failed++;
+						break;
 				}
 			}
 

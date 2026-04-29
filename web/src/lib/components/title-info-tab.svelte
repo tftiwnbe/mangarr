@@ -46,7 +46,6 @@
 	const uniqueGenres = $derived(
 		Array.from(new Set(genres.map((genre) => genre.trim()).filter((genre) => genre.length > 0)))
 	);
-
 </script>
 
 <div class="flex flex-col gap-8">
@@ -156,14 +155,18 @@
 
 			{#if similarTitles.length > 0}
 				<!-- Mobile: horizontal scroll snap. Desktop: grid -->
-				<div class="flex snap-x snap-mandatory gap-2.5 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-4 sm:overflow-visible sm:pb-0 lg:grid-cols-6">
+				<div
+					class="flex snap-x snap-mandatory gap-2.5 overflow-x-auto pb-2 [scrollbar-width:none] sm:grid sm:grid-cols-4 sm:overflow-visible sm:pb-0 lg:grid-cols-6 [&::-webkit-scrollbar]:hidden"
+				>
 					{#each similarTitles as item (item.href)}
 						<a
 							href={item.href}
 							class="group flex w-[40vw] shrink-0 snap-start flex-col gap-1.5 text-left sm:w-auto"
 							title={item.title}
 						>
-							<div class="aspect-[2/3] overflow-hidden bg-[var(--void-2)] ring-1 ring-[var(--void-4)] transition-all duration-300 group-hover:scale-[1.02] group-hover:ring-[var(--void-6)]">
+							<div
+								class="aspect-[2/3] overflow-hidden bg-[var(--void-2)] ring-1 ring-[var(--void-4)] transition-all duration-300 group-hover:scale-[1.02] group-hover:ring-[var(--void-6)]"
+							>
 								{#if item.coverUrl}
 									<LazyImage
 										src={getCachedCoverUrl(item.coverUrl)}
@@ -172,7 +175,9 @@
 										imgClass="transition-transform duration-500 group-hover:scale-[1.05]"
 									/>
 								{:else}
-									<div class="flex h-full items-center justify-center text-[10px] text-[var(--text-ghost)]">
+									<div
+										class="flex h-full items-center justify-center text-[10px] text-[var(--text-ghost)]"
+									>
 										{$_('common.empty')}
 									</div>
 								{/if}
@@ -185,9 +190,7 @@
 				</div>
 			{:else}
 				<p class="text-sm text-[var(--text-ghost)]">
-					{similarTitlesWarming
-						? $_('title.similarTitlesWarming')
-						: $_('title.similarTitlesEmpty')}
+					{similarTitlesWarming ? $_('title.similarTitlesWarming') : $_('title.similarTitlesEmpty')}
 				</p>
 			{/if}
 		</div>

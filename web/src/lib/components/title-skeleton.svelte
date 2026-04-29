@@ -19,9 +19,7 @@
 <div class="flex flex-col">
 	<!-- Mobile cover slot -->
 	<div class="relative -mx-[max(0.875rem,env(safe-area-inset-left))] md:hidden">
-		<div
-			class="relative aspect-[3/4] max-h-[60vh] w-full overflow-hidden bg-[var(--void-2)]"
-		>
+		<div class="relative aspect-[3/4] max-h-[60vh] w-full overflow-hidden bg-[var(--void-2)]">
 			{#if thumbnailUrl}
 				<img
 					src={thumbnailUrl}
@@ -30,10 +28,7 @@
 				/>
 			{/if}
 			<!-- HUD scanline shimmer -->
-			<div
-				class="hud-shimmer absolute inset-0 mix-blend-screen"
-				aria-hidden="true"
-			></div>
+			<div class="hud-shimmer absolute inset-0 mix-blend-screen" aria-hidden="true"></div>
 			<div
 				class="pointer-events-none absolute inset-x-0 bottom-0 h-2/3"
 				style="background: linear-gradient(to top, var(--void-0) 4%, transparent 100%);"
@@ -44,9 +39,7 @@
 	<!-- Body -->
 	<div class="md:grid md:grid-cols-[260px_1fr] md:items-start md:gap-8">
 		<!-- Desktop cover -->
-		<div
-			class="relative hidden aspect-[2/3] w-full overflow-hidden bg-[var(--void-2)] md:block"
-		>
+		<div class="relative hidden aspect-[2/3] w-full overflow-hidden bg-[var(--void-2)] md:block">
 			{#if thumbnailUrl}
 				<img
 					src={thumbnailUrl}
@@ -63,9 +56,7 @@
 				<span
 					class="hud-pulse h-1 w-1 shrink-0 bg-[var(--cosmic)] shadow-[0_0_4px_var(--cosmic-glow)]"
 				></span>
-				<span
-					class="font-mono text-[10px] tracking-[0.24em] text-[var(--text-ghost)] uppercase"
-				>
+				<span class="font-mono text-[10px] tracking-[0.24em] text-[var(--text-ghost)] uppercase">
 					{phaseLabel ?? $_('common.loading')}
 				</span>
 			</div>

@@ -40,8 +40,7 @@
 	</div>
 {:else}
 	<div class="flex items-baseline gap-2 border-b border-[var(--void-3)] pb-2">
-		<span
-			class="h-1 w-1 translate-y-[-1px] bg-[var(--cosmic)] shadow-[0_0_4px_var(--cosmic-glow)]"
+		<span class="h-1 w-1 translate-y-[-1px] bg-[var(--cosmic)] shadow-[0_0_4px_var(--cosmic-glow)]"
 		></span>
 		<span class="font-mono text-[10px] tracking-[0.22em] text-[var(--text-ghost)] uppercase">
 			log

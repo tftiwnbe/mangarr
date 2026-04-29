@@ -11,15 +11,7 @@
 		actions?: Snippet;
 	};
 
-	let {
-		label,
-		index,
-		count,
-		hint,
-		divider = true,
-		children,
-		actions
-	}: Props = $props();
+	let { label, index, count, hint, divider = true, children, actions }: Props = $props();
 </script>
 
 <section
@@ -30,9 +22,7 @@
 			<span
 				class="h-1 w-1 shrink-0 translate-y-[-1px] bg-[var(--cosmic)] shadow-[0_0_4px_var(--cosmic-glow)]"
 			></span>
-			<span
-				class="font-mono text-[10px] tracking-[0.22em] text-[var(--text-ghost)] uppercase"
-			>
+			<span class="font-mono text-[10px] tracking-[0.22em] text-[var(--text-ghost)] uppercase">
 				{label}
 			</span>
 			{#if count !== undefined && count > 0}
@@ -43,7 +33,9 @@
 				</span>
 			{/if}
 			{#if hint}
-				<span class="font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim,#3a3a48)] uppercase">
+				<span
+					class="font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim,#3a3a48)] uppercase"
+				>
 					{hint}
 				</span>
 			{/if}
@@ -54,7 +46,7 @@
 			{/if}
 			{#if index}
 				<span
-					class="font-mono text-[9px] tracking-[0.2em] text-[var(--void-6)] tabular-nums uppercase"
+					class="font-mono text-[9px] tracking-[0.2em] text-[var(--void-6)] uppercase tabular-nums"
 				>
 					{index}
 				</span>

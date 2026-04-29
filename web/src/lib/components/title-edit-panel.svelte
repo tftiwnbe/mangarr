@@ -71,13 +71,13 @@
 
 	function uniqueTrimmed(values: Iterable<string>, current: string) {
 		const cur = current.trim().toLowerCase();
-		const seen = new Set<string>();
+		const seen: string[] = [];
 		const out: string[] = [];
 		for (const raw of values) {
 			const t = (raw ?? '').trim();
 			const k = t.toLowerCase();
-			if (!t || k === cur || seen.has(k)) continue;
-			seen.add(k);
+			if (!t || k === cur || seen.includes(k)) continue;
+			seen.push(k);
 			out.push(t);
 		}
 		return out;
@@ -185,7 +185,9 @@
 			{label}
 		</span>
 		{#if hint}
-			<span class="font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] tabular-nums uppercase">
+			<span
+				class="font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] uppercase tabular-nums"
+			>
 				{hint}
 			</span>
 		{/if}
@@ -296,7 +298,7 @@
 				editGenres.length > 0 ? `${editGenres.length}` : undefined
 			)}
 			<div
-				class="flex min-h-[44px] flex-wrap items-center gap-1.5 border border-[var(--void-3)] bg-[var(--void-2)] px-2 py-1.5 transition-colors hover:border-[var(--void-5)] focus-within:border-[var(--cosmic-halo)] focus-within:bg-[var(--void-1)]"
+				class="flex min-h-[44px] flex-wrap items-center gap-1.5 border border-[var(--void-3)] bg-[var(--void-2)] px-2 py-1.5 transition-colors focus-within:border-[var(--cosmic-halo)] focus-within:bg-[var(--void-1)] hover:border-[var(--void-5)]"
 				role="group"
 				aria-label="Genres"
 			>

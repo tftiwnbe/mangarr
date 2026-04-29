@@ -29,11 +29,7 @@ describe('library title route resolution', () => {
 		]);
 
 		expect(
-			findTitleByAliasRouteSegment(
-				titles,
-				'the-pet-of-the-villainess',
-				variantsByTitleId
-			)?._id
+			findTitleByAliasRouteSegment(titles, 'the-pet-of-the-villainess', variantsByTitleId)?._id
 		).toBe('title_1');
 	});
 
@@ -56,18 +52,11 @@ describe('library title route resolution', () => {
 		]);
 
 		expect(
-			findTitleByAliasRouteSegment(
-				titles,
-				'the-pet-of-the-villainess',
-				variantsByTitleId
-			)
+			findTitleByAliasRouteSegment(titles, 'the-pet-of-the-villainess', variantsByTitleId)
 		).toBeNull();
 		expect(
-			findTitleByAliasRouteSegment(
-				titles,
-				'the-pet-of-the-villainess~8474sm',
-				variantsByTitleId
-			)?._id
+			findTitleByAliasRouteSegment(titles, 'the-pet-of-the-villainess~8474sm', variantsByTitleId)
+				?._id
 		).toBe('kx7940yec9pg831mjdaw91bpys8474sm');
 	});
 });

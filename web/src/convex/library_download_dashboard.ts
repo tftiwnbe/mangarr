@@ -40,7 +40,15 @@ export const getDownloadDashboard = query({
 		const recentLimit = Math.max(1, Math.min(Math.floor(args.recentLimit ?? 20), 100));
 
 		// Load profiles first to ensure we load all titles with profiles
-		const [profileRows, installedExtensions, queuedTaskRows, downloadingTaskRows, completedTaskRows, failedTaskRows, cancelledTaskRows] = await Promise.all([
+		const [
+			profileRows,
+			installedExtensions,
+			queuedTaskRows,
+			downloadingTaskRows,
+			completedTaskRows,
+			failedTaskRows,
+			cancelledTaskRows
+		] = await Promise.all([
 			ctx.db
 				.query('downloadProfiles')
 				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
@@ -98,13 +106,18 @@ export const getDownloadDashboard = query({
 		]);
 
 		// Combine and deduplicate titles
-		const titleMap = new Map<string, typeof allTitles[number]>();
-		for (const title of [...profileTitles.filter((t): t is NonNullable<typeof t> => t !== null), ...allTitles]) {
+		const titleMap = new Map<string, (typeof allTitles)[number]>();
+		for (const title of [
+			...profileTitles.filter((t): t is NonNullable<typeof t> => t !== null),
+			...allTitles
+		]) {
 			if (!titleMap.has(String(title._id))) {
 				titleMap.set(String(title._id), title);
 			}
 		}
-		const titles = Array.from(titleMap.values()).sort((left, right) => right.updatedAt - left.updatedAt);
+		const titles = Array.from(titleMap.values()).sort(
+			(left, right) => right.updatedAt - left.updatedAt
+		);
 
 		const sourceNamesById = new Map<string, string>();
 		const sourceNamesByPkg = new Map<string, string>();

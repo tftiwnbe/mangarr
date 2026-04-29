@@ -5,8 +5,8 @@
 
 <!-- Bottom-left on desktop, full-width bottom strip on mobile -->
 <div
-	class="pointer-events-none fixed bottom-4 left-4 z-[200] flex flex-col-reverse gap-2 sm:w-80
-		max-sm:bottom-0 max-sm:left-0 max-sm:right-0 max-sm:w-full max-sm:gap-px"
+	class="pointer-events-none fixed bottom-4 left-4 z-[200] flex flex-col-reverse gap-2 max-sm:right-0
+		max-sm:bottom-0 max-sm:left-0 max-sm:w-full max-sm:gap-px sm:w-80"
 	aria-live="polite"
 	aria-label="Notifications"
 >

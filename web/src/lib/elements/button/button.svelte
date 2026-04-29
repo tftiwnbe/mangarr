@@ -74,7 +74,9 @@
 	const isIconSize = $derived(size === 'icon' || size === 'icon-sm');
 
 	// Spinner size matches button size
-	const spinnerClass = $derived(size === 'sm' || size === 'icon-sm' ? 'h-3 w-3' : size === 'lg' ? 'h-5 w-5' : 'h-4 w-4');
+	const spinnerClass = $derived(
+		size === 'sm' || size === 'icon-sm' ? 'h-3 w-3' : size === 'lg' ? 'h-5 w-5' : 'h-4 w-4'
+	);
 </script>
 
 {#snippet spinner()}

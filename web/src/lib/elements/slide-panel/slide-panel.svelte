@@ -14,15 +14,7 @@
 		footer?: Snippet;
 	}
 
-	let {
-		open = false,
-		title = '',
-		badge,
-		onclose,
-		children,
-		header,
-		footer
-	}: Props = $props();
+	let { open = false, title = '', badge, onclose, children, header, footer }: Props = $props();
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape' && open) {
@@ -65,8 +57,7 @@
 			<div class="shrink-0 border-b border-[var(--void-3)]">
 				<div class="flex h-11 items-center justify-between px-4">
 					<div class="flex items-center gap-2">
-						<span
-							class="h-1 w-1 shrink-0 bg-[var(--cosmic)] shadow-[0_0_4px_var(--cosmic-glow)]"
+						<span class="h-1 w-1 shrink-0 bg-[var(--cosmic)] shadow-[0_0_4px_var(--cosmic-glow)]"
 						></span>
 						<h2
 							id="slide-panel-title"

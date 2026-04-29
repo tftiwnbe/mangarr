@@ -1203,7 +1203,11 @@
 								onclick={openReadingStart}
 							>
 								<PlayIcon size={14} />
-								<span>{title.readingProgress.latest ? $_('title.continueReading') : $_('title.startReading')}</span>
+								<span
+									>{title.readingProgress.latest
+										? $_('title.continueReading')
+										: $_('title.startReading')}</span
+								>
 							</button>
 						{:else if isChapterHydrating}
 							<div
@@ -1397,7 +1401,11 @@
 								onclick={openReadingStart}
 							>
 								<PlayIcon size={16} />
-								<span>{title.readingProgress.latest ? $_('title.continueReading') : $_('title.startReading')}</span>
+								<span
+									>{title.readingProgress.latest
+										? $_('title.continueReading')
+										: $_('title.startReading')}</span
+								>
 							</button>
 						{:else if isChapterHydrating}
 							<div
@@ -1656,9 +1664,7 @@
 				{/each}
 			</div>
 
-			<div
-				class="flex items-center gap-2 border border-dashed border-[var(--void-3)] px-3 py-2"
-			>
+			<div class="flex items-center gap-2 border border-dashed border-[var(--void-3)] px-3 py-2">
 				<Button
 					variant="ghost"
 					size="sm"
@@ -1679,17 +1685,15 @@
 			</div>
 
 			{#if manualSearchOpen}
-				<div
-					class="flex flex-col gap-2 border border-[var(--void-3)] bg-[var(--void-2)] p-3"
-				>
+				<div class="flex flex-col gap-2 border border-[var(--void-3)] bg-[var(--void-2)] p-3">
 					<input
 						type="text"
-						class="min-w-0 border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-ghost)] focus:border-[var(--cosmic)]"
+						class="min-w-0 border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] transition-colors outline-none placeholder:text-[var(--text-ghost)] focus:border-[var(--cosmic)]"
 						placeholder={title.title}
 						bind:value={manualSearchQuery}
 					/>
 					<select
-						class="border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] outline-none transition-colors focus:border-[var(--cosmic)]"
+						class="border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] transition-colors outline-none focus:border-[var(--cosmic)]"
 						bind:value={manualSearchSourceId}
 					>
 						<option value="">{$_('title.allEnabledSources')}</option>
