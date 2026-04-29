@@ -7,6 +7,7 @@
 	import { convexApi } from '$lib/convex/api';
 	import { waitForCommand } from '$lib/client/commands';
 	import { Button } from '$lib/elements/button';
+	import TitleSkeleton from '$lib/components/title-skeleton.svelte';
 	import { CaretLeftIcon } from 'phosphor-svelte';
 	import { _ } from '$lib/i18n';
 	import { buildTitlePath } from '$lib/utils/routes';
@@ -184,27 +185,12 @@
 	</div>
 
 	{#if loading}
-		<div class="md:grid md:grid-cols-[260px_1fr] md:gap-8">
-			<div class="hidden animate-pulse bg-[var(--void-3)] md:block md:aspect-[2/3]">
-				{#if thumbnailUrl}
-					<img
-						src={thumbnailUrl}
-						alt={titleName || 'cover'}
-						class="h-full w-full object-cover opacity-35"
-					/>
-				{/if}
-			</div>
-			<div class="relative -mt-24 flex flex-col gap-3 md:mt-0">
-				<p class="text-xs tracking-[0.18em] text-[var(--text-ghost)] uppercase">
-					{openPhaseCopy.title}
-				</p>
-				<div class="h-7 w-3/4 animate-pulse bg-[var(--void-4)]"></div>
-				<div class="text-sm text-[var(--text-ghost)]">{openPhaseCopy.description}</div>
-				<div class="mt-6 h-3 w-full animate-pulse bg-[var(--void-3)]"></div>
-				<div class="h-3 w-5/6 animate-pulse bg-[var(--void-3)]"></div>
-				<div class="h-3 w-4/6 animate-pulse bg-[var(--void-3)]"></div>
-			</div>
-		</div>
+		<TitleSkeleton
+			thumbnailUrl={thumbnailUrl || null}
+			titleHint={titleName || null}
+			phaseLabel={openPhaseCopy.title}
+			phaseDescription={openPhaseCopy.description}
+		/>
 	{:else if error}
 		<div class="flex flex-col gap-3">
 			<p class="text-sm text-[var(--error)]">{error}</p>

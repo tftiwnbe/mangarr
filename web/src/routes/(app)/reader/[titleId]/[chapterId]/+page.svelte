@@ -487,14 +487,34 @@
 
 	function syncReaderHeaderVisibility() {
 		if (isTouchDevice) {
-			// On touch the header is user-controlled via tap (handleReaderTap).
-			// Force-show only when at the top of the chapter; otherwise leave the
-			// current state alone so a tap-revealed header stays revealed long
-			// enough for the user to interact with it (back button, title link).
+			// On touch the header is user-controlled via tap (handleReaderTap)
+			// AND auto-hidden after meaningful downward scrolling. The header
+			// is force-shown when at the top so the back button/title remain
+			// reachable on a fresh chapter open.
 			if (isReaderAtTop) readerHeaderVisible = true;
 			return;
 		}
 		readerHeaderVisible = isReaderAtTop || showTopZone || isPointerInHeader;
+	}
+
+	const SCROLL_HIDE_THRESHOLD_PX = 80;
+	const SCROLL_HIDE_DELTA_PX = 24;
+	const SCROLL_SHOW_DELTA_PX = 12;
+	let lastScrollY = 0;
+	function applyScrollDirectionToHeader(currentY: number) {
+		if (!isTouchDevice) return;
+		const delta = currentY - lastScrollY;
+		if (currentY <= 8) {
+			readerHeaderVisible = true;
+		} else if (delta > SCROLL_HIDE_DELTA_PX && currentY > SCROLL_HIDE_THRESHOLD_PX) {
+			readerHeaderVisible = false;
+			lastScrollY = currentY;
+		} else if (delta < -SCROLL_SHOW_DELTA_PX) {
+			readerHeaderVisible = true;
+			lastScrollY = currentY;
+		} else if (Math.abs(delta) < 2) {
+			lastScrollY = currentY;
+		}
 	}
 
 	function handleReaderTap() {
@@ -726,7 +746,9 @@
 			syncReaderHeaderVisibility();
 		};
 		const syncScroll = () => {
-			isReaderAtTop = window.scrollY <= 8;
+			const y = window.scrollY;
+			isReaderAtTop = y <= 8;
+			applyScrollDirectionToHeader(y);
 			syncReaderHeaderVisibility();
 			if (mode !== 'vertical') return;
 			const nodes = document.querySelectorAll<HTMLElement>('[data-reader-page-index]');

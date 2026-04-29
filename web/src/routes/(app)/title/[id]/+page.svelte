@@ -28,6 +28,7 @@
 	import { Alert } from '$lib/elements/alert';
 	import { Button } from '$lib/elements/button';
 	import { LazyImage } from '$lib/elements/lazy-image';
+	import TitleSkeleton from '$lib/components/title-skeleton.svelte';
 	import { PanelSection } from '$lib/elements/panel-section';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
@@ -1160,16 +1161,7 @@
 	</div>
 
 	{#if loading && !title}
-		<div class="-mx-4 md:hidden">
-			<div class="aspect-[3/4] max-h-[70vh] w-full animate-pulse bg-[var(--void-3)]"></div>
-		</div>
-		<div class="md:grid md:grid-cols-[260px_1fr] md:gap-8">
-			<div class="hidden animate-pulse bg-[var(--void-3)] md:block md:aspect-[2/3]"></div>
-			<div class="relative -mt-24 flex flex-col gap-3 md:mt-0">
-				<div class="h-7 w-3/4 animate-pulse bg-[var(--void-4)]"></div>
-				<div class="h-4 w-1/3 animate-pulse bg-[var(--void-4)]"></div>
-			</div>
-		</div>
+		<TitleSkeleton phaseLabel={$_('common.loading')} />
 	{:else if title}
 		<div class="flex flex-col md:grid md:grid-cols-[260px_1fr] md:items-start md:gap-8">
 			<div class="relative -mx-4 md:sticky md:top-8 md:mx-0">
@@ -1211,7 +1203,7 @@
 								onclick={openReadingStart}
 							>
 								<PlayIcon size={14} />
-								<span>{$_('title.startReading')}</span>
+								<span>{title.readingProgress.latest ? $_('title.continueReading') : $_('title.startReading')}</span>
 							</button>
 						{:else if isChapterHydrating}
 							<div
@@ -1405,7 +1397,7 @@
 								onclick={openReadingStart}
 							>
 								<PlayIcon size={16} />
-								<span>{$_('title.startReading')}</span>
+								<span>{title.readingProgress.latest ? $_('title.continueReading') : $_('title.startReading')}</span>
 							</button>
 						{:else if isChapterHydrating}
 							<div

@@ -89,11 +89,11 @@
 		</main>
 	{:else}
 		<main
-			class="relative z-10 pt-[env(safe-area-inset-top)] pb-[calc(3rem+env(safe-area-inset-bottom))] md:pt-0 md:pb-6 md:pl-16"
+			class="relative z-10 pt-[env(safe-area-inset-top)] pb-[calc(2.5rem+env(safe-area-inset-bottom))] md:pt-0 md:pb-6 md:pl-16"
 		>
 			<div
-				class="mx-auto w-full max-w-5xl py-1 md:px-6 md:py-8"
-				style="padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right));"
+				class="mx-auto w-full max-w-5xl md:px-6 md:py-8"
+				style="padding-left: max(0.875rem, env(safe-area-inset-left)); padding-right: max(0.875rem, env(safe-area-inset-right));"
 			>
 				{@render children()}
 			</div>
@@ -111,11 +111,11 @@
 					{@const NavIcon = item.icon}
 					<a
 						href={item.href}
-						class="flex flex-1 flex-col items-center gap-0.5 py-1.5 text-xs transition-colors {isActive
+						class="flex flex-1 flex-col items-center gap-0.5 py-1 text-[10px] tracking-[0.04em] transition-colors {isActive
 							? 'text-[var(--text)]'
 							: 'text-[var(--text-ghost)]'}"
 					>
-						<NavIcon size={20} />
+						<NavIcon size={18} />
 						<span>{$_(`nav.${item.label}`)}</span>
 					</a>
 				{/each}
