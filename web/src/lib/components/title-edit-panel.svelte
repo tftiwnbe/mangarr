@@ -4,7 +4,6 @@
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import { Button } from '$lib/elements/button';
-	import { PanelSection } from '$lib/elements/panel-section';
 	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { convexApi } from '$lib/convex/api';
 	import { _ } from '$lib/i18n';
@@ -67,7 +66,7 @@
 		if (!descriptionEl) return;
 		void editDescription;
 		descriptionEl.style.height = 'auto';
-		descriptionEl.style.height = `${descriptionEl.scrollHeight}px`;
+		descriptionEl.style.height = `${Math.max(96, descriptionEl.scrollHeight)}px`;
 	});
 
 	function uniqueTrimmed(values: Iterable<string>, current: string) {
@@ -180,14 +179,27 @@
 	}
 </script>
 
-{#snippet chipPill(label: string, onclick: () => void)}
+{#snippet field(label: string, hint?: string)}
+	<div class="flex items-baseline justify-between gap-2 pb-1.5">
+		<span class="font-mono text-[10px] tracking-[0.2em] text-[var(--text-ghost)] uppercase">
+			{label}
+		</span>
+		{#if hint}
+			<span class="font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] tabular-nums uppercase">
+				{hint}
+			</span>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet suggestionPill(label: string, onclick: () => void)}
 	<button
 		type="button"
-		class="flex items-center gap-1 border border-[var(--void-4)] bg-[var(--void-2)] px-2 py-0.5 text-[11px] text-[var(--text-ghost)] transition-colors hover:border-[var(--cosmic-halo)] hover:bg-[var(--void-3)] hover:text-[var(--text)]"
+		class="group flex max-w-full items-center gap-1 border border-[var(--void-3)] bg-[var(--void-2)] px-2 py-1 text-[11px] text-[var(--text-ghost)] transition-colors hover:border-[var(--cosmic-halo)] hover:bg-[var(--void-3)] hover:text-[var(--text)]"
 		{onclick}
 	>
-		<PlusIcon size={9} class="text-[var(--cosmic)]" />
-		<span class="truncate max-w-[220px]">{label}</span>
+		<PlusIcon size={9} class="shrink-0 text-[var(--cosmic)] opacity-60 group-hover:opacity-100" />
+		<span class="truncate">{label}</span>
 	</button>
 {/snippet}
 
@@ -217,143 +229,156 @@
 		</div>
 	{/snippet}
 
-	<PanelSection label={$_('title.editName')} index="01">
-		<input
-			type="text"
-			bind:value={editTitle}
-			class="w-full border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] focus:border-[var(--cosmic)]"
-			placeholder={title.title}
-		/>
-		{#if titleSuggestions.length > 0}
-			<div class="flex flex-col gap-1.5">
-				<span class="font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] uppercase">
-					{$_('title.editAlsoKnownAs')}
-				</span>
-				<div class="flex flex-wrap gap-1.5">
-					{#each titleSuggestions as suggestion (suggestion)}
-						{@render chipPill(suggestion, () => (editTitle = suggestion))}
-					{/each}
-				</div>
-			</div>
-		{/if}
-	</PanelSection>
-
-	<PanelSection label={$_('title.author')} index="02">
-		<input
-			type="text"
-			bind:value={editAuthor}
-			class="w-full border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] focus:border-[var(--cosmic)]"
-			placeholder="—"
-		/>
-		{#if authorSuggestions.length > 0}
-			<div class="flex flex-wrap gap-1.5">
-				{#each authorSuggestions as suggestion (suggestion)}
-					{@render chipPill(suggestion, () => (editAuthor = suggestion))}
-				{/each}
-			</div>
-		{/if}
-	</PanelSection>
-
-	<PanelSection label={$_('title.artist')} index="03">
-		<input
-			type="text"
-			bind:value={editArtist}
-			class="w-full border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] focus:border-[var(--cosmic)]"
-			placeholder="—"
-		/>
-		{#if artistSuggestions.length > 0}
-			<div class="flex flex-wrap gap-1.5">
-				{#each artistSuggestions as suggestion (suggestion)}
-					{@render chipPill(suggestion, () => (editArtist = suggestion))}
-				{/each}
-			</div>
-		{/if}
-	</PanelSection>
-
-	<PanelSection label={$_('title.description')} index="04">
-		<textarea
-			bind:this={descriptionEl}
-			bind:value={editDescription}
-			rows={4}
-			class="w-full resize-none border-b border-[var(--void-4)] bg-transparent py-1.5 font-mono text-[12px] leading-relaxed text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] focus:border-[var(--cosmic)]"
-			placeholder={$_('title.noDescription')}
-		></textarea>
-
-		{#if descriptionAlternatives.length > 0}
-			<div class="flex flex-col gap-2 pt-1">
-				<span class="font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] uppercase">
-					{$_('title.editDescriptionAlternatives')}
-				</span>
-				{#each descriptionAlternatives as alt, i (i)}
-					<div
-						class="group relative border-l-2 border-[var(--void-4)] bg-[var(--void-1)] py-2 pr-2 pl-3 transition-colors hover:border-[var(--cosmic)] hover:bg-[var(--void-2)]"
-					>
-						<p
-							class="line-clamp-3 text-[12px] leading-relaxed text-[var(--text-ghost)] transition-colors group-hover:text-[var(--text-soft)]"
-						>
-							{alt}
-						</p>
-						<button
-							type="button"
-							class="mt-2 flex items-center gap-1 font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] uppercase transition-colors hover:text-[var(--cosmic)]"
-							onclick={() => (editDescription = alt)}
-						>
-							<PlusIcon size={9} />
-							{$_('title.editUseThis')}
-						</button>
-					</div>
-				{/each}
-			</div>
-		{/if}
-	</PanelSection>
-
-	<PanelSection
-		label={$_('title.genres')}
-		index="05"
-		count={editGenres.length}
-		divider={false}
-	>
-		<div
-			class="flex min-h-[40px] flex-wrap items-center gap-1.5 border border-[var(--void-4)] bg-[var(--void-2)] px-2 py-1.5 transition-colors focus-within:border-[var(--cosmic)]"
-			role="group"
-			aria-label="Genres"
-		>
-			{#each editGenres as genre, i (genre)}
-				<span
-					class="flex items-center gap-1.5 border border-[var(--cosmic-halo)] bg-[var(--cosmic-soft)] px-1.5 py-0.5 text-[11px] text-[var(--text)]"
-				>
-					<span class="h-1 w-1 bg-[var(--cosmic)] shadow-[0_0_3px_var(--cosmic-glow)]"></span>
-					{genre}
-					<button
-						type="button"
-						class="text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
-						onclick={() => removeGenre(i)}
-						aria-label={`Remove ${genre}`}
-					>
-						<XIcon size={10} />
-					</button>
-				</span>
-			{/each}
+	<div class="flex flex-col gap-5 pt-3 pb-2">
+		<!-- Title -->
+		<div>
+			{@render field($_('title.editName'))}
 			<input
 				type="text"
-				bind:value={genreInput}
-				onkeydown={handleGenreKeydown}
-				class="min-w-[120px] flex-1 bg-transparent py-0.5 text-sm text-[var(--text)] outline-none placeholder:text-[var(--void-6)]"
-				placeholder={editGenres.length === 0 ? $_('title.editGenresPlaceholder') : ''}
+				bind:value={editTitle}
+				class="block w-full overflow-x-auto border border-[var(--void-3)] bg-[var(--void-2)] px-3 py-2.5 text-sm text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] hover:border-[var(--void-5)] focus:border-[var(--cosmic-halo)] focus:bg-[var(--void-1)]"
+				placeholder={title.title}
 			/>
+			{#if titleSuggestions.length > 0}
+				<div class="mt-2 flex flex-col gap-1.5">
+					<span class="font-mono text-[9px] tracking-[0.2em] text-[var(--text-dim)] uppercase">
+						{$_('title.editAlsoKnownAs')}
+					</span>
+					<div class="flex flex-wrap gap-1.5">
+						{#each titleSuggestions as suggestion (suggestion)}
+							{@render suggestionPill(suggestion, () => (editTitle = suggestion))}
+						{/each}
+					</div>
+				</div>
+			{/if}
 		</div>
 
-		{#if genreSuggestions.length > 0}
-			<div class="flex flex-col gap-1.5">
-				<span class="font-mono text-[9px] tracking-[0.18em] text-[var(--text-dim)] uppercase">
-					{$_('title.editFromSources')}
-				</span>
-				<div class="flex flex-wrap gap-1.5">
-					{#each genreSuggestions as genre (genre)}
-						{@render chipPill(genre, () => addGenre(genre))}
+		<!-- Author / Artist (two columns on >=sm) -->
+		<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+			<div>
+				{@render field($_('title.author'))}
+				<input
+					type="text"
+					bind:value={editAuthor}
+					class="block w-full border border-[var(--void-3)] bg-[var(--void-2)] px-3 py-2.5 text-sm text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] hover:border-[var(--void-5)] focus:border-[var(--cosmic-halo)] focus:bg-[var(--void-1)]"
+					placeholder="—"
+				/>
+				{#if authorSuggestions.length > 0}
+					<div class="mt-2 flex flex-wrap gap-1.5">
+						{#each authorSuggestions as suggestion (suggestion)}
+							{@render suggestionPill(suggestion, () => (editAuthor = suggestion))}
+						{/each}
+					</div>
+				{/if}
+			</div>
+			<div>
+				{@render field($_('title.artist'))}
+				<input
+					type="text"
+					bind:value={editArtist}
+					class="block w-full border border-[var(--void-3)] bg-[var(--void-2)] px-3 py-2.5 text-sm text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] hover:border-[var(--void-5)] focus:border-[var(--cosmic-halo)] focus:bg-[var(--void-1)]"
+					placeholder="—"
+				/>
+				{#if artistSuggestions.length > 0}
+					<div class="mt-2 flex flex-wrap gap-1.5">
+						{#each artistSuggestions as suggestion (suggestion)}
+							{@render suggestionPill(suggestion, () => (editArtist = suggestion))}
+						{/each}
+					</div>
+				{/if}
+			</div>
+		</div>
+
+		<!-- Genres -->
+		<div>
+			{@render field(
+				$_('title.genres'),
+				editGenres.length > 0 ? `${editGenres.length}` : undefined
+			)}
+			<div
+				class="flex min-h-[44px] flex-wrap items-center gap-1.5 border border-[var(--void-3)] bg-[var(--void-2)] px-2 py-1.5 transition-colors hover:border-[var(--void-5)] focus-within:border-[var(--cosmic-halo)] focus-within:bg-[var(--void-1)]"
+				role="group"
+				aria-label="Genres"
+			>
+				{#each editGenres as genre, i (genre)}
+					<span
+						class="flex items-center gap-1 border border-[var(--cosmic-halo)] bg-[var(--cosmic-soft)] px-1.5 py-0.5 text-[11px] text-[var(--text)]"
+					>
+						<span class="h-1 w-1 bg-[var(--cosmic)] shadow-[0_0_3px_var(--cosmic-glow)]"></span>
+						<span class="max-w-[160px] truncate">{genre}</span>
+						<button
+							type="button"
+							class="text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
+							onclick={() => removeGenre(i)}
+							aria-label={`Remove ${genre}`}
+						>
+							<XIcon size={10} />
+						</button>
+					</span>
+				{/each}
+				<input
+					type="text"
+					bind:value={genreInput}
+					onkeydown={handleGenreKeydown}
+					class="min-w-[120px] flex-1 bg-transparent py-0.5 text-sm text-[var(--text)] outline-none placeholder:text-[var(--void-6)]"
+					placeholder={editGenres.length === 0 ? $_('title.editGenresPlaceholder') : ''}
+				/>
+			</div>
+
+			{#if genreSuggestions.length > 0}
+				<div class="mt-2 flex flex-col gap-1.5">
+					<span class="font-mono text-[9px] tracking-[0.2em] text-[var(--text-dim)] uppercase">
+						{$_('title.editFromSources')}
+					</span>
+					<div class="flex flex-wrap gap-1.5">
+						{#each genreSuggestions as genre (genre)}
+							{@render suggestionPill(genre, () => addGenre(genre))}
+						{/each}
+					</div>
+				</div>
+			{/if}
+		</div>
+
+		<!-- Description -->
+		<div>
+			{@render field(
+				$_('title.description'),
+				editDescription.length > 0 ? `${editDescription.length}` : undefined
+			)}
+			<textarea
+				bind:this={descriptionEl}
+				bind:value={editDescription}
+				rows={4}
+				class="block w-full resize-none border border-[var(--void-3)] bg-[var(--void-2)] px-3 py-2.5 text-[12.5px] leading-relaxed text-[var(--text)] transition-colors outline-none placeholder:text-[var(--void-6)] hover:border-[var(--void-5)] focus:border-[var(--cosmic-halo)] focus:bg-[var(--void-1)]"
+				placeholder={$_('title.noDescription')}
+			></textarea>
+
+			{#if descriptionAlternatives.length > 0}
+				<div class="mt-3 flex flex-col gap-2">
+					<span class="font-mono text-[9px] tracking-[0.2em] text-[var(--text-dim)] uppercase">
+						{$_('title.editDescriptionAlternatives')}
+					</span>
+					{#each descriptionAlternatives as alt, i (i)}
+						<button
+							type="button"
+							class="group flex flex-col gap-2 border border-[var(--void-3)] bg-[var(--void-2)] px-3 py-2.5 text-left transition-colors hover:border-[var(--cosmic-halo)] hover:bg-[var(--void-3)]"
+							onclick={() => (editDescription = alt)}
+						>
+							<p
+								class="line-clamp-3 text-[12px] leading-relaxed text-[var(--text-ghost)] transition-colors group-hover:text-[var(--text-soft)]"
+							>
+								{alt}
+							</p>
+							<span
+								class="flex items-center gap-1 font-mono text-[9px] tracking-[0.2em] text-[var(--text-dim)] uppercase transition-colors group-hover:text-[var(--cosmic)]"
+							>
+								<PlusIcon size={9} />
+								{$_('title.editUseThis')}
+							</span>
+						</button>
 					{/each}
 				</div>
-			</div>
-		{/if}
-	</PanelSection>
+			{/if}
+		</div>
+	</div>
 </SlidePanel>
