@@ -1088,12 +1088,16 @@
 	badge={sortedComments.length > 0 ? sortedComments.length : undefined}
 	onclose={() => (showCommentsPanel = false)}
 >
-	<div class="flex flex-col gap-4 pt-1">
-		<!-- Compose card -->
+	{#snippet footer()}
+		{#if commentsError}
+			<Alert variant="error" class="mb-2">{commentsError}</Alert>
+		{/if}
 		<div
 			class="relative border border-[var(--void-3)] bg-[var(--void-2)] focus-within:border-[var(--cosmic-halo)]"
 		>
-			<div class="flex items-center justify-between border-b border-[var(--void-3)] px-2.5 py-1.5">
+			<div
+				class="flex items-center justify-between border-b border-[var(--void-3)] px-2.5 py-1.5"
+			>
 				<span class="font-mono text-[10px] tracking-[0.18em] text-[var(--text-ghost)] uppercase">
 					{#if editingCommentId}
 						<span class="text-[var(--cosmic)]">// edit</span>
@@ -1106,14 +1110,16 @@
 				</span>
 			</div>
 			<textarea
-				class="block min-h-[88px] w-full resize-none bg-transparent px-2.5 py-2 font-mono text-[12px] leading-relaxed text-[var(--text)] placeholder:text-[var(--text-ghost)] focus:outline-none"
+				class="block max-h-[40vh] min-h-[64px] w-full resize-none bg-transparent px-2.5 py-2 font-mono text-[12px] leading-relaxed text-[var(--text)] placeholder:text-[var(--text-ghost)] focus:outline-none"
 				placeholder={$_('reader.commentPlaceholder')}
 				bind:value={commentDraft}
 			></textarea>
 			<div
 				class="flex items-center justify-between gap-2 border-t border-[var(--void-3)] px-2 py-1.5"
 			>
-				<span class="px-1 font-mono text-[9px] tracking-wider text-[var(--text-dim)] uppercase">
+				<span
+					class="px-1 font-mono text-[9px] tracking-wider text-[var(--text-dim)] uppercase tabular-nums"
+				>
 					{commentDraft.length}c
 				</span>
 				<div class="flex items-center gap-1.5">
@@ -1139,17 +1145,16 @@
 				</div>
 			</div>
 		</div>
+	{/snippet}
 
-		{#if commentsError}
-			<Alert variant="error">{commentsError}</Alert>
-		{/if}
-
+	<div class="flex flex-col gap-3 pt-1">
 		<!-- Log header -->
 		<div class="flex items-center gap-2 border-b border-[var(--void-3)] pb-2">
-			<span class="font-mono text-[10px] tracking-[0.18em] text-[var(--text-ghost)] uppercase">
+			<span class="h-1 w-1 bg-[var(--cosmic)] shadow-[0_0_4px_var(--cosmic-glow)]"></span>
+			<span class="font-mono text-[10px] tracking-[0.22em] text-[var(--text-ghost)] uppercase">
 				log
 			</span>
-			<span class="text-[10px] text-[var(--text-dim)] tabular-nums">
+			<span class="font-mono text-[10px] text-[var(--text-dim)] tabular-nums">
 				{sortedComments.length}
 			</span>
 			<span class="h-px flex-1 bg-[var(--void-3)]"></span>
