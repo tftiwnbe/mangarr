@@ -152,6 +152,44 @@ class BridgeHttpServer(
             sendJson(exchange, 200, buildJsonObject { put("ok", true) })
         }
 
+        server.createContext("/commands/execute") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+            if (exchange.requestMethod.uppercase() != "POST") {
+                sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+                return@createContext
+            }
+
+            val payload = readJsonBody(exchange)
+            val commandType = payload.optionalString("commandType")
+            val commandPayload = payload["payload"]?.jsonObject
+            val requestedByUserId = payload.optionalString("requestedByUserId")
+            if (commandType.isNullOrBlank() || commandPayload == null) {
+                sendJson(exchange, 400, buildJsonObject { put("message", "Missing commandType or payload") })
+                return@createContext
+            }
+
+            try {
+                sendJson(
+                    exchange,
+                    200,
+                    commandRunner.executeWorkpoolCommand(commandType, commandPayload, requestedByUserId),
+                )
+            } catch (error: Exception) {
+                logger.warn {
+                    "Bridge workpool command failed commandType=$commandType error=${error::class.simpleName}: ${error.message}"
+                }
+                sendJson(
+                    exchange,
+                    502,
+                    buildJsonObject {
+                        put("message", error.message ?: "Bridge command execution failed")
+                    },
+                )
+            }
+        }
+
         server.createContext("/assets/page") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext

@@ -21,6 +21,9 @@
 		"convex:codegen": "convex codegen"
 	},
 	"dependencies": {
+		"@convex-dev/action-cache": "^0.3.0",
+		"@convex-dev/sharded-counter": "^0.2.0",
+		"@convex-dev/workpool": "^0.4.6",
 		"any-ascii": "^0.3.3",
 		"bits-ui": "^2.15.5",
 		"clsx": "^2.1.1",

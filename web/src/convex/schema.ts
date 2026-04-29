@@ -435,6 +435,8 @@ export default defineSchema({
 			v.literal('cancelled'),
 			v.literal('dead_letter')
 		),
+		executor: v.optional(v.union(v.literal('bridge_poll'), v.literal('workpool'))),
+		workId: v.optional(v.string()),
 		priority: v.float64(),
 		runAfter: v.float64(),
 		leaseOwnerBridgeId: v.optional(v.string()),

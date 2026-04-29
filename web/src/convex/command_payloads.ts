@@ -220,6 +220,7 @@ export async function insertCommand<T extends CommandType>(
 		payload: args.payload,
 		idempotencyKey: args.idempotencyKey,
 		status: 'queued',
+		executor: 'bridge_poll',
 		priority: args.priority,
 		runAfter: args.runAfter,
 		attemptCount: 0,

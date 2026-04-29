@@ -230,6 +230,9 @@ filter_convex_stderr() {
   local noisefile="$2"
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
+      *"ValidationError(Expired("*)
+        printf '[convex][noise] %s\n' "$line" >> "$noisefile"
+        ;;
       *"cron_commit_mutation"*"_modules.by_path"*|*"finish_push"*"_modules.by_path"*)
         printf '[convex][noise] %s\n' "$line" >> "$noisefile"
         ;;
@@ -269,7 +272,7 @@ filter_bridge_stderr() {
       *"dbus/object_proxy.cc:590"*UPower*)
         printf '%s\n' "$line" >> "$noisefile"
         ;;
-      *"Failed to connect to the bus:"*|*"dbus/bus.cc"*|*"gpu_process_host.cc"*|*"gpu_memory_buffer_support_x11.cc"*|*"viz_main_impl.cc"*|*"ssl_client_socket_impl.cc"*)
+      *"Failed to connect to the bus:"*|*"dbus/bus.cc"*|*"gpu_process_host.cc"*|*"gpu_memory_buffer_support_x11.cc"*|*"viz_main_impl.cc"*|*"ssl_client_socket_impl.cc"*|*"ui/gfx/x/connection.cc"*)
         printf '%s\n' "$line" >> "$noisefile"
         ;;
       JCEF_*|JCEF\(*|CEF\ Version\ =*|Chromium\ Version\ =*)
@@ -287,7 +290,7 @@ filter_bridge_stdout() {
   local noisefile="$2"
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
-      *"Failed to connect to the bus:"*|*"dbus/bus.cc"*|*"gpu_process_host.cc"*|*"gpu_memory_buffer_support_x11.cc"*|*"viz_main_impl.cc"*|*"ssl_client_socket_impl.cc"*)
+      *"Failed to connect to the bus:"*|*"dbus/bus.cc"*|*"gpu_process_host.cc"*|*"gpu_memory_buffer_support_x11.cc"*|*"viz_main_impl.cc"*|*"ssl_client_socket_impl.cc"*|*"ui/gfx/x/connection.cc"*)
         printf '%s\n' "$line" >> "$noisefile"
         ;;
       JCEF\(*|JCEF_*|CEF\ Version\ =*|Chromium\ Version\ =*)
@@ -330,6 +333,8 @@ seed_convex_env_var "MANGARR_CONVEX_AUTH_ISSUER" "${MANGARR_CONVEX_AUTH_ISSUER}"
 seed_convex_env_var "MANGARR_CONVEX_AUTH_APPLICATION_ID" "${MANGARR_CONVEX_AUTH_APPLICATION_ID}"
 seed_convex_env_var "MANGARR_CONVEX_AUTH_KEY_ID" "${MANGARR_CONVEX_AUTH_KEY_ID}"
 seed_convex_env_var "MANGARR_CONVEX_AUTH_PRIVATE_JWK" "${MANGARR_CONVEX_AUTH_PRIVATE_JWK}"
+seed_convex_env_var "MANGARR_SERVICE_SECRET" "${MANGARR_SERVICE_SECRET}"
+seed_convex_env_var "MANGARR_BRIDGE_INTERNAL_URL" "${MANGARR_BRIDGE_INTERNAL_URL}"
 
 (cd /app/web && ([ -x node_modules/.bin/svelte-kit ] && pnpm exec svelte-kit sync >/dev/null || true) && pnpm exec convex dev --once --typecheck disable --codegen disable) \
   > >(pipe_component_output "setup" "${SETUP_LOG_FILE}" "" "stdout") \

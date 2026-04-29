@@ -9,6 +9,10 @@ import {
 	scheduleTitleStatsRefresh
 } from './library_shared';
 import { insertCommand } from './command_payloads';
+import {
+	applyChapterDownloadCounterDelta,
+	applyTaskActiveDownloadCounterDelta
+} from './download_counters';
 export { getDownloadDashboard } from './library_download_dashboard';
 
 const DOWNLOAD_STATUS = {
@@ -85,6 +89,11 @@ export const cancelQueuedChapterDownload = mutation({
 			completedAt: now,
 			updatedAt: now
 		});
+		await applyTaskActiveDownloadCounterDelta(ctx, {
+			ownerUserId: userId,
+			oldStatus: activeTask.status,
+			newStatus: DOWNLOAD_TASK_STATUS.CANCELLED
+		});
 
 		await ctx.db.patch(chapter._id, {
 			downloadStatus: DOWNLOAD_STATUS.MISSING,
@@ -92,6 +101,13 @@ export const cancelQueuedChapterDownload = mutation({
 			totalPages: undefined,
 			lastErrorMessage: undefined,
 			updatedAt: now
+		});
+		await applyChapterDownloadCounterDelta(ctx, {
+			libraryTitleId: chapter.libraryTitleId,
+			oldStatus: chapter.downloadStatus,
+			newStatus: DOWNLOAD_STATUS.MISSING,
+			oldFileSizeBytes: chapter.fileSizeBytes,
+			newFileSizeBytes: undefined
 		});
 
 		await scheduleTitleStatsRefresh(ctx, {
@@ -337,8 +353,9 @@ export const requestMissingDownloads = mutation({
 		);
 
 		const eligibleRetryChapters = [...queuedChapters, ...queuedTaskChapters]
-			.filter((chapter, index, chapters) =>
-				chapters.findIndex((entry) => entry._id === chapter._id) === index
+			.filter(
+				(chapter, index, chapters) =>
+					chapters.findIndex((entry) => entry._id === chapter._id) === index
 			)
 			.sort((left, right) => left.sequence - right.sequence);
 		for (const chapter of eligibleRetryChapters) {
@@ -428,7 +445,8 @@ export const setChapterDownloadState = mutation({
 
 		const oldStatus = chapter.downloadStatus;
 		const oldFileSizeBytes = chapter.fileSizeBytes;
-		const newFileSizeBytes = args.fileSizeBytes === undefined ? chapter.fileSizeBytes : args.fileSizeBytes;
+		const newFileSizeBytes =
+			args.fileSizeBytes === undefined ? chapter.fileSizeBytes : args.fileSizeBytes;
 		const isProgressOnlyUpdate =
 			args.status === DOWNLOAD_STATUS.DOWNLOADING &&
 			oldStatus === DOWNLOAD_STATUS.DOWNLOADING &&
@@ -461,6 +479,13 @@ export const setChapterDownloadState = mutation({
 		const statusChanged = oldStatus !== args.status;
 		const sizeChanged = (oldFileSizeBytes ?? 0) !== (newFileSizeBytes ?? 0);
 		if (!isProgressOnlyUpdate && (statusChanged || sizeChanged)) {
+			await applyChapterDownloadCounterDelta(ctx, {
+				libraryTitleId: chapter.libraryTitleId,
+				oldStatus,
+				newStatus: args.status,
+				oldFileSizeBytes,
+				newFileSizeBytes
+			});
 			await scheduleTitleStatsRefresh(ctx, {
 				libraryTitleId: chapter.libraryTitleId,
 				ownerUserId: chapter.ownerUserId,
@@ -528,6 +553,11 @@ export const setChapterDownloadState = mutation({
 		}
 
 		await ctx.db.patch(task._id, taskPatch);
+		await applyTaskActiveDownloadCounterDelta(ctx, {
+			ownerUserId: task.ownerUserId,
+			oldStatus: task.status,
+			newStatus: taskPatch.status ?? task.status
+		});
 
 		return { ok: true };
 	}
@@ -658,6 +688,13 @@ async function queueDownloadAttempt(
 		lastErrorMessage: undefined,
 		updatedAt: args.now
 	});
+	await applyChapterDownloadCounterDelta(ctx, {
+		libraryTitleId: args.chapter.libraryTitleId,
+		oldStatus: args.chapter.downloadStatus,
+		newStatus: DOWNLOAD_STATUS.QUEUED,
+		oldFileSizeBytes: args.chapter.fileSizeBytes,
+		newFileSizeBytes: undefined
+	});
 
 	await scheduleTitleStatsRefresh(ctx, {
 		libraryTitleId: args.chapter.libraryTitleId,
@@ -692,6 +729,11 @@ async function queueDownloadAttempt(
 		progressPercent: 0,
 		createdAt: args.now,
 		updatedAt: args.now
+	});
+	await applyTaskActiveDownloadCounterDelta(ctx, {
+		ownerUserId: args.chapter.ownerUserId,
+		oldStatus: undefined,
+		newStatus: DOWNLOAD_TASK_STATUS.QUEUED
 	});
 
 	const commandId = await insertCommand(ctx, {
@@ -829,10 +871,12 @@ async function findLatestDownloadTaskForChapter(
 	);
 }
 
-function shouldTreatDownloadFailureAsPermanent(task: {
-	status: string;
-	errorMessage?: string | null;
-} | null) {
+function shouldTreatDownloadFailureAsPermanent(
+	task: {
+		status: string;
+		errorMessage?: string | null;
+	} | null
+) {
 	if (!task || task.status !== DOWNLOAD_TASK_STATUS.FAILED) {
 		return false;
 	}
@@ -1005,8 +1049,9 @@ async function selectDownloadCycleCandidatesForUser(
 				ctx.db
 					.query('libraryChapters')
 					.withIndex('by_library_title_id_download_status', (q) =>
-						q.eq('libraryTitleId', titleId as GenericId<'libraryTitles'>)
-						 .eq('downloadStatus', DOWNLOAD_STATUS.MISSING)
+						q
+							.eq('libraryTitleId', titleId as GenericId<'libraryTitles'>)
+							.eq('downloadStatus', DOWNLOAD_STATUS.MISSING)
 					)
 					.collect()
 			)
@@ -1016,16 +1061,15 @@ async function selectDownloadCycleCandidatesForUser(
 				ctx.db
 					.query('libraryChapters')
 					.withIndex('by_library_title_id_download_status', (q) =>
-						q.eq('libraryTitleId', titleId as GenericId<'libraryTitles'>)
-						 .eq('downloadStatus', DOWNLOAD_STATUS.FAILED)
+						q
+							.eq('libraryTitleId', titleId as GenericId<'libraryTitles'>)
+							.eq('downloadStatus', DOWNLOAD_STATUS.FAILED)
 					)
 					.collect()
 			)
 		).then((results) => results.flat())
 	]);
-	const titleById = new Map(
-		validTitles.map((title) => [String(title._id), title] as const)
-	);
+	const titleById = new Map(validTitles.map((title) => [String(title._id), title] as const));
 	const eligibleChaptersByTitleId = new Map<
 		string,
 		Array<(typeof missingChapters)[number] | (typeof failedChapters)[number]>
@@ -1126,6 +1170,11 @@ async function finalizeRecoveredCompletedTask(
 		storageKind: chapter.storageKind,
 		fileSizeBytes: chapter.fileSizeBytes
 	});
+	await applyTaskActiveDownloadCounterDelta(ctx, {
+		ownerUserId: task.ownerUserId,
+		oldStatus: task.status,
+		newStatus: DOWNLOAD_TASK_STATUS.COMPLETED
+	});
 }
 
 async function requeueRecoveredTask(
@@ -1155,10 +1204,22 @@ async function requeueRecoveredTask(
 		errorMessage: undefined,
 		updatedAt: now
 	});
+	await applyTaskActiveDownloadCounterDelta(ctx, {
+		ownerUserId: task.ownerUserId,
+		oldStatus: task.status,
+		newStatus: DOWNLOAD_TASK_STATUS.QUEUED
+	});
 	await ctx.db.patch(chapter._id, {
 		downloadStatus: DOWNLOAD_STATUS.QUEUED,
 		lastErrorMessage: undefined,
 		updatedAt: now
+	});
+	await applyChapterDownloadCounterDelta(ctx, {
+		libraryTitleId: chapter.libraryTitleId,
+		oldStatus: chapter.downloadStatus,
+		newStatus: DOWNLOAD_STATUS.QUEUED,
+		oldFileSizeBytes: chapter.fileSizeBytes,
+		newFileSizeBytes: chapter.fileSizeBytes
 	});
 }
 
@@ -1176,10 +1237,22 @@ async function failRecoveredTask(
 		completedAt: now,
 		updatedAt: now
 	});
+	await applyTaskActiveDownloadCounterDelta(ctx, {
+		ownerUserId: task.ownerUserId,
+		oldStatus: task.status,
+		newStatus: status
+	});
 	await ctx.db.patch(chapter._id, {
 		downloadStatus: DOWNLOAD_STATUS.FAILED,
 		lastErrorMessage: errorMessage,
 		updatedAt: now
+	});
+	await applyChapterDownloadCounterDelta(ctx, {
+		libraryTitleId: chapter.libraryTitleId,
+		oldStatus: chapter.downloadStatus,
+		newStatus: DOWNLOAD_STATUS.FAILED,
+		oldFileSizeBytes: chapter.fileSizeBytes,
+		newFileSizeBytes: chapter.fileSizeBytes
 	});
 }
 

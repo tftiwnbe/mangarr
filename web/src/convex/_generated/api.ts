@@ -12,6 +12,7 @@ import type * as app from '../app.js';
 import type * as auth from '../auth.js';
 import type * as bridge from '../bridge.js';
 import type * as bridge_auth from '../bridge_auth.js';
+import type * as bridge_workpool from '../bridge_workpool.js';
 import type * as commands from '../commands.js';
 import type * as crons from '../crons.js';
 import type * as discovery from '../discovery.js';
@@ -32,6 +33,7 @@ const fullApi: ApiFromModules<{
 	auth: typeof auth;
 	bridge: typeof bridge;
 	bridge_auth: typeof bridge_auth;
+	bridge_workpool: typeof bridge_workpool;
 	commands: typeof commands;
 	crons: typeof crons;
 	discovery: typeof discovery;

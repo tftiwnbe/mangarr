@@ -1,14 +1,24 @@
 import type { GenericId } from 'convex/values';
+import { vOnCompleteArgs } from '@convex-dev/workpool';
 import { v } from 'convex/values';
 import type { Doc } from './_generated/dataModel';
 
+import { internal } from './_generated/api';
 import {
 	isPermanentSourceFailure,
 	sourceHealthScopeForCommandType
 } from '../lib/utils/source-health';
-import { mutation, query, type MutationCtx } from './_generated/server';
+import {
+	internalMutation,
+	internalQuery,
+	mutation,
+	query,
+	type MutationCtx
+} from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
 import type { CommandPayloadMap, CommandType } from './command_payloads';
+import { refreshTitleChapterStats } from './library_shared_titles';
+import { executorForCommandType, poolForCommandType } from './workpools';
 
 export const STATUS = {
 	QUEUED: 'queued',
@@ -228,6 +238,7 @@ async function enqueueCommand<T extends CommandType>(
 	}
 	const now = Date.now();
 	const targetCapability = targetCapabilityFor(args.commandType);
+	const executor = executorForCommandType(args.commandType);
 	const idempotencyKey =
 		args.idempotencyKey ??
 		`${args.commandType}:${identity.subject}:${now}:${Math.random().toString(36).slice(2, 10)}`;
@@ -255,6 +266,7 @@ async function enqueueCommand<T extends CommandType>(
 		payload: args.payload,
 		idempotencyKey,
 		status: STATUS.QUEUED,
+		executor,
 		priority: args.priority ?? 100,
 		runAfter: now,
 		attemptCount: 0,
@@ -263,6 +275,22 @@ async function enqueueCommand<T extends CommandType>(
 		createdAt: now,
 		updatedAt: now
 	});
+
+	if (executor === 'workpool') {
+		const workId = await poolForCommandType(args.commandType).enqueueAction(
+			ctx,
+			internal.bridge_workpool.executeCommand,
+			{ commandId },
+			{
+				onComplete: internal.commands.handleWorkpoolComplete,
+				context: { commandId }
+			}
+		);
+		await ctx.db.patch(commandId, {
+			workId,
+			updatedAt: Date.now()
+		});
+	}
 
 	return { commandId };
 }
@@ -552,10 +580,7 @@ export const lease = mutation({
 		await requireBridgeIdentity(ctx);
 		const limit = Math.max(1, Math.min(Math.floor(args.limit), 25));
 		const uniqueCapabilities = Array.from(new Set(args.capabilities));
-		const candidatePoolLimit = Math.max(
-			limit,
-			Math.min(limit * MAX_CANDIDATE_POOL_MULTIPLIER, 12)
-		);
+		const candidatePoolLimit = Math.max(limit, Math.min(limit * MAX_CANDIDATE_POOL_MULTIPLIER, 12));
 		const candidates: Array<Doc<'commands'>> = [];
 		const seenCommandIds = new Set<string>();
 
@@ -567,14 +592,14 @@ export const lease = mutation({
 			const rows = await ctx.db
 				.query('commands')
 				.withIndex('by_status_target_capability_priority_run_after', (q) =>
-					q
-						.eq('status', STATUS.QUEUED)
-						.eq('targetCapability', capability)
-						.lte('runAfter', args.now)
+					q.eq('status', STATUS.QUEUED).eq('targetCapability', capability).lte('runAfter', args.now)
 				)
 				.take(Math.min(limit, MAX_CANDIDATES_PER_CAPABILITY));
 
 			for (const row of rows) {
+				if (row.executor === 'workpool') {
+					continue;
+				}
 				const commandId = String(row._id);
 				if (seenCommandIds.has(commandId)) {
 					continue;
@@ -632,6 +657,163 @@ export const lease = mutation({
 		}
 
 		return leased;
+	}
+});
+
+export const getWorkpoolCommand = internalQuery({
+	args: {
+		commandId: v.id('commands')
+	},
+	handler: async (ctx, args) => {
+		const command = await ctx.db.get(args.commandId);
+		if (!command || command.executor !== 'workpool') {
+			return null;
+		}
+		if (
+			command.status !== STATUS.QUEUED &&
+			command.status !== STATUS.LEASED &&
+			command.status !== STATUS.RUNNING
+		) {
+			return null;
+		}
+		return {
+			commandType: command.commandType,
+			payload: command.payload,
+			requestedByUserId: command.requestedByUserId
+		};
+	}
+});
+
+export const markWorkpoolRunning = internalMutation({
+	args: {
+		commandId: v.id('commands'),
+		now: v.float64()
+	},
+	handler: async (ctx, args) => {
+		const command = await ctx.db.get(args.commandId);
+		if (!command || command.executor !== 'workpool') {
+			return { ok: false };
+		}
+		if (command.status !== STATUS.QUEUED && command.status !== STATUS.RUNNING) {
+			return { ok: false };
+		}
+		// Workpool tracks attempt counts; we only flip to RUNNING and stamp startedAt.
+		if (command.status === STATUS.RUNNING && command.startedAt !== undefined) {
+			return { ok: true };
+		}
+		await ctx.db.patch(args.commandId, {
+			status: STATUS.RUNNING,
+			startedAt: command.startedAt ?? args.now,
+			updatedAt: args.now
+		});
+		return { ok: true };
+	}
+});
+
+export const refreshTitleStatsInternal = internalMutation({
+	args: {
+		titleId: v.id('libraryTitles'),
+		now: v.float64()
+	},
+	handler: async (ctx, args) => {
+		await refreshTitleChapterStats(ctx, args.titleId, args.now);
+		return { ok: true };
+	}
+});
+
+export const handleWorkpoolComplete = internalMutation({
+	args: vOnCompleteArgs(
+		v.object({
+			commandId: v.id('commands')
+		})
+	),
+	handler: async (ctx, args) => {
+		const now = Date.now();
+		const command = await ctx.db.get(args.context.commandId);
+		if (!command || command.executor !== 'workpool') {
+			return;
+		}
+
+		// onComplete can fire more than once after isolate restarts. Don't downgrade
+		// a row we already finalized.
+		if (
+			command.status === STATUS.SUCCEEDED ||
+			command.status === STATUS.DEAD ||
+			command.status === STATUS.CANCELLED
+		) {
+			return;
+		}
+
+		if (args.result.kind === 'success') {
+			await ctx.db.patch(command._id, {
+				status: STATUS.SUCCEEDED,
+				progress: undefined,
+				result: args.result.returnValue,
+				completedAt: now,
+				updatedAt: now
+			});
+			await clearSourceHealth(ctx, command);
+			return;
+		}
+
+		const message =
+			args.result.kind === 'failed' ? args.result.error : 'Workpool command was cancelled';
+		await ctx.db.patch(command._id, {
+			status: args.result.kind === 'canceled' ? STATUS.CANCELLED : STATUS.DEAD,
+			lastErrorMessage: message,
+			progress: undefined,
+			completedAt: now,
+			updatedAt: now
+		});
+
+		await upsertSourceHealthFailure(
+			ctx,
+			{ ...command, status: STATUS.DEAD, runAfter: command.runAfter },
+			message,
+			now
+		);
+	}
+});
+
+export const cancelCommand = mutation({
+	args: {
+		commandId: v.id('commands')
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			throw new Error('Not authenticated');
+		}
+		const command = await ctx.db.get(args.commandId);
+		if (!command || command.requestedByUserId !== (identity.subject as GenericId<'users'>)) {
+			return { ok: false };
+		}
+		if (
+			command.status === STATUS.SUCCEEDED ||
+			command.status === STATUS.DEAD ||
+			command.status === STATUS.CANCELLED
+		) {
+			return { ok: true, alreadyTerminal: true };
+		}
+
+		const now = Date.now();
+		if (command.executor === 'workpool' && command.workId) {
+			await poolForCommandType(command.commandType as CommandType).cancel(
+				ctx,
+				command.workId as never
+			);
+		}
+
+		await ctx.db.patch(command._id, {
+			status: STATUS.CANCELLED,
+			leaseOwnerBridgeId: undefined,
+			leaseToken: undefined,
+			leaseExpiresAt: undefined,
+			completedAt: now,
+			updatedAt: now,
+			lastErrorMessage: 'Cancelled by user'
+		});
+		return { ok: true };
 	}
 });
 
