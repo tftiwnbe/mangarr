@@ -286,7 +286,7 @@
 	}
 
 	.fetch-link {
-		align-self: flex-start;
+		align-self: flex-end;
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;

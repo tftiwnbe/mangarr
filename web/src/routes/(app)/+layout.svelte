@@ -89,10 +89,10 @@
 		</main>
 	{:else}
 		<main
-			class="relative z-10 pt-[env(safe-area-inset-top)] pb-[calc(2.5rem+env(safe-area-inset-bottom))] md:pt-0 md:pb-6 md:pl-16"
+			class="relative z-10 pt-[env(safe-area-inset-top)] pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pt-0 md:pb-6 md:pl-16"
 		>
 			<div
-				class="mx-auto w-full max-w-5xl md:px-6 md:py-8"
+				class="mx-auto w-full max-w-5xl pt-5 md:px-6 md:pt-8 md:pb-8"
 				style="padding-left: max(0.875rem, env(safe-area-inset-left)); padding-right: max(0.875rem, env(safe-area-inset-right));"
 			>
 				{@render children()}
@@ -101,22 +101,19 @@
 	{/if}
 
 	{#if !isReaderRoute && !$panelOverlayOpen}
-		<nav
-			class="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--line)] bg-[var(--void-1)]/95 backdrop-blur-sm md:hidden"
-			style="padding-bottom: env(safe-area-inset-bottom);"
-		>
-			<div class="flex items-center justify-around">
+		<nav class="bottom-nav md:hidden">
+			<div class="bottom-nav-inner">
 				{#each navItems as item (item.href)}
 					{@const isActive = currentPath.startsWith(item.href)}
 					{@const NavIcon = item.icon}
 					<a
 						href={item.href}
-						class="flex flex-1 flex-col items-center gap-0.5 py-1 text-[10px] tracking-[0.04em] transition-colors {isActive
-							? 'text-[var(--text)]'
-							: 'text-[var(--text-ghost)]'}"
+						class="bottom-nav-item"
+						class:is-active={isActive}
+						aria-current={isActive ? 'page' : undefined}
 					>
-						<NavIcon size={18} />
-						<span>{$_(`nav.${item.label}`)}</span>
+						<NavIcon size={20} weight={isActive ? 'fill' : 'regular'} />
+						<span class="bottom-nav-label">{$_(`nav.${item.label}`)}</span>
 					</a>
 				{/each}
 			</div>
@@ -136,14 +133,90 @@
 				{@const NavIcon = item.icon}
 				<a
 					href={item.href}
-					class="flex h-10 w-10 items-center justify-center transition-all {isActive
-						? 'bg-[var(--void-4)] text-[var(--text)]'
-						: 'text-[var(--text-ghost)] hover:bg-[var(--void-3)] hover:text-[var(--text-muted)]'}"
+					class="side-nav-item"
+					class:is-active={isActive}
+					aria-current={isActive ? 'page' : undefined}
 					title={$_(`nav.${item.label}`)}
 				>
-					<NavIcon size={20} />
+					<NavIcon size={20} weight={isActive ? 'fill' : 'regular'} />
 				</a>
 			{/each}
 		</div>
 	</aside>
 </div>
+
+<style>
+	.bottom-nav {
+		position: fixed;
+		inset-inline: 0;
+		bottom: 0;
+		z-index: 50;
+		background: color-mix(in srgb, var(--void-1) 88%, transparent);
+		border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+		backdrop-filter: blur(14px) saturate(140%);
+		-webkit-backdrop-filter: blur(14px) saturate(140%);
+		padding-bottom: env(safe-area-inset-bottom, 0px);
+		transform: translateZ(0);
+		will-change: transform;
+		contain: layout paint;
+	}
+
+	.bottom-nav-inner {
+		display: flex;
+		align-items: stretch;
+		justify-content: space-around;
+		padding: 6px 0 8px;
+	}
+
+	.bottom-nav-item {
+		position: relative;
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 4px;
+		min-height: 48px;
+		padding: 4px;
+		color: var(--text-ghost);
+		font-size: 10px;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		transition:
+			color 180ms ease,
+			transform 120ms ease;
+		-webkit-tap-highlight-color: transparent;
+	}
+	.bottom-nav-item:active {
+		transform: scale(0.94);
+	}
+	.bottom-nav-item.is-active {
+		color: var(--text);
+	}
+
+	.bottom-nav-label {
+		line-height: 1;
+		font-feature-settings: 'tnum';
+	}
+
+	.side-nav-item {
+		position: relative;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		color: var(--text-ghost);
+		transition:
+			color 160ms ease,
+			background 160ms ease;
+	}
+	.side-nav-item:hover {
+		color: var(--text-muted);
+		background: var(--void-3);
+	}
+	.side-nav-item.is-active {
+		color: var(--text);
+		background: var(--void-4);
+	}
+</style>

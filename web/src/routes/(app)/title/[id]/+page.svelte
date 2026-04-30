@@ -1164,7 +1164,7 @@
 		<TitleSkeleton phaseLabel={$_('common.loading')} />
 	{:else if title}
 		<div class="flex flex-col md:grid md:grid-cols-[260px_1fr] md:items-start md:gap-8">
-			<div class="relative -mx-4 md:sticky md:top-8 md:mx-0">
+			<div class="relative -mx-4 -mt-5 md:sticky md:top-8 md:mx-0 md:mt-0">
 				<div
 					class="aspect-[3/4] max-h-[70vh] w-full overflow-hidden bg-[var(--void-2)] md:aspect-[2/3] md:max-h-none"
 				>
