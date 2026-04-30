@@ -238,6 +238,8 @@
 		"sourceMaintenanceDescription": "Re-sync metadata and chapter state from the current reading source when this title looks stale or incomplete.",
 		"refreshSource": "Sync from source",
 		"sourceRefreshFailed": "Unable to refresh source state",
+		"fetchNewChapters": "Fetch new chapters",
+		"fetchingNewChapters": "Fetching…",
 		"noComments": "No comments yet",
 		"commentsLoadFailed": "Unable to load comments",
 		"libraryControls": "Library Controls",
@@ -291,7 +293,15 @@
 		"read": "Read",
 		"unread": "Unread",
 		"downloaded": "Downloaded",
-		"downloading": "Downloading..."
+		"downloading": "Downloading...",
+		"download": "Download",
+		"relative": {
+			"today": "Today",
+			"days": "{n}d",
+			"weeks": "{n}w",
+			"months": "{n}mo",
+			"years": "{n}y"
+		}
 	},
 
 	"downloads": {

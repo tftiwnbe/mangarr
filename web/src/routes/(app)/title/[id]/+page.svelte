@@ -1520,6 +1520,8 @@
 								void resetChapterReadProgress(chapterId as Id<'libraryChapters'>)}
 							onMarkPreviousRead={(chapterId) =>
 								void markPreviousChaptersRead(chapterId as Id<'libraryChapters'>)}
+							onFetchNewChapters={() => void refreshSourceState()}
+							fetchingNewChapters={sourceStatusRefreshing}
 							{progressActionChapterId}
 						/>
 					{:else}

@@ -238,6 +238,8 @@
 		"sourceMaintenanceDescription": "Повторно синхронизирует метаданные и список глав из текущего источника чтения, если тайтл выглядит устаревшим или неполным.",
 		"refreshSource": "Синхронизировать из источника",
 		"sourceRefreshFailed": "Не удалось обновить состояние источника",
+		"fetchNewChapters": "Загрузить новые главы",
+		"fetchingNewChapters": "Загрузка…",
 		"noComments": "Комментариев пока нет",
 		"commentsLoadFailed": "Не удалось загрузить комментарии",
 		"libraryControls": "Управление библиотекой",
@@ -291,7 +293,15 @@
 		"read": "Прочитано",
 		"unread": "Не прочитано",
 		"downloaded": "Скачано",
-		"downloading": "Загрузка..."
+		"downloading": "Загрузка...",
+		"download": "Скачать",
+		"relative": {
+			"today": "сегодня",
+			"days": "{n} дн",
+			"weeks": "{n} нед",
+			"months": "{n} мес",
+			"years": "{n} г"
+		}
 	},
 
 	"downloads": {
