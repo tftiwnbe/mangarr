@@ -138,6 +138,12 @@ export default defineSchema({
 	})
 		.index('by_owner_user_id', ['ownerUserId'])
 		.index('by_owner_user_id_canonical_key', ['ownerUserId', 'canonicalKey'])
+		.index('by_owner_user_id_last_read_at', ['ownerUserId', 'lastReadAt'])
+		.index('by_owner_user_id_listed_in_library_updated_at', [
+			'ownerUserId',
+			'listedInLibrary',
+			'updatedAt'
+		])
 		.index('by_owner_user_id_updated_at', ['ownerUserId', 'updatedAt'])
 		.index('by_owner_user_id_route_base', ['ownerUserId', 'routeBase'])
 		.index('by_owner_user_id_user_status_id', ['ownerUserId', 'userStatusId'])
@@ -314,6 +320,7 @@ export default defineSchema({
 		.index('by_library_title_id', ['libraryTitleId'])
 		.index('by_library_title_id_download_status', ['libraryTitleId', 'downloadStatus'])
 		.index('by_owner_user_id_library_title_id', ['ownerUserId', 'libraryTitleId'])
+		.index('by_owner_user_id_updated_at', ['ownerUserId', 'updatedAt'])
 		.index('by_owner_user_id_download_status', ['ownerUserId', 'downloadStatus'])
 		.index('by_library_title_id_chapter_url', ['libraryTitleId', 'chapterUrl']),
 

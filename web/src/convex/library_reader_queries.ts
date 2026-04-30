@@ -106,28 +106,34 @@ export const listHiddenMine = query({
 		const limit = Math.min(Math.max(1, Math.floor(args.limit ?? 200)), 500);
 		const titles = await ctx.db
 			.query('libraryTitles')
-			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+			.withIndex('by_owner_user_id_listed_in_library_updated_at', (q) =>
+				q.eq('ownerUserId', ownerUserId).eq('listedInLibrary', false)
+			)
+			.order('desc')
 			.take(limit);
-		const titleRouteSegments = buildTitleRouteSegments(titles);
+		const routeSegments = await Promise.all(
+			titles.map(async (title) => [
+				String(title._id),
+				await resolveOwnerTitleRouteSegment(ctx, title)
+			] as const)
+		);
+		const titleRouteSegments = new Map(routeSegments);
 
-		return titles
-			.filter((title) => title.listedInLibrary === false)
-			.sort((left, right) => right.updatedAt - left.updatedAt)
-			.map((title) => ({
-				_id: title._id,
-				title: title.title,
-				sourceId: title.sourceId,
-				sourcePkg: title.sourcePkg,
-				sourceLang: title.sourceLang,
-				titleUrl: title.titleUrl,
-				routeSegment:
-					titleRouteSegments.get(String(title._id)) ??
-					buildTitleRouteBaseFromUrl(title.titleUrl, title.title),
-				coverUrl: title.coverUrl ?? null,
-				localCoverPath: title.localCoverPath ?? null,
-				createdAt: title.createdAt,
-				updatedAt: title.updatedAt
-			}));
+		return titles.map((title) => ({
+			_id: title._id,
+			title: title.title,
+			sourceId: title.sourceId,
+			sourcePkg: title.sourcePkg,
+			sourceLang: title.sourceLang,
+			titleUrl: title.titleUrl,
+			routeSegment:
+				titleRouteSegments.get(String(title._id)) ??
+				buildTitleRouteBaseFromUrl(title.titleUrl, title.title),
+			coverUrl: title.coverUrl ?? null,
+			localCoverPath: title.localCoverPath ?? null,
+			createdAt: title.createdAt,
+			updatedAt: title.updatedAt
+		}));
 	}
 });
 
@@ -744,28 +750,12 @@ export const listAllMineChapters = query({
 		const userId = identity.subject as GenericId<'users'>;
 		const limit = Math.min(Math.max(100, Math.floor(args.limit ?? 2000)), 10000);
 
-		// Load chapters directly with limit to avoid memory issues
-		// Note: No simple by_owner_user_id index exists, so we load titles first then their chapters
-		const allTitles = await ctx.db
-			.query('libraryTitles')
-			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
-			.collect();
+		const chapters = await ctx.db
+			.query('libraryChapters')
+			.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', userId))
+			.order('desc')
+			.take(limit);
 
-		const titleIds = allTitles.map((t) => t._id);
-		const allChapters = [];
-
-		for (const titleId of titleIds) {
-			const titleChapters = await ctx.db
-				.query('libraryChapters')
-				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', titleId))
-				.take(Math.ceil(limit / Math.max(titleIds.length, 1)));
-			allChapters.push(...titleChapters);
-			if (allChapters.length >= limit) break;
-		}
-
-		const chapters = allChapters.slice(0, limit);
-
-		// Load only the titles that are referenced by these chapters
 		const referencedTitleIds = [...new Set(chapters.map((c) => String(c.libraryTitleId)))];
 		const titles = await Promise.all(
 			referencedTitleIds.map((id) => ctx.db.get(id as GenericId<'libraryTitles'>))
@@ -788,8 +778,7 @@ export const listAllMineChapters = query({
 					titleCoverUrl: title?.coverUrl ?? null,
 					localCoverPath: title?.localCoverPath ?? null
 				};
-			})
-			.sort((left, right) => right.updatedAt - left.updatedAt);
+			});
 	}
 });
 
@@ -804,19 +793,15 @@ export const listContinueReading = query({
 		const userId = identity.subject as GenericId<'users'>;
 		const limit = Math.min(Math.max(1, Math.floor(args.limit ?? 5)), 12);
 
-		const titles = await ctx.db
+		const recentTitles = await ctx.db
 			.query('libraryTitles')
-			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+			.withIndex('by_owner_user_id_last_read_at', (q) =>
+				q.eq('ownerUserId', userId).gt('lastReadAt', 0)
+			)
+			.order('desc')
 			.collect();
 
-		const inProgress = titles
-			.filter(
-				(title) =>
-					title.listedInLibrary !== false &&
-					typeof title.lastReadAt === 'number' &&
-					title.lastReadAt > 0
-			)
-			.sort((left, right) => (right.lastReadAt ?? 0) - (left.lastReadAt ?? 0));
+		const inProgress = recentTitles.filter((title) => title.listedInLibrary !== false);
 
 		const totalInProgress = inProgress.length;
 		const candidates = inProgress.slice(0, limit * 4);
