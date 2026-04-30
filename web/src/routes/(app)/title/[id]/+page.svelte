@@ -1550,10 +1550,9 @@
 	<SlidePanel
 		open={showManagementPanel}
 		title={$_('title.info')}
-		badge={title.variants.length}
 		onclose={() => (showManagementPanel = false)}
 	>
-		<PanelSection label={$_('title.sourceMaintenance')} index="01">
+		<PanelSection label={$_('title.sourceMaintenance')}>
 			<p class="text-xs leading-relaxed text-[var(--text-ghost)]">
 				{$_('title.sourceMaintenanceDescription')}
 			</p>
@@ -1568,12 +1567,7 @@
 			</Button>
 		</PanelSection>
 
-		<PanelSection
-			label={$_('title.sources')}
-			index="02"
-			count={title.variants.length}
-			divider={false}
-		>
+		<PanelSection label={$_('title.sources')} divider={false}>
 			{#snippet actions()}
 				<div class="flex items-center gap-1.5">
 					{#if hasStaleVariants}

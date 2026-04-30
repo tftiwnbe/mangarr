@@ -1105,7 +1105,6 @@
 <SlidePanel
 	open={showCommentsPanel}
 	title={$_('reader.comments')}
-	badge={sortedComments.length > 0 ? sortedComments.length : undefined}
 	onclose={() => (showCommentsPanel = false)}
 >
 	{#snippet footer()}

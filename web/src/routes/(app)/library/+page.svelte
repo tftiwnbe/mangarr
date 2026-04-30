@@ -215,10 +215,6 @@
 			activeGenres.length > 0
 	);
 
-	const activeFilterCount = $derived(
-		activeReadingStatusIds.length + activeSourceStatusKeys.length + activeGenres.length
-	);
-
 	const hasActiveControls = $derived(hasActiveFilters || sortMode !== 'added' || !sortDesc);
 
 	let genreSearch = $state('');
@@ -813,7 +809,6 @@
 <SlidePanel
 	open={filterPanelOpen}
 	title={$_('library.sortAndFilter')}
-	badge={activeFilterCount > 0 ? activeFilterCount : undefined}
 	onclose={() => (filterPanelOpen = false)}
 >
 	{#snippet footer()}
@@ -823,16 +818,11 @@
 			</Button>
 			<Button variant="outline" class="flex-1" onclick={clearFilters} disabled={!hasActiveControls}>
 				{$_('library.clearFilters')}
-				{#if activeFilterCount > 0}
-					<span class="ml-1 font-mono text-[10px] tabular-nums opacity-70"
-						>·{activeFilterCount}</span
-					>
-				{/if}
 			</Button>
 		</div>
 	{/snippet}
 
-	<PanelSection label={$_('library.sort')} index="01">
+	<PanelSection label={$_('library.sort')}>
 		{#snippet actions()}
 			<button
 				type="button"
@@ -859,11 +849,7 @@
 	</PanelSection>
 
 	{#if allUserStatuses.length > 0}
-		<PanelSection
-			label={$_('library.readingStatus')}
-			index="02"
-			count={activeReadingStatusIds.length}
-		>
+		<PanelSection label={$_('library.readingStatus')}>
 			<div class="flex flex-wrap gap-1.5">
 				{#each allUserStatuses as status (status.id)}
 					{@const active = activeReadingStatusIds.includes(status.id)}
@@ -882,11 +868,7 @@
 	{/if}
 
 	{#if presentSourceStatusKeys.length > 0}
-		<PanelSection
-			label={$_('library.sourceStatus')}
-			index="03"
-			count={activeSourceStatusKeys.length}
-		>
+		<PanelSection label={$_('library.sourceStatus')}>
 			<div class="flex flex-wrap gap-1.5">
 				{#each SOURCE_STATUS_FILTERS.filter( (filter) => presentSourceStatusKeys.includes(filter.key) ) as sourceFilter (sourceFilter.key)}
 					{@const active = activeSourceStatusKeys.includes(sourceFilter.key)}
@@ -905,12 +887,7 @@
 	{/if}
 
 	{#if allGenres.length > 0}
-		<PanelSection
-			label={$_('library.genres')}
-			index="04"
-			count={activeGenres.length}
-			divider={false}
-		>
+		<PanelSection label={$_('library.genres')} divider={false}>
 			{#if allGenres.length > 12}
 				<SearchInput
 					bind:value={genreSearch}
