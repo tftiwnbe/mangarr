@@ -311,8 +311,7 @@
 		"finishFailedToast": "Could not log read",
 		"endOfHeading": "End of",
 		"saveAndReturn": "Save & return",
-		"returnWithoutSaving": "Return without saving",
-		"continueBrowsing": "Continue browsing"
+		"returnWithoutSaving": "Return without saving"
 	},
 
 	"preview": {

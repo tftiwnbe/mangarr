@@ -311,8 +311,7 @@
 		"finishFailedToast": "Не удалось записать прочтение",
 		"endOfHeading": "Конец",
 		"saveAndReturn": "Сохранить и выйти",
-		"returnWithoutSaving": "Выйти без сохранения",
-		"continueBrowsing": "Продолжить чтение"
+		"returnWithoutSaving": "Выйти без сохранения"
 	},
 
 	"preview": {

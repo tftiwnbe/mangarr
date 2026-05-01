@@ -115,30 +115,20 @@
 		class="mt-2 w-full resize-y border border-[var(--void-4)] bg-[var(--void-1)] px-2 py-1.5 text-xs text-[var(--text-soft)] outline-none focus:border-[var(--cosmic)]"
 	></textarea>
 
-	<div class="mt-3 flex flex-wrap items-center justify-end gap-2">
+	<div class="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
 		{#if secondaryAction}
 			<button
 				type="button"
-				class="cursor-pointer px-2 py-1 font-mono text-[10px] tracking-[0.18em] text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text-muted)] disabled:opacity-50"
+				class="cursor-pointer px-2 py-1 text-center font-mono text-[10px] tracking-[0.18em] text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text-muted)] disabled:opacity-50"
 				disabled={busy}
 				onclick={secondaryAction.onClick}
 			>
 				{secondaryAction.label}
 			</button>
 		{/if}
-		{#if onDismiss}
-			<button
-				type="button"
-				class="cursor-pointer px-2 py-1 font-mono text-[10px] tracking-[0.18em] text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text-muted)]"
-				disabled={busy}
-				onclick={onDismiss}
-			>
-				{dismissLabel ?? $_('reads.skipForNow')}
-			</button>
-		{/if}
 		<button
 			type="button"
-			class="flex cursor-pointer items-center gap-1.5 border border-[var(--cosmic)]/40 bg-[var(--cosmic)]/10 px-3 py-1 font-mono text-[10px] tracking-[0.18em] text-[var(--text)] uppercase transition-colors hover:bg-[var(--cosmic)]/20 disabled:opacity-50"
+			class="flex w-full cursor-pointer items-center justify-center gap-1.5 border border-[var(--cosmic)]/40 bg-[var(--cosmic)]/10 px-3 py-2 font-mono text-[10px] tracking-[0.18em] text-[var(--text)] uppercase transition-colors hover:bg-[var(--cosmic)]/20 disabled:opacity-50 sm:w-auto sm:py-1"
 			disabled={busy}
 			onclick={commit}
 		>

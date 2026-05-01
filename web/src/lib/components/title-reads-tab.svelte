@@ -231,9 +231,9 @@
 				class="border-l-2 border-[var(--cosmic)] bg-[var(--void-2)] px-4 py-3 shadow-[0_0_24px_-12px_var(--cosmic-glow)]"
 			>
 				<div class="flex items-center justify-between gap-3">
-					<div class="flex items-center gap-2 font-mono text-[10px] tracking-[0.22em] uppercase">
+					<div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] tracking-[0.22em] uppercase">
 						<span
-							class="inline-block h-1.5 w-1.5 animate-pulse bg-[var(--cosmic)] shadow-[0_0_6px_var(--cosmic-glow)]"
+							class="inline-block h-1.5 w-1.5 shrink-0 animate-pulse bg-[var(--cosmic)] shadow-[0_0_6px_var(--cosmic-glow)]"
 						></span>
 						<span class="text-[var(--text-soft)]">{$_('reads.activeBadge')}</span>
 						<span class="text-[var(--text-ghost)]">·</span>
@@ -241,7 +241,7 @@
 							{formatDuration(activeSession.startedAt, null)}
 						</span>
 					</div>
-					<div class="flex items-center gap-1.5">
+					<div class="flex shrink-0 items-center gap-1.5">
 						<button
 							type="button"
 							class="cursor-pointer border border-[var(--cosmic)]/40 px-2.5 py-1 font-mono text-[10px] tracking-[0.18em] text-[var(--text)] uppercase transition-colors hover:bg-[var(--cosmic)]/10 disabled:opacity-50"
@@ -301,18 +301,27 @@
 					<li class="border-b border-[var(--void-3)]/60">
 						<button
 							type="button"
-							class="grid w-full cursor-pointer grid-cols-[1.75rem_1fr_auto_auto] items-center gap-3 px-1 py-2.5 text-left transition-colors hover:bg-[var(--void-2)]"
+							class="grid w-full cursor-pointer grid-cols-[1.5rem_1fr_auto] items-center gap-2 px-1 py-2.5 text-left transition-colors hover:bg-[var(--void-2)] sm:grid-cols-[1.75rem_1fr_auto_auto] sm:gap-3"
 							onclick={() => beginExpand(session)}
 						>
 							<span class="font-mono text-[10px] text-[var(--void-6)] tabular-nums">
 								{String(completedSessions.length - index).padStart(2, '0')}
 							</span>
-							<div class="flex min-w-0 flex-col gap-0.5">
-								<span class="text-xs text-[var(--text-soft)] tabular-nums">
+							<div class="flex min-w-0 flex-col gap-1">
+								<span class="truncate text-xs text-[var(--text-soft)] tabular-nums">
 									{formatDate(session.startedAt)}
 									<span class="px-1.5 text-[var(--void-6)]">→</span>
 									{formatDate(session.finishedAt)}
 								</span>
+								<div class="flex items-center gap-2 sm:hidden">
+									<span
+										class="font-mono text-[10px] tracking-[0.12em] text-[var(--text-ghost)] uppercase tabular-nums"
+									>
+										{formatDuration(session.startedAt, session.finishedAt)}
+									</span>
+									<span class="text-[var(--void-6)]">·</span>
+									{@render starsRow(session, false)}
+								</div>
 								{#if session.notes && !expanded}
 									<span class="truncate text-[11px] text-[var(--text-ghost)]" title={session.notes}>
 										{session.notes}
@@ -320,11 +329,13 @@
 								{/if}
 							</div>
 							<span
-								class="font-mono text-[10px] tracking-[0.12em] text-[var(--text-ghost)] uppercase tabular-nums"
+								class="hidden font-mono text-[10px] tracking-[0.12em] text-[var(--text-ghost)] uppercase tabular-nums sm:inline"
 							>
 								{formatDuration(session.startedAt, session.finishedAt)}
 							</span>
-							{@render starsRow(session, false)}
+							<div class="hidden sm:block">
+								{@render starsRow(session, false)}
+							</div>
 						</button>
 
 						{#if expanded}

@@ -1141,7 +1141,6 @@
 						onDismiss={() => {
 							dismissedFinishPromptForChapterId = chapter?._id ?? null;
 						}}
-						dismissLabel={$_('reads.continueBrowsing')}
 					/>
 				</div>
 			{/if}
