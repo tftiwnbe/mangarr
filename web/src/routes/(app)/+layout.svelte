@@ -33,6 +33,23 @@
 	const isReaderRoute = $derived(currentPath.startsWith('/reader/'));
 
 	afterNavigate((nav) => {
+		// Remember last app route for PWA cold-start resume. Captures every nav
+		// (including 'enter') so a fresh launch is anchored, but ignores popstate
+		// to avoid undoing a Back gesture on next launch.
+		if (browser && nav.type !== 'popstate') {
+			const to = nav.to?.url;
+			if (to && to.origin === location.origin) {
+				try {
+					localStorage.setItem(
+						'mangarr:last-path',
+						JSON.stringify({ path: to.pathname + to.search, ts: Date.now() })
+					);
+				} catch {
+					/* storage full or disabled — non-fatal */
+				}
+			}
+		}
+
 		if (nav.type === 'popstate' || nav.type === 'enter') return;
 		const from = nav.from;
 		if (!from) return;
