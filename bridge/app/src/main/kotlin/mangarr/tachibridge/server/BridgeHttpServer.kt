@@ -215,16 +215,23 @@ class BridgeHttpServer(
                 sendBytes(exchange, 200, image.bytes, image.contentType)
             } catch (error: Exception) {
                 val httpError = error.findHttpException()
+                val errorSummary = buildString {
+                    append(error::class.simpleName ?: error::class.java.simpleName)
+                    error.message?.takeIf { it.isNotBlank() }?.let {
+                        append(": ")
+                        append(it)
+                    }
+                }
                 if (httpError != null) {
                     val logKey = "$sourceId::$chapterUrl::$index::${httpError.code}"
                     if (shouldLogPageAssetFailure(logKey)) {
                         logger.warn {
-                            "Failed to serve page asset for source=$sourceId chapter=$chapterUrl index=$index: HTTP ${httpError.code}"
+                            "Failed to serve page asset for source=$sourceId chapter=$chapterUrl index=$index: HTTP ${httpError.code} ($errorSummary)"
                         }
                     }
                 } else {
-                    logger.warn(error) {
-                        "Failed to serve page asset for source=$sourceId chapter=$chapterUrl index=$index"
+                    logger.warn {
+                        "Failed to serve page asset for source=$sourceId chapter=$chapterUrl index=$index ($errorSummary)"
                     }
                 }
                 val statusCode =

@@ -30,6 +30,7 @@
 	import { Button } from '$lib/elements/button';
 	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
 	import { SlidePanel } from '$lib/elements/slide-panel';
+	import { toast } from '$lib/elements/toast';
 	import { _ } from '$lib/i18n';
 	import { getReaderProgress, setReaderProgress } from '$lib/utils/reader-progress';
 	import {
@@ -148,6 +149,8 @@
 	let lastChapterId = $state<string | null>(null);
 	let remotePagesCommand = $state<CommandItem | null>(null);
 	let pageRetryCounts = $state<Record<string, number>>({});
+	let pageErrorLookupRequested = $state<Record<string, true>>({});
+	let pageErrorToastKeys = $state<Record<string, true>>({});
 	let localPagesUnavailableForChapterId = $state<string | null>(null);
 	let reconcileRequestedForTitleId = $state<string | null>(null);
 	let scrollFrame = 0;
@@ -331,11 +334,64 @@
 			return;
 		}
 		const retries = pageRetryCounts[item.id] ?? 0;
-		if (retries >= 2) return;
+		if (retries >= 2) {
+			void notifyPageAssetFailure(item);
+			return;
+		}
 		pageRetryCounts = {
 			...pageRetryCounts,
 			[item.id]: retries + 1
 		};
+	}
+
+	async function notifyPageAssetFailure(item: ReaderPage) {
+		if (!chapter || pageErrorLookupRequested[item.id]) return;
+		pageErrorLookupRequested = {
+			...pageErrorLookupRequested,
+			[item.id]: true
+		};
+		try {
+			const response = await getBrowserFetch()(resolvePageUrl(item), {
+				headers: {
+					accept: 'application/json'
+				}
+			});
+			const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+			let message = $_('reader.noPages');
+			if (contentType.includes('application/json')) {
+				const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+				if (payload?.message?.trim()) {
+					message = payload.message.trim();
+				}
+			} else if (!response.ok) {
+				message = `${$_('reader.failed')} (${response.status})`;
+			} else {
+				return;
+			}
+
+			const toastKey = `${chapter._id}::${message}`;
+			if (pageErrorToastKeys[toastKey]) return;
+			pageErrorToastKeys = {
+				...pageErrorToastKeys,
+				[toastKey]: true
+			};
+			toast.error(message, {
+				title: $_('reader.failed'),
+				duration: 7000
+			});
+		} catch {
+			const message = $_('reader.noPages');
+			const toastKey = `${chapter._id}::${message}`;
+			if (pageErrorToastKeys[toastKey]) return;
+			pageErrorToastKeys = {
+				...pageErrorToastKeys,
+				[toastKey]: true
+			};
+			toast.error(message, {
+				title: $_('reader.failed'),
+				duration: 7000
+			});
+		}
 	}
 
 	function pageDistanceFromCurrent(pageIndex: number) {
@@ -685,6 +741,8 @@
 			loadedPageIds.clear();
 			paintedPageIds.clear();
 			pageRetryCounts = {};
+			pageErrorLookupRequested = {};
+			pageErrorToastKeys = {};
 			localPagesUnavailableForChapterId = null;
 			return;
 		}
@@ -703,6 +761,8 @@
 			loadedPageIds.clear();
 			paintedPageIds.clear();
 			pageRetryCounts = {};
+			pageErrorLookupRequested = {};
+			pageErrorToastKeys = {};
 			localPagesUnavailableForChapterId = null;
 		}
 	});
