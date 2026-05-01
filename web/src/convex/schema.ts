@@ -398,6 +398,23 @@ export default defineSchema({
 			'updatedAt'
 		]),
 
+	titleReadSessions: defineTable({
+		ownerUserId: v.id('users'),
+		libraryTitleId: v.id('libraryTitles'),
+		startedAt: v.float64(),
+		finishedAt: v.optional(v.float64()),
+		rating: v.optional(v.float64()),
+		notes: v.optional(v.string()),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_owner_user_id_library_title_id', ['ownerUserId', 'libraryTitleId'])
+		.index('by_owner_user_id_library_title_id_started_at', [
+			'ownerUserId',
+			'libraryTitleId',
+			'startedAt'
+		]),
+
 	chapterComments: defineTable({
 		ownerUserId: v.id('users'),
 		libraryTitleId: v.id('libraryTitles'),

@@ -23,6 +23,7 @@
 	import TitleCommentsTab from '$lib/components/title-comments-tab.svelte';
 	import TitleEditPanel from '$lib/components/title-edit-panel.svelte';
 	import TitleInfoTab from '$lib/components/title-info-tab.svelte';
+	import TitleReadsTab from '$lib/components/title-reads-tab.svelte';
 	import { convexApi } from '$lib/convex/api';
 	import { waitForCommand } from '$lib/client/commands';
 	import { Alert } from '$lib/elements/alert';
@@ -195,7 +196,9 @@
 		titlesCount?: number;
 	};
 
-	let activeTab = $state<'info' | 'chapters' | 'comments'>('info');
+	let activeTab = $state<'info' | 'chapters' | 'comments' | 'reads'>('info');
+	let readSessionBusyId = $state<string | null>(null);
+	let startingReadSession = $state(false);
 	let showFullDescription = $state(false);
 	let showManagementPanel = $state(false);
 	let showEditPanel = $state(false);
@@ -274,6 +277,21 @@
 	);
 	const titleCommentsQuery = useQuery(convexApi.library.listTitleComments, () =>
 		activeTab === 'comments' && resolvedTitleId ? { titleId: resolvedTitleId } : 'skip'
+	);
+	const titleReadSessionsQuery = useQuery(convexApi.library.listTitleReadSessions, () =>
+		resolvedTitleId ? { titleId: resolvedTitleId } : 'skip'
+	);
+	const titleReadSessions = $derived(
+		(titleReadSessionsQuery.data as Array<{
+			id: string;
+			startedAt: number;
+			finishedAt: number | null;
+			rating: number | null;
+			notes: string | null;
+		}> | null) ?? []
+	);
+	const completedReadCount = $derived(
+		titleReadSessions.filter((session) => session.finishedAt !== null).length
 	);
 	const similarTitlesQuery = useQuery(convexApi.discovery.listSimilarForLibraryTitle, () =>
 		resolvedTitleId ? { titleId: resolvedTitleId, limit: 12 } : 'skip'
@@ -746,6 +764,77 @@
 			actionError = error instanceof Error ? error.message : $_('title.markPreviousRead');
 		} finally {
 			progressActionChapterId = null;
+		}
+	}
+
+	async function startReadSession(startedAt: number) {
+		if (!title || startingReadSession) return;
+		startingReadSession = true;
+		actionError = null;
+		try {
+			await client.mutation(convexApi.library.startReadSession, {
+				titleId: title._id,
+				startedAt
+			});
+		} catch (error) {
+			actionError = error instanceof Error ? error.message : 'Unable to start read session';
+		} finally {
+			startingReadSession = false;
+		}
+	}
+
+	async function finishReadSession(sessionId: string, finishedAt: number) {
+		if (readSessionBusyId) return;
+		readSessionBusyId = sessionId;
+		actionError = null;
+		try {
+			await client.mutation(convexApi.library.finishReadSession, {
+				sessionId: sessionId as Id<'titleReadSessions'>,
+				finishedAt
+			});
+		} catch (error) {
+			actionError = error instanceof Error ? error.message : 'Unable to finish read session';
+		} finally {
+			readSessionBusyId = null;
+		}
+	}
+
+	async function updateReadSession(
+		sessionId: string,
+		patch: {
+			startedAt?: number;
+			finishedAt?: number | null;
+			rating?: number | null;
+			notes?: string | null;
+		}
+	) {
+		if (readSessionBusyId) return;
+		readSessionBusyId = sessionId;
+		actionError = null;
+		try {
+			await client.mutation(convexApi.library.updateReadSession, {
+				sessionId: sessionId as Id<'titleReadSessions'>,
+				...patch
+			});
+		} catch (error) {
+			actionError = error instanceof Error ? error.message : 'Unable to update read session';
+		} finally {
+			readSessionBusyId = null;
+		}
+	}
+
+	async function deleteReadSession(sessionId: string) {
+		if (readSessionBusyId) return;
+		readSessionBusyId = sessionId;
+		actionError = null;
+		try {
+			await client.mutation(convexApi.library.deleteReadSession, {
+				sessionId: sessionId as Id<'titleReadSessions'>
+			});
+		} catch (error) {
+			actionError = error instanceof Error ? error.message : 'Unable to delete read session';
+		} finally {
+			readSessionBusyId = null;
 		}
 	}
 
@@ -1484,6 +1573,24 @@
 					>
 						{$_('title.comments')}
 					</button>
+					<button
+						type="button"
+						class="px-3 py-1.5 text-xs transition-colors {activeTab === 'reads'
+							? 'bg-[var(--void-4)] text-[var(--text)]'
+							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+						onclick={() => (activeTab = 'reads')}
+					>
+						{$_('title.reads')}
+						{#if completedReadCount > 0}
+							<span
+								class="ml-1 text-[10px] {activeTab === 'reads'
+									? 'text-[var(--text-muted)]'
+									: 'text-[var(--void-6)]'}"
+							>
+								{completedReadCount}
+							</span>
+						{/if}
+					</button>
 				</div>
 
 				<div class="mt-4">
@@ -1524,8 +1631,20 @@
 							fetchingNewChapters={sourceStatusRefreshing}
 							{progressActionChapterId}
 						/>
-					{:else}
+					{:else if activeTab === 'comments'}
 						<TitleCommentsTab loading={titleCommentsQuery.isLoading} {titleComments} />
+					{:else}
+						<TitleReadsTab
+							sessions={titleReadSessions}
+							loading={titleReadSessionsQuery.isLoading}
+							busySessionId={readSessionBusyId}
+							startingSession={startingReadSession}
+							onStartSession={(startedAt) => void startReadSession(startedAt)}
+							onFinishSession={(sessionId, finishedAt) =>
+								void finishReadSession(sessionId, finishedAt)}
+							onUpdateSession={(sessionId, patch) => void updateReadSession(sessionId, patch)}
+							onDeleteSession={(sessionId) => void deleteReadSession(sessionId)}
+						/>
 					{/if}
 				</div>
 			</div>

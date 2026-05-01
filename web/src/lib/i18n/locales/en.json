@@ -157,6 +157,7 @@
 		"chapters": "Chapters",
 		"comments": "Comments",
 		"info": "Info",
+		"reads": "Reads",
 		"sources": "Sources",
 		"findMatchesDescription": "Linked sources and suggested matches from enabled sources.",
 		"similarTitles": "Similar Titles",
@@ -274,6 +275,33 @@
 		"editNoSuggestions": "No alternative suggestions from linked sources",
 		"editDescriptionAlternatives": "Alternative descriptions from linked sources",
 		"editUseThis": "use this"
+	},
+
+	"reads": {
+		"completedSingular": "read completed",
+		"completedPlural": "reads completed",
+		"firstLabel": "first",
+		"lastLabel": "last",
+		"activeBadge": "Reading now",
+		"finishAction": "Finish",
+		"cancelActiveAction": "Discard active read",
+		"beginAction": "Begin a read",
+		"startedOn": "Started",
+		"finishedOn": "Finished",
+		"ratingLabel": "Rating",
+		"notesPlaceholder": "Add a note about this read…",
+		"emptyTitle": "No reads logged yet",
+		"emptyHint": "Start a read to begin tracking your transit log.",
+		"deleteConfirmTitle": "Delete this read?",
+		"deleteConfirmDescription": "This removes the session from your read history. The chapter progress is not affected.",
+		"sameDay": "same day",
+		"dayOne": "1 day",
+		"dayCount": "{days} days",
+		"todayLabel": "today",
+		"daysAgo": "{days}d ago",
+		"weeksAgo": "{weeks}w ago",
+		"monthsAgo": "{months}mo ago",
+		"yearsAgo": "{years}y ago"
 	},
 
 	"preview": {

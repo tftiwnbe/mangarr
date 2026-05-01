@@ -157,6 +157,7 @@
 		"chapters": "Главы",
 		"comments": "Комментарии",
 		"info": "Информация",
+		"reads": "Прочтения",
 		"sources": "Источники",
 		"findMatchesDescription": "Связанные источники и похожие совпадения среди включённых источников.",
 		"similarTitles": "Похожие тайтлы",
@@ -274,6 +275,33 @@
 		"editNoSuggestions": "Нет альтернативных предложений от связанных источников",
 		"editDescriptionAlternatives": "Альтернативные описания из связанных источников",
 		"editUseThis": "использовать"
+	},
+
+	"reads": {
+		"completedSingular": "прочтение завершено",
+		"completedPlural": "прочтений завершено",
+		"firstLabel": "первое",
+		"lastLabel": "последнее",
+		"activeBadge": "Сейчас читаю",
+		"finishAction": "Завершить",
+		"cancelActiveAction": "Отменить активное прочтение",
+		"beginAction": "Начать прочтение",
+		"startedOn": "Начато",
+		"finishedOn": "Завершено",
+		"ratingLabel": "Оценка",
+		"notesPlaceholder": "Добавьте заметку об этом прочтении…",
+		"emptyTitle": "Прочтения ещё не записаны",
+		"emptyHint": "Начните прочтение, чтобы вести журнал.",
+		"deleteConfirmTitle": "Удалить это прочтение?",
+		"deleteConfirmDescription": "Запись будет удалена из истории прочтений. Прогресс по главам не изменится.",
+		"sameDay": "за день",
+		"dayOne": "1 день",
+		"dayCount": "{days} дн.",
+		"todayLabel": "сегодня",
+		"daysAgo": "{days} дн. назад",
+		"weeksAgo": "{weeks} нед. назад",
+		"monthsAgo": "{months} мес. назад",
+		"yearsAgo": "{years} г. назад"
 	},
 
 	"preview": {

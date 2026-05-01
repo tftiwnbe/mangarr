@@ -61,6 +61,13 @@ export {
 } from './library_organization';
 export { linkVariant, normalizeTitleVariants, removeVariant } from './library_title_variants';
 export {
+	deleteReadSession,
+	finishReadSession,
+	listForTitle as listTitleReadSessions,
+	startReadSession,
+	updateReadSession
+} from './library_reads';
+export {
 	cancelQueuedChapterDownload,
 	getDownloadDashboard,
 	recoverActiveDownloads,
