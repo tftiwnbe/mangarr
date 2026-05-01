@@ -308,7 +308,11 @@
 		"readerFinishedHeadline": "You finished {title}",
 		"readerFinishedSubhead": "Log it as a completed read?",
 		"finishedToast": "Read logged",
-		"finishFailedToast": "Could not log read"
+		"finishFailedToast": "Could not log read",
+		"endOfHeading": "End of",
+		"saveAndReturn": "Save & return",
+		"returnWithoutSaving": "Return without saving",
+		"continueBrowsing": "Continue browsing"
 	},
 
 	"preview": {

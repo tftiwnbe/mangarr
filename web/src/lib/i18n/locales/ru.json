@@ -308,7 +308,11 @@
 		"readerFinishedHeadline": "Вы прочитали «{title}»",
 		"readerFinishedSubhead": "Записать как завершённое прочтение?",
 		"finishedToast": "Прочтение записано",
-		"finishFailedToast": "Не удалось записать прочтение"
+		"finishFailedToast": "Не удалось записать прочтение",
+		"endOfHeading": "Конец",
+		"saveAndReturn": "Сохранить и выйти",
+		"returnWithoutSaving": "Выйти без сохранения",
+		"continueBrowsing": "Продолжить чтение"
 	},
 
 	"preview": {

@@ -256,6 +256,12 @@
 	const nextChapter = $derived.by(() =>
 		nextChapterId ? (chapters.find((item) => item._id === nextChapterId) ?? null) : null
 	);
+	const showFinishPrompt = $derived(
+		!!chapter &&
+			!nextChapter &&
+			!!activeReadSession &&
+			dismissedFinishPromptForChapterId !== chapter._id
+	);
 	const canonicalTitlePath = $derived.by(() =>
 		title ? buildTitlePath(String(title._id), title.title, title.routeSegment ?? null) : '/library'
 	);
@@ -1103,7 +1109,7 @@
 						{$_('reader.nextChapter')}
 						<CaretRightIcon size={14} />
 					</Button>
-				{:else if title}
+				{:else if title && !showFinishPrompt}
 					<Button variant="outline" size="sm" href={canonicalTitlePath}>
 						{title.title}
 					</Button>
@@ -1112,22 +1118,30 @@
 			{#if bookmarkError}
 				<p class="text-xs text-[var(--error)]">{bookmarkError}</p>
 			{/if}
-			{#if !nextChapter && title && activeReadSession && dismissedFinishPromptForChapterId !== chapter?._id}
+			{#if showFinishPrompt && title && activeReadSession}
 				<div class="w-full max-w-md">
-					<p class="mb-2 text-center text-xs text-[var(--text-ghost)]">
-						{$_('reads.readerFinishedHeadline', { values: { title: title.title } })}
-					</p>
 					<ReadFinishPanel
 						startedAt={activeReadSession.startedAt}
 						busy={finishingReadSession}
 						variant="reader"
+						headingLabel={$_('reads.endOfHeading')}
+						headingDetail={title.title}
+						saveLabel={$_('reads.saveAndReturn')}
+						secondaryAction={{
+							label: $_('reads.returnWithoutSaving'),
+							onClick: () => {
+								void commitFinishReadSession(null, null);
+								void goto(canonicalTitlePath);
+							}
+						}}
 						onSave={(rating, notes) => {
 							void commitFinishReadSession(rating, notes);
-							dismissedFinishPromptForChapterId = chapter?._id ?? null;
+							void goto(canonicalTitlePath);
 						}}
 						onDismiss={() => {
 							dismissedFinishPromptForChapterId = chapter?._id ?? null;
 						}}
+						dismissLabel={$_('reads.continueBrowsing')}
 					/>
 				</div>
 			{/if}

@@ -6,7 +6,11 @@
 	type Props = {
 		startedAt: number;
 		busy?: boolean;
+		headingLabel?: string;
+		headingDetail?: string | null;
+		saveLabel?: string;
 		dismissLabel?: string;
+		secondaryAction?: { label: string; onClick: () => void } | null;
 		onSave: (rating: number | null, notes: string | null) => void;
 		onDismiss?: () => void;
 		variant?: 'inline' | 'reader';
@@ -15,7 +19,11 @@
 	let {
 		startedAt,
 		busy = false,
+		headingLabel,
+		headingDetail = null,
+		saveLabel,
 		dismissLabel,
+		secondaryAction = null,
 		onSave,
 		onDismiss,
 		variant = 'inline'
@@ -44,18 +52,26 @@
 		? 'shadow-[0_0_24px_-8px_var(--cosmic-glow)]'
 		: 'shadow-[0_0_24px_-12px_var(--cosmic-glow)]'}"
 >
-	<div class="flex items-center justify-between gap-3">
-		<div class="flex items-center gap-2 font-mono text-[10px] tracking-[0.22em] uppercase">
-			<span class="inline-block h-1.5 w-1.5 bg-[var(--cosmic)] shadow-[0_0_6px_var(--cosmic-glow)]"
-			></span>
-			<span class="text-[var(--text-soft)]">{$_('reads.finishPromptHeading')}</span>
-			<span class="text-[var(--text-ghost)]">·</span>
-			<span class="text-[var(--text-ghost)] normal-case tabular-nums">{durationLabel}</span>
+	<div class="flex items-start justify-between gap-3">
+		<div class="flex min-w-0 flex-col gap-0.5">
+			<div class="flex items-center gap-2 font-mono text-[10px] tracking-[0.22em] uppercase">
+				<span
+					class="inline-block h-1.5 w-1.5 bg-[var(--cosmic)] shadow-[0_0_6px_var(--cosmic-glow)]"
+				></span>
+				<span class="text-[var(--text-soft)]">
+					{headingLabel ?? $_('reads.finishPromptHeading')}
+				</span>
+				<span class="text-[var(--text-ghost)]">·</span>
+				<span class="text-[var(--text-ghost)] normal-case tabular-nums">{durationLabel}</span>
+			</div>
+			{#if headingDetail}
+				<span class="truncate text-sm text-[var(--text)] italic">{headingDetail}</span>
+			{/if}
 		</div>
 		{#if onDismiss}
 			<button
 				type="button"
-				class="cursor-pointer p-1 text-[var(--void-7)] transition-colors hover:text-[var(--text-muted)]"
+				class="shrink-0 cursor-pointer p-1 text-[var(--void-7)] transition-colors hover:text-[var(--text-muted)]"
 				aria-label={dismissLabel ?? $_('common.cancel')}
 				disabled={busy}
 				onclick={onDismiss}
@@ -99,7 +115,17 @@
 		class="mt-2 w-full resize-y border border-[var(--void-4)] bg-[var(--void-1)] px-2 py-1.5 text-xs text-[var(--text-soft)] outline-none focus:border-[var(--cosmic)]"
 	></textarea>
 
-	<div class="mt-3 flex items-center justify-end gap-2">
+	<div class="mt-3 flex flex-wrap items-center justify-end gap-2">
+		{#if secondaryAction}
+			<button
+				type="button"
+				class="cursor-pointer px-2 py-1 font-mono text-[10px] tracking-[0.18em] text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text-muted)] disabled:opacity-50"
+				disabled={busy}
+				onclick={secondaryAction.onClick}
+			>
+				{secondaryAction.label}
+			</button>
+		{/if}
 		{#if onDismiss}
 			<button
 				type="button"
@@ -121,7 +147,7 @@
 			{:else}
 				<CheckIcon size={12} />
 			{/if}
-			<span>{$_('reads.finishAndSave')}</span>
+			<span>{saveLabel ?? $_('reads.finishAndSave')}</span>
 		</button>
 	</div>
 </div>
