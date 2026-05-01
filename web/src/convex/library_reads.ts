@@ -140,6 +140,18 @@ export const startReadSession = mutation({
 	}
 });
 
+async function syncTitleRatingFromSession(
+	ctx: import('./_generated/server').MutationCtx,
+	titleId: import('convex/values').GenericId<'libraryTitles'>,
+	rating: number | undefined
+): Promise<void> {
+	if (rating === undefined) return;
+	const title = await ctx.db.get(titleId);
+	if (!title) return;
+	if (title.userRating === rating) return;
+	await ctx.db.patch(titleId, { userRating: rating, updatedAt: Date.now() });
+}
+
 export const finishReadSession = mutation({
 	args: {
 		sessionId: v.id('titleReadSessions'),
@@ -156,12 +168,14 @@ export const finishReadSession = mutation({
 		const now = Date.now();
 		const finishedAt = args.finishedAt && Number.isFinite(args.finishedAt) ? args.finishedAt : now;
 		const safeFinishedAt = finishedAt < session.startedAt ? session.startedAt : finishedAt;
+		const nextRating = normalizeRating(args.rating ?? session.rating ?? undefined);
 		await ctx.db.patch(session._id, {
 			finishedAt: safeFinishedAt,
-			rating: normalizeRating(args.rating ?? session.rating ?? undefined),
+			rating: nextRating,
 			notes: normalizeNotes(args.notes ?? session.notes ?? undefined),
 			updatedAt: now
 		});
+		await syncTitleRatingFromSession(ctx, session.libraryTitleId, nextRating);
 		return { ok: true };
 	}
 });
@@ -214,6 +228,7 @@ export const updateReadSession = mutation({
 			notes,
 			updatedAt: Date.now()
 		});
+		await syncTitleRatingFromSession(ctx, session.libraryTitleId, rating);
 		return { ok: true };
 	}
 });
