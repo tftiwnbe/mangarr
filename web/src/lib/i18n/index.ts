@@ -1,5 +1,7 @@
 import { init, register, getLocaleFromNavigator, locale, _, waitLocale } from 'svelte-i18n';
 
+import { patchUserPreferences, userPreferences } from '$lib/stores/user-preferences';
+
 // Supported locales
 export const SUPPORTED_LOCALES = ['en', 'ru'] as const;
 export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
@@ -16,7 +18,9 @@ export const LOCALE_META: Record<
 // Default locale
 export const DEFAULT_LOCALE: SupportedLocale = 'en';
 
-// Storage key for user's locale preference
+// Pre-paint cache key. Source of truth is the userPreferences row on the
+// server; localStorage is mirrored so initial render uses the right locale
+// without waiting on the API.
 const LOCALE_STORAGE_KEY = 'mangarr-locale';
 
 // Register all locales with lazy loading — only on the client to avoid SSR fetch warnings
@@ -39,13 +43,19 @@ function getStoredLocale(): SupportedLocale | null {
 }
 
 /**
- * Save locale preference to localStorage
+ * Save locale preference. Updates the local cache and persists to the
+ * server-side userPreferences row.
  */
 export function setStoredLocale(newLocale: SupportedLocale): void {
 	if (typeof window !== 'undefined') {
-		localStorage.setItem(LOCALE_STORAGE_KEY, newLocale);
+		try {
+			localStorage.setItem(LOCALE_STORAGE_KEY, newLocale);
+		} catch {
+			/* non-fatal */
+		}
 	}
 	locale.set(newLocale);
+	void patchUserPreferences({ locale: newLocale });
 }
 
 /**
@@ -81,6 +91,21 @@ export function initI18n(): void {
 		fallbackLocale: DEFAULT_LOCALE,
 		initialLocale: detectInitialLocale()
 	});
+
+	// When server preferences load, switch the active locale if it differs
+	// from what we booted with. Also keeps the pre-paint cache in sync.
+	if (typeof window !== 'undefined') {
+		userPreferences.subscribe(($prefs) => {
+			if ($prefs.locale && isSupported($prefs.locale)) {
+				try {
+					localStorage.setItem(LOCALE_STORAGE_KEY, $prefs.locale);
+				} catch {
+					/* non-fatal */
+				}
+				locale.set($prefs.locale);
+			}
+		});
+	}
 }
 
 /**

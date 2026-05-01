@@ -1,15 +1,25 @@
 import { writable, derived } from 'svelte/store';
 import { browser } from '$app/environment';
 
+import { patchUserPreferences, userPreferences } from './user-preferences';
+
 export type ThemePreference = 'dark' | 'light' | 'system';
 export type ResolvedTheme = 'dark' | 'light';
 
+// Pre-paint mirror key. The inline script in app.html reads this BEFORE the
+// Svelte app boots so the document gets `data-theme` set without a flash.
+// Source of truth lives on the server in userPreferences; this is just a
+// cache kept in sync on every set.
 const STORAGE_KEY = 'mangarr-theme';
+
+function isThemePreference(value: unknown): value is ThemePreference {
+	return value === 'dark' || value === 'light' || value === 'system';
+}
 
 function getStoredPreference(): ThemePreference {
 	if (!browser) return 'dark';
 	const stored = localStorage.getItem(STORAGE_KEY);
-	if (stored === 'dark' || stored === 'light' || stored === 'system') return stored;
+	if (isThemePreference(stored)) return stored;
 	return 'dark';
 }
 
@@ -46,9 +56,22 @@ export function initTheme(): void {
 	};
 	mq.addEventListener('change', onSystemChange);
 
-	// Persist preference changes
+	// Mirror preference into the pre-paint cache. Server sync happens via
+	// setTheme() so this listener is just a local-cache safety net.
 	themePreference.subscribe((pref) => {
-		localStorage.setItem(STORAGE_KEY, pref);
+		try {
+			localStorage.setItem(STORAGE_KEY, pref);
+		} catch {
+			/* non-fatal */
+		}
+	});
+
+	// Reflect server-side preference into our local store when it loads.
+	userPreferences.subscribe(($prefs) => {
+		const next = $prefs.theme;
+		if (isThemePreference(next)) {
+			themePreference.update((current) => (current === next ? current : next));
+		}
 	});
 
 	// Apply resolved theme to DOM
@@ -57,4 +80,5 @@ export function initTheme(): void {
 
 export function setTheme(pref: ThemePreference): void {
 	themePreference.set(pref);
+	void patchUserPreferences({ theme: pref });
 }
