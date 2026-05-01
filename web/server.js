@@ -8,6 +8,11 @@ const port = Number(process.env.PORT ?? '3737');
 const convexTarget = new URL(
 	process.env.CONVEX_URL ?? process.env.CONVEX_SELF_HOSTED_URL ?? 'http://127.0.0.1:3210'
 );
+const convexAgent = new http.Agent({
+	keepAlive: true,
+	keepAliveMsecs: 30_000,
+	maxSockets: 16
+});
 const convexPrefix = normalizePrefix(process.env.PUBLIC_CONVEX_PROXY_PREFIX ?? '/convex');
 
 function normalizePrefix(value) {
@@ -40,7 +45,8 @@ function proxyHttp(req, res) {
 			headers: {
 				...req.headers,
 				host: convexTarget.host
-			}
+			},
+			agent: convexAgent
 		},
 		(upstreamRes) => {
 			res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
