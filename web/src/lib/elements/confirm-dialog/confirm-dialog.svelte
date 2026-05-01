@@ -93,11 +93,11 @@
 	@keyframes scale-in {
 		from {
 			opacity: 0;
-			transform: translate(-50%, -48%) scale(0.97);
+			scale: 0.97;
 		}
 		to {
 			opacity: 1;
-			transform: translate(-50%, -50%) scale(1);
+			scale: 1;
 		}
 	}
 
