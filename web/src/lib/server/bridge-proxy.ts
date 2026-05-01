@@ -4,13 +4,20 @@ import type { RequestEvent } from '@sveltejs/kit';
 import { requireUser } from './auth';
 import { buildBridgeInternalHeaders, getBridgeBaseUrl } from './bridge';
 
+// content-length is intentionally omitted: Node's fetch transparently decodes
+// gzip/br response bodies, so upstream's content-length (the encoded size) no
+// longer matches the bytes we forward. Letting the response stream chunk-encode
+// avoids truncation. content-encoding is dropped for the same reason.
 const FORWARDED_HEADERS = [
 	'content-type',
 	'cache-control',
 	'content-disposition',
 	'etag',
 	'last-modified',
-	'content-length'
+	'accept-ranges',
+	'vary',
+	'age',
+	'expires'
 ] as const;
 
 export async function proxyBridgeRequest(
