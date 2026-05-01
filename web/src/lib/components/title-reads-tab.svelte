@@ -1,13 +1,5 @@
 <script lang="ts">
-	import {
-		BookOpenIcon,
-		CheckIcon,
-		PlusIcon,
-		SpinnerIcon,
-		StarIcon,
-		TrashIcon,
-		XIcon
-	} from 'phosphor-svelte';
+	import { BookOpenIcon, PlusIcon, SpinnerIcon, StarIcon, TrashIcon, XIcon } from 'phosphor-svelte';
 
 	import { Button } from '$lib/elements/button';
 	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
@@ -56,15 +48,6 @@
 	const activeSession = $derived(sessions.find((session) => session.finishedAt === null) ?? null);
 	const completedSessions = $derived(sessions.filter((session) => session.finishedAt !== null));
 	const completedCount = $derived(completedSessions.length);
-	const firstFinishedAt = $derived(
-		completedSessions.length > 0
-			? Math.min(
-					...completedSessions
-						.map((session) => session.finishedAt ?? 0)
-						.filter((value) => value > 0)
-				)
-			: null
-	);
 	const lastFinishedAt = $derived(
 		completedSessions.length > 0
 			? Math.max(
@@ -81,13 +64,6 @@
 	let draftRating = $state(0);
 	let draftNotes = $state('');
 	let pendingDeleteId = $state<string | null>(null);
-
-	let showStartPicker = $state(false);
-	let startPickerDate = $state('');
-
-	let showFinishPicker = $state(false);
-	let finishPickerDate = $state('');
-	let finishPickerSessionId = $state<string | null>(null);
 
 	function toDateInputValue(ms: number | null): string {
 		if (!ms) return '';
@@ -167,37 +143,6 @@
 		expandedId = null;
 	}
 
-	function openStartPicker() {
-		startPickerDate = toDateInputValue(Date.now());
-		showStartPicker = true;
-	}
-
-	function confirmStart() {
-		const startedAt = fromDateInputValue(startPickerDate, Date.now());
-		onStartSession(startedAt);
-		showStartPicker = false;
-	}
-
-	function openFinishPicker(sessionId: string) {
-		finishPickerSessionId = sessionId;
-		finishPickerDate = toDateInputValue(Date.now());
-		showFinishPicker = true;
-	}
-
-	function confirmFinish() {
-		if (!finishPickerSessionId) return;
-		const session = sessions.find((row) => row.id === finishPickerSessionId);
-		if (!session) {
-			showFinishPicker = false;
-			return;
-		}
-		const finishedAt = fromDateInputValue(finishPickerDate, Date.now());
-		const safeFinishedAt = finishedAt < session.startedAt ? session.startedAt : finishedAt;
-		onFinishSession(session.id, safeFinishedAt);
-		showFinishPicker = false;
-		finishPickerSessionId = null;
-	}
-
 	function ratingFor(session: ReadSession): number {
 		if (expandedId === session.id) return draftRating;
 		return session.rating ?? 0;
@@ -254,13 +199,12 @@
 					{completedCount === 1 ? $_('reads.completedSingular') : $_('reads.completedPlural')}
 				</span>
 			</div>
-			{#if firstFinishedAt}
+			{#if lastFinishedAt}
 				<div
-					class="hidden items-center gap-3 font-mono text-[10px] tracking-[0.14em] text-[var(--text-ghost)] uppercase sm:flex"
+					class="hidden font-mono text-[10px] tracking-[0.14em] text-[var(--text-ghost)] uppercase sm:block"
 				>
-					<span>{$_('reads.firstLabel')} {relativeAgo(firstFinishedAt)}</span>
-					<span class="h-1 w-1 bg-[var(--void-5)]"></span>
-					<span>{$_('reads.lastLabel')} {relativeAgo(lastFinishedAt)}</span>
+					{$_('reads.lastLabel')}
+					{relativeAgo(lastFinishedAt)}
 				</div>
 			{/if}
 		</div>
@@ -285,7 +229,7 @@
 							type="button"
 							class="cursor-pointer border border-[var(--cosmic)]/40 px-2.5 py-1 font-mono text-[10px] tracking-[0.18em] text-[var(--text)] uppercase transition-colors hover:bg-[var(--cosmic)]/10 disabled:opacity-50"
 							disabled={busySessionId === activeSession.id}
-							onclick={() => openFinishPicker(activeSession.id)}
+							onclick={() => onFinishSession(activeSession.id, Date.now())}
 						>
 							{$_('reads.finishAction')}
 						</button>
@@ -309,12 +253,12 @@
 					<span class="text-[var(--void-7)]">{relativeAgo(activeSession.startedAt)}</span>
 				</div>
 			</div>
-		{:else if !showStartPicker}
+		{:else}
 			<button
 				type="button"
 				class="group flex cursor-pointer items-center justify-center gap-2 border border-dashed border-[var(--void-4)] py-3 font-mono text-[10px] tracking-[0.22em] text-[var(--text-ghost)] uppercase transition-colors hover:border-[var(--cosmic)] hover:text-[var(--text)] disabled:opacity-50"
 				disabled={startingSession}
-				onclick={openStartPicker}
+				onclick={() => onStartSession(Date.now())}
 			>
 				{#if startingSession}
 					<SpinnerIcon size={12} class="animate-spin" />
@@ -323,72 +267,6 @@
 				{/if}
 				<span>{$_('reads.beginAction')}</span>
 			</button>
-		{/if}
-
-		{#if showStartPicker}
-			<div
-				class="flex items-center gap-2 border border-[var(--void-4)] bg-[var(--void-2)] px-3 py-2.5"
-			>
-				<span class="font-mono text-[10px] tracking-[0.2em] text-[var(--text-ghost)] uppercase">
-					{$_('reads.startedOn')}
-				</span>
-				<input
-					type="date"
-					bind:value={startPickerDate}
-					class="border border-[var(--void-4)] bg-[var(--void-1)] px-2 py-1 font-mono text-xs text-[var(--text)] tabular-nums outline-none focus:border-[var(--cosmic)]"
-				/>
-				<div class="ml-auto flex items-center gap-1.5">
-					<button
-						type="button"
-						class="cursor-pointer p-1 text-[var(--void-7)] transition-colors hover:text-[var(--text-muted)]"
-						aria-label={$_('common.cancel')}
-						onclick={() => (showStartPicker = false)}
-					>
-						<XIcon size={14} />
-					</button>
-					<button
-						type="button"
-						class="cursor-pointer p-1 text-[var(--cosmic)] transition-colors hover:text-[var(--text)]"
-						aria-label={$_('reads.beginAction')}
-						onclick={confirmStart}
-					>
-						<CheckIcon size={14} />
-					</button>
-				</div>
-			</div>
-		{/if}
-
-		{#if showFinishPicker}
-			<div
-				class="flex items-center gap-2 border border-[var(--cosmic)]/30 bg-[var(--void-2)] px-3 py-2.5"
-			>
-				<span class="font-mono text-[10px] tracking-[0.2em] text-[var(--text-ghost)] uppercase">
-					{$_('reads.finishedOn')}
-				</span>
-				<input
-					type="date"
-					bind:value={finishPickerDate}
-					class="border border-[var(--void-4)] bg-[var(--void-1)] px-2 py-1 font-mono text-xs text-[var(--text)] tabular-nums outline-none focus:border-[var(--cosmic)]"
-				/>
-				<div class="ml-auto flex items-center gap-1.5">
-					<button
-						type="button"
-						class="cursor-pointer p-1 text-[var(--void-7)] transition-colors hover:text-[var(--text-muted)]"
-						aria-label={$_('common.cancel')}
-						onclick={() => (showFinishPicker = false)}
-					>
-						<XIcon size={14} />
-					</button>
-					<button
-						type="button"
-						class="cursor-pointer p-1 text-[var(--cosmic)] transition-colors hover:text-[var(--text)]"
-						aria-label={$_('reads.finishAction')}
-						onclick={confirmFinish}
-					>
-						<CheckIcon size={14} />
-					</button>
-				</div>
-			</div>
 		{/if}
 
 		{#if completedSessions.length === 0 && !activeSession}
