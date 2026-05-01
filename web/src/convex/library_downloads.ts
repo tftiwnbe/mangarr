@@ -13,7 +13,10 @@ import {
 	applyChapterDownloadCounterDelta,
 	applyTaskActiveDownloadCounterDelta
 } from './download_counters';
-export { getDownloadDashboard } from './library_download_dashboard';
+export {
+	getDownloadDashboard,
+	getActiveDownloadProgress
+} from './library_download_dashboard';
 
 const DOWNLOAD_STATUS = {
 	MISSING: 'missing',

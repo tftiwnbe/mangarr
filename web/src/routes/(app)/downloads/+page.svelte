@@ -90,6 +90,9 @@
 		activeLimit: 100,
 		recentLimit: 40
 	}));
+	const activeProgressQuery = useQuery(convexApi.library.getActiveDownloadProgress, () => ({
+		limit: 100
+	}));
 
 	let runningAction = $state<string | null>(null);
 	let profileActionTitleId = $state<string | null>(null);
@@ -117,8 +120,8 @@
 	const numberFormatter = new Intl.NumberFormat();
 
 	const activeDownloads = $derived(
-		dashboard.activeTasks
-			.filter((task) => task.status === 'downloading')
+		((activeProgressQuery.data as unknown as { tasks: DashboardTask[] } | null)?.tasks ?? [])
+			.slice()
 			.sort((a, b) => a.chapterId.localeCompare(b.chapterId))
 	);
 

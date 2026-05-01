@@ -70,6 +70,7 @@ export {
 } from './library_reads';
 export {
 	cancelQueuedChapterDownload,
+	getActiveDownloadProgress,
 	getDownloadDashboard,
 	recoverActiveDownloads,
 	requestChapterDownload,
@@ -290,17 +291,22 @@ export const upsertChaptersForTitle = mutation({
 			lastSyncedAt: args.now,
 			updatedAt: args.now
 		});
-		const profile = await ctx.db
-			.query('downloadProfiles')
-			.withIndex('by_owner_user_id_library_title_id', (q) =>
-				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-			)
-			.unique();
-		if (profile) {
-			await ctx.db.patch(profile._id, {
-				lastChapterSyncAt: args.now,
-				updatedAt: args.now
-			});
+		// Only touch the download profile when chapter rows actually changed.
+		// Patching `lastChapterSyncAt` on every no-op sync caused OCC retries to
+		// pile up when concurrent crawlers reported the same chapter list.
+		if (chapterRowsChanged) {
+			const profile = await ctx.db
+				.query('downloadProfiles')
+				.withIndex('by_owner_user_id_library_title_id', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.unique();
+			if (profile) {
+				await ctx.db.patch(profile._id, {
+					lastChapterSyncAt: args.now,
+					updatedAt: args.now
+				});
+			}
 		}
 
 		if (chapterRowsChanged) {

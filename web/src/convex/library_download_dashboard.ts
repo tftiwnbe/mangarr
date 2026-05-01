@@ -39,12 +39,15 @@ export const getDownloadDashboard = query({
 		const activeLimit = Math.max(1, Math.min(Math.floor(args.activeLimit ?? 20), 100));
 		const recentLimit = Math.max(1, Math.min(Math.floor(args.recentLimit ?? 20), 100));
 
-		// Load profiles first to ensure we load all titles with profiles
+		// Load profiles first to ensure we load all titles with profiles.
+		// In-flight ("downloading") tasks are intentionally excluded: their progress
+		// updates tick every few seconds and would force this query — which scans the
+		// full library — to re-run constantly. The downloads page subscribes to
+		// `getActiveDownloadProgress` separately for live progress.
 		const [
 			profileRows,
 			installedExtensions,
 			queuedTaskRows,
-			downloadingTaskRows,
 			completedTaskRows,
 			failedTaskRows,
 			cancelledTaskRows
@@ -58,13 +61,6 @@ export const getDownloadDashboard = query({
 				.query('downloadTasks')
 				.withIndex('by_owner_user_id_status_updated_at', (q) =>
 					q.eq('ownerUserId', ownerUserId).eq('status', DOWNLOAD_TASK_STATUS.QUEUED)
-				)
-				.order('desc')
-				.take(200),
-			ctx.db
-				.query('downloadTasks')
-				.withIndex('by_owner_user_id_status_updated_at', (q) =>
-					q.eq('ownerUserId', ownerUserId).eq('status', DOWNLOAD_TASK_STATUS.DOWNLOADING)
 				)
 				.order('desc')
 				.take(200),
@@ -91,33 +87,21 @@ export const getDownloadDashboard = query({
 				.take(recentLimit)
 		]);
 
-		// Load all titles for accurate library-wide stats calculation
-		const profileTitleIds = new Set(profileRows.map((p) => String(p.libraryTitleId)));
-		const [profileTitles, allTitles] = await Promise.all([
-			Promise.all(
-				Array.from(profileTitleIds).map((titleId) =>
-					ctx.db.get(titleId as GenericId<'libraryTitles'>)
-				)
-			),
-			ctx.db
-				.query('libraryTitles')
-				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
-				.collect()
-		]);
-
-		// Combine and deduplicate titles
-		const titleMap = new Map<string, (typeof allTitles)[number]>();
-		for (const title of [
-			...profileTitles.filter((t): t is NonNullable<typeof t> => t !== null),
-			...allTitles
-		]) {
-			if (!titleMap.has(String(title._id))) {
-				titleMap.set(String(title._id), title);
-			}
-		}
-		const titles = Array.from(titleMap.values()).sort(
-			(left, right) => right.updatedAt - left.updatedAt
+		// Resolve titles only for the user's download profiles. Scanning the entire
+		// libraryTitles table on every dashboard re-run was the dominant cost and
+		// blew past the 15s syscall ceiling for users with large libraries. The
+		// dashboard's overview/watched cards describe titles the user actively
+		// manages — i.e. those with profiles — so the profile set is the right
+		// scope here.
+		const profileTitleIds = Array.from(
+			new Set(profileRows.map((p) => String(p.libraryTitleId)))
 		);
+		const profileTitles = await Promise.all(
+			profileTitleIds.map((titleId) => ctx.db.get(titleId as GenericId<'libraryTitles'>))
+		);
+		const titles = profileTitles
+			.filter((t): t is NonNullable<typeof t> => t !== null)
+			.sort((left, right) => right.updatedAt - left.updatedAt);
 
 		const sourceNamesById = new Map<string, string>();
 		const sourceNamesByPkg = new Map<string, string>();
@@ -143,7 +127,7 @@ export const getDownloadDashboard = query({
 			totalDownloadedBytes += title.downloadedChapterBytes ?? 0;
 		}
 
-		const activeTaskRows = [...queuedTaskRows, ...downloadingTaskRows].sort(
+		const activeTaskRows = [...queuedTaskRows].sort(
 			(left, right) => right.updatedAt - left.updatedAt
 		);
 		const recentTaskRows = [...completedTaskRows, ...failedTaskRows, ...cancelledTaskRows]
@@ -151,42 +135,16 @@ export const getDownloadDashboard = query({
 			.slice(0, recentLimit);
 
 		const queuedTaskCountByTitleId = new Map<string, number>();
-		for (const task of activeTaskRows) {
+		for (const task of queuedTaskRows) {
 			const key = String(task.libraryTitleId);
 			queuedTaskCountByTitleId.set(key, (queuedTaskCountByTitleId.get(key) ?? 0) + 1);
 		}
 
-		// Fetch commands for queued tasks to detect backoff (runAfter in the future)
-		const now = Date.now();
-		const queuedCommandIds = [
-			...new Set(
-				queuedTaskRows
-					.map((t) => t.commandId)
-					.filter((id): id is NonNullable<typeof id> => id != null)
-			)
-		];
-		const queuedCommands = await Promise.all(queuedCommandIds.map((id) => ctx.db.get(id)));
-
-		// Map commandId -> runAfter for backed-off commands
-		const commandRunAfterById = new Map<string, number>();
-		for (const cmd of queuedCommands) {
-			if (cmd && cmd.runAfter > now) {
-				commandRunAfterById.set(String(cmd._id), cmd.runAfter);
-			}
-		}
-
-		// Per-title: earliest future runAfter across queued tasks
+		// Backoff/retry timing per title was previously computed by reading every
+		// queued task's command document — up to 200 individual db.get calls per
+		// dashboard run. The retry display is best-effort UX, not load-bearing,
+		// and is omitted here to keep the query within Convex's syscall budget.
 		const nextRetryAtByTitleId = new Map<string, number>();
-		for (const task of queuedTaskRows) {
-			if (!task.commandId) continue;
-			const runAfter = commandRunAfterById.get(String(task.commandId));
-			if (runAfter == null) continue;
-			const titleKey = String(task.libraryTitleId);
-			const existing = nextRetryAtByTitleId.get(titleKey);
-			if (existing == null || runAfter < existing) {
-				nextRetryAtByTitleId.set(titleKey, runAfter);
-			}
-		}
 
 		const watchedCandidates = titles
 			.map((title) => {
@@ -244,6 +202,30 @@ export const getDownloadDashboard = query({
 			activeTasks: activeTaskRows.slice(0, activeLimit).map(mapDownloadTaskRow),
 			recentTasks: recentTaskRows.map(mapDownloadTaskRow),
 			watchedTitles
+		};
+	}
+});
+
+export const getActiveDownloadProgress = query({
+	args: {
+		limit: v.optional(v.float64())
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return { tasks: [] as ReturnType<typeof mapDownloadTaskRow>[] };
+		}
+		const ownerUserId = identity.subject as GenericId<'users'>;
+		const limit = Math.max(1, Math.min(Math.floor(args.limit ?? 100), 200));
+		const downloadingTaskRows = await ctx.db
+			.query('downloadTasks')
+			.withIndex('by_owner_user_id_status_updated_at', (q) =>
+				q.eq('ownerUserId', ownerUserId).eq('status', DOWNLOAD_TASK_STATUS.DOWNLOADING)
+			)
+			.order('desc')
+			.take(limit);
+		return {
+			tasks: downloadingTaskRows.map(mapDownloadTaskRow)
 		};
 	}
 });
