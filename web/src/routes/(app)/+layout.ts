@@ -2,6 +2,8 @@ import { browser } from '$app/environment';
 import { redirect } from '@sveltejs/kit';
 import type { LayoutLoad } from './$types';
 
+import { getCachedUserPreferences } from '$lib/stores/user-preferences';
+
 export const ssr = false;
 
 const LAST_PATH_KEY = 'mangarr:last-path';
@@ -19,6 +21,11 @@ export const load: LayoutLoad = ({ url }) => {
 	if (!browser) return;
 	if (sessionStorage.getItem(SESSION_RESUMED_KEY)) return;
 	sessionStorage.setItem(SESSION_RESUMED_KEY, '1');
+
+	// Toggle: stored server-side, mirrored to a local cache so this load fn
+	// can decide synchronously without awaiting the API. Default is enabled.
+	const cached = getCachedUserPreferences();
+	if (cached.pwaResumeEnabled === false) return;
 
 	if (url.pathname !== '/library' || url.search) return;
 

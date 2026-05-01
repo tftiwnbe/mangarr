@@ -20,6 +20,7 @@
 		setKnownContentLanguages
 	} from '$lib/stores/content-languages';
 	import { themePreference, setTheme } from '$lib/stores/theme';
+	import { userPreferences, patchUserPreferences } from '$lib/stores/user-preferences';
 	import { toMainContentLanguages } from '$lib/utils/content-languages';
 	import {
 		ArrowLeftIcon,
@@ -892,6 +893,21 @@
 								</button>
 							{/each}
 						</div>
+					</div>
+					<div class="flex items-start justify-between gap-3 py-1">
+						<div class="flex flex-col gap-0.5">
+							<span class="text-sm text-[var(--text-soft)]">resume last page on app launch</span>
+							<span class="text-xs text-[var(--text-ghost)]">
+								when opening the installed app, return to the page you had open instead of the
+								library home
+							</span>
+						</div>
+						<Switch
+							checked={$userPreferences.pwaResumeEnabled !== false}
+							onCheckedChange={(value) => {
+								void patchUserPreferences({ pwaResumeEnabled: value });
+							}}
+						/>
 					</div>
 				</section>
 
