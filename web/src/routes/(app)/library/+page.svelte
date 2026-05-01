@@ -715,7 +715,7 @@
 
 					<div class="flex flex-col gap-0.5 px-0.5">
 						<p
-							class="line-clamp-2 min-h-[2lh] text-xs leading-snug text-[var(--text)] transition-colors group-hover:text-white"
+							class="line-clamp-2 min-h-[2lh] text-xs leading-snug text-[var(--text-muted)] transition-colors group-hover:text-[var(--text)]"
 						>
 							{title.title}
 						</p>
