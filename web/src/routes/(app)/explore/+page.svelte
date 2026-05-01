@@ -139,7 +139,6 @@
 
 	const client = useConvexClient();
 	const sourcesQuery = useQuery(convexApi.extensions.listSources, () => ({}));
-	const importedLookupQuery = useQuery(convexApi.library.getMineImportedSourceLookup, () => ({}));
 	const forYouQuery = useQuery(convexApi.discovery.listForYou, () => ({ limit: 24 }));
 
 	const tabs = $derived([
@@ -274,6 +273,9 @@
 	);
 
 	const feedCommandType = $derived(activeTab === 'latest' ? 'explore.latest' : 'explore.popular');
+	const importedLookupQuery = useQuery(convexApi.library.getMineImportedSourceLookup, () => ({
+		entries: importedLookupEntries()
+	}));
 	const showSearchPrompt = $derived(activeTab === 'search' && !canRunSearch);
 	const currentLoading = $derived(
 		loading ||
@@ -673,6 +675,32 @@
 			items.push(...(latestSearchResult(sourceId, query, filters, page)?.items ?? []));
 		}
 		return items;
+	}
+
+	function importedLookupEntries(): Array<{ sourceId: string; titleUrl: string }> {
+		const items =
+			activeTab === 'search'
+				? (selectedSourceId
+						? searchItemsForSource(selectedSourceId)
+						: searchSources.flatMap((source) => searchItemsForSource(source.id)))
+				: activeTab === 'forYou'
+					? forYouResult.items
+					: activeFeedSourceIds.flatMap((sourceId) =>
+							feedItemsForSource(feedCommandType, sourceId, loadedPagesBySource[sourceId] ?? 0)
+						);
+
+		const entries: Array<{ sourceId: string; titleUrl: string }> = [];
+		const seen: Record<string, true> = {};
+		for (const item of items) {
+			const sourceId = item.sourceId.trim();
+			const titleUrl = item.titleUrl.trim();
+			if (!sourceId || !titleUrl) continue;
+			const key = `${sourceId}::${titleUrl}`;
+			if (seen[key]) continue;
+			seen[key] = true;
+			entries.push({ sourceId, titleUrl });
+		}
+		return entries;
 	}
 
 	function sourceHasMore(commandType: string, sourceId: string): boolean {

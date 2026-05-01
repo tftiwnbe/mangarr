@@ -146,6 +146,7 @@ export default defineSchema({
 		])
 		.index('by_owner_user_id_updated_at', ['ownerUserId', 'updatedAt'])
 		.index('by_owner_user_id_route_base', ['ownerUserId', 'routeBase'])
+		.index('by_owner_user_id_source_id_title_url', ['ownerUserId', 'sourceId', 'titleUrl'])
 		.index('by_owner_user_id_user_status_id', ['ownerUserId', 'userStatusId'])
 		.index('by_source_id_title_url', ['sourceId', 'titleUrl']),
 

@@ -230,8 +230,15 @@ export const getMineVisibilitySummary = query({
 });
 
 export const getMineImportedSourceLookup = query({
-	args: {},
-	handler: async (ctx) => {
+	args: {
+		entries: v.array(
+			v.object({
+				sourceId: v.string(),
+				titleUrl: v.string()
+			})
+		)
+	},
+	handler: async (ctx, args) => {
 		const identity = await ctx.auth.getUserIdentity();
 		if (!identity) {
 			return [] as Array<{
@@ -244,52 +251,95 @@ export const getMineImportedSourceLookup = query({
 		}
 
 		const ownerUserId = identity.subject as GenericId<'users'>;
-		const [titles, variants] = await Promise.all([
-			ctx.db
-				.query('libraryTitles')
-				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
-				.collect(),
-			ctx.db
-				.query('titleVariants')
-				.withIndex('by_owner_user_id_library_title_id', (q) => q.eq('ownerUserId', ownerUserId))
-				.collect()
-		]);
-		const titleRouteSegments = buildTitleRouteSegments(titles);
+		const requestedEntries: Array<{ sourceId: string; titleUrl: string }> = [];
+		const seen = new Set<string>();
+		for (const entry of args.entries) {
+			const sourceId = entry.sourceId.trim();
+			const titleUrl = entry.titleUrl.trim();
+			if (!sourceId || !titleUrl) continue;
+			const key = `${sourceId}::${titleUrl}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			requestedEntries.push({ sourceId, titleUrl });
+		}
+		if (requestedEntries.length === 0) {
+			return [];
+		}
 
-		const visibleTitleIds = new Set(titles.map((title) => String(title._id)));
-		const titleById = new Map(titles.map((title) => [String(title._id), title]));
-		const entries: Array<{
-			sourceId: string;
-			titleUrl: string;
-			libraryId: string;
-			listedInLibrary: boolean;
-			routeSegment: string;
-		}> = [];
-		for (const title of titles) {
-			entries.push({
-				sourceId: title.sourceId,
-				titleUrl: title.titleUrl,
-				libraryId: String(title._id),
+		const resolvedTitleById = new Map<
+			string,
+			Promise<{
+				libraryId: string;
+				listedInLibrary: boolean;
+				routeSegment: string;
+			}>
+		>();
+		const resolveTitleLookup = (title: {
+			_id: GenericId<'libraryTitles'>;
+			ownerUserId: GenericId<'users'>;
+			title: string;
+			titleUrl?: string | null;
+			routeBase?: string | null;
+			listedInLibrary?: boolean | null;
+		}) => {
+			const titleId = String(title._id);
+			const existing = resolvedTitleById.get(titleId);
+			if (existing) return existing;
+			const promise = (async () => ({
+				libraryId: titleId,
 				listedInLibrary: title.listedInLibrary !== false,
 				routeSegment:
-					titleRouteSegments.get(String(title._id)) ??
+					(await resolveOwnerTitleRouteSegment(ctx, title)) ??
 					buildTitleRouteBaseFromUrl(title.titleUrl, title.title)
-			});
-		}
-		for (const variant of variants) {
-			if (!visibleTitleIds.has(String(variant.libraryTitleId))) continue;
-			const primaryEntry = titleById.get(String(variant.libraryTitleId));
-			entries.push({
-				sourceId: variant.sourceId,
-				titleUrl: variant.titleUrl,
-				libraryId: String(variant.libraryTitleId),
-				listedInLibrary: primaryEntry?.listedInLibrary !== false,
-				routeSegment:
-					titleRouteSegments.get(String(variant.libraryTitleId)) ??
-					buildTitleRouteBaseFromUrl(primaryEntry?.titleUrl, primaryEntry?.title ?? '')
-			});
-		}
-		return entries;
+			}))();
+			resolvedTitleById.set(titleId, promise);
+			return promise;
+		};
+
+		return (
+			await Promise.all(
+				requestedEntries.map(async (entry) => {
+					let title = await ctx.db
+						.query('libraryTitles')
+						.withIndex('by_owner_user_id_source_id_title_url', (q) =>
+							q
+								.eq('ownerUserId', ownerUserId)
+								.eq('sourceId', entry.sourceId)
+								.eq('titleUrl', entry.titleUrl)
+						)
+						.unique();
+
+					if (!title) {
+						const variant = await ctx.db
+							.query('titleVariants')
+							.withIndex('by_owner_user_id_source_id_title_url', (q) =>
+								q
+									.eq('ownerUserId', ownerUserId)
+									.eq('sourceId', entry.sourceId)
+									.eq('titleUrl', entry.titleUrl)
+							)
+							.unique();
+						if (variant) {
+							const candidate = await ctx.db.get(variant.libraryTitleId);
+							if (candidate && candidate.ownerUserId === ownerUserId) {
+								title = candidate;
+							}
+						}
+					}
+
+					if (!title) {
+						return null;
+					}
+
+					const resolved = await resolveTitleLookup(title);
+					return {
+						sourceId: entry.sourceId,
+						titleUrl: entry.titleUrl,
+						...resolved
+					};
+				})
+			)
+		).filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 	}
 });
 
