@@ -26,6 +26,15 @@ export default defineSchema({
 		lastLoginAt: v.optional(v.float64())
 	}).index('by_username', ['username']),
 
+	userPreferences: defineTable({
+		ownerUserId: v.id('users'),
+		theme: v.optional(v.string()),
+		locale: v.optional(v.string()),
+		pwaResumeEnabled: v.optional(v.boolean()),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	}).index('by_owner_user_id', ['ownerUserId']),
+
 	loginRateLimits: defineTable({
 		key: v.string(),
 		failureTimestamps: v.array(v.float64()),

@@ -24,6 +24,7 @@ import type * as library_organization from '../library_organization.js';
 import type * as library_reader from '../library_reader.js';
 import type * as library_shared from '../library_shared.js';
 import type * as settings from '../settings.js';
+import type * as user_preferences from '../user_preferences.js';
 
 import type { ApiFromModules, FilterApi, FunctionReference } from 'convex/server';
 import { anyApi, componentsGeneric } from 'convex/server';
@@ -45,6 +46,7 @@ const fullApi: ApiFromModules<{
 	library_reader: typeof library_reader;
 	library_shared: typeof library_shared;
 	settings: typeof settings;
+	user_preferences: typeof user_preferences;
 }> = anyApi as any;
 
 /**
