@@ -57,6 +57,56 @@ export const listForTitle = query({
 	}
 });
 
+export const getActiveForTitle = query({
+	args: {
+		titleId: v.id('libraryTitles')
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) return null;
+		const title = await ctx.db.get(args.titleId);
+		if (!title || String(title.ownerUserId) !== identity.subject) return null;
+
+		const rows = await ctx.db
+			.query('titleReadSessions')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+			)
+			.collect();
+
+		const active = rows.find((row) => row.finishedAt === undefined);
+		if (!active) return null;
+		return {
+			id: active._id,
+			startedAt: active.startedAt,
+			rating: active.rating ?? null,
+			notes: active.notes ?? null
+		};
+	}
+});
+
+export async function ensureActiveReadSession(
+	ctx: import('./_generated/server').MutationCtx,
+	titleId: import('convex/values').GenericId<'libraryTitles'>,
+	ownerUserId: import('convex/values').GenericId<'users'>,
+	now: number
+): Promise<void> {
+	const existing = await ctx.db
+		.query('titleReadSessions')
+		.withIndex('by_owner_user_id_library_title_id', (q) =>
+			q.eq('ownerUserId', ownerUserId).eq('libraryTitleId', titleId)
+		)
+		.collect();
+	if (existing.some((row) => row.finishedAt === undefined)) return;
+	await ctx.db.insert('titleReadSessions', {
+		ownerUserId,
+		libraryTitleId: titleId,
+		startedAt: now,
+		createdAt: now,
+		updatedAt: now
+	});
+}
+
 export const startReadSession = mutation({
 	args: {
 		titleId: v.id('libraryTitles'),

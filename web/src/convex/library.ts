@@ -63,6 +63,7 @@ export { linkVariant, normalizeTitleVariants, removeVariant } from './library_ti
 export {
 	deleteReadSession,
 	finishReadSession,
+	getActiveForTitle as getActiveReadSession,
 	listForTitle as listTitleReadSessions,
 	startReadSession,
 	updateReadSession

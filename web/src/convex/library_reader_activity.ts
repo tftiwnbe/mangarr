@@ -7,6 +7,7 @@ import {
 	requireOwnedChapter,
 	requireOwnedChapterComment
 } from './library_shared';
+import { ensureActiveReadSession } from './library_reads';
 import { sortLibraryChaptersInReadingOrder } from './library_reader_support';
 
 export const upsertChapterProgress = mutation({
@@ -18,6 +19,7 @@ export const upsertChapterProgress = mutation({
 		const chapter = await requireOwnedChapter(ctx, args.chapterId);
 		const now = Date.now();
 		const existing = await getOwnedChapterProgressRow(ctx, chapter._id);
+		await ensureActiveReadSession(ctx, chapter.libraryTitleId, chapter.ownerUserId, now);
 		if (existing) {
 			await ctx.db.patch(existing._id, {
 				pageIndex: args.pageIndex,

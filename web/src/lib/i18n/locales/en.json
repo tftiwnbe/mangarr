@@ -301,7 +301,14 @@
 		"daysAgo": "{days}d ago",
 		"weeksAgo": "{weeks}w ago",
 		"monthsAgo": "{months}mo ago",
-		"yearsAgo": "{years}y ago"
+		"yearsAgo": "{years}y ago",
+		"finishPromptHeading": "Wrap up this read",
+		"finishAndSave": "Save & finish",
+		"skipForNow": "Skip",
+		"readerFinishedHeadline": "You finished {title}",
+		"readerFinishedSubhead": "Log it as a completed read?",
+		"finishedToast": "Read logged",
+		"finishFailedToast": "Could not log read"
 	},
 
 	"preview": {

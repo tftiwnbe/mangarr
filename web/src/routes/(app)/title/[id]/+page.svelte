@@ -783,14 +783,21 @@
 		}
 	}
 
-	async function finishReadSession(sessionId: string, finishedAt: number) {
+	async function finishReadSession(
+		sessionId: string,
+		finishedAt: number,
+		rating: number | null,
+		notes: string | null
+	) {
 		if (readSessionBusyId) return;
 		readSessionBusyId = sessionId;
 		actionError = null;
 		try {
 			await client.mutation(convexApi.library.finishReadSession, {
 				sessionId: sessionId as Id<'titleReadSessions'>,
-				finishedAt
+				finishedAt,
+				rating: rating ?? undefined,
+				notes: notes ?? undefined
 			});
 		} catch (error) {
 			actionError = error instanceof Error ? error.message : 'Unable to finish read session';
@@ -1640,8 +1647,8 @@
 							busySessionId={readSessionBusyId}
 							startingSession={startingReadSession}
 							onStartSession={(startedAt) => void startReadSession(startedAt)}
-							onFinishSession={(sessionId, finishedAt) =>
-								void finishReadSession(sessionId, finishedAt)}
+							onFinishSession={(sessionId, finishedAt, rating, notes) =>
+								void finishReadSession(sessionId, finishedAt, rating, notes)}
 							onUpdateSession={(sessionId, patch) => void updateReadSession(sessionId, patch)}
 							onDeleteSession={(sessionId) => void deleteReadSession(sessionId)}
 						/>

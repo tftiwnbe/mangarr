@@ -301,7 +301,14 @@
 		"daysAgo": "{days} дн. назад",
 		"weeksAgo": "{weeks} нед. назад",
 		"monthsAgo": "{months} мес. назад",
-		"yearsAgo": "{years} г. назад"
+		"yearsAgo": "{years} г. назад",
+		"finishPromptHeading": "Завершить прочтение",
+		"finishAndSave": "Сохранить и завершить",
+		"skipForNow": "Пропустить",
+		"readerFinishedHeadline": "Вы прочитали «{title}»",
+		"readerFinishedSubhead": "Записать как завершённое прочтение?",
+		"finishedToast": "Прочтение записано",
+		"finishFailedToast": "Не удалось записать прочтение"
 	},
 
 	"preview": {

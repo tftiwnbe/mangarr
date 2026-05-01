@@ -4,6 +4,7 @@
 	import { Button } from '$lib/elements/button';
 	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
 	import { _ } from '$lib/i18n';
+	import ReadFinishPanel from './read-finish-panel.svelte';
 
 	type ReadSession = {
 		id: string;
@@ -19,7 +20,12 @@
 		busySessionId: string | null;
 		startingSession: boolean;
 		onStartSession: (startedAt: number) => void;
-		onFinishSession: (sessionId: string, finishedAt: number) => void;
+		onFinishSession: (
+			sessionId: string,
+			finishedAt: number,
+			rating: number | null,
+			notes: string | null
+		) => void;
 		onUpdateSession: (
 			sessionId: string,
 			patch: {
@@ -64,6 +70,7 @@
 	let draftRating = $state(0);
 	let draftNotes = $state('');
 	let pendingDeleteId = $state<string | null>(null);
+	let finishingActive = $state(false);
 
 	function toDateInputValue(ms: number | null): string {
 		if (!ms) return '';
@@ -209,7 +216,17 @@
 			{/if}
 		</div>
 
-		{#if activeSession}
+		{#if activeSession && finishingActive}
+			<ReadFinishPanel
+				startedAt={activeSession.startedAt}
+				busy={busySessionId === activeSession.id}
+				onSave={(rating, notes) => {
+					onFinishSession(activeSession.id, Date.now(), rating, notes);
+					finishingActive = false;
+				}}
+				onDismiss={() => (finishingActive = false)}
+			/>
+		{:else if activeSession}
 			<div
 				class="border-l-2 border-[var(--cosmic)] bg-[var(--void-2)] px-4 py-3 shadow-[0_0_24px_-12px_var(--cosmic-glow)]"
 			>
@@ -229,7 +246,7 @@
 							type="button"
 							class="cursor-pointer border border-[var(--cosmic)]/40 px-2.5 py-1 font-mono text-[10px] tracking-[0.18em] text-[var(--text)] uppercase transition-colors hover:bg-[var(--cosmic)]/10 disabled:opacity-50"
 							disabled={busySessionId === activeSession.id}
-							onclick={() => onFinishSession(activeSession.id, Date.now())}
+							onclick={() => (finishingActive = true)}
 						>
 							{$_('reads.finishAction')}
 						</button>

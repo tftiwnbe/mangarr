@@ -26,6 +26,7 @@
 	import type { Id } from '$convex/_generated/dataModel';
 	import { convexApi } from '$lib/convex/api';
 	import { waitForCommand, type CommandState } from '$lib/client/commands';
+	import ReadFinishPanel from '$lib/components/read-finish-panel.svelte';
 	import { Alert } from '$lib/elements/alert';
 	import { Button } from '$lib/elements/button';
 	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
@@ -120,6 +121,20 @@
 	const commentsQuery = useQuery(convexApi.library.listChapterComments, () =>
 		resolvedCommentChapterId ? { chapterId: resolvedCommentChapterId } : 'skip'
 	);
+	const resolvedTitleId = $derived(rawReaderData?.title?._id ?? null);
+	const activeReadSessionQuery = useQuery(convexApi.library.getActiveReadSession, () =>
+		resolvedTitleId ? { titleId: resolvedTitleId } : 'skip'
+	);
+	const activeReadSession = $derived(
+		(activeReadSessionQuery.data as {
+			id: string;
+			startedAt: number;
+			rating: number | null;
+			notes: string | null;
+		} | null) ?? null
+	);
+	let dismissedFinishPromptForChapterId = $state<string | null>(null);
+	let finishingReadSession = $state(false);
 
 	let mode = $state<ReaderMode>('vertical');
 	let currentPageIndex = $state(0);
@@ -619,6 +634,26 @@
 		}
 	}
 
+	async function commitFinishReadSession(rating: number | null, notes: string | null) {
+		if (!activeReadSession || finishingReadSession) return;
+		finishingReadSession = true;
+		try {
+			await client.mutation(convexApi.library.finishReadSession, {
+				sessionId: activeReadSession.id as Id<'titleReadSessions'>,
+				finishedAt: Date.now(),
+				rating: rating ?? undefined,
+				notes: notes ?? undefined
+			});
+			toast.success($_('reads.finishedToast'), { duration: 3500 });
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : $_('reads.finishFailedToast'), {
+				duration: 5000
+			});
+		} finally {
+			finishingReadSession = false;
+		}
+	}
+
 	async function removeComment(commentId: Id<'chapterComments'>) {
 		if (deletingCommentId) return;
 		deletingCommentId = commentId;
@@ -1076,6 +1111,25 @@
 			</div>
 			{#if bookmarkError}
 				<p class="text-xs text-[var(--error)]">{bookmarkError}</p>
+			{/if}
+			{#if !nextChapter && title && activeReadSession && dismissedFinishPromptForChapterId !== chapter?._id}
+				<div class="w-full max-w-md">
+					<p class="mb-2 text-center text-xs text-[var(--text-ghost)]">
+						{$_('reads.readerFinishedHeadline', { values: { title: title.title } })}
+					</p>
+					<ReadFinishPanel
+						startedAt={activeReadSession.startedAt}
+						busy={finishingReadSession}
+						variant="reader"
+						onSave={(rating, notes) => {
+							void commitFinishReadSession(rating, notes);
+							dismissedFinishPromptForChapterId = chapter?._id ?? null;
+						}}
+						onDismiss={() => {
+							dismissedFinishPromptForChapterId = chapter?._id ?? null;
+						}}
+					/>
+				</div>
 			{/if}
 		</div>
 	{/if}
