@@ -1,7 +1,7 @@
 services:
   mangarr:
     platform: linux/amd64
-    image: ghcr.io/tftiwnbe/mangarr:latest
+    image: ${MANGARR_IMAGE:?Set MANGARR_IMAGE to a pinned image tag or digest}
     environment:
       - MANGARR_PUBLIC_URL=https://mangarr.hmphin.space
     ports:

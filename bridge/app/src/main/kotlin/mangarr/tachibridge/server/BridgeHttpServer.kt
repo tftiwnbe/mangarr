@@ -21,6 +21,7 @@ import mangarr.tachibridge.runtime.BridgeSnapshot
 import mangarr.tachibridge.runtime.BridgeCommandRunner
 import mangarr.tachibridge.runtime.CommandRunnerSnapshot
 import mangarr.tachibridge.runtime.BridgeHeartbeatReporter
+import mangarr.tachibridge.runtime.BridgeMetrics
 import mangarr.tachibridge.runtime.BridgeService
 import mangarr.tachibridge.runtime.HeartbeatSnapshot
 import mangarr.tachibridge.runtime.BridgeState
@@ -42,6 +43,7 @@ private val logger = KotlinLogging.logger {}
 private const val PAGE_ASSET_FAILURE_LOG_TTL_MS = 60_000L
 private const val HTTP_SERVER_MIN_WORKERS = 8
 private const val HTTP_SERVER_QUEUE_MULTIPLIER = 16
+private const val RESPONSE_STATUS_ATTRIBUTE = "mangarr.response_status"
 
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 class BridgeHttpServer(
@@ -89,7 +91,7 @@ class BridgeHttpServer(
         }
 
     fun start() {
-        server.createContext("/health") { exchange ->
+        createContext("/health") { exchange ->
             sendJson(
                 exchange,
                 200,
@@ -104,7 +106,15 @@ class BridgeHttpServer(
             )
         }
 
-        server.createContext("/bridge") { exchange ->
+        createContext("/metrics") { exchange ->
+            val body = BridgeMetrics.renderPrometheus(httpExecutor).toByteArray()
+            exchange.responseHeaders.set("content-type", "text/plain; version=0.0.4; charset=utf-8")
+            sendResponse(exchange, 200, body.size.toLong()) {
+                it.write(body)
+            }
+        }
+
+        createContext("/bridge") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -122,7 +132,7 @@ class BridgeHttpServer(
             }
         }
 
-        server.createContext("/bridge/start") { exchange ->
+        createContext("/bridge/start") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -136,7 +146,7 @@ class BridgeHttpServer(
             sendJson(exchange, 200, buildJsonObject { put("ok", true) })
         }
 
-        server.createContext("/bridge/stop") { exchange ->
+        createContext("/bridge/stop") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -152,7 +162,7 @@ class BridgeHttpServer(
             sendJson(exchange, 200, buildJsonObject { put("ok", true) })
         }
 
-        server.createContext("/bridge/restart") { exchange ->
+        createContext("/bridge/restart") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -170,7 +180,7 @@ class BridgeHttpServer(
             sendJson(exchange, 200, buildJsonObject { put("ok", true) })
         }
 
-        server.createContext("/commands/execute") { exchange ->
+        createContext("/commands/execute") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -208,7 +218,7 @@ class BridgeHttpServer(
             }
         }
 
-        server.createContext("/assets/page") { exchange ->
+        createContext("/assets/page") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -266,7 +276,7 @@ class BridgeHttpServer(
             }
         }
 
-        server.createContext("/assets/library/page") { exchange ->
+        createContext("/assets/library/page") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -293,7 +303,7 @@ class BridgeHttpServer(
             }
         }
 
-        server.createContext("/assets/library/cover") { exchange ->
+        createContext("/assets/library/cover") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -317,7 +327,7 @@ class BridgeHttpServer(
             }
         }
 
-        server.createContext("/assets/remote/cover") { exchange ->
+        createContext("/assets/remote/cover") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -377,7 +387,9 @@ class BridgeHttpServer(
                 } catch (e: IOException) {
                     lastError = e
                     logger.debug(e) { "Cover fetch attempt $attempt/$maxAttempts failed url=$target" }
-                    if (attempt < maxAttempts) Thread.sleep(300L * attempt)
+                    if (attempt < maxAttempts) {
+                        continue
+                    }
                 } catch (e: Exception) {
                     logger.warn(e) { "Unexpected error serving remote cover url=$target" }
                     sendJson(exchange, 502, buildJsonObject { put("message", "Remote cover is unavailable") })
@@ -388,7 +400,7 @@ class BridgeHttpServer(
             sendJson(exchange, 502, buildJsonObject { put("message", "Remote cover is unavailable") })
         }
 
-        server.createContext("/assets/library/chapter-file") { exchange ->
+        createContext("/assets/library/chapter-file") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -422,7 +434,7 @@ class BridgeHttpServer(
             }
         }
 
-        server.createContext("/settings/downloads") { exchange ->
+        createContext("/settings/downloads") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -442,7 +454,7 @@ class BridgeHttpServer(
             }
         }
 
-        server.createContext("/settings/proxy") { exchange ->
+        createContext("/settings/proxy") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -466,7 +478,7 @@ class BridgeHttpServer(
             }
         }
 
-        server.createContext("/settings/flaresolverr") { exchange ->
+        createContext("/settings/flaresolverr") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -490,7 +502,7 @@ class BridgeHttpServer(
             }
         }
 
-        server.createContext("/extensions/installed") { exchange ->
+        createContext("/extensions/installed") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -508,7 +520,7 @@ class BridgeHttpServer(
             }
         }
 
-        server.createContext("/extensions/repository") { exchange ->
+        createContext("/extensions/repository") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -525,7 +537,7 @@ class BridgeHttpServer(
             }
         }
 
-        server.createContext("/extensions/proxy") { exchange ->
+        createContext("/extensions/proxy") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -551,7 +563,7 @@ class BridgeHttpServer(
             }
         }
 
-        server.createContext("/extensions/source-enabled") { exchange ->
+        createContext("/extensions/source-enabled") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -593,7 +605,7 @@ class BridgeHttpServer(
             }
         }
 
-        server.createContext("/downloads/reconcile") { exchange ->
+        createContext("/downloads/reconcile") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -672,7 +684,7 @@ class BridgeHttpServer(
             )
         }
 
-        server.createContext("/downloads/delete") { exchange ->
+        createContext("/downloads/delete") { exchange ->
             if (!authorize(exchange)) {
                 return@createContext
             }
@@ -726,6 +738,27 @@ class BridgeHttpServer(
     fun stop() {
         server.stop(0)
         httpExecutor.shutdownNow()
+    }
+
+    private fun createContext(
+        path: String,
+        handler: (HttpExchange) -> Unit,
+    ) {
+        server.createContext(path) { exchange ->
+            val startedAt = System.currentTimeMillis()
+            BridgeMetrics.onHttpRequestStarted()
+            try {
+                handler(exchange)
+            } finally {
+                val status = (exchange.getAttribute(RESPONSE_STATUS_ATTRIBUTE) as? Int) ?: 500
+                BridgeMetrics.onHttpRequestFinished(
+                    route = path,
+                    method = exchange.requestMethod,
+                    status = status,
+                    durationMs = System.currentTimeMillis() - startedAt,
+                )
+            }
+        }
     }
 
     private fun authorize(exchange: HttpExchange): Boolean {
@@ -813,6 +846,7 @@ class BridgeHttpServer(
         write: (java.io.OutputStream) -> Unit,
     ) {
         try {
+            exchange.setAttribute(RESPONSE_STATUS_ATTRIBUTE, status)
             exchange.sendResponseHeaders(status, contentLength)
             exchange.responseBody.use { output -> write(output) }
         } catch (error: IOException) {

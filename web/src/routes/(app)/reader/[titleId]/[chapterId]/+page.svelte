@@ -12,33 +12,22 @@
 		ChatIcon,
 		FileIcon,
 		ListIcon,
-		PencilSimpleIcon,
-		PlusIcon,
 		SkipBackIcon,
 		SkipForwardIcon,
-		SortAscendingIcon,
 		SpinnerIcon,
-		TrashIcon,
-		WarningCircleIcon,
-		XIcon
+		WarningCircleIcon
 	} from 'phosphor-svelte';
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import { convexApi } from '$lib/convex/api';
 	import { waitForCommand, type CommandState } from '$lib/client/commands';
+	import ReaderChapterPanel from '$lib/components/reader-chapter-panel.svelte';
+	import ReaderCommentsPanel from '$lib/components/reader-comments-panel.svelte';
 	import ReadFinishPanel from '$lib/components/read-finish-panel.svelte';
-	import { Alert } from '$lib/elements/alert';
 	import { Button } from '$lib/elements/button';
-	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
-	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { toast } from '$lib/elements/toast';
 	import { _ } from '$lib/i18n';
 	import { getReaderProgress, setReaderProgress } from '$lib/utils/reader-progress';
-	import {
-		formatChapterNumberValue,
-		hasDisplayableChapterNumber,
-		parseStructuredChapterName
-	} from '$lib/utils/chapter-display';
 	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
 
 	const { data } = $props<{
@@ -107,6 +96,9 @@
 		| { id: string; pageIndex: number; kind: 'remote'; index: number }
 		| { id: string; pageIndex: number; kind: 'local'; index: number };
 
+	const SERVER_PROGRESS_FLUSH_DELAY_MS = 2_500;
+	const SERVER_PROGRESS_RETRY_DELAY_MS = 1_000;
+
 	const client = useConvexClient();
 	const readerQuery = useQuery(convexApi.library.getReaderByRouteSegments, () =>
 		data.titleSegment && data.chapterSegment
@@ -140,13 +132,6 @@
 	let currentPageIndex = $state(0);
 	let showChapterPanel = $state(false);
 	let showCommentsPanel = $state(false);
-	let commentsSortMode = $state<'time' | 'page'>('time');
-	let commentDraft = $state('');
-	let editingCommentId = $state<Id<'chapterComments'> | null>(null);
-	let commentSubmitting = $state(false);
-	let deleteCommentConfirmId = $state<Id<'chapterComments'> | null>(null);
-	let deletingCommentId = $state<Id<'chapterComments'> | null>(null);
-	let commentsError = $state<string | null>(null);
 	let bookmarkError = $state<string | null>(null);
 	let isTouchDevice = $state(false);
 	let readerHeaderVisible = $state(true);
@@ -278,19 +263,6 @@
 				})
 			: null
 	);
-	const sortedComments = $derived.by(() => {
-		const rows = [...comments];
-		if (commentsSortMode === 'page') {
-			rows.sort((left, right) => {
-				if (left.pageIndex !== right.pageIndex) return left.pageIndex - right.pageIndex;
-				return right.createdAt - left.createdAt;
-			});
-			return rows;
-		}
-		rows.sort((left, right) => right.createdAt - left.createdAt);
-		return rows;
-	});
-
 	function resolvePageUrl(item: ReaderPage): string {
 		if (!chapter) return '';
 		const retryCount = pageRetryCounts[item.id] ?? 0;
@@ -450,36 +422,6 @@
 		}
 	}
 
-	function chapterListLabel(item: ChapterItem): string {
-		if (hasDisplayableChapterNumber(item.chapterNumber)) {
-			return $_('chapter.chapterShort', {
-				values: { number: formatChapterNumberValue(item.chapterNumber) }
-			});
-		}
-		const parsed = parseStructuredChapterName(item.chapterName);
-		if (!parsed) return item.chapterName;
-		const parts: string[] = [];
-		if (parsed.volumeNumber) {
-			parts.push($_('chapter.volumeShort', { values: { number: parsed.volumeNumber } }));
-		}
-		if (parsed.chapterNumber) {
-			parts.push($_('chapter.chapterShort', { values: { number: parsed.chapterNumber } }));
-		}
-		return parts.join(' · ') || item.chapterName;
-	}
-
-	function chapterListDetail(item: ChapterItem): string | null {
-		const raw = item.chapterName.trim();
-		if (!raw) return null;
-		if (hasDisplayableChapterNumber(item.chapterNumber)) {
-			const chapterShort = $_('chapter.chapterShort', {
-				values: { number: formatChapterNumberValue(item.chapterNumber) }
-			});
-			return raw === chapterShort ? null : raw;
-		}
-		return parseStructuredChapterName(raw)?.detail ?? null;
-	}
-
 	function openChapter(target: ChapterItem | null) {
 		if (!title || !target) return;
 		showChapterPanel = false;
@@ -505,11 +447,7 @@
 		if (currentPageIndex < pages.length - 1) currentPageIndex += 1;
 	}
 
-	function formatTimestamp(timestamp: number): string {
-		return new Date(timestamp).toLocaleString();
-	}
-
-	function scheduleServerProgressFlush(delayMs = 900) {
+	function scheduleServerProgressFlush(delayMs = SERVER_PROGRESS_FLUSH_DELAY_MS) {
 		if (progressFlushTimer) {
 			clearTimeout(progressFlushTimer);
 		}
@@ -542,7 +480,7 @@
 		} finally {
 			progressSyncInFlight = false;
 			if (pendingServerPageIndex !== null && pendingServerPageIndex !== lastSavedServerPageIndex) {
-				scheduleServerProgressFlush(500);
+				scheduleServerProgressFlush(SERVER_PROGRESS_RETRY_DELAY_MS);
 			}
 		}
 	}
@@ -599,47 +537,6 @@
 		readerHeaderVisible = !readerHeaderVisible;
 	}
 
-	function startNewComment() {
-		editingCommentId = null;
-		commentDraft = '';
-	}
-
-	function startEditComment(comment: CommentItem) {
-		editingCommentId = comment._id;
-		commentDraft = comment.message;
-	}
-
-	async function saveComment() {
-		if (!chapter || commentSubmitting) return;
-		const message = commentDraft.trim();
-		if (!message) {
-			commentsError = $_('reader.commentSaveFailed');
-			return;
-		}
-
-		commentSubmitting = true;
-		commentsError = null;
-		try {
-			if (editingCommentId) {
-				await client.mutation(convexApi.library.updateChapterComment, {
-					commentId: editingCommentId,
-					message
-				});
-			} else {
-				await client.mutation(convexApi.library.createChapterComment, {
-					chapterId: chapter._id,
-					pageIndex: currentPage?.pageIndex ?? 0,
-					message
-				});
-			}
-			startNewComment();
-		} catch (error) {
-			commentsError = error instanceof Error ? error.message : $_('reader.commentSaveFailed');
-		} finally {
-			commentSubmitting = false;
-		}
-	}
-
 	async function commitFinishReadSession(rating: number | null, notes: string | null) {
 		if (!activeReadSession || finishingReadSession) return;
 		finishingReadSession = true;
@@ -657,22 +554,6 @@
 			});
 		} finally {
 			finishingReadSession = false;
-		}
-	}
-
-	async function removeComment(commentId: Id<'chapterComments'>) {
-		if (deletingCommentId) return;
-		deletingCommentId = commentId;
-		commentsError = null;
-		try {
-			await client.mutation(convexApi.library.deleteChapterComment, { commentId });
-			if (editingCommentId === commentId) {
-				startNewComment();
-			}
-		} catch (error) {
-			commentsError = error instanceof Error ? error.message : $_('reader.commentDeleteFailed');
-		} finally {
-			deletingCommentId = null;
 		}
 	}
 
@@ -1192,203 +1073,20 @@
 	{/if}
 </div>
 
-<SlidePanel
+<ReaderChapterPanel
 	open={showChapterPanel}
-	title={$_('reader.chapters')}
 	onclose={() => (showChapterPanel = false)}
->
-	<div class="flex flex-col">
-		{#if chapters.length === 0}
-			<p class="py-8 text-center text-xs text-[var(--text-ghost)]">{$_('common.noResults')}</p>
-		{:else}
-			{#each chapters as item (item._id)}
-				{@const isCurrent = currentChapterId === item._id}
-				<button
-					type="button"
-					class="flex items-center justify-between gap-3 px-2 py-2.5 text-left text-xs transition-colors {isCurrent
-						? 'bg-[var(--void-3)] text-[var(--text)]'
-						: 'text-[var(--text-ghost)] hover:bg-[var(--void-2)] hover:text-[var(--text-muted)]'}"
-					onclick={() => openChapter(item)}
-				>
-					<div class="min-w-0 flex-1">
-						<p class="truncate">{chapterListLabel(item)}</p>
-						{#if chapterListDetail(item)}
-							<p class="mt-0.5 truncate text-[11px] text-[var(--text-dim)]">
-								{chapterListDetail(item)}
-							</p>
-						{/if}
-					</div>
-					{#if item.chapterNumber != null}
-						<span class="shrink-0 text-[10px] text-[var(--text-ghost)] tabular-nums"
-							>{item.chapterNumber}</span
-						>
-					{/if}
-				</button>
-			{/each}
-		{/if}
-	</div>
-</SlidePanel>
+	{chapters}
+	{currentChapterId}
+	onOpenChapter={(target) => openChapter(target as ChapterItem)}
+/>
 
-<SlidePanel
+<ReaderCommentsPanel
 	open={showCommentsPanel}
-	title={$_('reader.comments')}
 	onclose={() => (showCommentsPanel = false)}
->
-	{#snippet footer()}
-		{#if commentsError}
-			<Alert variant="error" class="mb-2">{commentsError}</Alert>
-		{/if}
-		<div
-			class="relative border border-[var(--void-3)] bg-[var(--void-2)] focus-within:border-[var(--cosmic-halo)]"
-		>
-			<div class="flex items-center justify-between border-b border-[var(--void-3)] px-2.5 py-1.5">
-				<span class="font-mono text-[10px] tracking-[0.18em] text-[var(--text-ghost)] uppercase">
-					{#if editingCommentId}
-						<span class="text-[var(--cosmic)]">// edit</span>
-					{:else}
-						// new entry
-					{/if}
-				</span>
-				<span class="font-mono text-[10px] text-[var(--text-ghost)] tabular-nums">
-					p.{(currentPage?.pageIndex ?? 0) + 1}
-				</span>
-			</div>
-			<textarea
-				class="block max-h-[40vh] min-h-[64px] w-full resize-none bg-transparent px-2.5 py-2 font-mono text-[12px] leading-relaxed text-[var(--text)] placeholder:text-[var(--text-ghost)] focus:outline-none"
-				placeholder={$_('reader.commentPlaceholder')}
-				bind:value={commentDraft}
-			></textarea>
-			<div
-				class="flex items-center justify-between gap-2 border-t border-[var(--void-3)] px-2 py-1.5"
-			>
-				<span
-					class="px-1 font-mono text-[9px] tracking-wider text-[var(--text-dim)] uppercase tabular-nums"
-				>
-					{commentDraft.length}c
-				</span>
-				<div class="flex items-center gap-1.5">
-					{#if editingCommentId}
-						<Button variant="ghost" size="sm" onclick={startNewComment}>
-							<XIcon size={11} />
-							{$_('common.cancel')}
-						</Button>
-					{/if}
-					<Button
-						variant="solid"
-						size="sm"
-						onclick={saveComment}
-						disabled={commentSubmitting || !commentDraft.trim()}
-					>
-						{#if commentSubmitting}
-							<SpinnerIcon size={11} class="animate-spin" />
-						{:else}
-							<PlusIcon size={11} />
-						{/if}
-						{$_('reader.comment')}
-					</Button>
-				</div>
-			</div>
-		</div>
-	{/snippet}
-
-	<div class="flex flex-col gap-3 pt-1">
-		<!-- Log header -->
-		<div class="flex items-center gap-2 border-b border-[var(--void-3)] pb-2">
-			<span class="h-1 w-1 bg-[var(--cosmic)] shadow-[0_0_4px_var(--cosmic-glow)]"></span>
-			<span class="font-mono text-[10px] tracking-[0.22em] text-[var(--text-ghost)] uppercase">
-				log
-			</span>
-			<span class="font-mono text-[10px] text-[var(--text-dim)] tabular-nums">
-				{sortedComments.length}
-			</span>
-			<span class="h-px flex-1 bg-[var(--void-3)]"></span>
-			<button
-				type="button"
-				class="flex items-center gap-1 font-mono text-[10px] tracking-[0.16em] text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--cosmic)]"
-				onclick={() => (commentsSortMode = commentsSortMode === 'time' ? 'page' : 'time')}
-			>
-				<SortAscendingIcon size={10} />
-				{commentsSortMode === 'time' ? 'time' : 'page'}
-			</button>
-		</div>
-
-		{#if commentsQuery.isLoading}
-			<div class="flex items-center justify-center py-10">
-				<SpinnerIcon size={16} class="animate-spin text-[var(--text-ghost)]" />
-			</div>
-		{:else if sortedComments.length === 0}
-			<div class="flex flex-col items-center gap-1.5 py-10 text-center">
-				<ChatIcon size={20} class="text-[var(--void-6)]" />
-				<p class="font-mono text-[10px] tracking-[0.16em] text-[var(--text-ghost)] uppercase">
-					{$_('reader.noComments')}
-				</p>
-			</div>
-		{:else}
-			<ul class="flex flex-col">
-				{#each sortedComments as comment (comment._id)}
-					{@const isEditingThis = editingCommentId === comment._id}
-					<li
-						class="group relative flex flex-col gap-1.5 border-l-2 py-2.5 pr-1 pl-3 transition-colors {isEditingThis
-							? 'border-[var(--cosmic)] bg-[var(--cosmic-soft)]'
-							: 'border-[var(--void-3)] hover:border-[var(--void-6)] hover:bg-[var(--void-2)]'}"
-					>
-						<div class="flex items-center gap-2 font-mono text-[10px] text-[var(--text-ghost)]">
-							<button
-								type="button"
-								class="border border-[var(--void-4)] px-1.5 py-px tabular-nums transition-colors hover:border-[var(--cosmic-halo)] hover:text-[var(--cosmic)]"
-								onclick={() => jumpToPage(comment.pageIndex)}
-								title={$_('reader.page') + ' ' + (comment.pageIndex + 1)}
-							>
-								p.{comment.pageIndex + 1}
-							</button>
-							<span class="ml-auto text-[var(--text-dim)]">
-								{formatTimestamp(comment.createdAt)}
-							</span>
-						</div>
-						<p class="text-[12px] leading-relaxed whitespace-pre-wrap text-[var(--text-soft)]">
-							{comment.message}
-						</p>
-						<div
-							class="flex items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100"
-						>
-							<button
-								type="button"
-								class="flex items-center gap-1 font-mono text-[10px] tracking-wider text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text)]"
-								onclick={() => startEditComment(comment)}
-							>
-								<PencilSimpleIcon size={10} />
-								{$_('common.edit')}
-							</button>
-							<span class="text-[var(--void-5)]">·</span>
-							<button
-								type="button"
-								class="flex items-center gap-1 font-mono text-[10px] tracking-wider text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--error)]"
-								onclick={() => (deleteCommentConfirmId = comment._id)}
-								disabled={deletingCommentId === comment._id}
-							>
-								<TrashIcon size={10} />
-								{$_('common.delete')}
-							</button>
-						</div>
-					</li>
-				{/each}
-			</ul>
-		{/if}
-	</div>
-</SlidePanel>
-
-<ConfirmDialog
-	open={deleteCommentConfirmId !== null}
-	title="Delete comment"
-	description="This will permanently delete this comment."
-	confirmLabel="delete"
-	variant="danger"
-	loading={deletingCommentId !== null}
-	onConfirm={async () => {
-		if (deleteCommentConfirmId) {
-			await removeComment(deleteCommentConfirmId);
-			deleteCommentConfirmId = null;
-		}
-	}}
-	onCancel={() => (deleteCommentConfirmId = null)}
+	comments={comments as CommentItem[]}
+	loading={commentsQuery.isLoading}
+	chapterId={resolvedCommentChapterId}
+	currentPageIndex={currentPage?.pageIndex ?? 0}
+	onJumpToPage={jumpToPage}
 />

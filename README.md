@@ -26,6 +26,7 @@ docker compose -f compose.dev.yaml up --build
 Production example:
 
 ```bash
+MANGARR_IMAGE=ghcr.io/tftiwnbe/mangarr:sha-<git-sha> \
 docker compose up -d
 ```
 
@@ -40,7 +41,9 @@ docker compose -f compose.yaml -f compose.repo.yaml up -d --build
 Images:
 
 - `ghcr.io/tftiwnbe/mangarr:edge`
-- `ghcr.io/tftiwnbe/mangarr:latest`
+- `ghcr.io/tftiwnbe/mangarr:sha-<git-sha>`
+
+For production, prefer a pinned `sha-...` tag or image digest over a floating channel.
 
 Current published runtime images target `linux/amd64`, which is also the supported container path for the embedded KCEF runtime.
 

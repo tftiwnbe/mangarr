@@ -1,7 +1,7 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 
-const USERNAME = process.env.MANGARR_E2E_USERNAME ?? 'admin';
-const PASSWORD = process.env.MANGARR_E2E_PASSWORD ?? 'Admin12345';
+export const USERNAME = process.env.MANGARR_E2E_USERNAME ?? 'admin';
+export const PASSWORD = process.env.MANGARR_E2E_PASSWORD ?? 'Admin12345';
 const CONVEX_URL = process.env.MANGARR_E2E_CONVEX_URL ?? 'http://127.0.0.1:3210';
 
 type HiddenLibraryTitle = {
@@ -21,19 +21,40 @@ type VisibleLibraryTitle = {
 let cachedConvexToken: string | null = null;
 
 export async function login(page: Page) {
-	await page.goto('/login?redirect=%2Flibrary');
+	await authenticateCleanStack(page, '/library');
+}
+
+export async function authenticateCleanStack(page: Page, redirectPath = '/library') {
+	const redirect = encodeURIComponent(redirectPath);
+	await page.goto(`/login?redirect=${redirect}`);
 	await page.waitForURL(
-		(url) => url.pathname.startsWith('/library') || url.pathname.startsWith('/login')
+		(url) => url.pathname.startsWith(redirectPath) || url.pathname.startsWith('/login')
 	);
 	if (!page.url().includes('/login')) {
 		return;
 	}
-
 	await expect(page.getByRole('textbox', { name: /username/i })).toBeVisible();
 	await page.getByLabel(/username/i).fill(USERNAME);
 	await page.getByRole('textbox', { name: /password/i }).fill(PASSWORD);
-	await page.getByRole('button', { name: /sign in/i }).click();
+	const createFirstAdminButton = page.getByRole('button', { name: /create first admin/i });
+	if (await createFirstAdminButton.isVisible().catch(() => false)) {
+		await createFirstAdminButton.click();
+	} else {
+		await page.getByRole('button', { name: /sign in/i }).click();
+	}
 	await page.waitForURL((url) => !url.pathname.startsWith('/login'));
+}
+
+export async function assertAuthenticatedSession(page: Page, expectedUsername = USERNAME) {
+	const authState = await page.evaluate(async () => {
+		const response = await fetch('/api/auth/me');
+		return {
+			ok: response.ok,
+			body: (await response.json()) as { username?: string; message?: string }
+		};
+	});
+	expect(authState.ok).toBeTruthy();
+	expect(authState.body.username).toBe(expectedUsername);
 }
 
 async function getConvexToken(page: Page) {

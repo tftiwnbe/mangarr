@@ -3,35 +3,21 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { useConvexClient, useQuery } from 'convex-svelte';
-	import {
-		BellIcon,
-		BellSlashIcon,
-		BookIcon,
-		CaretDownIcon,
-		CaretLeftIcon,
-		GearIcon,
-		PencilLineIcon,
-		PlayIcon,
-		PlusIcon,
-		StarIcon,
-		SpinnerIcon
-	} from 'phosphor-svelte';
-	import { Dropdown, DropdownItem } from '$lib/elements/dropdown';
+	import { BookIcon, CaretLeftIcon } from 'phosphor-svelte';
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import TitleChaptersTab from '$lib/components/title-chapters-tab.svelte';
 	import TitleCommentsTab from '$lib/components/title-comments-tab.svelte';
 	import TitleEditPanel from '$lib/components/title-edit-panel.svelte';
 	import TitleInfoTab from '$lib/components/title-info-tab.svelte';
+	import TitlePageHero from '$lib/components/title-page-hero.svelte';
 	import TitleReadsTab from '$lib/components/title-reads-tab.svelte';
+	import TitleSourceManagementPanel from '$lib/components/title-source-management-panel.svelte';
 	import { convexApi } from '$lib/convex/api';
 	import { waitForCommand } from '$lib/client/commands';
 	import { Alert } from '$lib/elements/alert';
 	import { Button } from '$lib/elements/button';
-	import { LazyImage } from '$lib/elements/lazy-image';
 	import TitleSkeleton from '$lib/components/title-skeleton.svelte';
-	import { PanelSection } from '$lib/elements/panel-section';
-	import { SlidePanel } from '$lib/elements/slide-panel';
 	import { _ } from '$lib/i18n';
 	import { navigateBack, navHistoryRevision, resolveNavBackTarget } from '$lib/stores/nav-history';
 	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
@@ -206,7 +192,6 @@
 	let updatingDownloadProfile = $state(false);
 	let actionError = $state<string | null>(null);
 	let prefsSaving = $state(false);
-	let ratingHover = $state(0);
 	let metadataRequested = $state(false);
 	let readinessRequested = $state(false);
 	let chapterHydrationStatus = $state<'idle' | 'syncing' | 'refreshing' | 'failed'>('idle');
@@ -215,13 +200,9 @@
 	let selectedCollectionIds = $state<string[]>([]);
 	let sourceManagementError = $state<string | null>(null);
 	let sourceStatusRefreshing = $state(false);
-	let sourceMatchesOpen = $state(false);
 	let sourceMatchesLoading = $state(false);
 	let sourceMatchesAttempted = $state(false);
 	let sourceMatches = $state<ExploreItem[]>([]);
-	let manualSearchOpen = $state(false);
-	let manualSearchQuery = $state('');
-	let manualSearchSourceId = $state('');
 	let linkingVariantKey = $state<string | null>(null);
 	let preferredVariantSavingId = $state<string | null>(null);
 	let removingVariantId = $state<string | null>(null);
@@ -367,7 +348,6 @@
 			.map((item) => item.trim())
 			.filter(Boolean)
 	);
-	const sourcesCount = $derived(title?.variants.length ?? (title ? 1 : 0));
 	const readingProgressCount = $derived(title?.readingProgress.startedChapters ?? 0);
 	const preferredVariantId = $derived.by(
 		() =>
@@ -414,10 +394,11 @@
 	const hasStaleVariants = $derived.by(
 		() => title?.variants.some((variant) => variant.isStale) ?? false
 	);
-	const chaptersLabel = $derived.by(
-		() => `${title?.chapterStats.total ?? 0} ${$_('title.chapters').toLowerCase()}`
+	const addedAt = $derived(title?.createdAt ?? null);
+	const lastReadAt = $derived(title?.readingProgress.latest?.updatedAt ?? null);
+	const lastUpdatedAt = $derived(
+		title?.downloadProfile?.lastSuccessAt ?? title?.updatedAt ?? null
 	);
-	const sourcesLabel = $derived.by(() => `${sourcesCount} ${$_('title.sources').toLowerCase()}`);
 	const startReadingChapter = $derived.by(() => {
 		if (!title) return null;
 		if (title.readingProgress.latest) {
@@ -493,27 +474,6 @@
 		}
 		lastSourceNormalizationSignature = signature;
 		void normalizeSourceLinks();
-	});
-
-	$effect(() => {
-		if (enabledMatchSources.length === 0) {
-			if (manualSearchSourceId !== '') {
-				manualSearchSourceId = '';
-			}
-			return;
-		}
-
-		if (
-			manualSearchSourceId &&
-			enabledMatchSources.some((source) => source.id === manualSearchSourceId)
-		) {
-			return;
-		}
-
-		const nextSource = enabledMatchSources[0]?.id ?? '';
-		if (manualSearchSourceId !== nextSource) {
-			manualSearchSourceId = nextSource;
-		}
 	});
 
 	$effect(() => {
@@ -1008,29 +968,27 @@
 		);
 	}
 
-	async function loadSourceMatches(options?: { manual?: boolean }) {
+	async function loadSourceMatches(options?: { manual?: boolean; query?: string; sourceId?: string }) {
 		if (!title || sourceMatchesLoading) return;
 
 		const manual = options?.manual === true;
-		const query = (manual ? manualSearchQuery : title.title).trim() || title.title;
+		const query = (manual ? options?.query : title.title)?.trim() || title.title;
 		const suggestionQueries = manual ? [query] : uniqueMatchQueries();
 		const rankedQueries = suggestionQueries.length > 0 ? suggestionQueries : [query];
 		const candidateSources = manual
-			? manualSearchSourceId
-				? enabledMatchSources.filter((source) => source.id === manualSearchSourceId)
+			? options?.sourceId
+				? enabledMatchSources.filter((source) => source.id === options.sourceId)
 				: enabledMatchSources
 			: availableMatchSources;
 		if (candidateSources.length === 0) {
 			sourceMatches = [];
 			sourceMatchesAttempted = true;
-			sourceMatchesOpen = true;
 			return;
 		}
 
 		sourceMatchesLoading = true;
 		sourceMatchesAttempted = true;
 		sourceManagementError = null;
-		sourceMatchesOpen = true;
 
 		try {
 			const collected: ExploreItem[] = [];
@@ -1259,289 +1217,34 @@
 	{#if loading && !title}
 		<TitleSkeleton phaseLabel={$_('common.loading')} />
 	{:else if title}
-		<div class="flex flex-col md:grid md:grid-cols-[260px_1fr] md:items-start md:gap-8">
-			<div class="relative -mx-4 -mt-5 md:sticky md:top-8 md:mx-0 md:mt-0">
-				<div
-					class="aspect-[3/4] max-h-[70vh] w-full overflow-hidden bg-[var(--void-2)] md:aspect-[2/3] md:max-h-none"
-				>
-					{#if coverSrc}
-						<LazyImage
-							src={coverSrc}
-							alt={title.title}
-							class="h-full w-full"
-							imgClass="object-cover object-top"
-							loading="eager"
-						/>
-					{:else}
-						<div class="flex h-full w-full items-center justify-center bg-[var(--void-3)]">
-							<BookIcon size={28} class="text-[var(--void-6)]" />
-						</div>
-					{/if}
-				</div>
-				<div
-					class="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 md:hidden"
-					style="background: linear-gradient(to top, var(--void-0) 0%, var(--void-0) 8%, transparent 100%);"
-				></div>
-				<button
-					type="button"
-					class="absolute top-4 left-4 flex h-8 w-8 items-center justify-center bg-[var(--void-0)]/60 text-[var(--text)] backdrop-blur-sm transition-colors hover:bg-[var(--void-0)]/80 md:hidden"
-					onclick={handleBack}
-				>
-					<CaretLeftIcon size={18} />
-				</button>
-
-				<div class="mt-4 hidden flex-col gap-3 md:flex">
-					<div class="flex items-center gap-2">
-						{#if title.chapterStats.total > 0}
-							<button
-								type="button"
-								class="flex h-10 flex-1 items-center justify-center gap-2 bg-[var(--void-5)] text-xs text-[var(--text)] transition-all hover:bg-[var(--void-6)]"
-								onclick={openReadingStart}
-							>
-								<PlayIcon size={14} />
-								<span
-									>{title.readingProgress.latest
-										? $_('title.continueReading')
-										: $_('title.startReading')}</span
-								>
-							</button>
-						{:else if isChapterHydrating}
-							<div
-								class="flex h-10 flex-1 items-center justify-center gap-2 text-xs text-[var(--text-ghost)]"
-							>
-								<SpinnerIcon size={14} class="animate-spin" />
-								<span>{chapterHydrationHeadline}</span>
-							</div>
-						{:else}
-							<div
-								class="flex h-10 flex-1 items-center justify-center text-xs text-[var(--text-ghost)]"
-							>
-								{$_('title.noChapters')}
-							</div>
-						{/if}
-						<button
-							type="button"
-							class="flex h-10 w-10 shrink-0 items-center justify-center bg-[var(--void-3)] text-[var(--text-muted)] transition-colors hover:bg-[var(--void-4)] hover:text-[var(--text)]"
-							onclick={() => (showManagementPanel = true)}
-						>
-							<GearIcon size={16} />
-						</button>
-					</div>
-					{#if title.chapterStats.total > 0}
-						<div class="flex items-center gap-2">
-							<div class="relative h-px min-w-0 flex-1 bg-[var(--void-4)]">
-								<div
-									class="absolute inset-y-0 left-0 bg-[var(--text-ghost)]"
-									style={`width: ${Math.round((readingProgressCount / Math.max(title.chapterStats.total, 1)) * 100)}%`}
-								></div>
-							</div>
-							<span class="shrink-0 text-[11px] text-[var(--void-7)] tabular-nums">
-								{readingProgressCount}/{title.chapterStats.total}
-							</span>
-						</div>
-					{/if}
-				</div>
-			</div>
-
-			{#snippet chipRow()}
-				<div class="flex flex-wrap items-center gap-1.5 text-xs">
-					<Dropdown
-						triggerClass="flex items-center gap-1 px-2.5 py-1 transition-colors {selectedStatus
-							? 'bg-[var(--void-5)] text-[var(--text)] hover:bg-[var(--void-6)]'
-							: 'bg-[var(--void-3)] text-[var(--text-ghost)] hover:bg-[var(--void-4)] hover:text-[var(--text)]'} data-[state=open]:bg-[var(--void-5)] data-[state=open]:text-[var(--text)]"
-					>
-						{#snippet trigger()}
-							<span>{selectedStatus?.label ?? $_('title.status')}</span>
-							<CaretDownIcon size={10} />
-						{/snippet}
-						<DropdownItem onSelect={() => setStatus(null)}>{$_('common.clear')}</DropdownItem>
-						{#each availableStatuses as status (status.id)}
-							<DropdownItem onSelect={() => setStatus(status.id)}>
-								{status.label}
-							</DropdownItem>
-						{/each}
-					</Dropdown>
-
-					<button
-						type="button"
-						class="flex items-center gap-1 px-2.5 py-1 transition-colors disabled:opacity-50 {updatesEnabled
-							? 'bg-[var(--void-5)] text-[var(--text)] hover:bg-[var(--void-6)]'
-							: 'bg-[var(--void-3)] text-[var(--text-ghost)] hover:bg-[var(--void-4)] hover:text-[var(--text)]'}"
-						onclick={toggleDownloadUpdates}
-						disabled={updatingDownloadProfile}
-					>
-						{#if updatingDownloadProfile}
-							<SpinnerIcon size={12} class="animate-spin" />
-						{:else if updatesEnabled}
-							<BellIcon size={12} />
-						{:else}
-							<BellSlashIcon size={12} />
-						{/if}
-						<span>
-							{updatesEnabled ? $_('title.updatesOn') : $_('title.updatesOff')}
-						</span>
-					</button>
-
-					{#each selectedCollections as collection (collection.id)}
-						<button
-							type="button"
-							class="flex items-center gap-1 bg-[var(--void-5)] px-2.5 py-1 text-[var(--text)] transition-colors hover:bg-[var(--void-6)]"
-							onclick={() => toggleCollection(collection.id)}
-							aria-label={`Remove from ${collection.name}`}
-						>
-							<span>{collection.name}</span>
-						</button>
-					{/each}
-					{#if unselectedCollections.length > 0}
-						<Dropdown
-							triggerClass="flex items-center gap-1 bg-[var(--void-3)] px-2.5 py-1 text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-4)] hover:text-[var(--text)] data-[state=open]:bg-[var(--void-5)] data-[state=open]:text-[var(--text)]"
-						>
-							{#snippet trigger()}
-								<PlusIcon size={12} />
-								{#if selectedCollections.length === 0}
-									<span>{$_('title.collections')}</span>
-								{/if}
-							{/snippet}
-							{#each unselectedCollections as collection (collection.id)}
-								<DropdownItem onSelect={() => toggleCollection(collection.id)}>
-									{collection.name}
-								</DropdownItem>
-							{/each}
-						</Dropdown>
-					{/if}
-					{#if prefsSaving}
-						<SpinnerIcon size={12} class="animate-spin text-[var(--void-6)]" />
-					{/if}
-				</div>
-			{/snippet}
-
-			<div class="flex flex-col">
-				<div class="relative -mt-20 flex flex-col gap-2 sm:-mt-24 md:mt-0">
-					<div class="flex items-center gap-0.5 md:hidden">
-						{#each Array.from({ length: 5 }) as _unused, i (i)}
-							{@const value = i + 1}
-							{@const active = (ratingHover > 0 ? ratingHover : selectedRating) >= value}
-							<button
-								type="button"
-								class="p-1 transition-colors {active
-									? 'text-[var(--text)]'
-									: 'text-[var(--void-6)] hover:text-[var(--text-muted)]'}"
-								onmouseenter={() => (ratingHover = value)}
-								onmouseleave={() => (ratingHover = 0)}
-								onclick={() => setRating(value)}
-								aria-label={`Rate ${value}`}
-							>
-								<StarIcon size={18} weight={active ? 'fill' : 'regular'} />
-							</button>
-						{/each}
-					</div>
-
-					<div class="flex items-start justify-between gap-4">
-						<div class="flex min-w-0 flex-1 items-start gap-2">
-							<h1
-								class="text-display min-w-0 text-2xl leading-tight text-[var(--text)] sm:text-3xl md:text-2xl"
-							>
-								{title.title}
-							</h1>
-							<button
-								type="button"
-								class="mt-1 shrink-0 text-[var(--void-6)] transition-colors hover:text-[var(--text-ghost)]"
-								onclick={() => (showEditPanel = true)}
-								aria-label={$_('title.editMetadata')}
-							>
-								<PencilLineIcon size={14} />
-							</button>
-						</div>
-						<div class="hidden shrink-0 items-center gap-0.5 md:flex">
-							{#each Array.from({ length: 5 }) as _unused, i (i)}
-								{@const value = i + 1}
-								{@const active = (ratingHover > 0 ? ratingHover : selectedRating) >= value}
-								<button
-									type="button"
-									class="p-0.5 transition-colors {active
-										? 'text-[var(--text)]'
-										: 'text-[var(--void-6)] hover:text-[var(--text-muted)]'}"
-									onmouseenter={() => (ratingHover = value)}
-									onmouseleave={() => (ratingHover = 0)}
-									onclick={() => setRating(value)}
-									aria-label={`Rate ${value}`}
-								>
-									<StarIcon size={16} weight={active ? 'fill' : 'regular'} />
-								</button>
-							{/each}
-						</div>
-					</div>
-
-					{#if author || artist}
-						<p class="text-sm text-[var(--text-ghost)]">
-							{#if author}{author}{/if}
-							{#if artist && artist !== author}
-								{#if author}
-									·
-								{/if}{artist}
-							{/if}
-						</p>
-					{/if}
-
-					<div class="mt-2 hidden md:block">
-						{@render chipRow()}
-					</div>
-				</div>
-
-				<div class="mt-6 flex flex-col gap-4 md:hidden">
-					<div class="flex items-center gap-3">
-						{#if title.chapterStats.total > 0}
-							<button
-								type="button"
-								class="flex h-12 flex-1 items-center justify-center gap-2 bg-[var(--void-5)] text-sm text-[var(--text)] transition-all hover:bg-[var(--void-6)]"
-								onclick={openReadingStart}
-							>
-								<PlayIcon size={16} />
-								<span
-									>{title.readingProgress.latest
-										? $_('title.continueReading')
-										: $_('title.startReading')}</span
-								>
-							</button>
-						{:else if isChapterHydrating}
-							<div
-								class="flex h-12 flex-1 items-center justify-center gap-2 text-sm text-[var(--text-ghost)]"
-							>
-								<SpinnerIcon size={16} class="animate-spin" />
-								<span>{chapterHydrationHeadline}</span>
-							</div>
-						{:else}
-							<div
-								class="flex h-12 flex-1 items-center justify-center text-sm text-[var(--text-ghost)]"
-							>
-								{$_('title.noChapters')}
-							</div>
-						{/if}
-						<button
-							type="button"
-							class="flex h-12 w-12 shrink-0 items-center justify-center bg-[var(--void-3)] text-[var(--text-muted)] transition-colors hover:bg-[var(--void-4)] hover:text-[var(--text)]"
-							onclick={() => (showManagementPanel = true)}
-						>
-							<GearIcon size={18} />
-						</button>
-					</div>
-					{#if title.chapterStats.total > 0}
-						<div class="flex items-center gap-3">
-							<div class="relative h-px min-w-0 flex-1 bg-[var(--void-4)]">
-								<div
-									class="absolute inset-y-0 left-0 bg-[var(--text-ghost)]"
-									style={`width: ${Math.round((readingProgressCount / Math.max(title.chapterStats.total, 1)) * 100)}%`}
-								></div>
-							</div>
-							<span class="shrink-0 text-xs text-[var(--void-7)] tabular-nums">
-								{readingProgressCount}/{title.chapterStats.total}
-							</span>
-						</div>
-					{/if}
-					{@render chipRow()}
-				</div>
-
-				{#if actionError}
+		<TitlePageHero
+			title={title.title}
+			{coverSrc}
+			{author}
+			{artist}
+			chapterStatsTotal={title.chapterStats.total}
+			{readingProgressCount}
+			hasReadingProgress={Boolean(title.readingProgress.latest)}
+			{isChapterHydrating}
+			{chapterHydrationHeadline}
+			{selectedStatus}
+			{availableStatuses}
+			{selectedCollections}
+			{unselectedCollections}
+			{updatesEnabled}
+			{updatingDownloadProfile}
+			{prefsSaving}
+			{selectedRating}
+			onBack={handleBack}
+			onOpenReadingStart={openReadingStart}
+			onOpenManagement={() => (showManagementPanel = true)}
+			onOpenEdit={() => (showEditPanel = true)}
+			onSetStatus={setStatus}
+			onToggleDownloadUpdates={toggleDownloadUpdates}
+			onToggleCollection={toggleCollection}
+			onSetRating={setRating}
+		>
+			{#if actionError}
 					<Alert variant="error" class="mt-3">{actionError}</Alert>
 				{/if}
 
@@ -1612,9 +1315,9 @@
 							{displayStatus}
 							{sourceName}
 							sourceLang={title.sourceLang}
-							{chaptersLabel}
-							{sourcesLabel}
-							{updatesEnabled}
+							{addedAt}
+							{lastReadAt}
+							{lastUpdatedAt}
 							{similarTitles}
 							similarTitlesLoading={similarTitlesQuery.isLoading}
 							similarTitlesWarming={similarTitlesResult.warming}
@@ -1654,8 +1357,7 @@
 						/>
 					{/if}
 				</div>
-			</div>
-		</div>
+		</TitlePageHero>
 	{:else}
 		<div class="flex flex-col items-center gap-4 py-20 text-center">
 			<BookIcon size={28} class="text-[var(--void-6)]" />
@@ -1675,224 +1377,28 @@
 {/if}
 
 {#if title}
-	<SlidePanel
+	<TitleSourceManagementPanel
 		open={showManagementPanel}
-		title={$_('title.info')}
+		title={title}
+		{hasStaleVariants}
+		{preferredVariantId}
+		{preferredVariantSavingId}
+		{removingVariantId}
+		{linkingVariantKey}
+		{normalizingSources}
+		{sourceStatusRefreshing}
+		{sourceMatchesLoading}
+		{sourceMatchesAttempted}
+		{sourceMatches}
+		{sourceManagementError}
+		{enabledMatchSources}
+		{sourceDisplayName}
 		onclose={() => (showManagementPanel = false)}
-	>
-		<PanelSection label={$_('title.sourceMaintenance')}>
-			<p class="text-xs leading-relaxed text-[var(--text-ghost)]">
-				{$_('title.sourceMaintenanceDescription')}
-			</p>
-			<Button
-				variant="outline"
-				size="sm"
-				onclick={() => void refreshSourceState()}
-				disabled={sourceStatusRefreshing}
-				loading={sourceStatusRefreshing}
-			>
-				{$_('title.refreshSource')}
-			</Button>
-		</PanelSection>
-
-		<PanelSection label={$_('title.sources')} divider={false}>
-			{#snippet actions()}
-				<div class="flex items-center gap-1.5">
-					{#if hasStaleVariants}
-						<Button
-							variant="ghost"
-							size="sm"
-							onclick={() => void normalizeSourceLinks()}
-							disabled={normalizingSources}
-							loading={normalizingSources}
-						>
-							{$_('title.repairSources')}
-						</Button>
-					{/if}
-				</div>
-			{/snippet}
-			<p class="text-xs leading-relaxed text-[var(--text-ghost)]">
-				{$_('title.findMatchesDescription')}
-			</p>
-
-			<div class="flex flex-col gap-2">
-				{#each title.variants as variant (variant.id)}
-					{@const isPreferred = preferredVariantId === variant.id}
-					<div
-						class="border bg-[var(--void-2)] px-3 py-3 transition-colors {isPreferred
-							? 'border-[var(--cosmic-halo)]'
-							: 'border-[var(--void-3)] hover:border-[var(--void-5)]'}"
-					>
-						<div class="flex items-start justify-between gap-3">
-							<div class="min-w-0 flex-1">
-								<div class="flex flex-wrap items-center gap-1.5">
-									<span class="truncate text-sm font-medium text-[var(--text)]">
-										{sourceDisplayName(variant.sourceId, variant.sourcePkg, variant.sourceName)}
-									</span>
-									<span
-										class="border border-[var(--void-4)] px-1.5 py-px font-mono text-[9px] tracking-[0.18em] text-[var(--text-ghost)] uppercase"
-									>
-										{variant.sourceLang}
-									</span>
-									{#if isPreferred}
-										<span
-											class="border border-[var(--success)]/40 bg-[var(--success-soft)] px-1.5 py-px font-mono text-[9px] tracking-[0.18em] text-[var(--success)] uppercase"
-										>
-											{$_('title.readingNow')}
-										</span>
-									{/if}
-									{#if variant.isStale}
-										<span
-											class="border border-[var(--error)]/40 bg-[var(--error-soft)] px-1.5 py-px font-mono text-[9px] tracking-[0.18em] text-[var(--error)] uppercase"
-										>
-											{$_('title.staleSource')}
-										</span>
-									{:else if variant.isEnabled === false}
-										<span
-											class="border border-[var(--void-4)] px-1.5 py-px font-mono text-[9px] tracking-[0.18em] text-[var(--text-ghost)] uppercase"
-										>
-											{$_('downloads.disabled')}
-										</span>
-									{/if}
-								</div>
-								<div class="mt-1 truncate text-xs text-[var(--text-ghost)]">
-									{variant.title}
-								</div>
-							</div>
-						</div>
-						<div class="mt-3 flex flex-wrap gap-2">
-							<Button
-								variant={isPreferred ? 'ghost' : 'outline'}
-								size="sm"
-								onclick={() => void choosePreferredVariant(variant.id)}
-								disabled={preferredVariantSavingId === variant.id || isPreferred}
-								loading={preferredVariantSavingId === variant.id}
-							>
-								{isPreferred ? $_('title.readingNow') : $_('title.readFromSource')}
-							</Button>
-							{#if title.variants.length > 1}
-								<Button
-									variant="ghost"
-									size="sm"
-									onclick={() => void removeSourceVariant(variant.id)}
-									disabled={removingVariantId === variant.id}
-									loading={removingVariantId === variant.id}
-								>
-									{$_('title.removeSource')}
-								</Button>
-							{/if}
-						</div>
-					</div>
-				{/each}
-			</div>
-
-			<div class="flex items-center gap-2 border border-dashed border-[var(--void-3)] px-3 py-2">
-				<Button
-					variant="ghost"
-					size="sm"
-					class="flex-1 whitespace-nowrap"
-					onclick={() => void loadSourceMatches()}
-					disabled={sourceMatchesLoading || enabledMatchSources.length === 0}
-					loading={sourceMatchesLoading}
-				>
-					{$_('title.findOtherSources')}
-				</Button>
-				<button
-					type="button"
-					class="font-mono text-[10px] tracking-[0.16em] text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text)]"
-					onclick={() => (manualSearchOpen = !manualSearchOpen)}
-				>
-					{manualSearchOpen ? $_('common.less') : $_('title.searchManually')}
-				</button>
-			</div>
-
-			{#if manualSearchOpen}
-				<div class="flex flex-col gap-2 border border-[var(--void-3)] bg-[var(--void-2)] p-3">
-					<input
-						type="text"
-						class="min-w-0 border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] transition-colors outline-none placeholder:text-[var(--text-ghost)] focus:border-[var(--cosmic)]"
-						placeholder={title.title}
-						bind:value={manualSearchQuery}
-					/>
-					<select
-						class="border-b border-[var(--void-4)] bg-transparent py-1.5 text-sm text-[var(--text)] transition-colors outline-none focus:border-[var(--cosmic)]"
-						bind:value={manualSearchSourceId}
-					>
-						<option value="">{$_('title.allEnabledSources')}</option>
-						{#each enabledMatchSources as source (source.id)}
-							<option value={source.id}>{source.name} [{source.lang}]</option>
-						{/each}
-					</select>
-					<Button
-						variant="solid"
-						size="sm"
-						onclick={() => void loadSourceMatches({ manual: true })}
-						disabled={sourceMatchesLoading || enabledMatchSources.length === 0}
-						loading={sourceMatchesLoading}
-					>
-						{$_('common.search')}
-					</Button>
-				</div>
-			{/if}
-
-			{#if sourceMatchesOpen}
-				<div class="flex flex-col gap-2 border-t border-[var(--void-3)] pt-3">
-					<div class="flex items-baseline justify-between gap-2">
-						<span
-							class="font-mono text-[10px] tracking-[0.18em] text-[var(--text-ghost)] uppercase"
-						>
-							{$_('title.suggestedMatches')}
-						</span>
-						<span class="font-mono text-[9px] tracking-[0.16em] text-[var(--text-dim)] uppercase">
-							{$_('title.enabledSourcesOnly')}
-						</span>
-					</div>
-
-					{#if sourceMatchesLoading}
-						<div class="flex items-center gap-2 text-xs text-[var(--text-ghost)]">
-							<SpinnerIcon size={12} class="animate-spin" />
-							<span>{$_('common.loading')}</span>
-						</div>
-					{:else if sourceMatches.length > 0}
-						<div class="flex flex-col gap-2">
-							{#each sourceMatches as result (`${result.sourceId}::${result.titleUrl}`)}
-								<div
-									class="flex items-start justify-between gap-3 border border-[var(--void-3)] bg-[var(--void-2)] px-3 py-2 text-sm transition-colors hover:border-[var(--void-5)]"
-								>
-									<div class="min-w-0">
-										<div class="truncate text-[var(--text)]">{result.title}</div>
-										<div class="mt-1 flex items-center gap-1.5">
-											<span class="text-xs text-[var(--text-ghost)]">
-												{sourceDisplayName(result.sourceId, result.sourcePkg)}
-											</span>
-											<span
-												class="border border-[var(--void-4)] px-1 font-mono text-[9px] tracking-[0.16em] text-[var(--text-ghost)] uppercase"
-											>
-												{result.sourceLang}
-											</span>
-										</div>
-									</div>
-									<Button
-										variant="ghost"
-										size="sm"
-										onclick={() => void linkSourceVariant(result)}
-										disabled={linkingVariantKey === `${result.sourceId}::${result.titleUrl}`}
-										loading={linkingVariantKey === `${result.sourceId}::${result.titleUrl}`}
-									>
-										{$_('title.addSource')}
-									</Button>
-								</div>
-							{/each}
-						</div>
-					{:else if sourceMatchesAttempted}
-						<p class="text-xs text-[var(--text-ghost)]">{$_('title.noSourceMatches')}</p>
-					{/if}
-				</div>
-			{/if}
-
-			{#if sourceManagementError}
-				<Alert variant="error">{sourceManagementError}</Alert>
-			{/if}
-		</PanelSection>
-	</SlidePanel>
+		onRefreshSource={() => void refreshSourceState()}
+		onNormalizeSources={() => void normalizeSourceLinks()}
+		onChoosePreferredVariant={(variantId) => void choosePreferredVariant(variantId)}
+		onRemoveSourceVariant={(variantId) => void removeSourceVariant(variantId)}
+		onLoadSourceMatches={(options) => void loadSourceMatches(options)}
+		onLinkSourceVariant={(item) => void linkSourceVariant(item as ExploreItem)}
+	/>
 {/if}

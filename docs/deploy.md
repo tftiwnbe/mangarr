@@ -13,8 +13,11 @@ The production example in [compose.yaml](../compose.yaml) is intentionally simpl
 Bring it up with:
 
 ```bash
+MANGARR_IMAGE=ghcr.io/tftiwnbe/mangarr:sha-<git-sha> \
 docker compose up -d
 ```
+
+Use an immutable `sha-...` tag or image digest for production rollouts. Reserve `:edge` for preview or canary environments.
 
 To build the runtime locally from the checked-out repo instead of pulling `ghcr.io`, use the repo override:
 
@@ -65,6 +68,7 @@ Back up:
 - logs are written to `config/logs/system/` and `config/logs/bridge/`
 - the public web URL is configured with `MANGARR_PUBLIC_URL`
 - the public Convex URL is derived automatically as `${MANGARR_PUBLIC_URL}/convex`
+- the internal bridge port exposes `/health` and `/metrics` for runtime probing and scraping
 
 ## Restore
 
@@ -95,6 +99,6 @@ That command uses fresh temporary `config/` and `downloads/` directories, builds
 Published images:
 
 - `ghcr.io/tftiwnbe/mangarr:edge`
-- `ghcr.io/tftiwnbe/mangarr:latest`
+- `ghcr.io/tftiwnbe/mangarr:sha-<git-sha>`
 
 Both published channels currently target `linux/amd64`.

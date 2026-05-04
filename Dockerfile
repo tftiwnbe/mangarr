@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
-FROM ghcr.io/get-convex/convex-backend:latest AS convex-backend
+ARG CONVEX_BACKEND_IMAGE=ghcr.io/get-convex/convex-backend@sha256:a2d21bddff6048eadb810a39599dee6002dfba00fbb1299f593f8586b3ccbbd9
+FROM ${CONVEX_BACKEND_IMAGE} AS convex-backend
 
 FROM node:24-alpine AS web-base
 WORKDIR /app/web

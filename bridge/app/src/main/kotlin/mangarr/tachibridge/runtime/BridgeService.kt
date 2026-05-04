@@ -527,27 +527,34 @@ class BridgeService(
         maybePruneExpiredInMemoryCaches(now)
 
         readerPageCache[cacheKey]?.takeIf { it.expiresAt > now }?.let { cached ->
+            BridgeMetrics.recordCacheLookup(cache = "reader_page", outcome = "memory_hit")
             return PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
         }
         readerPageFailureCache[cacheKey]?.takeIf { it.expiresAt > now }?.let { cached ->
+            BridgeMetrics.recordCacheLookup(cache = "reader_page_failure", outcome = "memory_hit")
             throw HttpException(cached.httpCode)
         }
         loadPersistedReaderPage(json, readerPageCacheDir, cacheKey, now)?.let { cached ->
             readerPageCache[cacheKey] = cached
+            BridgeMetrics.recordCacheLookup(cache = "reader_page", outcome = "disk_hit")
             return PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
         }
+        BridgeMetrics.recordCacheLookup(cache = "reader_page", outcome = "miss")
 
         val lock = readerPageLocks.computeIfAbsent(cacheKey) { Mutex() }
         return lock.withLock {
             val currentTime = System.currentTimeMillis()
             readerPageCache[cacheKey]?.takeIf { it.expiresAt > currentTime }?.let { cached ->
+                BridgeMetrics.recordCacheLookup(cache = "reader_page", outcome = "memory_hit_after_wait")
                 return@withLock PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
             }
             readerPageFailureCache[cacheKey]?.takeIf { it.expiresAt > currentTime }?.let { cached ->
+                BridgeMetrics.recordCacheLookup(cache = "reader_page_failure", outcome = "memory_hit_after_wait")
                 throw HttpException(cached.httpCode)
             }
             loadPersistedReaderPage(json, readerPageCacheDir, cacheKey, currentTime)?.let { cached ->
                 readerPageCache[cacheKey] = cached
+                BridgeMetrics.recordCacheLookup(cache = "reader_page", outcome = "disk_hit_after_wait")
                 return@withLock PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
             }
 
@@ -574,6 +581,7 @@ class BridgeService(
                 )
             readerPageCache[cacheKey] = cached
             persistReaderPage(json, readerPageCacheDir, cacheKey, cached)
+            BridgeMetrics.recordCacheStore(cache = "reader_page")
             PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
         }
     }
@@ -1009,11 +1017,16 @@ class BridgeService(
         val cacheKey = "$feed:$sourceId:$page:$normalizedLimit"
         val now = System.currentTimeMillis()
         maybePruneExpiredInMemoryCaches(now)
-        feedCache[cacheKey]?.takeIf { it.expiresAt > now }?.let { return it.payload }
+        feedCache[cacheKey]?.takeIf { it.expiresAt > now }?.let {
+            BridgeMetrics.recordCacheLookup(cache = "feed", outcome = "memory_hit")
+            return it.payload
+        }
         loadPersistedFeed(json, feedCacheDir, cacheKey, now)?.let { payload ->
             feedCache[cacheKey] = CachedFeedResult(payload = payload, expiresAt = now + FEED_CACHE_TTL_MS)
+            BridgeMetrics.recordCacheLookup(cache = "feed", outcome = "disk_hit")
             return payload
         }
+        BridgeMetrics.recordCacheLookup(cache = "feed", outcome = "miss")
         val parsedSourceId = sourceId.toLong()
         if (!ConfigManager.isSourceEnabled(parsedSourceId)) {
             error("Source is disabled: $sourceId")
@@ -1069,6 +1082,7 @@ class BridgeService(
     private fun storeFeedCache(cacheKey: String, payload: JsonObject, expiresAt: Long) {
         feedCache[cacheKey] = CachedFeedResult(payload = payload, expiresAt = expiresAt)
         persistFeed(json, feedCacheDir, cacheKey, payload, expiresAt)
+        BridgeMetrics.recordCacheStore(cache = "feed")
     }
 
     private suspend fun <T> withSourceRequestRetry(
