@@ -16,6 +16,8 @@ type BridgeCommandRequestArgs = {
 	requestedByUserId?: string;
 };
 
+const BRIDGE_COMMAND_TIMEOUT_MS = 30_000;
+
 const sourceReadCache = new ActionCache(actionCacheComponent, {
 	action: internal.bridge_workpool.executeCacheableBridgeCommand,
 	name: 'bridge-source-read-v1',
@@ -129,9 +131,13 @@ async function executeBridgeCommandRequest(args: BridgeCommandRequestArgs) {
 				'content-type': 'application/json',
 				'x-mangarr-service-secret': serviceSecret
 			},
-			body: JSON.stringify(args)
+			body: JSON.stringify(args),
+			signal: AbortSignal.timeout(BRIDGE_COMMAND_TIMEOUT_MS)
 		});
 	} catch (error) {
+		if (error instanceof DOMException && error.name === 'TimeoutError') {
+			throw new Error(`Bridge command execution timed out after ${BRIDGE_COMMAND_TIMEOUT_MS}ms`);
+		}
 		const message = error instanceof Error ? error.message : String(error);
 		throw new Error(`Bridge unreachable: ${message}`);
 	}
