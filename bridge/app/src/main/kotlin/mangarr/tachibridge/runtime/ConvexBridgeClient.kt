@@ -54,6 +54,20 @@ data class RecoverExpiredLeasesResponse(
 )
 
 @Serializable
+data class LeaseBatchRequestStat(
+    val lane: String,
+    val requestedSlots: Double,
+    val candidateCount: Double,
+    val leasedCount: Double,
+)
+
+@Serializable
+data class LeaseBatchResponse(
+    val leasedCommands: List<LeaseCommand>,
+    val requestStats: List<LeaseBatchRequestStat>,
+)
+
+@Serializable
 data class UpsertRepositoryResponse(
     val updated: Boolean,
     val created: Boolean,
@@ -93,6 +107,9 @@ class ConvexBridgeClient(
 
     fun leaseCommands(args: JsonObject): List<LeaseCommand> =
         mutation("runtime_commands:lease", args)
+
+    fun leaseCommandsBatch(args: JsonObject): LeaseBatchResponse =
+        mutation("runtime_commands:leaseBatch", args)
 
     fun recoverExpiredLeases(args: JsonObject): RecoverExpiredLeasesResponse =
         mutation("runtime_commands:recoverExpiredLeases", args)

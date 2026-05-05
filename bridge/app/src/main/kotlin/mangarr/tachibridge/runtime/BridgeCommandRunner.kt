@@ -33,6 +33,8 @@ private const val DOWNLOAD_LEASE_RENEW_INTERVAL_MS = 5_000L
 private const val DISCOVERY_RETRY_DELAY_MS = 15 * 60 * 1000L
 private const val MAX_LEASE_RECOVERY_INTERVAL_MS = 15_000L
 private const val MAX_COMMAND_LEASE_RENEW_INTERVAL_MS = 10_000L
+private const val IDLE_POLL_BACKOFF_STEP_POLLS = 3
+private const val MAX_IDLE_POLL_INTERVAL_MS = 15_000L
 
 @Serializable
 data class CommandRunnerSnapshot(
@@ -47,6 +49,22 @@ private class StaleCommandLeaseException(
     commandId: String,
     action: String,
 ) : IllegalStateException("Command $commandId lost its lease before $action")
+
+private data class CommandPollResult(
+    val success: Boolean,
+    val leasedCount: Int,
+)
+
+internal fun idlePollDelayMs(
+    baseIntervalMs: Long,
+    consecutiveIdlePolls: Int,
+): Long {
+    if (consecutiveIdlePolls <= 0) {
+        return baseIntervalMs
+    }
+    val step = (consecutiveIdlePolls / IDLE_POLL_BACKOFF_STEP_POLLS).coerceAtMost(3)
+    return (baseIntervalMs * (1L shl step)).coerceAtMost(MAX_IDLE_POLL_INTERVAL_MS)
+}
 
 class BridgeCommandRunner(
     private val bridgeClient: ConvexBridgeClient?,
@@ -63,6 +81,7 @@ class BridgeCommandRunner(
         (leaseDurationMs / 3).coerceAtLeast(5_000L).coerceAtMost(MAX_COMMAND_LEASE_RENEW_INTERVAL_MS)
     private var job: Job? = null
     private var lastLeaseRecoveryAt = 0L
+    private var consecutiveIdlePolls = 0
     @Volatile
     private var snapshot =
         CommandRunnerSnapshot(
@@ -117,8 +136,14 @@ class BridgeCommandRunner(
             scope.launch {
                 recoverDownloadStateOnStartup()
                 while (isActive) {
-                    poll()
-                    delay(pollIntervalMs)
+                    val result = poll()
+                    consecutiveIdlePolls =
+                        if (!result.success || result.leasedCount > 0) {
+                            0
+                        } else {
+                            consecutiveIdlePolls + 1
+                        }
+                    delay(idlePollDelayMs(pollIntervalMs, consecutiveIdlePolls))
                 }
             }
     }
@@ -129,20 +154,29 @@ class BridgeCommandRunner(
         snapshot = snapshot.copy(running = false)
     }
 
-    private suspend fun poll() {
-        val client = bridgeClient ?: return
+    private suspend fun poll(): CommandPollResult {
+        val client = bridgeClient ?: return CommandPollResult(success = false, leasedCount = 0)
         val now = System.currentTimeMillis()
         snapshot = snapshot.copy(lastPollAt = now)
 
         try {
             maybeRecoverExpiredCommandLeases(client, now)
-            val leased = mutableListOf<LeaseCommand>()
-            for (lane in commandLaneTracker.lanes()) {
-                val slots = commandLaneTracker.availableSlots(lane)
-                if (slots > 0) {
-                    leased += leaseCommands(client, now, lane.capabilities, slots)
+            val requests =
+                commandLaneTracker.lanes()
+                    .mapNotNull { lane ->
+                        val slots = commandLaneTracker.availableSlots(lane)
+                        if (slots > 0) {
+                            lane to slots
+                        } else {
+                            null
+                        }
+                    }
+            val leased =
+                if (requests.isEmpty()) {
+                    emptyList()
+                } else {
+                    leaseCommandsBatch(client, now, requests)
                 }
-            }
 
             if (leased.isNotEmpty()) {
                 events.debug(
@@ -156,6 +190,7 @@ class BridgeCommandRunner(
             dispatchLeasedCommands(client, leased)
 
             snapshot = snapshot.copy(lastSuccessAt = now, lastError = null)
+            return CommandPollResult(success = true, leasedCount = leased.size)
         } catch (error: Exception) {
             events.error(
                 "bridge.commands.poll_failed",
@@ -164,6 +199,7 @@ class BridgeCommandRunner(
                 "bridgeId" to bridgeId,
             )
             snapshot = snapshot.copy(lastError = error.message ?: "Unknown command error")
+            return CommandPollResult(success = false, leasedCount = 0)
         }
     }
 
@@ -194,31 +230,43 @@ class BridgeCommandRunner(
         }
     }
 
-    private fun leaseCommands(
+    private fun leaseCommandsBatch(
         client: ConvexBridgeClient,
         now: Long,
-        capabilities: List<String>,
-        limit: Int,
+        requests: List<Pair<BridgeCommandLane, Int>>,
     ): List<LeaseCommand> {
-        if (limit <= 0 || capabilities.isEmpty()) {
+        if (requests.isEmpty()) {
             return emptyList()
         }
-        return client.leaseCommands(
-            client.payload(
-                buildJsonObject {
-                    put("bridgeId", bridgeId)
-                    put(
-                        "capabilities",
-                        kotlinx.serialization.json.buildJsonArray {
-                            capabilities.forEach { capability -> add(JsonPrimitive(capability)) }
-                        },
-                    )
-                    put("now", now)
-                    put("limit", limit)
-                    put("leaseDurationMs", leaseDurationMs)
-                },
-            ),
-        )
+        return client
+            .leaseCommandsBatch(
+                client.payload(
+                    buildJsonObject {
+                        put("bridgeId", bridgeId)
+                        put("now", now)
+                        put("leaseDurationMs", leaseDurationMs)
+                        put(
+                            "requests",
+                            kotlinx.serialization.json.buildJsonArray {
+                                requests.forEach { (lane, limit) ->
+                                    add(
+                                        buildJsonObject {
+                                            put("lane", lane.name.lowercase())
+                                            put(
+                                                "capabilities",
+                                                kotlinx.serialization.json.buildJsonArray {
+                                                    lane.capabilities.forEach { capability -> add(JsonPrimitive(capability)) }
+                                                },
+                                            )
+                                            put("limit", limit)
+                                        },
+                                    )
+                                }
+                            },
+                        )
+                    },
+                ),
+            ).leasedCommands
     }
 
     private suspend fun recoverDownloadStateOnStartup() {
