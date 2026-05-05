@@ -268,7 +268,7 @@
 		const retryCount = pageRetryCounts[item.id] ?? 0;
 		if (item.kind === 'local' && chapter.localRelativePath && chapter.storageKind) {
 			const params = new SvelteURLSearchParams({
-				path: chapter.localRelativePath,
+				chapterId: String(chapter._id),
 				index: String(item.index)
 			});
 			return `/api/internal/bridge/library/page?${params.toString()}`;

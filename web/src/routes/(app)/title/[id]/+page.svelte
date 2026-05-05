@@ -335,7 +335,7 @@
 	const coverSrc = $derived.by(() => {
 		if (!title) return null;
 		if (title.localCoverPath) {
-			const params = new URLSearchParams({ path: title.localCoverPath });
+			const params = new URLSearchParams({ titleId: String(title._id) });
 			return `/api/internal/bridge/library/cover?${params.toString()}`;
 		}
 		if (!browserOnline) return null;

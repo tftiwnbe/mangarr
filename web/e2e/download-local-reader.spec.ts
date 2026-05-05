@@ -158,7 +158,7 @@ test('downloaded chapters are readable from the local bridge page endpoint', asy
 	expect(chapter.storageKind).toBeTruthy();
 
 	const pageResponse = await request.get(
-		`${BASE_URL}/api/internal/bridge/library/page?path=${encodeURIComponent(chapter.localRelativePath!)}&index=0`
+		`${BASE_URL}/api/internal/bridge/library/page?chapterId=${encodeURIComponent(chapter._id)}&index=0`
 	);
 	expect(pageResponse.ok()).toBeTruthy();
 	expect(pageResponse.headers()['content-type']).toMatch(/^image\//);

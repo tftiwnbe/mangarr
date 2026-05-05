@@ -143,9 +143,13 @@
 		return window.fetch.bind(window);
 	}
 
-	function coverSrc(item: { localCoverPath?: string | null; coverUrl?: string | null }) {
+	function coverSrc(item: {
+		titleId: Id<'libraryTitles'>;
+		localCoverPath?: string | null;
+		coverUrl?: string | null;
+	}) {
 		if (item.localCoverPath) {
-			const params = new URLSearchParams({ path: item.localCoverPath });
+			const params = new URLSearchParams({ titleId: String(item.titleId) });
 			return `/api/internal/bridge/library/cover?${params.toString()}`;
 		}
 		return item.coverUrl ?? '';

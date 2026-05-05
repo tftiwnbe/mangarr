@@ -376,9 +376,13 @@
 		};
 	}
 
-	function continueCoverSrc(item: { localCoverPath: string | null; coverUrl: string | null }) {
+	function continueCoverSrc(item: {
+		titleId: Id<'libraryTitles'>;
+		localCoverPath: string | null;
+		coverUrl: string | null;
+	}) {
 		if (item.localCoverPath) {
-			const params = new URLSearchParams({ path: item.localCoverPath });
+			const params = new URLSearchParams({ titleId: String(item.titleId) });
 			return `/api/internal/bridge/library/cover?${params.toString()}`;
 		}
 		if (!browserOnline) return null;
@@ -406,9 +410,9 @@
 		return 0;
 	}
 
-	function coverSrc(title: Pick<TitleItem, 'localCoverPath' | 'coverUrl'>) {
+	function coverSrc(title: Pick<TitleItem, '_id' | 'localCoverPath' | 'coverUrl'>) {
 		if (title.localCoverPath) {
-			const params = new URLSearchParams({ path: title.localCoverPath });
+			const params = new URLSearchParams({ titleId: String(title._id) });
 			return `/api/internal/bridge/library/cover?${params.toString()}`;
 		}
 		if (!browserOnline) return null;
