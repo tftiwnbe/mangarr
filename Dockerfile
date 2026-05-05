@@ -329,16 +329,59 @@ seed_convex_env_var() {
   (cd /app/web && pnpm exec convex env set "$name" "$value") >/dev/null
 }
 
-seed_convex_env_var "MANGARR_CONVEX_AUTH_ISSUER" "${MANGARR_CONVEX_AUTH_ISSUER}"
-seed_convex_env_var "MANGARR_CONVEX_AUTH_APPLICATION_ID" "${MANGARR_CONVEX_AUTH_APPLICATION_ID}"
-seed_convex_env_var "MANGARR_CONVEX_AUTH_KEY_ID" "${MANGARR_CONVEX_AUTH_KEY_ID}"
-seed_convex_env_var "MANGARR_CONVEX_AUTH_PRIVATE_JWK" "${MANGARR_CONVEX_AUTH_PRIVATE_JWK}"
-seed_convex_env_var "MANGARR_SERVICE_SECRET" "${MANGARR_SERVICE_SECRET}"
-seed_convex_env_var "MANGARR_BRIDGE_INTERNAL_URL" "${MANGARR_BRIDGE_INTERNAL_URL}"
+compute_convex_sync_fingerprint() {
+  (
+    printf 'MANGARR_CONVEX_AUTH_ISSUER=%s\n' "${MANGARR_CONVEX_AUTH_ISSUER}"
+    printf 'MANGARR_CONVEX_AUTH_APPLICATION_ID=%s\n' "${MANGARR_CONVEX_AUTH_APPLICATION_ID}"
+    printf 'MANGARR_CONVEX_AUTH_KEY_ID=%s\n' "${MANGARR_CONVEX_AUTH_KEY_ID}"
+    printf 'MANGARR_CONVEX_AUTH_PRIVATE_JWK=%s\n' "${MANGARR_CONVEX_AUTH_PRIVATE_JWK}"
+    printf 'MANGARR_SERVICE_SECRET=%s\n' "${MANGARR_SERVICE_SECRET}"
+    printf 'MANGARR_BRIDGE_INTERNAL_URL=%s\n' "${MANGARR_BRIDGE_INTERNAL_URL}"
+    for path in \
+      /app/web/package.json \
+      /app/web/pnpm-lock.yaml \
+      /app/web/convex.json \
+      /app/web/src/lib/server/convex-auth-config.ts
+    do
+      if [ -f "${path}" ]; then
+        sha256sum "${path}"
+      fi
+    done
+    find /app/web/src/convex /app/web/src/lib/utils -type f -print0 2>/dev/null | sort -z | xargs -0 -r sha256sum
+  ) | sha256sum | awk '{print $1}'
+}
 
-(cd /app/web && ([ -x node_modules/.bin/svelte-kit ] && pnpm exec svelte-kit sync >/dev/null || true) && pnpm exec convex dev --once --typecheck disable --codegen disable) \
-  > >(pipe_component_output "setup" "${SETUP_LOG_FILE}" "" "stdout") \
-  2> >(pipe_component_output "setup" "${SETUP_LOG_FILE}" "stderr" "stderr")
+CONVEX_SYNC_STATE_FILE="${CONVEX_ROOT}/convex_sync_fingerprint"
+CONVEX_SYNC_FINGERPRINT="$(compute_convex_sync_fingerprint)"
+CONVEX_SYNC_REQUIRED=0
+if [ "${MANGARR_FORCE_CONVEX_SYNC:-0}" = "1" ]; then
+  startup_note "Forcing Convex sync because MANGARR_FORCE_CONVEX_SYNC=1"
+  CONVEX_SYNC_REQUIRED=1
+elif [ ! -s "${CONVEX_SYNC_STATE_FILE}" ]; then
+  startup_note "Convex sync state is missing; pushing runtime functions"
+  CONVEX_SYNC_REQUIRED=1
+elif [ "$(cat "${CONVEX_SYNC_STATE_FILE}")" != "${CONVEX_SYNC_FINGERPRINT}" ]; then
+  startup_note "Convex runtime inputs changed; pushing updated functions"
+  CONVEX_SYNC_REQUIRED=1
+else
+  startup_note "Convex runtime inputs unchanged; skipping function sync"
+fi
+
+if [ "${CONVEX_SYNC_REQUIRED}" = "1" ]; then
+  seed_convex_env_var "MANGARR_CONVEX_AUTH_ISSUER" "${MANGARR_CONVEX_AUTH_ISSUER}"
+  seed_convex_env_var "MANGARR_CONVEX_AUTH_APPLICATION_ID" "${MANGARR_CONVEX_AUTH_APPLICATION_ID}"
+  seed_convex_env_var "MANGARR_CONVEX_AUTH_KEY_ID" "${MANGARR_CONVEX_AUTH_KEY_ID}"
+  seed_convex_env_var "MANGARR_CONVEX_AUTH_PRIVATE_JWK" "${MANGARR_CONVEX_AUTH_PRIVATE_JWK}"
+  seed_convex_env_var "MANGARR_SERVICE_SECRET" "${MANGARR_SERVICE_SECRET}"
+  seed_convex_env_var "MANGARR_BRIDGE_INTERNAL_URL" "${MANGARR_BRIDGE_INTERNAL_URL}"
+
+  (cd /app/web && ([ -x node_modules/.bin/svelte-kit ] && pnpm exec svelte-kit sync >/dev/null || true) && pnpm exec convex dev --once --typecheck disable --codegen disable) \
+    > >(pipe_component_output "setup" "${SETUP_LOG_FILE}" "" "stdout") \
+    2> >(pipe_component_output "setup" "${SETUP_LOG_FILE}" "stderr" "stderr")
+
+  printf '%s' "${CONVEX_SYNC_FINGERPRINT}" > "${CONVEX_SYNC_STATE_FILE}"
+  chmod 600 "${CONVEX_SYNC_STATE_FILE}"
+fi
 
 KCEF_LIBRARY_DIR="${KCEF_INSTALL_DIR:-${MANGARR_BRIDGE_DATA_DIR:-/app/config/bridge}/bin/kcef}"
 KCEF_CACHE_DIR="${MANGARR_BRIDGE_DATA_DIR:-/app/config/bridge}/cache/kcef"

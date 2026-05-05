@@ -82,3 +82,56 @@ jobs:
 
       - name: Build bridge
         run: cd bridge && ./gradlew build --no-daemon
+
+  e2e-smoke:
+    name: e2e-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install web dependencies
+        run: cd web && pnpm install --frozen-lockfile
+
+      - name: Install Playwright browser
+        run: cd web && pnpm exec playwright install --with-deps chromium
+
+      - name: Start development stack
+        run: docker compose -f compose.dev.yaml up -d --build mangarr
+
+      - name: Wait for web app
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3737/login >/dev/null 2>/dev/null; then
+              exit 0
+            fi
+            sleep 5
+          done
+          docker compose -f compose.dev.yaml logs mangarr >&2 || true
+          exit 1
+
+      - name: Run auth smoke test
+        run: cd web && PLAYWRIGHT_BASE_URL=http://127.0.0.1:3737 pnpm run test:e2e:auth-smoke
+
+      - name: Dump stack logs on failure
+        if: failure()
+        run: docker compose -f compose.dev.yaml logs mangarr >&2 || true
+
+      - name: Stop development stack
+        if: always()
+        run: docker compose -f compose.dev.yaml down --remove-orphans --volumes

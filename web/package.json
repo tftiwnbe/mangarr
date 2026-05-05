@@ -15,6 +15,7 @@
 		"lint": "prettier --check .",
 		"format": "prettier --write .",
 		"test:e2e": "playwright test",
+		"test:e2e:auth-smoke": "playwright test e2e/auth-smoke.spec.ts",
 		"test": "npm run test:unit -- --run && npm run test:e2e",
 		"test:unit": "vitest",
 		"convex:dev": "convex dev",

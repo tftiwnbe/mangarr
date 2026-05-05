@@ -23,6 +23,8 @@ dependencies {
     // AndroidCompat
     implementation(projects.androidCompat)
     implementation(projects.androidCompat.config)
+
+    testImplementation(kotlin("test-junit5"))
 }
 
 protobuf {
@@ -69,6 +71,10 @@ buildConfig {
 }
 
 tasks {
+    test {
+        useJUnitPlatform()
+    }
+
     shadowJar {
         archiveClassifier.set("")
         archiveBaseName.set(rootProject.name)

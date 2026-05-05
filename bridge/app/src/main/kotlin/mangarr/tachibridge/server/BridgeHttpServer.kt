@@ -30,13 +30,18 @@ import java.net.URLDecoder
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.io.IOException
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
+import java.util.concurrent.ThreadFactory
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.deleteIfExists
 
 private val logger = KotlinLogging.logger {}
 private const val PAGE_ASSET_FAILURE_LOG_TTL_MS = 60_000L
+private const val HTTP_SERVER_MIN_WORKERS = 8
+private const val HTTP_SERVER_QUEUE_MULTIPLIER = 16
 
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 class BridgeHttpServer(
@@ -64,10 +69,23 @@ class BridgeHttpServer(
             .callTimeout(20, TimeUnit.SECONDS)
             .build()
     }
+    private val httpWorkerCount = maxOf(HTTP_SERVER_MIN_WORKERS, Runtime.getRuntime().availableProcessors() * 4)
+    private val httpExecutor =
+        ThreadPoolExecutor(
+            httpWorkerCount,
+            httpWorkerCount,
+            30L,
+            TimeUnit.SECONDS,
+            ArrayBlockingQueue(httpWorkerCount * HTTP_SERVER_QUEUE_MULTIPLIER),
+            namedThreadFactory("bridge-http"),
+            ThreadPoolExecutor.CallerRunsPolicy(),
+        ).apply {
+            allowCoreThreadTimeOut(false)
+        }
 
     private val server =
         HttpServer.create(InetSocketAddress(host, port), 0).apply {
-            executor = Executors.newCachedThreadPool()
+            executor = httpExecutor
         }
 
     fun start() {
@@ -707,6 +725,7 @@ class BridgeHttpServer(
 
     fun stop() {
         server.stop(0)
+        httpExecutor.shutdownNow()
     }
 
     private fun authorize(exchange: HttpExchange): Boolean {
@@ -920,6 +939,15 @@ class BridgeHttpServer(
         val numeric = contentOrNull?.toDoubleOrNull() ?: return null
         if (!numeric.isFinite() || numeric % 1.0 != 0.0) return null
         return numeric.toInt()
+    }
+}
+
+private fun namedThreadFactory(prefix: String): ThreadFactory {
+    val counter = AtomicInteger(1)
+    return ThreadFactory { runnable ->
+        Thread(runnable, "$prefix-${counter.getAndIncrement()}").apply {
+            isDaemon = true
+        }
     }
 }
 

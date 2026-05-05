@@ -6,6 +6,7 @@ import dev.datlag.kcef.KCEFBuilder.Settings.LogSeverity
 import eu.kanade.tachiyomi.App
 import eu.kanade.tachiyomi.network.NetworkHelper
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -67,6 +68,7 @@ private val events = EventLogger.named(
     "mangarr.tachibridge.server.BridgeServer",
     "component" to "bridge_server",
 )
+private const val CACHE_PRUNE_INTERVAL_MS = 15 * 60 * 1000L
 
 @kotlinx.serialization.ExperimentalSerializationApi
 class BridgeServer(
@@ -228,6 +230,12 @@ class BridgeServer(
                 "host" to config.runtime.host,
                 "repoUrl" to ConfigManager.config.repoUrl.ifBlank { null },
             )
+            bridgeScope.launch {
+                while (true) {
+                    delay(CACHE_PRUNE_INTERVAL_MS)
+                    pruneBridgeCaches(bridgeService, phase = "maintenance")
+                }
+            }
 
             bridgeScope.launch {
                 events.info(
@@ -238,37 +246,7 @@ class BridgeServer(
                 )
                 try {
                     val warmupWarnings = mutableListOf<String>()
-                    runCatching {
-                        bridgeService.pruneCaches()
-                    }.onSuccess { summary ->
-                        val deletedEntries =
-                            summary.deletedFeedFiles +
-                                summary.deletedReaderPageFiles +
-                                summary.deletedCoverFiles +
-                                summary.deletedTempWorkspaces +
-                                summary.deletedTempExports
-                        if (deletedEntries > 0) {
-                            events.info(
-                                "bridge.cache.pruned",
-                                "Pruned bridge caches during warmup",
-                                "bridgeId" to config.runtime.bridgeId,
-                                "phase" to "warmup",
-                                "deletedFeedFiles" to summary.deletedFeedFiles,
-                                "deletedReaderPageFiles" to summary.deletedReaderPageFiles,
-                                "deletedCoverFiles" to summary.deletedCoverFiles,
-                                "deletedTempWorkspaces" to summary.deletedTempWorkspaces,
-                                "deletedTempExports" to summary.deletedTempExports,
-                            )
-                        }
-                    }.onFailure { error ->
-                        events.warn(
-                            "bridge.cache.prune_failed",
-                            "Failed to prune bridge caches during warmup",
-                            "bridgeId" to config.runtime.bridgeId,
-                            "phase" to "warmup",
-                            "warning" to (error.message ?: "cache prune failed"),
-                        )
-                    }
+                    pruneBridgeCaches(bridgeService, phase = "warmup")
                     runCatching {
                         initializeKCEF()
                     }.onFailure { error ->
@@ -391,6 +369,43 @@ class BridgeServer(
 
     fun blockUntilShutdown() {
         shutdownLatch.await()
+    }
+
+    private fun pruneBridgeCaches(
+        bridgeService: BridgeService,
+        phase: String,
+    ) {
+        runCatching {
+            bridgeService.pruneCaches()
+        }.onSuccess { summary ->
+            val deletedEntries =
+                summary.deletedFeedFiles +
+                    summary.deletedReaderPageFiles +
+                    summary.deletedCoverFiles +
+                    summary.deletedTempWorkspaces +
+                    summary.deletedTempExports
+            if (deletedEntries > 0) {
+                events.info(
+                    "bridge.cache.pruned",
+                    "Pruned bridge caches",
+                    "bridgeId" to config.runtime.bridgeId,
+                    "phase" to phase,
+                    "deletedFeedFiles" to summary.deletedFeedFiles,
+                    "deletedReaderPageFiles" to summary.deletedReaderPageFiles,
+                    "deletedCoverFiles" to summary.deletedCoverFiles,
+                    "deletedTempWorkspaces" to summary.deletedTempWorkspaces,
+                    "deletedTempExports" to summary.deletedTempExports,
+                )
+            }
+        }.onFailure { error ->
+            events.warn(
+                "bridge.cache.prune_failed",
+                "Failed to prune bridge caches",
+                "bridgeId" to config.runtime.bridgeId,
+                "phase" to phase,
+                "warning" to (error.message ?: "cache prune failed"),
+            )
+        }
     }
 
     @kotlinx.coroutines.DelicateCoroutinesApi

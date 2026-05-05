@@ -126,16 +126,17 @@
 	}
 
 	const dominantScanlator = $derived.by(() => {
-		const counts = new Map<string, number>();
+		const counts: Record<string, number> = {};
 		for (const c of titleChapters) {
 			const s = (c.scanlator ?? '').trim();
 			if (!s) continue;
-			counts.set(s, (counts.get(s) ?? 0) + 1);
+			counts[s] = (counts[s] ?? 0) + 1;
 		}
-		if (counts.size === 0) return null;
+		const entries = Object.entries(counts);
+		if (entries.length === 0) return null;
 		const half = titleChapters.length / 2;
 		let best: { name: string; n: number } | null = null;
-		for (const [name, n] of counts) {
+		for (const [name, n] of entries) {
 			if (!best || n > best.n) best = { name, n };
 		}
 		return best && best.n > half ? best.name : null;

@@ -32,6 +32,7 @@ import java.nio.file.Path
 import java.util.Base64
 import java.util.regex.Pattern
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.exists
 
@@ -40,6 +41,7 @@ private val json = Json { ignoreUnknownKeys = true }
 private const val FEED_CACHE_TTL_MS = 5 * 60 * 1000L
 private const val READER_PAGE_CACHE_TTL_MS = 15 * 60 * 1000L
 private const val READER_PAGE_FAILURE_CACHE_TTL_MS = 60 * 1000L
+private const val IN_MEMORY_CACHE_PRUNE_INTERVAL_MS = 60 * 1000L
 private val DOWNLOAD_PAGE_RETRY_DELAYS_MS = listOf(0L, 2_000L, 5_000L, 15_000L)
 private val SOURCE_REQUEST_RETRY_DELAYS_MS = listOf(0L, 1_500L, 4_000L)
 private const val SOURCE_BROWSE_REQUEST_BASE_DELAY_MS = 1_500L
@@ -60,12 +62,10 @@ class BridgeService(
     private val readerPageFailureCache = ConcurrentHashMap<String, CachedReaderPageFailure>()
     private val readerPageLocks = ConcurrentHashMap<String, Mutex>()
     private val rateLimiter = SourceRateLimiter()
+    private val lastInMemoryCachePruneAt = AtomicLong(0L)
 
     fun pruneCaches(now: Long = System.currentTimeMillis()): CachePruneSummary {
-        feedCache.entries.removeIf { (_, cached) -> cached.expiresAt <= now }
-        readerPageCache.entries.removeIf { (_, cached) -> cached.expiresAt <= now }
-        readerPageFailureCache.entries.removeIf { (_, cached) -> cached.expiresAt <= now }
-        readerPageLocks.keys.removeIf { key -> !readerPageCache.containsKey(key) }
+        pruneExpiredInMemoryCaches(now)
 
         val deletedFeedFiles = pruneFeedCacheFiles(json, feedCacheDir, now)
         val deletedReaderPageFiles = pruneReaderPageCacheFiles(json, readerPageCacheDir, now)
@@ -78,6 +78,27 @@ class BridgeService(
             deletedTempWorkspaces = storage.deletedTempWorkspaces,
             deletedTempExports = storage.deletedTempExports,
         )
+    }
+
+    private fun pruneExpiredInMemoryCaches(now: Long) {
+        feedCache.entries.removeIf { (_, cached) -> cached.expiresAt <= now }
+        readerPageCache.entries.removeIf { (_, cached) -> cached.expiresAt <= now }
+        readerPageFailureCache.entries.removeIf { (_, cached) -> cached.expiresAt <= now }
+        readerPageLocks.keys.removeIf { key ->
+            !readerPageCache.containsKey(key) && !readerPageFailureCache.containsKey(key)
+        }
+        lastInMemoryCachePruneAt.set(now)
+    }
+
+    private fun maybePruneExpiredInMemoryCaches(now: Long) {
+        val lastPrunedAt = lastInMemoryCachePruneAt.get()
+        if (now - lastPrunedAt < IN_MEMORY_CACHE_PRUNE_INTERVAL_MS) {
+            return
+        }
+        if (!lastInMemoryCachePruneAt.compareAndSet(lastPrunedAt, now)) {
+            return
+        }
+        pruneExpiredInMemoryCaches(now)
     }
 
     fun repositorySnapshot(forceRefresh: Boolean = false): JsonObject {
@@ -503,6 +524,7 @@ class BridgeService(
         extensionManager.awaitReady()
         val cacheKey = "$sourceId::$chapterUrl::$index"
         val now = System.currentTimeMillis()
+        maybePruneExpiredInMemoryCaches(now)
 
         readerPageCache[cacheKey]?.takeIf { it.expiresAt > now }?.let { cached ->
             return PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
@@ -986,6 +1008,7 @@ class BridgeService(
         val normalizedLimit = limit.coerceIn(1, 100)
         val cacheKey = "$feed:$sourceId:$page:$normalizedLimit"
         val now = System.currentTimeMillis()
+        maybePruneExpiredInMemoryCaches(now)
         feedCache[cacheKey]?.takeIf { it.expiresAt > now }?.let { return it.payload }
         loadPersistedFeed(json, feedCacheDir, cacheKey, now)?.let { payload ->
             feedCache[cacheKey] = CachedFeedResult(payload = payload, expiresAt = now + FEED_CACHE_TTL_MS)
