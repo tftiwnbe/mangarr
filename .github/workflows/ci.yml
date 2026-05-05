@@ -125,8 +125,8 @@ jobs:
           docker compose -f compose.dev.yaml logs mangarr >&2 || true
           exit 1
 
-      - name: Run auth smoke test
-        run: cd web && PLAYWRIGHT_BASE_URL=http://127.0.0.1:3737 pnpm run test:e2e:auth-smoke
+      - name: Run runtime smoke tests
+        run: cd web && PLAYWRIGHT_BASE_URL=http://127.0.0.1:3737 pnpm run test:e2e:runtime-smoke
 
       - name: Dump stack logs on failure
         if: failure()
