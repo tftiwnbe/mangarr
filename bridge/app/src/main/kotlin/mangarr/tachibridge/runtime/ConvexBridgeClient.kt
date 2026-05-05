@@ -92,25 +92,22 @@ class ConvexBridgeClient(
         mutation("bridge:reportHeartbeat", args)
 
     fun leaseCommands(args: JsonObject): List<LeaseCommand> =
-        mutation("commands:lease", args)
+        mutation("runtime_commands:lease", args)
 
     fun recoverExpiredLeases(args: JsonObject): RecoverExpiredLeasesResponse =
-        mutation("commands:recoverExpiredLeases", args)
-
-    fun markCommandRunning(args: JsonObject): OkResponse =
-        mutation("commands:markRunning", args)
+        mutation("runtime_commands:recoverExpiredLeases", args)
 
     fun renewCommandLease(args: JsonObject): OkResponse =
-        mutation("commands:renewLease", args)
+        mutation("runtime_commands:renewLease", args)
 
     fun completeCommand(args: JsonObject): OkResponse =
-        mutation("commands:complete", args)
+        mutation("runtime_commands:complete", args)
 
     fun failCommand(args: JsonObject): FailResponse =
-        mutation("commands:fail", args)
+        mutation("runtime_commands:fail", args)
 
     fun updateCommandProgress(args: JsonObject): OkResponse =
-        mutation("commands:updateProgress", args)
+        mutation("runtime_commands:updateProgress", args)
 
     fun setExtensionRepository(args: JsonObject): UpsertRepositoryResponse =
         mutation("extensions:setRepository", args)
