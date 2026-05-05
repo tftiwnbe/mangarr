@@ -55,9 +55,13 @@ FROM eclipse-temurin:21-jre AS java-runtime
 FROM eclipse-temurin:21-jdk AS bridge-base
 WORKDIR /app/bridge
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl zip ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,id=mangarr-bridge-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=mangarr-bridge-apt-lists,target=/var/lib/apt/lists,sharing=locked \
+    sed -i 's|http://archive.ubuntu.com/ubuntu/|https://mirrors.edge.kernel.org/ubuntu/|g; s|https://archive.ubuntu.com/ubuntu/|https://mirrors.edge.kernel.org/ubuntu/|g; s|http://security.ubuntu.com/ubuntu/|https://security.ubuntu.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources && \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    printf 'Binary::apt::APT::Keep-Downloaded-Packages "true";\n' >/etc/apt/apt.conf.d/keep-cache && \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl zip ca-certificates
 
 COPY bridge/gradlew /app/bridge/gradlew
 COPY bridge/gradle /app/bridge/gradle
@@ -85,7 +89,8 @@ FROM bridge-base AS bridge-build
 
 COPY bridge ./
 
-RUN bash ./AndroidCompat/getAndroid.sh
+RUN --mount=type=cache,id=mangarr-android-cache,target=/app/bridge/.android-cache,sharing=locked \
+    bash ./AndroidCompat/getAndroid.sh
 
 RUN --mount=type=cache,id=mangarr-gradle-wrapper,target=/root/.gradle/wrapper,sharing=locked \
     --mount=type=cache,id=mangarr-gradle-caches,target=/root/.gradle/caches,sharing=locked \
@@ -102,20 +107,24 @@ ENV JAVA_HOME=/opt/java/openjdk \
     PATH=/opt/java/openjdk/bin:$PATH
 
 COPY --from=java-runtime /opt/java/openjdk /opt/java/openjdk
-COPY --from=convex-backend /convex /app/convex
 
-RUN corepack enable && \
+RUN --mount=type=cache,id=mangarr-runtime-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=mangarr-runtime-apt-lists,target=/var/lib/apt/lists,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    printf 'Binary::apt::APT::Keep-Downloaded-Packages "true";\n' >/etc/apt/apt.conf.d/keep-cache && \
+    corepack enable && \
     corepack prepare pnpm@10.32.1 --activate && \
     apt-get update && \
-    apt-get install -y --no-install-recommends curl ca-certificates tini dbus dbus-x11 \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates tini dbus dbus-x11 \
       libasound2 libatk-bridge2.0-0 libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 \
       libexpat1 libfontconfig1 libgbm1 libgl1 libgl1-mesa-dri libglib2.0-0 \
       libgluegen2-jni libgtk-3-0 libnspr4 libnss3 libjogl2-jni \
       libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 \
       libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxkbcommon0 \
       libxrandr2 libxtst6 xvfb && \
-    ln -sf /opt/java/openjdk/lib/server/libjvm.so /usr/lib/libjvm.so && \
-    rm -rf /var/lib/apt/lists/*
+    ln -sf /opt/java/openjdk/lib/server/libjvm.so /usr/lib/libjvm.so
+
+COPY --from=convex-backend /convex /app/convex
 
 RUN cat <<'EOF' >/usr/local/bin/mangarr-startup
 #!/usr/bin/env bash

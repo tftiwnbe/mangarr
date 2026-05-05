@@ -33,6 +33,10 @@ if [[ "$(basename "$(pwd)")" != "bridge" ]]; then
   }
 fi
 
+ANDROID_JAR_CACHE_DIR="${ANDROID_JAR_CACHE_DIR:-.android-cache}"
+mkdir -p "$ANDROID_JAR_CACHE_DIR"
+CACHE_DIR="$(cd "$ANDROID_JAR_CACHE_DIR" && pwd)"
+
 echo "Getting required Android.jar..."
 rm -rf "tmp"
 mkdir -p "tmp"
@@ -40,6 +44,25 @@ pushd "tmp"
 
 ANDROID_GOOGLESOURCE_URL="https://android.googlesource.com/platform/prebuilts/sdk/+/6cd31be5e4e25901aadf838120d71a79b46d9add/30/public/android.jar?format=TEXT"
 ANDROID_PLATFORM_ZIP_URL="https://dl.google.com/android/repository/platform-30_r03.zip"
+SOURCE_JAR_CACHE_PATH="${CACHE_DIR}/android-platform-30-source.jar"
+
+CACHE_KEY="$({
+  printf '%s\n%s\n' "$ANDROID_GOOGLESOURCE_URL" "$ANDROID_PLATFORM_ZIP_URL"
+  sha256sum ../AndroidCompat/getAndroid.sh
+  find ../AndroidCompat/src/main/java ../app/src/main/kotlin -type f -print0 \
+    | LC_ALL=C sort -z \
+    | xargs -0r sha256sum
+} | sha256sum | awk '{print $1}')"
+PATCHED_JAR_CACHE_PATH="${CACHE_DIR}/android-platform-30-${CACHE_KEY}.jar"
+
+if [ -s "$PATCHED_JAR_CACHE_PATH" ]; then
+  echo "Reusing cached patched Android.jar..."
+  popd
+  mkdir -p app/lib/
+  cp "$PATCHED_JAR_CACHE_PATH" app/lib/android.jar
+  echo "Done!"
+  exit 0
+fi
 
 decode_base64_file() {
   local input_file="$1"
@@ -95,13 +118,19 @@ download_from_platform_zip() {
   return 0
 }
 
-if ! download_from_googlesource "android.jar"; then
-  echo "Primary Android.jar source failed, trying platform ZIP fallback..."
-  rm -f android.jar
-  if ! download_from_platform_zip "android.jar"; then
-    echo "Error: unable to download Android.jar from all configured sources."
-    exit 1
+if [ -s "$SOURCE_JAR_CACHE_PATH" ]; then
+  echo "Reusing cached source Android.jar..."
+  cp "$SOURCE_JAR_CACHE_PATH" android.jar
+else
+  if ! download_from_googlesource "android.jar"; then
+    echo "Primary Android.jar source failed, trying platform ZIP fallback..."
+    rm -f android.jar
+    if ! download_from_platform_zip "android.jar"; then
+      echo "Error: unable to download Android.jar from all configured sources."
+      exit 1
+    fi
   fi
+  cp android.jar "$SOURCE_JAR_CACHE_PATH"
 fi
 
 # We need to remove any stub classes that we have implementations for
@@ -159,6 +188,7 @@ dedup app/src/main/kotlin
 
 echo "Copying Android.jar to library folder..."
 mkdir -p app/lib/ && rm -f app/lib/android.jar
+cp tmp/android.jar "$PATCHED_JAR_CACHE_PATH"
 mv tmp/android.jar app/lib/
 
 echo "Cleaning up..."
