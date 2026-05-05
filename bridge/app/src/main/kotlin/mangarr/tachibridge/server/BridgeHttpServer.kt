@@ -27,10 +27,14 @@ import mangarr.tachibridge.runtime.HeartbeatSnapshot
 import mangarr.tachibridge.runtime.BridgeState
 import mangarr.tachibridge.runtime.ConvexBridgeClient
 import mangarr.tachibridge.runtime.DownloadReconcileChapter
-import java.net.URLDecoder
+import java.net.Inet4Address
+import java.net.Inet6Address
+import java.net.InetAddress
 import java.net.InetSocketAddress
-import java.nio.file.Files
+import java.net.URI
+import java.net.URLDecoder
 import java.io.IOException
+import java.nio.file.Files
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ThreadFactory
@@ -43,6 +47,7 @@ private val logger = KotlinLogging.logger {}
 private const val PAGE_ASSET_FAILURE_LOG_TTL_MS = 60_000L
 private const val HTTP_SERVER_MIN_WORKERS = 8
 private const val HTTP_SERVER_QUEUE_MULTIPLIER = 16
+private const val MAX_COVER_PROXY_REDIRECTS = 3
 private const val RESPONSE_STATUS_ATTRIBUTE = "mangarr.response_status"
 
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
@@ -69,6 +74,8 @@ class BridgeHttpServer(
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .callTimeout(20, TimeUnit.SECONDS)
+            .followRedirects(false)
+            .followSslRedirects(false)
             .build()
     }
     private val httpWorkerCount = maxOf(HTTP_SERVER_MIN_WORKERS, Runtime.getRuntime().availableProcessors() * 4)
@@ -342,61 +349,72 @@ class BridgeHttpServer(
                 return@createContext
             }
 
-	            val parsedUrl =
-	                try {
-	                    java.net.URI(target).toURL()
-	                } catch (_: Exception) {
-	                    null
-	                }
-	            if (parsedUrl == null || (parsedUrl.protocol != "http" && parsedUrl.protocol != "https")) {
+            val initialUrl = parsePublicRemoteCoverUrl(target)
+            if (initialUrl == null) {
                 sendJson(exchange, 400, buildJsonObject { put("message", "Invalid url") })
                 return@createContext
             }
-
-            val refererOrigin = "${parsedUrl.protocol}://${parsedUrl.host}"
-
-            val coverHeaders =
-                okhttp3.Headers
-                    .Builder()
-                    .add("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
-                    .add("Origin", refererOrigin)
-                    .add("Referer", "$refererOrigin/")
-                    .add("User-Agent", "Mozilla/5.0 (compatible; MangarrCoverProxy/1.0)")
-                    .build()
+            var currentUrl: URI = initialUrl
 
             val maxAttempts = 3
             var lastError: Exception? = null
+            var redirectsRemaining = MAX_COVER_PROXY_REDIRECTS
             for (attempt in 1..maxAttempts) {
                 try {
-                    val request = GET(target, headers = coverHeaders)
-                    coverProxyClient.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) {
-                            sendJson(exchange, response.code, buildJsonObject { put("message", "Remote cover is unavailable") })
+                    while (true) {
+                        val refererOrigin = "${currentUrl.scheme}://${currentUrl.host}"
+                        val coverHeaders =
+                            okhttp3.Headers
+                                .Builder()
+                                .add("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+                                .add("Origin", refererOrigin)
+                                .add("Referer", "$refererOrigin/")
+                                .add("User-Agent", "Mozilla/5.0 (compatible; MangarrCoverProxy/1.0)")
+                                .build()
+                        val request = GET(currentUrl.toString(), headers = coverHeaders)
+                        coverProxyClient.newCall(request).execute().use { response ->
+                            if (response.isRedirect) {
+                                val redirected =
+                                    resolvePublicRedirectTarget(
+                                        currentUrl = currentUrl,
+                                        location = response.header("location"),
+                                    )
+                                if (redirected == null || redirectsRemaining <= 0) {
+                                    sendJson(exchange, 502, buildJsonObject { put("message", "Remote cover is unavailable") })
+                                    return@createContext
+                                }
+                                redirectsRemaining -= 1
+                                currentUrl = redirected
+                                return@use
+                            }
+                            if (!response.isSuccessful) {
+                                sendJson(exchange, response.code, buildJsonObject { put("message", "Remote cover is unavailable") })
+                                return@createContext
+                            }
+                            val body = response.body?.bytes()
+                            if (body == null) {
+                                sendJson(exchange, 502, buildJsonObject { put("message", "Remote cover is unavailable") })
+                                return@createContext
+                            }
+                            val contentType = response.body?.contentType()?.toString() ?: "image/jpeg"
+                            val cacheControl = response.header("cache-control") ?: "public, max-age=86400, stale-while-revalidate=604800"
+                            sendBytes(exchange, 200, body, contentType, extraHeaders = mapOf("cache-control" to cacheControl))
                             return@createContext
                         }
-                        val body = response.body?.bytes()
-                        if (body == null) {
-                            sendJson(exchange, 502, buildJsonObject { put("message", "Remote cover is unavailable") })
-                            return@createContext
-                        }
-                        val contentType = response.body?.contentType()?.toString() ?: "image/jpeg"
-                        val cacheControl = response.header("cache-control") ?: "public, max-age=86400, stale-while-revalidate=604800"
-                        sendBytes(exchange, 200, body, contentType, extraHeaders = mapOf("cache-control" to cacheControl))
                     }
-                    return@createContext
                 } catch (e: IOException) {
                     lastError = e
-                    logger.debug(e) { "Cover fetch attempt $attempt/$maxAttempts failed url=$target" }
+                    logger.debug(e) { "Cover fetch attempt $attempt/$maxAttempts failed url=${currentUrl}" }
                     if (attempt < maxAttempts) {
                         continue
                     }
                 } catch (e: Exception) {
-                    logger.warn(e) { "Unexpected error serving remote cover url=$target" }
+                    logger.warn(e) { "Unexpected error serving remote cover url=${currentUrl}" }
                     sendJson(exchange, 502, buildJsonObject { put("message", "Remote cover is unavailable") })
                     return@createContext
                 }
             }
-            logger.debug { "Failed to serve remote cover after $maxAttempts attempts url=$target: ${lastError?.message}" }
+            logger.debug { "Failed to serve remote cover after $maxAttempts attempts url=${currentUrl}: ${lastError?.message}" }
             sendJson(exchange, 502, buildJsonObject { put("message", "Remote cover is unavailable") })
         }
 
@@ -872,6 +890,85 @@ class BridgeHttpServer(
             current = current.cause
         }
         return false
+    }
+
+    private fun parsePublicRemoteCoverUrl(raw: String): URI? {
+        val parsed =
+            try {
+                URI(raw.trim())
+            } catch (_: Exception) {
+                return null
+            }
+        if (parsed.scheme != "http" && parsed.scheme != "https") {
+            return null
+        }
+        if (!parsed.userInfo.isNullOrBlank()) {
+            return null
+        }
+        val host = parsed.host?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val resolved =
+            try {
+                InetAddress.getAllByName(host)
+            } catch (_: Exception) {
+                return null
+            }
+        if (resolved.isEmpty() || resolved.any { !isPublicInternetAddress(it) }) {
+            return null
+        }
+        return parsed.normalize()
+    }
+
+    private fun resolvePublicRedirectTarget(
+        currentUrl: URI,
+        location: String?,
+    ): URI? {
+        val nextRaw = location?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        return parsePublicRemoteCoverUrl(currentUrl.resolve(nextRaw).toString())
+    }
+
+    private fun isPublicInternetAddress(address: InetAddress): Boolean {
+        if (
+            address.isAnyLocalAddress ||
+            address.isLoopbackAddress ||
+            address.isLinkLocalAddress ||
+            address.isSiteLocalAddress ||
+            address.isMulticastAddress
+        ) {
+            return false
+        }
+        return when (address) {
+            is Inet4Address -> isPublicIpv4Address(address)
+            is Inet6Address -> isPublicIpv6Address(address)
+            else -> false
+        }
+    }
+
+    private fun isPublicIpv4Address(address: Inet4Address): Boolean {
+        val octets = address.address
+        val first = octets[0].toInt() and 0xff
+        val second = octets[1].toInt() and 0xff
+
+        if (first == 0 || first == 10 || first == 127) return false
+        if (first == 100 && second in 64..127) return false
+        if (first == 169 && second == 254) return false
+        if (first == 172 && second in 16..31) return false
+        if (first == 192 && second == 168) return false
+        if (first == 198 && (second == 18 || second == 19)) return false
+        if (first >= 224) return false
+
+        return true
+    }
+
+    private fun isPublicIpv6Address(address: Inet6Address): Boolean {
+        val octets = address.address
+        val first = octets[0].toInt() and 0xff
+        val second = octets[1].toInt() and 0xff
+
+        if (address.isIPv4CompatibleAddress) return false
+        if (first and 0xfe == 0xfc) return false
+        if (first == 0xfe && second and 0xc0 == 0x80) return false
+
+        return true
     }
 
     private fun HttpExchange.queryParam(name: String): String? =
