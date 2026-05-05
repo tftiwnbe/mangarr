@@ -13,6 +13,14 @@ object BridgeMetrics {
     private val commandExecutionsTotal = ConcurrentHashMap<String, AtomicLong>()
     private val commandDurationTotalMs = ConcurrentHashMap<String, AtomicLong>()
     private val commandDurationCount = ConcurrentHashMap<String, AtomicLong>()
+    private val leasePollsTotal = ConcurrentHashMap<String, AtomicLong>()
+    private val leasePollDurationTotalMs = ConcurrentHashMap<String, AtomicLong>()
+    private val leasePollDurationCount = ConcurrentHashMap<String, AtomicLong>()
+    private val leaseRequestedSlotsTotal = ConcurrentHashMap<String, AtomicLong>()
+    private val leaseCandidatesTotal = ConcurrentHashMap<String, AtomicLong>()
+    private val leaseLeasedTotal = ConcurrentHashMap<String, AtomicLong>()
+    private val commandPollDelayMs = AtomicLong(0)
+    private val commandIdlePolls = AtomicLong(0)
 
     private val convexCallsTotal = ConcurrentHashMap<String, AtomicLong>()
     private val convexCallDurationTotalMs = ConcurrentHashMap<String, AtomicLong>()
@@ -48,6 +56,32 @@ object BridgeMetrics {
         increment(commandExecutionsTotal, labels)
         add(commandDurationTotalMs, labels, durationMs)
         increment(commandDurationCount, labels)
+    }
+
+    fun recordLeasePoll(
+        outcome: String,
+        durationMs: Long,
+        requestStats: List<LeaseBatchRequestStat>,
+    ) {
+        val labels = labels("outcome" to outcome)
+        increment(leasePollsTotal, labels)
+        add(leasePollDurationTotalMs, labels, durationMs)
+        increment(leasePollDurationCount, labels)
+
+        requestStats.forEach { stat ->
+            val laneLabels = labels("lane" to stat.lane)
+            add(leaseRequestedSlotsTotal, laneLabels, stat.requestedSlots.toLong())
+            add(leaseCandidatesTotal, laneLabels, stat.candidateCount.toLong())
+            add(leaseLeasedTotal, laneLabels, stat.leasedCount.toLong())
+        }
+    }
+
+    fun setCommandPollState(
+        delayMs: Long,
+        consecutiveIdlePolls: Int,
+    ) {
+        commandPollDelayMs.set(delayMs)
+        commandIdlePolls.set(consecutiveIdlePolls.toLong())
     }
 
     fun recordConvexCall(
@@ -117,6 +151,46 @@ object BridgeMetrics {
                 "mangarr_bridge_command_duration_ms_count",
                 "Count of bridge commands contributing to duration sums.",
                 commandDurationCount,
+            )
+            appendCounterMetric(
+                "mangarr_bridge_lease_polls_total",
+                "Total bridge lease polling attempts by outcome.",
+                leasePollsTotal,
+            )
+            appendCounterMetric(
+                "mangarr_bridge_lease_poll_duration_ms_total",
+                "Sum of bridge lease polling durations in milliseconds.",
+                leasePollDurationTotalMs,
+            )
+            appendCounterMetric(
+                "mangarr_bridge_lease_poll_duration_ms_count",
+                "Count of bridge lease polling attempts contributing to duration sums.",
+                leasePollDurationCount,
+            )
+            appendCounterMetric(
+                "mangarr_bridge_lease_requested_slots_total",
+                "Total requested bridge lease slots by lane.",
+                leaseRequestedSlotsTotal,
+            )
+            appendCounterMetric(
+                "mangarr_bridge_lease_candidates_total",
+                "Total candidate bridge commands considered for leasing by lane.",
+                leaseCandidatesTotal,
+            )
+            appendCounterMetric(
+                "mangarr_bridge_lease_leased_total",
+                "Total bridge commands leased by lane.",
+                leaseLeasedTotal,
+            )
+            appendGaugeMetric(
+                "mangarr_bridge_command_poll_delay_ms",
+                "Current bridge command poll delay in milliseconds.",
+                commandPollDelayMs.get(),
+            )
+            appendGaugeMetric(
+                "mangarr_bridge_command_idle_polls",
+                "Current consecutive idle bridge command poll count.",
+                commandIdlePolls.get(),
             )
 
             appendCounterMetric(

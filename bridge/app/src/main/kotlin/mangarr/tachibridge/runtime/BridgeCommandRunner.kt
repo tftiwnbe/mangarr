@@ -132,6 +132,7 @@ class BridgeCommandRunner(
             return
         }
         snapshot = snapshot.copy(running = true)
+        BridgeMetrics.setCommandPollState(pollIntervalMs, 0)
         job =
             scope.launch {
                 recoverDownloadStateOnStartup()
@@ -143,7 +144,9 @@ class BridgeCommandRunner(
                         } else {
                             consecutiveIdlePolls + 1
                         }
-                    delay(idlePollDelayMs(pollIntervalMs, consecutiveIdlePolls))
+                    val nextDelayMs = idlePollDelayMs(pollIntervalMs, consecutiveIdlePolls)
+                    BridgeMetrics.setCommandPollState(nextDelayMs, consecutiveIdlePolls)
+                    delay(nextDelayMs)
                 }
             }
     }
@@ -152,10 +155,13 @@ class BridgeCommandRunner(
         job?.cancel()
         job = null
         snapshot = snapshot.copy(running = false)
+        BridgeMetrics.setCommandPollState(pollIntervalMs, 0)
     }
 
     private suspend fun poll(): CommandPollResult {
-        val client = bridgeClient ?: return CommandPollResult(success = false, leasedCount = 0)
+        val client =
+            bridgeClient
+                ?: return CommandPollResult(success = false, leasedCount = 0)
         val now = System.currentTimeMillis()
         snapshot = snapshot.copy(lastPollAt = now)
 
@@ -171,12 +177,19 @@ class BridgeCommandRunner(
                             null
                         }
                     }
-            val leased =
-                if (requests.isEmpty()) {
-                    emptyList()
-                } else {
-                    leaseCommandsBatch(client, now, requests)
-                }
+            if (requests.isEmpty()) {
+                BridgeMetrics.recordLeasePoll(outcome = "skipped", durationMs = 0, requestStats = emptyList())
+                snapshot = snapshot.copy(lastSuccessAt = now, lastError = null)
+                return CommandPollResult(success = true, leasedCount = 0)
+            }
+            val leaseStartedAt = System.currentTimeMillis()
+            val leaseResponse = leaseCommandsBatch(client, now, requests)
+            val leased = leaseResponse.leasedCommands
+            BridgeMetrics.recordLeasePoll(
+                outcome = if (leased.isEmpty()) "empty" else "leased",
+                durationMs = System.currentTimeMillis() - leaseStartedAt,
+                requestStats = leaseResponse.requestStats,
+            )
 
             if (leased.isNotEmpty()) {
                 events.debug(
@@ -198,6 +211,7 @@ class BridgeCommandRunner(
                 error,
                 "bridgeId" to bridgeId,
             )
+            BridgeMetrics.recordLeasePoll(outcome = "error", durationMs = 0, requestStats = emptyList())
             snapshot = snapshot.copy(lastError = error.message ?: "Unknown command error")
             return CommandPollResult(success = false, leasedCount = 0)
         }
@@ -234,9 +248,9 @@ class BridgeCommandRunner(
         client: ConvexBridgeClient,
         now: Long,
         requests: List<Pair<BridgeCommandLane, Int>>,
-    ): List<LeaseCommand> {
+    ): LeaseBatchResponse {
         if (requests.isEmpty()) {
-            return emptyList()
+            return LeaseBatchResponse(leasedCommands = emptyList(), requestStats = emptyList())
         }
         return client
             .leaseCommandsBatch(
@@ -266,7 +280,7 @@ class BridgeCommandRunner(
                         )
                     },
                 ),
-            ).leasedCommands
+            )
     }
 
     private suspend fun recoverDownloadStateOnStartup() {
