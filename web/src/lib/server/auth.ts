@@ -19,8 +19,10 @@ const REMEMBERED_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const EPHEMERAL_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const SESSION_REFRESH_WINDOW_MS = 60 * 60 * 1000;
 const SESSION_TOUCH_LOCAL_DEBOUNCE_MS = 60 * 1000;
+const SETUP_OPEN_CACHE_TTL_MS = 5_000;
 const RATE_MAX_FAILS = 10;
 const recentSessionTouches = new Map<string, number>();
+let cachedSetupState: { needsSetup: boolean; checkedAt: number } | null = null;
 
 export type SessionUser = {
 	id: string;
@@ -83,8 +85,14 @@ export async function getSetupState() {
 		return true;
 	}
 
+	const cached = readCachedSetupState();
+	if (cached !== null) {
+		return cached;
+	}
+
 	const client = getConvexClient();
 	const result = await client.query(convexApi.auth.getSetupState, {});
+	writeCachedSetupState(result.needsSetup);
 	return result.needsSetup;
 }
 
@@ -94,17 +102,16 @@ export async function resolveAuthState(event: RequestEvent): Promise<AuthState> 
 	}
 
 	const sessionToken = event.cookies.get(getSessionCookieName()) ?? null;
-	const setupOpen = await getSetupState();
-
 	if (!sessionToken) {
-		return { user: null, sessionToken: null, setupOpen };
+		return { user: null, sessionToken: null, setupOpen: await getSetupState() };
 	}
 
 	const lookup = await fetchSessionByToken(sessionToken);
 	if (!lookup) {
 		clearSessionCookie(event.cookies, event);
-		return { user: null, sessionToken: null, setupOpen };
+		return { user: null, sessionToken: null, setupOpen: await getSetupState() };
 	}
+	markSetupConfigured();
 
 	const now = Date.now();
 	const lastUsedAt = lookup.session.lastUsedAt ?? lookup.session.createdAt;
@@ -126,7 +133,7 @@ export async function resolveAuthState(event: RequestEvent): Promise<AuthState> 
 
 	return {
 		sessionToken,
-		setupOpen,
+		setupOpen: false,
 		user: {
 			id: lookup.user._id,
 			username: lookup.user.username,
@@ -234,6 +241,7 @@ export async function registerFirstUserWithCredentials(
 	}
 
 	setSessionCookie(event.cookies, event, sessionToken, expiresAt);
+	markSetupConfigured();
 	return { ok: true as const };
 }
 
@@ -289,6 +297,7 @@ export async function loginWithCredentials(
 
 	await client.mutation(convexApi.auth.clearLoginFailures, { key: ip, now });
 	setSessionCookie(event.cookies, event, sessionToken, expiresAt);
+	markSetupConfigured();
 	return { ok: true as const };
 }
 
@@ -393,6 +402,27 @@ async function fetchSessionByToken(sessionToken: string): Promise<SessionLookup>
 		sessionTokenHash: hashToken(sessionToken),
 		now: Date.now()
 	}) as Promise<SessionLookup>;
+}
+
+function readCachedSetupState(now = Date.now()) {
+	if (!cachedSetupState) {
+		return null;
+	}
+	if (!cachedSetupState.needsSetup) {
+		return false;
+	}
+	if (now - cachedSetupState.checkedAt < SETUP_OPEN_CACHE_TTL_MS) {
+		return true;
+	}
+	return null;
+}
+
+function writeCachedSetupState(needsSetup: boolean, checkedAt = Date.now()) {
+	cachedSetupState = { needsSetup, checkedAt };
+}
+
+function markSetupConfigured() {
+	writeCachedSetupState(false);
 }
 
 function shouldAttemptSessionTouch(sessionId: string, now: number) {
