@@ -143,6 +143,40 @@ async function clearSourceHealth(
 	}
 }
 
+async function tryClearSourceHealth(
+	ctx: MutationCtx,
+	command: {
+		commandType: string;
+		requestedByUserId?: GenericId<'users'>;
+		payload: unknown;
+	}
+) {
+	try {
+		await clearSourceHealth(ctx, command);
+	} catch (error) {
+		console.warn('Failed to clear source health after command completion', error);
+	}
+}
+
+async function tryUpsertSourceHealthFailure(
+	ctx: MutationCtx,
+	command: {
+		commandType: string;
+		requestedByUserId?: GenericId<'users'>;
+		payload: unknown;
+		runAfter: number;
+		status: string;
+	},
+	errorMessage: string,
+	now: number
+) {
+	try {
+		await upsertSourceHealthFailure(ctx, command, errorMessage, now);
+	} catch (error) {
+		console.warn('Failed to record source health failure after command completion', error);
+	}
+}
+
 function targetCapabilityFor(commandType: string) {
 	switch (commandType) {
 		case 'extensions.repo.sync':
@@ -752,7 +786,7 @@ export const handleWorkpoolComplete = internalMutation({
 				completedAt: now,
 				updatedAt: now
 			});
-			await clearSourceHealth(ctx, command);
+			await tryClearSourceHealth(ctx, command);
 			return;
 		}
 
@@ -766,7 +800,7 @@ export const handleWorkpoolComplete = internalMutation({
 			updatedAt: now
 		});
 
-		await upsertSourceHealthFailure(
+		await tryUpsertSourceHealthFailure(
 			ctx,
 			{ ...command, status: STATUS.DEAD, runAfter: command.runAfter },
 			message,
@@ -881,13 +915,6 @@ export const markRunning = mutation({
 		if (command.status !== STATUS.LEASED && command.status !== STATUS.RUNNING) {
 			return { ok: false };
 		}
-
-		await ctx.db.patch(args.commandId, {
-			status: STATUS.RUNNING,
-			leaseExpiresAt: args.now + args.leaseDurationMs,
-			startedAt: command.startedAt ?? args.now,
-			updatedAt: args.now
-		});
 		return { ok: true };
 	}
 });

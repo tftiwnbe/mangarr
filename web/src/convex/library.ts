@@ -350,11 +350,6 @@ export const refreshTitleStatsFromBridge = mutation({
 	},
 	handler: async (ctx, args) => {
 		await requireBridgeIdentity(ctx);
-		const title = await ctx.db.get(args.titleId);
-		if (!title) {
-			throw new Error('Library title not found');
-		}
-
 		await refreshTitleChapterStats(ctx, args.titleId, args.now);
 		return { ok: true };
 	}

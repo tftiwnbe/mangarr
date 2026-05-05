@@ -16,6 +16,7 @@ private val events = EventLogger.named(
     "mangarr.tachibridge.runtime.BridgeHeartbeatReporter",
     "component" to "bridge_heartbeat",
 )
+private const val HEARTBEAT_REPORT_MIN_INTERVAL_MS = 60_000L
 
 @Serializable
 data class HeartbeatSnapshot(
@@ -34,6 +35,10 @@ class BridgeHeartbeatReporter(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var job: Job? = null
+    @Volatile
+    private var lastReportedAt: Long? = null
+    @Volatile
+    private var lastReportedState: HeartbeatStateSignature? = null
     @Volatile
     private var snapshot =
         HeartbeatSnapshot(
@@ -66,6 +71,23 @@ class BridgeHeartbeatReporter(
         snapshot = snapshot.copy(lastAttemptAt = now)
         val client = bridgeClient ?: return
         val runtime = bridgeState.current()
+        val signature =
+            HeartbeatStateSignature(
+                status = runtime.status,
+                port = runtime.port,
+                ready = runtime.ready,
+                restartCount = runtime.restartCount,
+                lastStartupError = runtime.lastStartupError,
+            )
+        val lastSentAt = lastReportedAt
+        val shouldReport =
+            lastSentAt == null ||
+                lastReportedState != signature ||
+                now - lastSentAt >= HEARTBEAT_REPORT_MIN_INTERVAL_MS
+
+        if (!shouldReport) {
+            return
+        }
 
         try {
             client.reportHeartbeat(
@@ -83,6 +105,8 @@ class BridgeHeartbeatReporter(
                     },
                 ),
             )
+            lastReportedAt = now
+            lastReportedState = signature
             snapshot = snapshot.copy(lastSuccessAt = now, lastError = null)
         } catch (error: Exception) {
             events.error(
@@ -98,3 +122,11 @@ class BridgeHeartbeatReporter(
         }
     }
 }
+
+private data class HeartbeatStateSignature(
+    val status: String,
+    val port: Int,
+    val ready: Boolean,
+    val restartCount: Int,
+    val lastStartupError: String?,
+)

@@ -1,13 +1,12 @@
 import type { GenericId } from 'convex/values';
 
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { internal } from './_generated/api';
 import { buildTitleRouteBaseFromUrl } from '../lib/utils/route-segments';
+import { insertCommand } from './command_payloads';
 import { reconcileTitleDownloadCounters } from './download_counters';
 import { DOWNLOAD_STATUS } from './library_shared_access';
 import { loadInstalledSourceCatalog, variantInstalledSourceRecord } from './library_shared_sources';
 import { pickNumber, pickString } from './library_shared_values';
-import { statsPool } from './workpools';
 
 const ACTIVE_COMMAND_STATUSES = new Set(['queued', 'leased', 'running']);
 
@@ -430,7 +429,14 @@ export async function applyVariantMetadataToTitle(
 	if (args.genre !== undefined) patch.genre = args.genre;
 	if (args.status !== undefined) patch.status = args.status;
 
-	await ctx.db.patch(titleId, patch);
+	try {
+		await ctx.db.patch(titleId, patch);
+	} catch (error) {
+		if (error instanceof Error && error.message?.includes('changed while this mutation')) {
+			return;
+		}
+		throw error;
+	}
 }
 
 export async function markTitleListedInLibrary(
@@ -602,37 +608,17 @@ export async function scheduleTitleStatsRefresh(
 		return existing._id;
 	}
 
-	const commandId = await ctx.db.insert('commands', {
+	const commandId = await insertCommand(ctx, {
 		commandType: 'library.title.stats.refresh',
-		targetCapability: 'library.title.stats.refresh',
 		requestedByUserId: args.ownerUserId,
 		payload: {
 			titleId: args.libraryTitleId
 		},
 		idempotencyKey,
-		status: 'queued',
-		executor: 'workpool',
 		priority: args.priority ?? 150,
-		runAfter: args.now,
-		attemptCount: 0,
 		maxAttempts: 3,
-		leaseToken: undefined,
-		createdAt: args.now,
-		updatedAt: args.now
-	});
-	const workId = await statsPool.enqueueAction(
-		ctx,
-		internal.bridge_workpool.executeCommand,
-		{ commandId },
-		{
-			onComplete: internal.commands.handleWorkpoolComplete,
-			context: { commandId },
-			runAfter: 0
-		}
-	);
-	await ctx.db.patch(commandId, {
-		workId,
-		updatedAt: args.now
+		runAfter: args.now,
+		now: args.now
 	});
 
 	return commandId;

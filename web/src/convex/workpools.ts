@@ -38,7 +38,8 @@ export const statsPool = new Workpool(workpoolComponents.statsWorkpool, {
 export type CommandExecutor = 'bridge_poll' | 'workpool';
 
 export function executorForCommandType(commandType: CommandType): CommandExecutor {
-	return commandType === 'downloads.chapter' ? 'bridge_poll' : 'workpool';
+	void commandType;
+	return 'bridge_poll';
 }
 
 export function poolForCommandType(commandType: CommandType) {

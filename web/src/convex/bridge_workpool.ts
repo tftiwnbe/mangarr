@@ -37,11 +37,6 @@ export const executeCommand = internalAction({
 			return { ok: true, skipped: true };
 		}
 
-		await ctx.runMutation(internal.commands.markWorkpoolRunning, {
-			commandId: args.commandId,
-			now: Date.now()
-		});
-
 		// library.title.stats.refresh only mutates Convex tables — running it
 		// through the bridge HTTP server is a wasted round trip that also breaks
 		// when the bridge isn't reachable from the Convex isolate. Run inline.
@@ -60,9 +55,16 @@ export const executeCommand = internalAction({
 		const executionArgs = { commandType: command.commandType, payload: command.payload };
 
 		if (isCacheableSourceRead(command.commandType)) {
-			return sourceReadCache.fetch(ctx, executionArgs, {
-				ttl: cacheTtlMs(command.commandType)
-			});
+			try {
+				return await sourceReadCache.fetch(ctx, executionArgs, {
+					ttl: cacheTtlMs(command.commandType)
+				});
+			} catch (error) {
+				console.warn('Falling back to uncached bridge command execution', {
+					commandType: command.commandType,
+					error: error instanceof Error ? error.message : String(error)
+				});
+			}
 		}
 
 		return executeBridgeCommandRequest({

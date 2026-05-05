@@ -17,8 +17,10 @@ import {
 
 const REMEMBERED_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const EPHEMERAL_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
-const SESSION_REFRESH_WINDOW_MS = 15 * 60 * 1000;
+const SESSION_REFRESH_WINDOW_MS = 60 * 60 * 1000;
+const SESSION_TOUCH_LOCAL_DEBOUNCE_MS = 60 * 1000;
 const RATE_MAX_FAILS = 10;
+const recentSessionTouches = new Map<string, number>();
 
 export type SessionUser = {
 	id: string;
@@ -106,14 +108,18 @@ export async function resolveAuthState(event: RequestEvent): Promise<AuthState> 
 
 	const now = Date.now();
 	const lastUsedAt = lookup.session.lastUsedAt ?? lookup.session.createdAt;
-	if (now - lastUsedAt >= SESSION_REFRESH_WINDOW_MS) {
+	if (
+		now - lastUsedAt >= SESSION_REFRESH_WINDOW_MS &&
+		shouldAttemptSessionTouch(lookup.session._id, now)
+	) {
 		const client = getConvexClient();
 		try {
 			await client.mutation(convexApi.auth.touchBrowserSession, {
-				sessionTokenHash: hashToken(sessionToken),
+				sessionId: lookup.session._id as GenericId<'browserSessions'>,
 				lastUsedAt: now
 			});
 		} catch {
+			recentSessionTouches.delete(lookup.session._id);
 			// Session refresh is best-effort; do not fail the request on a touch race.
 		}
 	}
@@ -152,10 +158,21 @@ export async function logout(event: RequestEvent) {
 	const sessionToken = event.cookies.get(getSessionCookieName());
 	if (sessionToken && isConvexConfigured()) {
 		const client = getConvexClient();
-		await client.mutation(convexApi.auth.revokeBrowserSessionByTokenHash, {
-			sessionTokenHash: hashToken(sessionToken),
-			revokedAt: Date.now()
-		});
+		const lookup = await fetchSessionByToken(sessionToken);
+		const revokedAt = Date.now();
+
+		if (lookup) {
+			recentSessionTouches.delete(lookup.session._id);
+			await client.mutation(convexApi.auth.revokeBrowserSession, {
+				sessionId: lookup.session._id as GenericId<'browserSessions'>,
+				revokedAt
+			});
+		} else {
+			await client.mutation(convexApi.auth.revokeBrowserSessionByTokenHash, {
+				sessionTokenHash: hashToken(sessionToken),
+				revokedAt
+			});
+		}
 	}
 
 	clearSessionCookie(event.cookies, event);
@@ -376,4 +393,20 @@ async function fetchSessionByToken(sessionToken: string): Promise<SessionLookup>
 		sessionTokenHash: hashToken(sessionToken),
 		now: Date.now()
 	}) as Promise<SessionLookup>;
+}
+
+function shouldAttemptSessionTouch(sessionId: string, now: number) {
+	for (const [key, touchedAt] of recentSessionTouches) {
+		if (now - touchedAt >= SESSION_TOUCH_LOCAL_DEBOUNCE_MS) {
+			recentSessionTouches.delete(key);
+		}
+	}
+
+	const previousTouchAt = recentSessionTouches.get(sessionId) ?? 0;
+	if (now - previousTouchAt < SESSION_TOUCH_LOCAL_DEBOUNCE_MS) {
+		return false;
+	}
+
+	recentSessionTouches.set(sessionId, now);
+	return true;
 }

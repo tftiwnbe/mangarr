@@ -10,6 +10,8 @@ import {
 import { ensureActiveReadSession } from './library_reads';
 import { sortLibraryChaptersInReadingOrder } from './library_reader_support';
 
+const TITLE_LAST_READ_TOUCH_INTERVAL_MS = 10 * 60 * 1000;
+
 export const upsertChapterProgress = mutation({
 	args: {
 		chapterId: v.id('libraryChapters'),
@@ -25,10 +27,12 @@ export const upsertChapterProgress = mutation({
 				pageIndex: args.pageIndex,
 				updatedAt: now
 			});
-			await ctx.db.patch(chapter.libraryTitleId, {
-				lastReadAt: now,
-				updatedAt: now
-			});
+			if (now - existing.updatedAt >= TITLE_LAST_READ_TOUCH_INTERVAL_MS) {
+				await ctx.db.patch(chapter.libraryTitleId, {
+					lastReadAt: now,
+					updatedAt: now
+				});
+			}
 			return { ok: true, progressId: existing._id };
 		}
 

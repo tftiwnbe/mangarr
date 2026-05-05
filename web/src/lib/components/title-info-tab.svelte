@@ -13,9 +13,9 @@
 		displayStatus: string;
 		sourceName: string;
 		sourceLang: string;
-		chaptersLabel: string;
-		sourcesLabel: string;
-		updatesEnabled: boolean;
+		addedAt: number | null;
+		lastReadAt: number | null;
+		lastUpdatedAt: number | null;
 		similarTitles: Array<{
 			title: string;
 			coverUrl?: string | null;
@@ -35,9 +35,9 @@
 		displayStatus,
 		sourceName,
 		sourceLang,
-		chaptersLabel,
-		sourcesLabel,
-		updatesEnabled,
+		addedAt,
+		lastReadAt,
+		lastUpdatedAt,
 		similarTitles,
 		similarTitlesLoading,
 		similarTitlesWarming
@@ -46,6 +46,15 @@
 	const uniqueGenres = $derived(
 		Array.from(new Set(genres.map((genre) => genre.trim()).filter((genre) => genre.length > 0)))
 	);
+
+	function formatDate(ms: number | null): string {
+		if (!ms) return $_('title.never');
+		return new Date(ms).toLocaleDateString(undefined, {
+			year: 'numeric',
+			month: 'short',
+			day: 'numeric'
+		});
+	}
 </script>
 
 <div class="flex flex-col gap-8">
@@ -121,23 +130,21 @@
 			</div>
 			<div class="flex items-baseline justify-between gap-4">
 				<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
-					{$_('title.chapters')}
+					{$_('title.addedToLibrary')}
 				</span>
-				<span class="text-xs text-[var(--text-muted)]">{chaptersLabel}</span>
+				<span class="text-xs text-[var(--text-muted)]">{formatDate(addedAt)}</span>
 			</div>
 			<div class="flex items-baseline justify-between gap-4">
 				<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
-					{$_('title.sources')}
+					{$_('title.lastRead')}
 				</span>
-				<span class="text-xs text-[var(--text-muted)]">{sourcesLabel}</span>
+				<span class="text-xs text-[var(--text-muted)]">{formatDate(lastReadAt)}</span>
 			</div>
 			<div class="flex items-baseline justify-between gap-4">
 				<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
-					{$_('title.downloadMonitoring')}
+					{$_('title.lastUpdated')}
 				</span>
-				<span class="text-xs text-[var(--text-muted)]">
-					{updatesEnabled ? $_('downloads.enabled') : $_('downloads.disabled')}
-				</span>
+				<span class="text-xs text-[var(--text-muted)]">{formatDate(lastUpdatedAt)}</span>
 			</div>
 		</div>
 	</div>

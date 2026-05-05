@@ -5,8 +5,7 @@ import { internalMutation, mutation, type MutationCtx, type QueryCtx } from './_
 import { requireBridgeIdentity } from './bridge_auth';
 import {
 	getPreferredVariantForTitle,
-	markTitleListedInLibrary,
-	scheduleTitleStatsRefresh
+	markTitleListedInLibrary
 } from './library_shared';
 import { insertCommand } from './command_payloads';
 import {
@@ -111,12 +110,6 @@ export const cancelQueuedChapterDownload = mutation({
 			newStatus: DOWNLOAD_STATUS.MISSING,
 			oldFileSizeBytes: chapter.fileSizeBytes,
 			newFileSizeBytes: undefined
-		});
-
-		await scheduleTitleStatsRefresh(ctx, {
-			libraryTitleId: chapter.libraryTitleId,
-			ownerUserId: chapter.ownerUserId,
-			now
 		});
 
 		return { ok: true, taskId: activeTask._id };
@@ -457,42 +450,54 @@ export const setChapterDownloadState = mutation({
 			args.storageKind === undefined &&
 			args.fileSizeBytes === undefined &&
 			args.lastErrorMessage === undefined;
+		let chapterPatched = false;
 
 		if (!isProgressOnlyUpdate) {
-			await ctx.db.patch(chapter._id, {
-				downloadStatus: args.status,
-				downloadedPages: args.downloadedPages ?? chapter.downloadedPages,
-				totalPages: args.totalPages ?? chapter.totalPages,
-				localRelativePath:
-					args.localRelativePath === undefined
-						? chapter.localRelativePath
-						: (args.localRelativePath ?? undefined),
-				storageKind:
-					args.storageKind === undefined ? chapter.storageKind : (args.storageKind ?? undefined),
-				fileSizeBytes: newFileSizeBytes,
-				lastErrorMessage:
-					args.lastErrorMessage === undefined
-						? chapter.lastErrorMessage
-						: normalizeOptionalString(args.lastErrorMessage),
-				downloadedAt: args.status === DOWNLOAD_STATUS.DOWNLOADED ? args.now : chapter.downloadedAt,
-				updatedAt: args.now
-			});
+			try {
+				await ctx.db.patch(chapter._id, {
+					downloadStatus: args.status,
+					downloadedPages: args.downloadedPages ?? chapter.downloadedPages,
+					totalPages: args.totalPages ?? chapter.totalPages,
+					localRelativePath:
+						args.localRelativePath === undefined
+							? chapter.localRelativePath
+							: (args.localRelativePath ?? undefined),
+					storageKind:
+						args.storageKind === undefined
+							? chapter.storageKind
+							: (args.storageKind ?? undefined),
+					fileSizeBytes: newFileSizeBytes,
+					lastErrorMessage:
+						args.lastErrorMessage === undefined
+							? chapter.lastErrorMessage
+							: normalizeOptionalString(args.lastErrorMessage),
+					downloadedAt: args.status === DOWNLOAD_STATUS.DOWNLOADED ? args.now : chapter.downloadedAt,
+					updatedAt: args.now
+				});
+				chapterPatched = true;
+			} catch (error) {
+				if (
+					!(error instanceof Error) ||
+					!error.message?.includes('changed while this mutation')
+				) {
+					throw error;
+				}
+				const latestChapter = await ctx.db.get(args.chapterId);
+				if (!latestChapter || !isConcurrentDownloadStateSatisfied(latestChapter, args)) {
+					throw error;
+				}
+			}
 		}
 
 		const statusChanged = oldStatus !== args.status;
 		const sizeChanged = (oldFileSizeBytes ?? 0) !== (newFileSizeBytes ?? 0);
-		if (!isProgressOnlyUpdate && (statusChanged || sizeChanged)) {
+		if (chapterPatched && !isProgressOnlyUpdate && (statusChanged || sizeChanged)) {
 			await applyChapterDownloadCounterDelta(ctx, {
 				libraryTitleId: chapter.libraryTitleId,
 				oldStatus,
 				newStatus: args.status,
 				oldFileSizeBytes,
 				newFileSizeBytes
-			});
-			await scheduleTitleStatsRefresh(ctx, {
-				libraryTitleId: chapter.libraryTitleId,
-				ownerUserId: chapter.ownerUserId,
-				now: args.now
 			});
 		}
 
@@ -699,12 +704,6 @@ async function queueDownloadAttempt(
 		newFileSizeBytes: undefined
 	});
 
-	await scheduleTitleStatsRefresh(ctx, {
-		libraryTitleId: args.chapter.libraryTitleId,
-		ownerUserId: args.chapter.ownerUserId,
-		now: args.now
-	});
-
 	const attemptNumber = await nextDownloadAttemptNumber(ctx, args.chapter._id);
 
 	// Only background watcher retries should respect the long cooldown after repeated failures.
@@ -842,14 +841,6 @@ async function recoverActiveDownloadsInternal(
 			dirtyTitles.set(String(chapter.libraryTitleId), chapter.ownerUserId);
 			failedTasks += 1;
 		}
-	}
-
-	for (const [titleId, ownerUserId] of dirtyTitles) {
-		await scheduleTitleStatsRefresh(ctx, {
-			libraryTitleId: titleId as GenericId<'libraryTitles'>,
-			ownerUserId,
-			now: args.now
-		});
 	}
 
 	return {
@@ -1394,4 +1385,60 @@ function computeProgressPercent(downloadedPages?: number | null, totalPages?: nu
 function normalizeOptionalString(value: string | null | undefined) {
 	const normalized = value?.trim();
 	return normalized ? normalized : undefined;
+}
+
+function isConcurrentDownloadStateSatisfied(
+	chapter: {
+		downloadStatus: string;
+		downloadedPages?: number;
+		totalPages?: number;
+		localRelativePath?: string;
+		storageKind?: 'directory' | 'archive';
+		fileSizeBytes?: number;
+		lastErrorMessage?: string;
+	},
+	args: {
+		status: 'missing' | 'queued' | 'downloading' | 'downloaded' | 'failed';
+		downloadedPages?: number;
+		totalPages?: number;
+		localRelativePath?: string | null;
+		storageKind?: 'directory' | 'archive' | null;
+		fileSizeBytes?: number;
+		lastErrorMessage?: string | null;
+	}
+) {
+	switch (args.status) {
+		case DOWNLOAD_STATUS.QUEUED:
+			return (
+				chapter.downloadStatus === DOWNLOAD_STATUS.QUEUED ||
+				chapter.downloadStatus === DOWNLOAD_STATUS.DOWNLOADING ||
+				chapter.downloadStatus === DOWNLOAD_STATUS.DOWNLOADED
+			);
+		case DOWNLOAD_STATUS.DOWNLOADING:
+			return (
+				chapter.downloadStatus === DOWNLOAD_STATUS.DOWNLOADING ||
+				chapter.downloadStatus === DOWNLOAD_STATUS.DOWNLOADED
+			);
+		case DOWNLOAD_STATUS.DOWNLOADED:
+			return (
+				chapter.downloadStatus === DOWNLOAD_STATUS.DOWNLOADED &&
+				(args.downloadedPages === undefined ||
+					(chapter.downloadedPages ?? 0) >= args.downloadedPages) &&
+				(args.totalPages === undefined || (chapter.totalPages ?? 0) >= args.totalPages) &&
+				(args.localRelativePath == null || chapter.localRelativePath === args.localRelativePath) &&
+				(args.storageKind == null || chapter.storageKind === args.storageKind) &&
+				(args.fileSizeBytes === undefined || (chapter.fileSizeBytes ?? 0) >= args.fileSizeBytes)
+			);
+		case DOWNLOAD_STATUS.FAILED:
+			return (
+				chapter.downloadStatus === DOWNLOAD_STATUS.FAILED &&
+				(args.lastErrorMessage == null ||
+					normalizeOptionalString(chapter.lastErrorMessage) ===
+						normalizeOptionalString(args.lastErrorMessage))
+			);
+		case DOWNLOAD_STATUS.MISSING:
+			return chapter.downloadStatus === DOWNLOAD_STATUS.MISSING;
+		default:
+			return chapter.downloadStatus === args.status;
+	}
 }

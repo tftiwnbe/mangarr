@@ -3,7 +3,7 @@ import { v } from 'convex/values';
 
 import { mutation, query } from './_generated/server';
 
-const SESSION_TOUCH_DEBOUNCE_MS = 60 * 1000;
+const SESSION_TOUCH_DEBOUNCE_MS = 5 * 60 * 1000;
 const INTEGRATION_KEY_TOUCH_DEBOUNCE_MS = 60 * 1000;
 
 const publicUser = v.object({
@@ -271,8 +271,27 @@ export const revokeBrowserSessionByTokenHash = mutation({
 		}
 
 		await ctx.db.patch(session._id, {
-			revokedAt: args.revokedAt,
-			lastUsedAt: args.revokedAt
+			revokedAt: args.revokedAt
+		});
+
+		return { revoked: true };
+	}
+});
+
+export const revokeBrowserSession = mutation({
+	args: {
+		sessionId: v.id('browserSessions'),
+		revokedAt: v.float64()
+	},
+	handler: async (ctx, args) => {
+		const session = await ctx.db.get(args.sessionId);
+
+		if (!session || session.revokedAt) {
+			return { revoked: false };
+		}
+
+		await ctx.db.patch(args.sessionId, {
+			revokedAt: args.revokedAt
 		});
 
 		return { revoked: true };
@@ -281,14 +300,11 @@ export const revokeBrowserSessionByTokenHash = mutation({
 
 export const touchBrowserSession = mutation({
 	args: {
-		sessionTokenHash: v.string(),
+		sessionId: v.id('browserSessions'),
 		lastUsedAt: v.float64()
 	},
 	handler: async (ctx, args) => {
-		const session = await ctx.db
-			.query('browserSessions')
-			.withIndex('by_token_hash', (q) => q.eq('sessionTokenHash', args.sessionTokenHash))
-			.unique();
+		const session = await ctx.db.get(args.sessionId);
 
 		if (!session || session.revokedAt) {
 			return { touched: false };
@@ -358,8 +374,7 @@ export const revokeUserSessions = mutation({
 			}
 
 			await ctx.db.patch(session._id, {
-				revokedAt: args.revokedAt,
-				lastUsedAt: args.revokedAt
+				revokedAt: args.revokedAt
 			});
 			revokedCount += 1;
 		}

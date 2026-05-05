@@ -397,19 +397,25 @@ export const upsertTitleMetadataFromBridge = mutation({
 
 		for (const title of directTitles) {
 			matchingTitleIds.add(String(title._id));
-			await ctx.db.patch(title._id, {
-				title: args.title,
-				routeBase: buildTitleRouteBaseFromUrl(args.titleUrl, args.title),
-				sourcePkg: sourcePkg ?? title.sourcePkg,
-				sourceLang: sourceLang ?? title.sourceLang,
-				author,
-				artist,
-				description,
-				coverUrl,
-				genre,
-				status: args.status,
-				updatedAt: args.now
-			});
+			try {
+				await ctx.db.patch(title._id, {
+					title: args.title,
+					routeBase: buildTitleRouteBaseFromUrl(args.titleUrl, args.title),
+					sourcePkg: sourcePkg ?? title.sourcePkg,
+					sourceLang: sourceLang ?? title.sourceLang,
+					author,
+					artist,
+					description,
+					coverUrl,
+					genre,
+					status: args.status,
+					updatedAt: args.now
+				});
+			} catch (error) {
+				if (!(error instanceof Error) || !error.message?.includes('changed while this mutation')) {
+					throw error;
+				}
+			}
 		}
 
 		for (const titleId of matchingTitleIds) {
