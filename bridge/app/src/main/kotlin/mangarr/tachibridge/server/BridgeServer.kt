@@ -69,6 +69,7 @@ private val events = EventLogger.named(
     "component" to "bridge_server",
 )
 private const val CACHE_PRUNE_INTERVAL_MS = 15 * 60 * 1000L
+private const val CACHE_PRUNE_INFO_THRESHOLD = 5
 
 @kotlinx.serialization.ExperimentalSerializationApi
 class BridgeServer(
@@ -385,17 +386,32 @@ class BridgeServer(
                     summary.deletedTempWorkspaces +
                     summary.deletedTempExports
             if (deletedEntries > 0) {
-                events.info(
-                    "bridge.cache.pruned",
-                    "Pruned bridge caches",
-                    "bridgeId" to config.runtime.bridgeId,
-                    "phase" to phase,
-                    "deletedFeedFiles" to summary.deletedFeedFiles,
-                    "deletedReaderPageFiles" to summary.deletedReaderPageFiles,
-                    "deletedCoverFiles" to summary.deletedCoverFiles,
-                    "deletedTempWorkspaces" to summary.deletedTempWorkspaces,
-                    "deletedTempExports" to summary.deletedTempExports,
-                )
+                val isRoutineMaintenance = phase == "maintenance" && deletedEntries < CACHE_PRUNE_INFO_THRESHOLD
+                if (isRoutineMaintenance) {
+                    events.debug(
+                        "bridge.cache.pruned",
+                        "Pruned bridge caches",
+                        "bridgeId" to config.runtime.bridgeId,
+                        "phase" to phase,
+                        "deletedFeedFiles" to summary.deletedFeedFiles,
+                        "deletedReaderPageFiles" to summary.deletedReaderPageFiles,
+                        "deletedCoverFiles" to summary.deletedCoverFiles,
+                        "deletedTempWorkspaces" to summary.deletedTempWorkspaces,
+                        "deletedTempExports" to summary.deletedTempExports,
+                    )
+                } else {
+                    events.info(
+                        "bridge.cache.pruned",
+                        "Pruned bridge caches",
+                        "bridgeId" to config.runtime.bridgeId,
+                        "phase" to phase,
+                        "deletedFeedFiles" to summary.deletedFeedFiles,
+                        "deletedReaderPageFiles" to summary.deletedReaderPageFiles,
+                        "deletedCoverFiles" to summary.deletedCoverFiles,
+                        "deletedTempWorkspaces" to summary.deletedTempWorkspaces,
+                        "deletedTempExports" to summary.deletedTempExports,
+                    )
+                }
             }
         }.onFailure { error ->
             events.warn(
