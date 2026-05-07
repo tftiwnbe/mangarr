@@ -6,6 +6,7 @@ import { buildBridgeInternalHeaders, getBridgeBaseUrl } from '$lib/server/bridge
 import { requireUser } from '$lib/server/auth';
 import { convexApi } from '$lib/server/convex-api';
 import { getUserConvexClient } from '$lib/server/convex';
+import { recordBridgeRequest } from '$lib/utils/server-metrics.js';
 
 type LibraryChapter = {
 	_id: string;
@@ -41,11 +42,15 @@ export const POST: RequestHandler = async (event) => {
 			: await client.query(convexApi.library.listAllMineChapters, {})
 	) as LibraryChapter[];
 
+	const startedAt = Date.now();
 	const response = await fetch(new URL('downloads/reconcile', `${getBridgeBaseUrl()}/`), {
 		method: 'POST',
-		headers: buildBridgeInternalHeaders({
-			'content-type': 'application/json'
-		}),
+		headers: buildBridgeInternalHeaders(
+			{
+				'content-type': 'application/json'
+			},
+			event.locals.requestId
+		),
 		body: JSON.stringify({
 			chapters: scoped.map((chapter) => ({
 				chapterId: chapter._id,
@@ -63,11 +68,29 @@ export const POST: RequestHandler = async (event) => {
 			}))
 		}),
 		signal: AbortSignal.timeout(30_000)
-	}).catch(() => null);
+	}).catch((cause) => {
+		recordBridgeRequest({
+			path: '/downloads/reconcile',
+			method: 'POST',
+			outcome:
+				cause instanceof DOMException && cause.name === 'TimeoutError' ? 'timeout' : 'network_error',
+			status:
+				cause instanceof DOMException && cause.name === 'TimeoutError' ? 'timeout' : 'network_error',
+			durationMs: Date.now() - startedAt
+		});
+		return null;
+	});
 
 	if (!response) {
 		throw error(502, 'Bridge download reconcile is unavailable');
 	}
+	recordBridgeRequest({
+		path: '/downloads/reconcile',
+		method: 'POST',
+		outcome: 'response',
+		status: response.status,
+		durationMs: Date.now() - startedAt
+	});
 
 	return json(await response.json(), { status: response.status });
 };

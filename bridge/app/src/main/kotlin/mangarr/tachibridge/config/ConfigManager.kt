@@ -235,6 +235,8 @@ object ConfigManager {
         }
     }
 
+    fun metricsEnabled(): Boolean = false
+
     fun syncExtensions(validPackages: Set<String>) {
         update { config ->
             val cleaned = config.extensions.filter { it.packageName in validPackages }
@@ -276,4 +278,12 @@ object ConfigManager {
             throw ConfigLoadException("Failed to save config at $configPath", e)
         }
     }
+
+    private fun parseOptionalEnvBoolean(raw: String?): Boolean? =
+        when (raw?.trim()?.lowercase()) {
+            "", null -> null
+            "1", "true", "yes", "on" -> true
+            "0", "false", "no", "off" -> false
+            else -> null
+        }
 }

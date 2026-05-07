@@ -521,6 +521,7 @@ class BridgeService(
         chapterName: String? = null,
         index: Int,
     ): PageImagePayload {
+        val startedAt = System.currentTimeMillis()
         extensionManager.awaitReady()
         val cacheKey = "$sourceId::$chapterUrl::$index"
         val now = System.currentTimeMillis()
@@ -528,16 +529,38 @@ class BridgeService(
 
         readerPageCache[cacheKey]?.takeIf { it.expiresAt > now }?.let { cached ->
             BridgeMetrics.recordCacheLookup(cache = "reader_page", outcome = "memory_hit")
-            return PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
+            return PageImagePayload(contentType = cached.contentType, bytes = cached.bytes).also { payload ->
+                BridgeMetrics.recordReaderPageRequest(
+                    cache = "memory",
+                    waited = false,
+                    outcome = "success",
+                    durationMs = System.currentTimeMillis() - startedAt,
+                    payloadBytes = payload.bytes.size.toLong(),
+                )
+            }
         }
         readerPageFailureCache[cacheKey]?.takeIf { it.expiresAt > now }?.let { cached ->
             BridgeMetrics.recordCacheLookup(cache = "reader_page_failure", outcome = "memory_hit")
+            BridgeMetrics.recordReaderPageRequest(
+                cache = "failure",
+                waited = false,
+                outcome = pageFetchOutcome(cached.httpCode),
+                durationMs = System.currentTimeMillis() - startedAt,
+            )
             throw HttpException(cached.httpCode)
         }
         loadPersistedReaderPage(json, readerPageCacheDir, cacheKey, now)?.let { cached ->
             readerPageCache[cacheKey] = cached
             BridgeMetrics.recordCacheLookup(cache = "reader_page", outcome = "disk_hit")
-            return PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
+            return PageImagePayload(contentType = cached.contentType, bytes = cached.bytes).also { payload ->
+                BridgeMetrics.recordReaderPageRequest(
+                    cache = "disk",
+                    waited = false,
+                    outcome = "success",
+                    durationMs = System.currentTimeMillis() - startedAt,
+                    payloadBytes = payload.bytes.size.toLong(),
+                )
+            }
         }
         BridgeMetrics.recordCacheLookup(cache = "reader_page", outcome = "miss")
 
@@ -546,21 +569,43 @@ class BridgeService(
             val currentTime = System.currentTimeMillis()
             readerPageCache[cacheKey]?.takeIf { it.expiresAt > currentTime }?.let { cached ->
                 BridgeMetrics.recordCacheLookup(cache = "reader_page", outcome = "memory_hit_after_wait")
-                return@withLock PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
+                return@withLock PageImagePayload(contentType = cached.contentType, bytes = cached.bytes).also { payload ->
+                    BridgeMetrics.recordReaderPageRequest(
+                        cache = "memory",
+                        waited = true,
+                        outcome = "success",
+                        durationMs = System.currentTimeMillis() - startedAt,
+                        payloadBytes = payload.bytes.size.toLong(),
+                    )
+                }
             }
             readerPageFailureCache[cacheKey]?.takeIf { it.expiresAt > currentTime }?.let { cached ->
                 BridgeMetrics.recordCacheLookup(cache = "reader_page_failure", outcome = "memory_hit_after_wait")
+                BridgeMetrics.recordReaderPageRequest(
+                    cache = "failure",
+                    waited = true,
+                    outcome = pageFetchOutcome(cached.httpCode),
+                    durationMs = System.currentTimeMillis() - startedAt,
+                )
                 throw HttpException(cached.httpCode)
             }
             loadPersistedReaderPage(json, readerPageCacheDir, cacheKey, currentTime)?.let { cached ->
                 readerPageCache[cacheKey] = cached
                 BridgeMetrics.recordCacheLookup(cache = "reader_page", outcome = "disk_hit_after_wait")
-                return@withLock PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
+                return@withLock PageImagePayload(contentType = cached.contentType, bytes = cached.bytes).also { payload ->
+                    BridgeMetrics.recordReaderPageRequest(
+                        cache = "disk",
+                        waited = true,
+                        outcome = "success",
+                        durationMs = System.currentTimeMillis() - startedAt,
+                        payloadBytes = payload.bytes.size.toLong(),
+                    )
+                }
             }
 
             val payload =
                 try {
-                    fetchPageImageWithRetry(sourceId.toString(), chapterUrl, chapterName, index)
+                    fetchPageImageWithRetry(sourceId.toString(), chapterUrl, chapterName, index, consumer = "reader")
                 } catch (error: Exception) {
                     val httpCode = (error as? HttpException)?.code
                     if (httpCode == 403 || httpCode == 404 || httpCode == 410) {
@@ -570,6 +615,12 @@ class BridgeService(
                                 expiresAt = System.currentTimeMillis() + READER_PAGE_FAILURE_CACHE_TTL_MS,
                             )
                     }
+                    BridgeMetrics.recordReaderPageRequest(
+                        cache = "source",
+                        waited = true,
+                        outcome = pageFetchOutcome(error),
+                        durationMs = System.currentTimeMillis() - startedAt,
+                    )
                     throw error
                 }
             readerPageFailureCache.remove(cacheKey)
@@ -582,7 +633,15 @@ class BridgeService(
             readerPageCache[cacheKey] = cached
             persistReaderPage(json, readerPageCacheDir, cacheKey, cached)
             BridgeMetrics.recordCacheStore(cache = "reader_page")
-            PageImagePayload(contentType = cached.contentType, bytes = cached.bytes)
+            PageImagePayload(contentType = cached.contentType, bytes = cached.bytes).also { response ->
+                BridgeMetrics.recordReaderPageRequest(
+                    cache = "source",
+                    waited = true,
+                    outcome = "success",
+                    durationMs = System.currentTimeMillis() - startedAt,
+                    payloadBytes = response.bytes.size.toLong(),
+                )
+            }
         }
     }
 
@@ -652,7 +711,13 @@ class BridgeService(
                                 if (index >= totalPages) {
                                     return@launch
                                 }
-                                val image = fetchPageImageWithRetry(sourceId, chapterUrl, chapterName, index)
+                                val image = fetchPageImageWithRetry(
+                                    sourceId,
+                                    chapterUrl,
+                                    chapterName,
+                                    index,
+                                    consumer = "download",
+                                )
                                 downloadStorage.writePage(workspace, index, image)
                                 onProgress(completedPages.incrementAndGet(), totalPages)
                             }
@@ -665,6 +730,11 @@ class BridgeService(
 
             // Record chapter completion for rate limiting purposes
             rateLimiter.recordChapterCompletion(sourceId)
+            BridgeMetrics.recordDownloadChapterStored(
+                storageKind = stored.storageKind,
+                pageCount = totalPages,
+                fileSizeBytes = stored.fileSizeBytes,
+            )
 
             return buildJsonObject {
                 put("ok", true)
@@ -685,10 +755,12 @@ class BridgeService(
         chapterUrl: String,
         chapterName: String?,
         index: Int,
+        consumer: String,
     ): PageImagePayload {
         val config = ConfigManager.config.downloads
         var lastError: Exception? = null
         val parsedSourceId = sourceId.toLong()
+        val startedAt = System.currentTimeMillis()
 
         // Extend retry attempts for rate-limited sources
         val maxAttempts =
@@ -723,12 +795,21 @@ class BridgeService(
             try {
                 val result = extensionManager.getPageImage(parsedSourceId, chapterUrl, chapterName, index)
                 rateLimiter.recordSuccess(sourceId)
+                BridgeMetrics.recordPageSourceFetch(
+                    consumer = consumer,
+                    outcome = "success",
+                    durationMs = System.currentTimeMillis() - startedAt,
+                    payloadBytes = result.bytes.size.toLong(),
+                )
                 return result
             } catch (error: Exception) {
                 lastError = error
 
                 // Handle rate limit errors specially
                 if (error is HttpException && error.code == 429) {
+                    if (attemptIndex < maxAttempts - 1) {
+                        BridgeMetrics.recordPageSourceFetchRetry(consumer, pageFetchOutcome(error))
+                    }
                     rateLimiter.recordRateLimit(sourceId, error.retryAfterSeconds)
                     logger.warn(error) {
                         "Rate limited on page ${index + 1} for $chapterUrl " +
@@ -739,9 +820,15 @@ class BridgeService(
                 }
 
                 if (!shouldRetryPageFetch(error) || attemptIndex == maxAttempts - 1) {
+                    BridgeMetrics.recordPageSourceFetch(
+                        consumer = consumer,
+                        outcome = pageFetchOutcome(error),
+                        durationMs = System.currentTimeMillis() - startedAt,
+                    )
                     throw error
                 }
 
+                BridgeMetrics.recordPageSourceFetchRetry(consumer, pageFetchOutcome(error))
                 logger.warn(error) {
                     "Page fetch failed for chapter $chapterUrl page ${index + 1} " +
                         "(attempt ${attemptIndex + 1}/$maxAttempts), retrying"
@@ -749,7 +836,13 @@ class BridgeService(
             }
         }
 
-        throw lastError ?: IllegalStateException("Failed to fetch page $index for $chapterUrl")
+        val terminalError = lastError ?: IllegalStateException("Failed to fetch page $index for $chapterUrl")
+        BridgeMetrics.recordPageSourceFetch(
+            consumer = consumer,
+            outcome = pageFetchOutcome(terminalError),
+            durationMs = System.currentTimeMillis() - startedAt,
+        )
+        throw terminalError
     }
 
     private fun shouldRetryPageFetch(error: Exception): Boolean =
@@ -758,6 +851,15 @@ class BridgeService(
             is java.io.IOException -> parseHttpStatusCode(error)?.let(::isRetryableHttpStatus) ?: true
             else -> false
         }
+
+    private fun pageFetchOutcome(error: Exception): String =
+        when (error) {
+            is HttpException -> pageFetchOutcome(error.code)
+            is java.io.IOException -> parseHttpStatusCode(error)?.let(::pageFetchOutcome) ?: "io_error"
+            else -> "error"
+        }
+
+    private fun pageFetchOutcome(httpCode: Int): String = "http_$httpCode"
 
     fun fetchStoredPage(
         localRelativePath: String,

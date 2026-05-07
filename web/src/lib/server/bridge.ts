@@ -1,4 +1,5 @@
 import { env as privateEnv } from '$env/dynamic/private';
+import { REQUEST_ID_HEADER } from './observability';
 
 const DEFAULT_BRIDGE_PORT = '3212';
 
@@ -20,8 +21,11 @@ export function getBridgeServiceSecret() {
 	return secret;
 }
 
-export function buildBridgeInternalHeaders(input?: HeadersInit) {
+export function buildBridgeInternalHeaders(input?: HeadersInit, requestId?: string | null) {
 	const headers = new Headers(input);
 	headers.set('x-mangarr-service-secret', getBridgeServiceSecret());
+	if (requestId) {
+		headers.set(REQUEST_ID_HEADER, requestId);
+	}
 	return headers;
 }

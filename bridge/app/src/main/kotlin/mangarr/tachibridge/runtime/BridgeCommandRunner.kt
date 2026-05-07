@@ -35,6 +35,7 @@ private const val MAX_LEASE_RECOVERY_INTERVAL_MS = 15_000L
 private const val MAX_COMMAND_LEASE_RENEW_INTERVAL_MS = 10_000L
 private const val IDLE_POLL_BACKOFF_STEP_POLLS = 3
 private const val MAX_IDLE_POLL_INTERVAL_MS = 15_000L
+private const val COMMAND_QUEUE_METRICS_REFRESH_INTERVAL_MS = 15_000L
 
 @Serializable
 data class CommandRunnerSnapshot(
@@ -81,6 +82,7 @@ class BridgeCommandRunner(
         (leaseDurationMs / 3).coerceAtLeast(5_000L).coerceAtMost(MAX_COMMAND_LEASE_RENEW_INTERVAL_MS)
     private var job: Job? = null
     private var lastLeaseRecoveryAt = 0L
+    private var lastQueueMetricsAt = 0L
     private var consecutiveIdlePolls = 0
     @Volatile
     private var snapshot =
@@ -133,6 +135,7 @@ class BridgeCommandRunner(
         }
         snapshot = snapshot.copy(running = true)
         BridgeMetrics.setCommandPollState(pollIntervalMs, 0)
+        syncLaneMetrics()
         job =
             scope.launch {
                 recoverDownloadStateOnStartup()
@@ -156,6 +159,7 @@ class BridgeCommandRunner(
         job = null
         snapshot = snapshot.copy(running = false)
         BridgeMetrics.setCommandPollState(pollIntervalMs, 0)
+        syncLaneMetrics()
     }
 
     private suspend fun poll(): CommandPollResult {
@@ -177,6 +181,7 @@ class BridgeCommandRunner(
                             null
                         }
                     }
+            maybeRefreshQueueMetrics(client, now)
             if (requests.isEmpty()) {
                 BridgeMetrics.recordLeasePoll(outcome = "skipped", durationMs = 0, requestStats = emptyList())
                 snapshot = snapshot.copy(lastSuccessAt = now, lastError = null)
@@ -283,6 +288,52 @@ class BridgeCommandRunner(
             )
     }
 
+    private fun maybeRefreshQueueMetrics(
+        client: ConvexBridgeClient,
+        now: Long,
+    ) {
+        if (lastQueueMetricsAt != 0L && now - lastQueueMetricsAt < COMMAND_QUEUE_METRICS_REFRESH_INTERVAL_MS) {
+            return
+        }
+        val snapshot =
+            client.commandQueueSnapshot(
+                client.payload(
+                    buildJsonObject {
+                        put("now", now)
+                        put(
+                            "requests",
+                            kotlinx.serialization.json.buildJsonArray {
+                                commandLaneTracker.lanes().forEach { lane ->
+                                    add(
+                                        buildJsonObject {
+                                            put("lane", lane.metricName())
+                                            put(
+                                                "capabilities",
+                                                kotlinx.serialization.json.buildJsonArray {
+                                                    lane.capabilities.forEach { capability -> add(JsonPrimitive(capability)) }
+                                                },
+                                            )
+                                            put("limit", lane.concurrency)
+                                        },
+                                    )
+                                }
+                            },
+                        )
+                    },
+                ),
+            )
+        BridgeMetrics.recordQueueSnapshot(
+            snapshot.lanes.map { lane ->
+                CommandQueueLaneSnapshot(
+                    lane = lane.lane,
+                    readyCount = lane.readyCount.toLong(),
+                    oldestReadyAgeMs = lane.oldestReadyAgeMs.toLong(),
+                )
+            },
+        )
+        lastQueueMetricsAt = now
+    }
+
     private suspend fun recoverDownloadStateOnStartup() {
         val client = bridgeClient ?: return
         runCatching {
@@ -322,15 +373,28 @@ class BridgeCommandRunner(
             return
         }
         for (command in leased) {
+            val lane = BridgeCommandLane.fromCommandType(command.commandType)
             val counter = commandLaneTracker.increment(command.commandType)
             counter.incrementAndGet()
+            BridgeMetrics.setLaneState(lane.metricName(), counter.get().toLong(), lane.concurrency.toLong())
             scope.launch {
                 try {
                     handleCommand(client, command)
                 } finally {
                     counter.decrementAndGet()
+                    BridgeMetrics.setLaneState(lane.metricName(), counter.get().toLong(), lane.concurrency.toLong())
                 }
             }
+        }
+    }
+
+    private fun syncLaneMetrics() {
+        commandLaneTracker.lanes().forEach { lane ->
+            BridgeMetrics.setLaneState(
+                lane.metricName(),
+                commandLaneTracker.activeCount(lane).toLong(),
+                lane.concurrency.toLong(),
+            )
         }
     }
 

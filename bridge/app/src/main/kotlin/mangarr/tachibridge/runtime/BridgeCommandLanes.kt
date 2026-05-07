@@ -36,6 +36,8 @@ internal enum class BridgeCommandLane(
                 else -> INTERACTIVE
             }
     }
+
+    fun metricName(): String = name.lowercase()
 }
 
 internal class BridgeCommandLaneTracker {
@@ -46,6 +48,8 @@ internal class BridgeCommandLaneTracker {
 
     fun availableSlots(lane: BridgeCommandLane): Int =
         (lane.concurrency - activeCounts.getValue(lane).get()).coerceAtLeast(0)
+
+    fun activeCount(lane: BridgeCommandLane): Int = activeCounts.getValue(lane).get()
 
     fun increment(commandType: String): AtomicInteger {
         val lane = BridgeCommandLane.fromCommandType(commandType)

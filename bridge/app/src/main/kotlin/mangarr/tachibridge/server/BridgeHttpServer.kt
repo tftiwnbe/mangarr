@@ -17,6 +17,9 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import mangarr.tachibridge.config.ConfigManager
+import mangarr.tachibridge.logging.EventLogger
+import mangarr.tachibridge.logging.LogContext
 import mangarr.tachibridge.runtime.BridgeSnapshot
 import mangarr.tachibridge.runtime.BridgeCommandRunner
 import mangarr.tachibridge.runtime.CommandRunnerSnapshot
@@ -35,6 +38,7 @@ import java.net.URI
 import java.net.URLDecoder
 import java.io.IOException
 import java.nio.file.Files
+import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ThreadFactory
@@ -49,6 +53,12 @@ private const val HTTP_SERVER_MIN_WORKERS = 8
 private const val HTTP_SERVER_QUEUE_MULTIPLIER = 16
 private const val MAX_COVER_PROXY_REDIRECTS = 3
 private const val RESPONSE_STATUS_ATTRIBUTE = "mangarr.response_status"
+private const val REQUEST_ID_HEADER = "x-request-id"
+private const val DEFAULT_REQUEST_LOG_SLOW_MS = 1_000L
+private const val PAGE_ASSET_REQUEST_LOG_SLOW_MS = 5_000L
+private const val REMOTE_COVER_REQUEST_LOG_SLOW_MS = 10_000L
+private val REQUEST_ID_PATTERN = Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+private val HTTP_PROBE_PATHS = setOf("/health", "/metrics")
 
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 class BridgeHttpServer(
@@ -66,6 +76,7 @@ class BridgeHttpServer(
 ) {
     private val json = Json { prettyPrint = false }
     private val pageAssetFailureLogCache = ConcurrentHashMap<String, Long>()
+    private val httpEvents = EventLogger.named("mangarr.tachibridge.http", "subsystem" to "http_server")
 
     // Dedicated client for cover proxying: short timeouts, inherits proxy/cookie config from networkHelper
     private val coverProxyClient by lazy {
@@ -111,14 +122,6 @@ class BridgeHttpServer(
                     put("repository", bridgeService.repositoryHealthSnapshot())
                 },
             )
-        }
-
-        createContext("/metrics") { exchange ->
-            val body = BridgeMetrics.renderPrometheus(httpExecutor).toByteArray()
-            exchange.responseHeaders.set("content-type", "text/plain; version=0.0.4; charset=utf-8")
-            sendResponse(exchange, 200, body.size.toLong()) {
-                it.write(body)
-            }
         }
 
         createContext("/bridge") { exchange ->
@@ -763,20 +766,110 @@ class BridgeHttpServer(
         handler: (HttpExchange) -> Unit,
     ) {
         server.createContext(path) { exchange ->
+            val requestId = resolveRequestId(exchange)
             val startedAt = System.currentTimeMillis()
-            BridgeMetrics.onHttpRequestStarted()
+            exchange.responseHeaders.set(REQUEST_ID_HEADER, requestId)
             try {
-                handler(exchange)
+                LogContext
+                    .of(
+                        "request_id" to requestId,
+                        "http_route" to path,
+                        "http_method" to exchange.requestMethod.uppercase(),
+                    ).use {
+                        handler(exchange)
+                    }
             } finally {
                 val status = (exchange.getAttribute(RESPONSE_STATUS_ATTRIBUTE) as? Int) ?: 500
-                BridgeMetrics.onHttpRequestFinished(
-                    route = path,
-                    method = exchange.requestMethod,
-                    status = status,
-                    durationMs = System.currentTimeMillis() - startedAt,
-                )
+                val durationMs = System.currentTimeMillis() - startedAt
+                if (shouldLogRequestCompletion(path, status, durationMs)) {
+                    logRequestCompletion(exchange, path, requestId, status, durationMs)
+                }
             }
         }
+    }
+
+    private fun resolveRequestId(exchange: HttpExchange): String {
+        val header = exchange.requestHeaders.getFirst(REQUEST_ID_HEADER)?.trim().orEmpty()
+        return if (header.isNotEmpty() && header.length <= 128 && REQUEST_ID_PATTERN.matches(header)) {
+            header
+        } else {
+            UUID.randomUUID().toString()
+        }
+    }
+
+    private fun shouldLogRequestCompletion(
+        path: String,
+        status: Int,
+        durationMs: Long,
+    ): Boolean {
+        val slowRequestThresholdMs = requestLogSlowThresholdMs(path)
+        if (status >= 500 || durationMs >= slowRequestThresholdMs) {
+            return true
+        }
+        if (path in HTTP_PROBE_PATHS) {
+            return false
+        }
+        return status >= 400
+    }
+
+    private fun requestLogSlowThresholdMs(path: String): Long =
+        when (path) {
+            "/assets/page" -> PAGE_ASSET_REQUEST_LOG_SLOW_MS
+            "/assets/remote/cover" -> REMOTE_COVER_REQUEST_LOG_SLOW_MS
+            else -> DEFAULT_REQUEST_LOG_SLOW_MS
+        }
+
+    private fun logRequestCompletion(
+        exchange: HttpExchange,
+        path: String,
+        requestId: String,
+        status: Int,
+        durationMs: Long,
+    ) {
+        val remoteAddress = exchange.remoteAddress.address?.hostAddress ?: exchange.remoteAddress.hostString
+        val context =
+            buildList {
+                add("request_id" to requestId)
+                add("method" to exchange.requestMethod.uppercase())
+                add("path" to exchange.requestURI.path)
+                add("route" to path)
+                add("status" to status)
+                add("duration_ms" to durationMs)
+                if (!isLoopbackAddress(remoteAddress)) {
+                    add("remote_addr" to remoteAddress)
+                }
+            }.toTypedArray()
+        when {
+            status >= 500 ->
+                httpEvents.error(
+                    "http.request.completed",
+                    "Bridge HTTP request completed with server error",
+                    null,
+                    *context,
+                )
+
+            status >= 400 ->
+                httpEvents.warn(
+                    "http.request.completed",
+                    "Bridge HTTP request completed with client error",
+                    *context,
+                )
+
+            else ->
+                httpEvents.info(
+                    "http.request.completed",
+                    "Bridge HTTP request completed",
+                    *context,
+                )
+        }
+    }
+
+    private fun isLoopbackAddress(value: String?): Boolean {
+        val normalized = value?.trim()?.lowercase().orEmpty()
+        return normalized == "127.0.0.1" ||
+            normalized == "::1" ||
+            normalized == "::ffff:127.0.0.1" ||
+            normalized.startsWith("127.")
     }
 
     private fun authorize(exchange: HttpExchange): Boolean {
@@ -810,6 +903,14 @@ class BridgeHttpServer(
     private fun sendJson(exchange: HttpExchange, status: Int, payload: kotlinx.serialization.json.JsonObject) {
         val body = json.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), payload).toByteArray()
         exchange.responseHeaders.add("content-type", "application/json")
+        sendResponse(exchange, status, body.size.toLong()) {
+            it.write(body)
+        }
+    }
+
+    private fun sendPlainText(exchange: HttpExchange, status: Int, payload: String) {
+        val body = payload.toByteArray()
+        exchange.responseHeaders.set("content-type", "text/plain; charset=utf-8")
         sendResponse(exchange, status, body.size.toLong()) {
             it.write(body)
         }
@@ -869,7 +970,12 @@ class BridgeHttpServer(
             exchange.responseBody.use { output -> write(output) }
         } catch (error: IOException) {
             if (isClientAbort(error)) {
-                logger.debug(error) { "Client disconnected before bridge response completed" }
+                httpEvents.warn(
+                    "http.request.client_disconnected",
+                    "Client disconnected before bridge response completed",
+                    "method" to exchange.requestMethod.uppercase(),
+                    "path" to exchange.requestURI.path,
+                )
                 return
             }
             throw error
@@ -939,7 +1045,6 @@ class BridgeHttpServer(
         return when (address) {
             is Inet4Address -> isPublicIpv4Address(address)
             is Inet6Address -> isPublicIpv6Address(address)
-            else -> false
         }
     }
 

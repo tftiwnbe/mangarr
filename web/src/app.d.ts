@@ -4,6 +4,7 @@ declare global {
 	namespace App {
 		interface Locals {
 			auth: AuthState;
+			requestId: string;
 		}
 		interface PageData {
 			auth: AuthState;

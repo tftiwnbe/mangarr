@@ -62,6 +62,18 @@ data class LeaseBatchRequestStat(
 )
 
 @Serializable
+data class CommandQueueLaneStat(
+    val lane: String,
+    val readyCount: Double,
+    val oldestReadyAgeMs: Double,
+)
+
+@Serializable
+data class CommandQueueSnapshotResponse(
+    val lanes: List<CommandQueueLaneStat>,
+)
+
+@Serializable
 data class LeaseBatchResponse(
     val leasedCommands: List<LeaseCommand>,
     val requestStats: List<LeaseBatchRequestStat>,
@@ -110,6 +122,9 @@ class ConvexBridgeClient(
 
     fun leaseCommandsBatch(args: JsonObject): LeaseBatchResponse =
         mutation("runtime_commands:leaseBatch", args)
+
+    fun commandQueueSnapshot(args: JsonObject): CommandQueueSnapshotResponse =
+        query("runtime_commands:queueSnapshot", args)
 
     fun recoverExpiredLeases(args: JsonObject): RecoverExpiredLeasesResponse =
         mutation("runtime_commands:recoverExpiredLeases", args)
@@ -173,6 +188,9 @@ class ConvexBridgeClient(
 
     private inline fun <reified T> mutation(path: String, args: JsonObject): T =
         call("/api/mutation", path, args)
+
+    private inline fun <reified T> query(path: String, args: JsonObject): T =
+        call("/api/query", path, args)
 
     private inline fun <reified T> call(endpoint: String, path: String, args: JsonObject): T {
         val startedAt = System.currentTimeMillis()

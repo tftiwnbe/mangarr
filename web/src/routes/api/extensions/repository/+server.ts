@@ -4,6 +4,7 @@ import type { RequestHandler } from './$types';
 import { convexApi } from '$lib/server/convex-api';
 import { getConvexClient, getUserConvexClient } from '$lib/server/convex';
 import { buildBridgeInternalHeaders, getBridgeBaseUrl } from '$lib/server/bridge';
+import { recordBridgeRequest } from '$lib/utils/server-metrics.js';
 
 type RepositoryState = {
 	url?: string;
@@ -37,10 +38,19 @@ export const GET: RequestHandler = async ({ locals }) => {
 		});
 	}
 
+	let startedAt = Date.now();
 	try {
+		startedAt = Date.now();
 		const bridgeResponse = await fetch(`${getBridgeBaseUrl()}/extensions/repository`, {
-			headers: buildBridgeInternalHeaders(),
+			headers: buildBridgeInternalHeaders(undefined, locals.requestId),
 			signal: AbortSignal.timeout(10_000)
+		});
+		recordBridgeRequest({
+			path: '/extensions/repository',
+			method: 'GET',
+			outcome: 'response',
+			status: bridgeResponse.status,
+			durationMs: Date.now() - startedAt
 		});
 		if (!bridgeResponse.ok) {
 			return json({
@@ -72,7 +82,16 @@ export const GET: RequestHandler = async ({ locals }) => {
 			languages: bridgeLanguages,
 			extensionCount: bridgeRepository.extensionCount
 		});
-	} catch {
+	} catch (cause) {
+		recordBridgeRequest({
+			path: '/extensions/repository',
+			method: 'GET',
+			outcome:
+				cause instanceof DOMException && cause.name === 'TimeoutError' ? 'timeout' : 'network_error',
+			status:
+				cause instanceof DOMException && cause.name === 'TimeoutError' ? 'timeout' : 'network_error',
+			durationMs: Date.now() - startedAt
+		});
 		return json({
 			...repository,
 			languages: storedLanguages

@@ -1,7 +1,7 @@
 import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
 
-import { mutation, type MutationCtx } from './_generated/server';
+import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
 import {
 	clearSourceHealth,
@@ -21,6 +21,41 @@ type LeaseRequest = {
 	capabilities: string[];
 	limit: number;
 };
+
+async function collectQueueSnapshotForRequest(
+	ctx: MutationCtx | QueryCtx,
+	args: {
+		now: number;
+		request: LeaseRequest;
+	}
+) {
+	const uniqueCapabilities = Array.from(new Set(args.request.capabilities));
+	let readyCount = 0;
+	let oldestCreatedAt = Number.POSITIVE_INFINITY;
+
+	for (const capability of uniqueCapabilities) {
+		const rows = await ctx.db
+			.query('commands')
+			.withIndex('by_status_target_capability_priority_run_after', (q) =>
+				q.eq('status', STATUS.QUEUED).eq('targetCapability', capability).lte('runAfter', args.now)
+			)
+			.collect();
+
+		for (const row of rows) {
+			if (row.executor === 'workpool') {
+				continue;
+			}
+			readyCount += 1;
+			oldestCreatedAt = Math.min(oldestCreatedAt, row.createdAt);
+		}
+	}
+
+	return {
+		lane: args.request.lane,
+		readyCount,
+		oldestReadyAgeMs: Number.isFinite(oldestCreatedAt) ? Math.max(0, args.now - oldestCreatedAt) : 0
+	};
+}
 
 async function leaseCommandsForRequest(
 	ctx: MutationCtx,
@@ -177,6 +212,32 @@ export const leaseBatch = mutation({
 			leasedCommands,
 			requestStats
 		};
+	}
+});
+
+export const queueSnapshot = query({
+	args: {
+		now: v.float64(),
+		requests: v.array(
+			v.object({
+				lane: v.string(),
+				capabilities: v.array(v.string()),
+				limit: v.float64()
+			})
+		)
+	},
+	handler: async (ctx, args) => {
+		await requireBridgeIdentity(ctx);
+		const lanes = [];
+		for (const request of args.requests) {
+			lanes.push(
+				await collectQueueSnapshotForRequest(ctx, {
+					now: args.now,
+					request
+				})
+			);
+		}
+		return { lanes };
 	}
 });
 

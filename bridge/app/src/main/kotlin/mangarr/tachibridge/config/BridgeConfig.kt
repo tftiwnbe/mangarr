@@ -18,6 +18,7 @@ data class BridgeConfig(
     val downloads: Downloads = Downloads(),
     @SerialName("flare_solverr")
     val flareSolverr: FlareSolverr = FlareSolverr(),
+    val observability: Observability = Observability(),
 ) {
     @Serializable
     data class Downloads(
@@ -57,6 +58,12 @@ data class BridgeConfig(
         val sessionName: String? = null,
         @SerialName("session_ttl_minutes")
         val sessionTtlMinutes: Int? = null,
+    )
+
+    @Serializable
+    data class Observability(
+        @SerialName("metrics_enabled")
+        val metricsEnabled: Boolean? = null,
     )
 
     @Serializable
