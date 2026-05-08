@@ -36,7 +36,9 @@ import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.net.Proxy
 import java.net.URI
+import java.net.UnknownHostException
 import java.net.URLDecoder
 import java.io.IOException
 import java.nio.file.Files
@@ -49,6 +51,8 @@ import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.deleteIfExists
+import okhttp3.Dns
+import okhttp3.OkHttpClient
 
 private val logger = KotlinLogging.logger {}
 private const val PAGE_ASSET_FAILURE_LOG_TTL_MS = 60_000L
@@ -63,6 +67,12 @@ private const val PAGE_ASSET_REQUEST_LOG_SLOW_MS = 5_000L
 private const val REMOTE_COVER_REQUEST_LOG_SLOW_MS = 10_000L
 private val REQUEST_ID_PATTERN = Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 private val HTTP_PROBE_PATHS = setOf("/health", "/metrics")
+private typealias HostResolver = (String) -> List<InetAddress>
+
+internal data class PinnedRemoteCoverTarget(
+    val uri: URI,
+    val resolvedAddresses: List<InetAddress>,
+)
 
 @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
 class BridgeHttpServer(
@@ -82,13 +92,14 @@ class BridgeHttpServer(
     private val pageAssetFailureLogCache = ConcurrentHashMap<String, Long>()
     private val httpEvents = EventLogger.named("mangarr.tachibridge.http", "subsystem" to "http_server")
 
-    // Dedicated client for cover proxying: short timeouts, inherits proxy/cookie config from networkHelper
+    // Dedicated client for cover proxying: short timeouts, no proxy fallback, redirects handled manually.
     private val coverProxyClient by lazy {
         networkHelper.client
             .newBuilder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .callTimeout(20, TimeUnit.SECONDS)
+            .proxy(Proxy.NO_PROXY)
             .followRedirects(false)
             .followSslRedirects(false)
             .build()
@@ -356,12 +367,12 @@ class BridgeHttpServer(
                 return@createContext
             }
 
-            val initialUrl = parsePublicRemoteCoverUrl(target)
-            if (initialUrl == null) {
-                sendJson(exchange, 400, buildJsonObject { put("message", "Invalid url") })
-                return@createContext
-            }
-            var currentUrl: URI = initialUrl
+            var currentTarget =
+                parsePinnedRemoteCoverTarget(target)
+                    ?: run {
+                        sendJson(exchange, 400, buildJsonObject { put("message", "Invalid url") })
+                        return@createContext
+                    }
 
             val maxAttempts = 3
             var lastError: Exception? = null
@@ -369,6 +380,7 @@ class BridgeHttpServer(
             for (attempt in 1..maxAttempts) {
                 try {
                     while (true) {
+                        val currentUrl = currentTarget.uri
                         val refererOrigin = "${currentUrl.scheme}://${currentUrl.host}"
                         val coverHeaders =
                             okhttp3.Headers
@@ -379,11 +391,11 @@ class BridgeHttpServer(
                                 .add("User-Agent", "Mozilla/5.0 (compatible; MangarrCoverProxy/1.0)")
                                 .build()
                         val request = GET(currentUrl.toString(), headers = coverHeaders)
-                        coverProxyClient.newCall(request).execute().use { response ->
+                        pinnedCoverProxyClient(currentTarget).newCall(request).execute().use { response ->
                             if (response.isRedirect) {
                                 val redirected =
-                                    resolvePublicRedirectTarget(
-                                        currentUrl = currentUrl,
+                                    resolvePinnedRemoteCoverRedirectTarget(
+                                        currentTarget = currentTarget,
                                         location = response.header("location"),
                                     )
                                 if (redirected == null || redirectsRemaining <= 0) {
@@ -391,7 +403,7 @@ class BridgeHttpServer(
                                     return@createContext
                                 }
                                 redirectsRemaining -= 1
-                                currentUrl = redirected
+                                currentTarget = redirected
                                 return@use
                             }
                             if (!response.isSuccessful) {
@@ -417,17 +429,17 @@ class BridgeHttpServer(
                     }
                 } catch (e: IOException) {
                     lastError = e
-                    logger.debug(e) { "Cover fetch attempt $attempt/$maxAttempts failed url=${currentUrl}" }
+                    logger.debug(e) { "Cover fetch attempt $attempt/$maxAttempts failed url=${currentTarget.uri}" }
                     if (attempt < maxAttempts) {
                         continue
                     }
                 } catch (e: Exception) {
-                    logger.warn(e) { "Unexpected error serving remote cover url=${currentUrl}" }
+                    logger.warn(e) { "Unexpected error serving remote cover url=${currentTarget.uri}" }
                     sendJson(exchange, 502, buildJsonObject { put("message", "Remote cover is unavailable") })
                     return@createContext
                 }
             }
-            logger.debug { "Failed to serve remote cover after $maxAttempts attempts url=${currentUrl}: ${lastError?.message}" }
+            logger.debug { "Failed to serve remote cover after $maxAttempts attempts url=${currentTarget.uri}: ${lastError?.message}" }
             sendJson(exchange, 502, buildJsonObject { put("message", "Remote cover is unavailable") })
         }
 
@@ -1014,83 +1026,30 @@ class BridgeHttpServer(
         return false
     }
 
-    private fun parsePublicRemoteCoverUrl(raw: String): URI? {
-        val parsed =
-            try {
-                URI(raw.trim())
-            } catch (_: Exception) {
-                return null
-            }
-        if (parsed.scheme != "http" && parsed.scheme != "https") {
-            return null
-        }
-        if (!parsed.userInfo.isNullOrBlank()) {
-            return null
-        }
-        val host = parsed.host?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        val resolved =
-            try {
-                InetAddress.getAllByName(host)
-            } catch (_: Exception) {
-                return null
-            }
-        if (resolved.isEmpty() || resolved.any { !isPublicInternetAddress(it) }) {
-            return null
-        }
-        return parsed.normalize()
-    }
+    private fun pinnedCoverProxyClient(target: PinnedRemoteCoverTarget): OkHttpClient =
+        coverProxyClient
+            .newBuilder()
+            .dns(pinnedRemoteCoverDns(target))
+            .build()
 
-    private fun resolvePublicRedirectTarget(
-        currentUrl: URI,
+    private fun parsePinnedRemoteCoverTarget(raw: String): PinnedRemoteCoverTarget? =
+        resolvePinnedRemoteCoverTarget(raw)
+
+    private fun resolvePinnedRemoteCoverRedirectTarget(
+        currentTarget: PinnedRemoteCoverTarget,
         location: String?,
-    ): URI? {
+    ): PinnedRemoteCoverTarget? {
         val nextRaw = location?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        return parsePublicRemoteCoverUrl(currentUrl.resolve(nextRaw).toString())
+        return resolvePinnedRemoteCoverTarget(currentTarget.uri.resolve(nextRaw).toString())
     }
 
-    private fun isPublicInternetAddress(address: InetAddress): Boolean {
-        if (
-            address.isAnyLocalAddress ||
-            address.isLoopbackAddress ||
-            address.isLinkLocalAddress ||
-            address.isSiteLocalAddress ||
-            address.isMulticastAddress
-        ) {
-            return false
-        }
-        return when (address) {
-            is Inet4Address -> isPublicIpv4Address(address)
-            is Inet6Address -> isPublicIpv6Address(address)
-        }
-    }
+    private fun resolvePinnedRemoteCoverTarget(raw: String): PinnedRemoteCoverTarget? =
+        resolvePinnedRemoteCoverTarget(raw, ::resolveInetAddresses)
 
-    private fun isPublicIpv4Address(address: Inet4Address): Boolean {
-        val octets = address.address
-        val first = octets[0].toInt() and 0xff
-        val second = octets[1].toInt() and 0xff
+    private fun resolveInetAddresses(host: String): List<InetAddress> = InetAddress.getAllByName(host).toList()
 
-        if (first == 0 || first == 10 || first == 127) return false
-        if (first == 100 && second in 64..127) return false
-        if (first == 169 && second == 254) return false
-        if (first == 172 && second in 16..31) return false
-        if (first == 192 && second == 168) return false
-        if (first == 198 && (second == 18 || second == 19)) return false
-        if (first >= 224) return false
-
-        return true
-    }
-
-    private fun isPublicIpv6Address(address: Inet6Address): Boolean {
-        val octets = address.address
-        val first = octets[0].toInt() and 0xff
-        val second = octets[1].toInt() and 0xff
-
-        if (address.isIPv4CompatibleAddress) return false
-        if (first and 0xfe == 0xfc) return false
-        if (first == 0xfe && second and 0xc0 == 0x80) return false
-
-        return true
-    }
+    private fun pinnedRemoteCoverDns(target: PinnedRemoteCoverTarget): Dns =
+        pinnedRemoteCoverDns(target.uri.host, target.resolvedAddresses)
 
     private fun readResponseBodyWithinLimit(
         body: okhttp3.ResponseBody,
@@ -1228,6 +1187,92 @@ class BridgeHttpServer(
         if (!numeric.isFinite() || numeric % 1.0 != 0.0) return null
         return numeric.toInt()
     }
+}
+
+internal fun resolvePinnedRemoteCoverTarget(
+    raw: String,
+    resolveHost: HostResolver,
+): PinnedRemoteCoverTarget? {
+    val parsed =
+        try {
+            URI(raw.trim())
+        } catch (_: Exception) {
+            return null
+        }
+    if (parsed.scheme != "http" && parsed.scheme != "https") {
+        return null
+    }
+    if (!parsed.userInfo.isNullOrBlank()) {
+        return null
+    }
+    val host = parsed.host?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val resolved =
+        try {
+            resolveHost(host)
+        } catch (_: Exception) {
+            return null
+        }
+    if (resolved.isEmpty() || resolved.any { !isPinnedRemoteCoverPublicAddress(it) }) {
+        return null
+    }
+    return PinnedRemoteCoverTarget(parsed.normalize(), resolved)
+}
+
+internal fun pinnedRemoteCoverDns(
+    expectedHost: String,
+    resolvedAddresses: List<InetAddress>,
+): Dns =
+    object : Dns {
+        override fun lookup(hostname: String): List<InetAddress> {
+            if (!hostname.equals(expectedHost, ignoreCase = true)) {
+                throw UnknownHostException("Pinned cover DNS only allows $expectedHost, got $hostname")
+            }
+            return resolvedAddresses
+        }
+    }
+
+private fun isPinnedRemoteCoverPublicAddress(address: InetAddress): Boolean {
+    if (
+        address.isAnyLocalAddress ||
+        address.isLoopbackAddress ||
+        address.isLinkLocalAddress ||
+        address.isSiteLocalAddress ||
+        address.isMulticastAddress
+    ) {
+        return false
+    }
+    return when (address) {
+        is Inet4Address -> isPinnedRemoteCoverPublicIpv4Address(address)
+        is Inet6Address -> isPinnedRemoteCoverPublicIpv6Address(address)
+    }
+}
+
+private fun isPinnedRemoteCoverPublicIpv4Address(address: Inet4Address): Boolean {
+    val octets = address.address
+    val first = octets[0].toInt() and 0xff
+    val second = octets[1].toInt() and 0xff
+
+    if (first == 0 || first == 10 || first == 127) return false
+    if (first == 100 && second in 64..127) return false
+    if (first == 169 && second == 254) return false
+    if (first == 172 && second in 16..31) return false
+    if (first == 192 && second == 168) return false
+    if (first == 198 && (second == 18 || second == 19)) return false
+    if (first >= 224) return false
+
+    return true
+}
+
+private fun isPinnedRemoteCoverPublicIpv6Address(address: Inet6Address): Boolean {
+    val octets = address.address
+    val first = octets[0].toInt() and 0xff
+    val second = octets[1].toInt() and 0xff
+
+    if (address.isIPv4CompatibleAddress) return false
+    if (first and 0xfe == 0xfc) return false
+    if (first == 0xfe && second and 0xc0 == 0x80) return false
+
+    return true
 }
 
 private fun namedThreadFactory(prefix: String): ThreadFactory {
