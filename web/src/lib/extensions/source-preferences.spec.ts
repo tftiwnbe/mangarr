@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+	buildResetPreferenceEntries,
 	buildPreferenceEntries,
 	deletePreferenceValue,
 	normalizeImportedStoragePayload,
@@ -16,6 +17,32 @@ describe('source preferences', () => {
 
 	it('uses the delete marker for null values', () => {
 		expect(buildPreferenceEntries([['token', null]] as const)).toEqual([
+			{ key: 'token', value: deletePreferenceValue() }
+		]);
+	});
+
+	it('builds delete entries for resetting source preferences', () => {
+		expect(
+			buildResetPreferenceEntries({
+				preferences: [
+					{
+						key: 'domain',
+						title: 'Domain',
+						type: 'list',
+						enabled: true,
+						visible: true
+					},
+					{
+						key: 'token',
+						title: 'Token',
+						type: 'text',
+						enabled: true,
+						visible: false
+					}
+				]
+			})
+		).toEqual([
+			{ key: 'domain', value: deletePreferenceValue() },
 			{ key: 'token', value: deletePreferenceValue() }
 		]);
 	});

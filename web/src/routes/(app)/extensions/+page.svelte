@@ -27,6 +27,7 @@
 	import { Switch } from '$lib/elements/switch';
 	import { Tabs } from '$lib/elements/tabs';
 	import {
+		buildResetPreferenceEntries,
 		buildPreferenceEntries,
 		deletePreferenceValue,
 		getHiddenStorageKeys,
@@ -119,6 +120,7 @@
 	let sourceSettingsOpen = $state(false);
 	let sourceSettingsLoading = $state(false);
 	let sourceSettingsSaving = $state(false);
+	let sourceSettingsAction = $state<'save' | 'reset' | null>(null);
 	let sourceSettingsError = $state<string | null>(null);
 	let sourceSettingsData = $state<SourcePreferencesResolved | null>(null);
 	let pendingPreferenceChanges = new SvelteMap<string, unknown>();
@@ -168,6 +170,11 @@
 	const visibleAvailable = $derived(filteredAvailable.slice(0, renderLimit));
 
 	const importedStoragePreferences = $derived.by(() => getHiddenStorageKeys(sourceSettingsData));
+	const canResetSourceSettings = $derived.by(
+		() =>
+			Boolean(sourceSettingsData) &&
+			(sourceSettingsData!.preferences.length > 0 || importedStoragePreferences.length > 0)
+	);
 
 	$effect(() => {
 		const allLangs = [
@@ -526,6 +533,7 @@
 		sourceSettingsOpen = false;
 		sourceSettingsData = null;
 		sourceSettingsError = null;
+		sourceSettingsAction = null;
 		pendingPreferenceChanges.clear();
 		advancedOpen = false;
 		authImportText = '';
@@ -543,9 +551,54 @@
 		return pref.current_value ?? pref.default_value;
 	}
 
+	async function resetSourceSettings() {
+		if (!sourceSettingsData) return;
+		sourceSettingsSaving = true;
+		sourceSettingsAction = 'reset';
+		sourceSettingsError = null;
+		authImportError = null;
+		authImportSuccess = null;
+		try {
+			const visibleEntries = buildResetPreferenceEntries(sourceSettingsData) as SourcePreferenceEntry[];
+			const hiddenEntries = buildPreferenceEntries(
+				getHiddenStorageKeys(sourceSettingsData).map((key) => [key, deletePreferenceValue()] as const)
+			) as SourcePreferenceEntry[];
+			const entries = Object.values(
+				[...visibleEntries, ...hiddenEntries].reduce<Record<string, SourcePreferenceEntry>>(
+					(acc, entry) => {
+						acc[entry.key] = entry;
+						return acc;
+					},
+					{}
+				)
+			);
+			if (entries.length === 0) return;
+			const accepted = await fetchJson<AcceptedCommandResponse>(
+				'/api/extensions/source-preferences',
+				{
+					method: 'PUT',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({
+						sourceId: sourceSettingsData.source_id,
+						entries
+					})
+				}
+			);
+			await waitForAcceptedCommand(accepted);
+			await openSourceSettings(sourceSettingsData.source_id);
+		} catch (cause) {
+			sourceSettingsError =
+				cause instanceof Error ? cause.message : 'Failed to reset source preferences';
+		} finally {
+			sourceSettingsAction = null;
+			sourceSettingsSaving = false;
+		}
+	}
+
 	async function saveSourceSettings() {
 		if (!sourceSettingsData || pendingPreferenceChanges.size === 0) return;
 		sourceSettingsSaving = true;
+		sourceSettingsAction = 'save';
 		sourceSettingsError = null;
 		try {
 			const entries = buildPreferenceEntries(
@@ -568,6 +621,7 @@
 			sourceSettingsError =
 				cause instanceof Error ? cause.message : 'Failed to save source preferences';
 		} finally {
+			sourceSettingsAction = null;
 			sourceSettingsSaving = false;
 		}
 	}
@@ -950,17 +1004,33 @@
 	onclose={closeSourceSettings}
 >
 	{#snippet footer()}
-		{#if pendingPreferenceChanges.size > 0}
-			<Button
-				variant="solid"
-				size="md"
-				onclick={() => void saveSourceSettings()}
-				disabled={sourceSettingsSaving}
-				loading={sourceSettingsSaving}
-				class="w-full"
-			>
-				{$_('common.save')} ({pendingPreferenceChanges.size})
-			</Button>
+		{#if canResetSourceSettings || pendingPreferenceChanges.size > 0}
+			<div class="flex w-full gap-3">
+				{#if canResetSourceSettings}
+					<Button
+						variant="outline"
+						size="md"
+						onclick={() => void resetSourceSettings()}
+						disabled={sourceSettingsSaving}
+						loading={sourceSettingsSaving && sourceSettingsAction === 'reset'}
+						class="flex-1"
+					>
+						{$_('common.reset')}
+					</Button>
+				{/if}
+				{#if pendingPreferenceChanges.size > 0}
+					<Button
+						variant="solid"
+						size="md"
+						onclick={() => void saveSourceSettings()}
+						disabled={sourceSettingsSaving}
+						loading={sourceSettingsSaving && sourceSettingsAction === 'save'}
+						class="flex-1"
+					>
+						{$_('common.save')} ({pendingPreferenceChanges.size})
+					</Button>
+				{/if}
+			</div>
 		{/if}
 	{/snippet}
 	{#if sourceSettingsLoading}

@@ -598,6 +598,11 @@ class ExtensionManager(
         for ((key, value) in entries) {
             if (isDeletePreferencePayload(value)) {
                 ConfigManager.removeSourcePreference(sourceId, key)
+                (sourceMap[sourceId] as? ConfigurableSource)?.let { source ->
+                    check(source.getSourcePreferences().edit().remove(key).commit()) {
+                        "Failed to remove persisted source preference for $sourceId key=$key"
+                    }
+                }
                 logger.debug { "Removed preference: source=$sourceId key=$key" }
                 continue
             }

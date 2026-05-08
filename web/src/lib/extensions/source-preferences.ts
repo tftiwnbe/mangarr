@@ -57,6 +57,14 @@ export function buildPreferenceEntries(
 	}));
 }
 
+export function buildResetPreferenceEntries(
+	data: Pick<SourcePreferencesResolved, 'preferences'>
+): Array<{ key: string; value: unknown }> {
+	return buildPreferenceEntries(
+		data.preferences.map((pref) => [pref.key, deletePreferenceValue()] as const)
+	);
+}
+
 export function mapSourcePreferencesBundle(bundle: PreferenceBundle): SourcePreferencesResolved {
 	return {
 		source_id: bundle.source.id,
