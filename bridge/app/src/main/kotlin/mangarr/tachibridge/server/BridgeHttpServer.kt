@@ -30,6 +30,8 @@ import mangarr.tachibridge.runtime.HeartbeatSnapshot
 import mangarr.tachibridge.runtime.BridgeState
 import mangarr.tachibridge.runtime.ConvexBridgeClient
 import mangarr.tachibridge.runtime.DownloadReconcileChapter
+import mangarr.tachibridge.util.ImageUtil
+import java.io.ByteArrayInputStream
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -38,6 +40,7 @@ import java.net.URI
 import java.net.URLDecoder
 import java.io.IOException
 import java.nio.file.Files
+import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
@@ -52,6 +55,7 @@ private const val PAGE_ASSET_FAILURE_LOG_TTL_MS = 60_000L
 private const val HTTP_SERVER_MIN_WORKERS = 8
 private const val HTTP_SERVER_QUEUE_MULTIPLIER = 16
 private const val MAX_COVER_PROXY_REDIRECTS = 3
+private const val MAX_REMOTE_COVER_BYTES = 8L * 1024 * 1024
 private const val RESPONSE_STATUS_ATTRIBUTE = "mangarr.response_status"
 private const val REQUEST_ID_HEADER = "x-request-id"
 private const val DEFAULT_REQUEST_LOG_SLOW_MS = 1_000L
@@ -394,12 +398,18 @@ class BridgeHttpServer(
                                 sendJson(exchange, response.code, buildJsonObject { put("message", "Remote cover is unavailable") })
                                 return@createContext
                             }
-                            val body = response.body?.bytes()
-                            if (body == null) {
+                            val responseBody = response.body
+                            if (responseBody == null) {
                                 sendJson(exchange, 502, buildJsonObject { put("message", "Remote cover is unavailable") })
                                 return@createContext
                             }
-                            val contentType = response.body?.contentType()?.toString() ?: "image/jpeg"
+                            val body = readResponseBodyWithinLimit(responseBody, MAX_REMOTE_COVER_BYTES)
+                            val detectedImageType = ImageUtil.findImageType(ByteArrayInputStream(body ?: ByteArray(0)))
+                            if (body == null || !isRemoteCoverImage(response.header("content-type"), body, detectedImageType)) {
+                                sendJson(exchange, 502, buildJsonObject { put("message", "Remote cover is unavailable") })
+                                return@createContext
+                            }
+                            val contentType = responseBody.contentType()?.toString() ?: detectedImageType?.mime ?: "image/jpeg"
                             val cacheControl = response.header("cache-control") ?: "public, max-age=86400, stale-while-revalidate=604800"
                             sendBytes(exchange, 200, body, contentType, extraHeaders = mapOf("cache-control" to cacheControl))
                             return@createContext
@@ -874,7 +884,7 @@ class BridgeHttpServer(
 
     private fun authorize(exchange: HttpExchange): Boolean {
         val providedSecret = exchange.requestHeaders.getFirst("x-mangarr-service-secret").orEmpty()
-        if (serviceSecret.isBlank() || providedSecret != serviceSecret) {
+        if (serviceSecret.isBlank() || !secretsMatch(providedSecret)) {
             sendJson(
                 exchange,
                 401,
@@ -887,6 +897,12 @@ class BridgeHttpServer(
         }
         return true
     }
+
+    private fun secretsMatch(providedSecret: String): Boolean =
+        MessageDigest.isEqual(
+            serviceSecret.toByteArray(Charsets.UTF_8),
+            providedSecret.toByteArray(Charsets.UTF_8),
+        )
 
     private fun shouldLogPageAssetFailure(logKey: String, now: Long = System.currentTimeMillis()): Boolean {
         val lastLoggedAt = pageAssetFailureLogCache[logKey]
@@ -1074,6 +1090,42 @@ class BridgeHttpServer(
         if (first == 0xfe && second and 0xc0 == 0x80) return false
 
         return true
+    }
+
+    private fun readResponseBodyWithinLimit(
+        body: okhttp3.ResponseBody,
+        maxBytes: Long,
+    ): ByteArray? {
+        val declaredLength = body.contentLength()
+        if (declaredLength > maxBytes) {
+            return null
+        }
+
+        val source = body.source()
+        val buffer = okio.Buffer()
+        var totalBytes = 0L
+        while (true) {
+            val read = source.read(buffer, 8_192)
+            if (read == -1L) {
+                return buffer.readByteArray()
+            }
+            totalBytes += read
+            if (totalBytes > maxBytes) {
+                return null
+            }
+        }
+    }
+
+    private fun isRemoteCoverImage(
+        contentType: String?,
+        bytes: ByteArray,
+        detectedImageType: ImageUtil.ImageType? = ImageUtil.findImageType(ByteArrayInputStream(bytes)),
+    ): Boolean {
+        val normalizedType = contentType?.substringBefore(';')?.trim()?.lowercase()
+        if (normalizedType?.startsWith("image/") == true) {
+            return true
+        }
+        return detectedImageType != null
     }
 
     private fun HttpExchange.queryParam(name: String): String? =
