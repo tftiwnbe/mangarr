@@ -3,19 +3,13 @@ import { v } from 'convex/values';
 
 import { internalMutation, mutation, type MutationCtx, type QueryCtx } from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
-import {
-	getPreferredVariantForTitle,
-	markTitleListedInLibrary
-} from './library_shared';
+import { getPreferredVariantForTitle, markTitleListedInLibrary } from './library_shared';
 import { insertCommand } from './command_payloads';
 import {
 	applyChapterDownloadCounterDelta,
 	applyTaskActiveDownloadCounterDelta
 } from './download_counters';
-export {
-	getDownloadDashboard,
-	getActiveDownloadProgress
-} from './library_download_dashboard';
+export { getDownloadDashboard, getActiveDownloadProgress } from './library_download_dashboard';
 
 const DOWNLOAD_STATUS = {
 	MISSING: 'missing',
@@ -463,23 +457,19 @@ export const setChapterDownloadState = mutation({
 							? chapter.localRelativePath
 							: (args.localRelativePath ?? undefined),
 					storageKind:
-						args.storageKind === undefined
-							? chapter.storageKind
-							: (args.storageKind ?? undefined),
+						args.storageKind === undefined ? chapter.storageKind : (args.storageKind ?? undefined),
 					fileSizeBytes: newFileSizeBytes,
 					lastErrorMessage:
 						args.lastErrorMessage === undefined
 							? chapter.lastErrorMessage
 							: normalizeOptionalString(args.lastErrorMessage),
-					downloadedAt: args.status === DOWNLOAD_STATUS.DOWNLOADED ? args.now : chapter.downloadedAt,
+					downloadedAt:
+						args.status === DOWNLOAD_STATUS.DOWNLOADED ? args.now : chapter.downloadedAt,
 					updatedAt: args.now
 				});
 				chapterPatched = true;
 			} catch (error) {
-				if (
-					!(error instanceof Error) ||
-					!error.message?.includes('changed while this mutation')
-				) {
+				if (!(error instanceof Error) || !error.message?.includes('changed while this mutation')) {
 					throw error;
 				}
 				const latestChapter = await ctx.db.get(args.chapterId);
@@ -612,6 +602,7 @@ async function queueDownloadAttempt(
 		args.chapter._id
 	);
 	if (activeTask) {
+		let effectiveCommandId = activeTask.commandId ?? null;
 		if (args.trigger !== 'watch' && activeTask.status === DOWNLOAD_TASK_STATUS.QUEUED) {
 			const command = activeTask.commandId ? await ctx.db.get(activeTask.commandId) : null;
 			const canPromoteQueuedCommand =
@@ -633,6 +624,7 @@ async function queueDownloadAttempt(
 					lastErrorMessage: undefined,
 					updatedAt: args.now
 				});
+				effectiveCommandId = command._id;
 				await ctx.db.patch(activeTask._id, {
 					errorMessage: undefined,
 					updatedAt: args.now
@@ -648,6 +640,7 @@ async function queueDownloadAttempt(
 					lastErrorMessage: undefined,
 					updatedAt: args.now
 				});
+				effectiveCommandId = command._id;
 				await ctx.db.patch(activeTask._id, {
 					errorMessage: undefined,
 					updatedAt: args.now
@@ -656,25 +649,14 @@ async function queueDownloadAttempt(
 				const replacementCommandId = await insertCommand(ctx, {
 					commandType: 'downloads.chapter',
 					requestedByUserId: args.requestedByUserId,
-					payload: {
-						chapterId: args.chapter._id,
-						downloadTaskId: activeTask._id,
-						titleId: args.title._id,
-						sourceId: args.chapter.sourceId,
-						sourcePkg: args.chapter.sourcePkg,
-						sourceLang: args.chapter.sourceLang,
-						titleUrl: args.chapter.titleUrl,
-						chapterUrl: args.chapter.chapterUrl,
-						title: args.title.title,
-						chapterName: args.chapter.chapterName,
-						chapterNumber: args.chapter.chapterNumber
-					},
+					payload: buildDownloadCommandPayload(args.chapter, activeTask._id, args.title.title),
 					idempotencyKey: `downloads.chapter:${String(args.chapter._id)}:retry:${args.now}`,
 					priority: args.priority,
 					maxAttempts: 10,
 					runAfter: args.now,
 					now: args.now
 				});
+				effectiveCommandId = replacementCommandId;
 				await ctx.db.patch(activeTask._id, {
 					commandId: replacementCommandId,
 					errorMessage: undefined,
@@ -684,7 +666,7 @@ async function queueDownloadAttempt(
 		}
 		return {
 			taskId: activeTask._id,
-			commandId: activeTask.commandId ?? null,
+			commandId: effectiveCommandId,
 			alreadyQueued: true
 		};
 	}
@@ -741,19 +723,7 @@ async function queueDownloadAttempt(
 	const commandId = await insertCommand(ctx, {
 		commandType: 'downloads.chapter',
 		requestedByUserId: args.requestedByUserId,
-		payload: {
-			chapterId: args.chapter._id,
-			downloadTaskId: taskId,
-			titleId: args.title._id,
-			sourceId: args.chapter.sourceId,
-			sourcePkg: args.chapter.sourcePkg,
-			sourceLang: args.chapter.sourceLang,
-			titleUrl: args.chapter.titleUrl,
-			chapterUrl: args.chapter.chapterUrl,
-			title: args.title.title,
-			chapterName: args.chapter.chapterName,
-			chapterNumber: args.chapter.chapterNumber
-		},
+		payload: buildDownloadCommandPayload(args.chapter, taskId, args.title.title),
 		idempotencyKey: `downloads.chapter:${String(args.chapter._id)}:${attemptNumber}:${args.now}`,
 		priority: args.priority,
 		maxAttempts: 10, // Increased from 3 to 10 for pay-to-read or temporarily unavailable chapters
@@ -1191,6 +1161,22 @@ async function requeueRecoveredTask(
 			updatedAt: now
 		});
 	}
+	if (!command) {
+		const replacementCommandId = await insertCommand(ctx, {
+			commandType: 'downloads.chapter',
+			requestedByUserId: task.requestedByUserId ?? task.ownerUserId,
+			payload: buildDownloadCommandPayload(chapter, task._id, task.titleName),
+			idempotencyKey: `downloads.chapter:${String(chapter._id)}:recovery:${now}`,
+			priority: DOWNLOAD_COMMAND_PRIORITY_BASE,
+			maxAttempts: 10,
+			runAfter: now,
+			now
+		});
+		await ctx.db.patch(task._id, {
+			commandId: replacementCommandId,
+			updatedAt: now
+		});
+	}
 	await ctx.db.patch(task._id, {
 		status: DOWNLOAD_TASK_STATUS.QUEUED,
 		startedAt: undefined,
@@ -1215,6 +1201,37 @@ async function requeueRecoveredTask(
 		oldFileSizeBytes: chapter.fileSizeBytes,
 		newFileSizeBytes: chapter.fileSizeBytes
 	});
+}
+
+function buildDownloadCommandPayload(
+	chapter: Pick<
+		DocLike<'libraryChapters'>,
+		| '_id'
+		| 'libraryTitleId'
+		| 'sourceId'
+		| 'sourcePkg'
+		| 'sourceLang'
+		| 'titleUrl'
+		| 'chapterUrl'
+		| 'chapterName'
+		| 'chapterNumber'
+	>,
+	downloadTaskId: GenericId<'downloadTasks'>,
+	title: string
+) {
+	return {
+		chapterId: chapter._id,
+		downloadTaskId,
+		titleId: chapter.libraryTitleId,
+		sourceId: chapter.sourceId,
+		sourcePkg: chapter.sourcePkg,
+		sourceLang: chapter.sourceLang,
+		titleUrl: chapter.titleUrl,
+		chapterUrl: chapter.chapterUrl,
+		title,
+		chapterName: chapter.chapterName,
+		chapterNumber: chapter.chapterNumber
+	};
 }
 
 async function failRecoveredTask(
