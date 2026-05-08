@@ -3,7 +3,7 @@ services:
     platform: linux/amd64
     image: ${MANGARR_IMAGE:-mangarr:local}
     environment:
-      - MANGARR_PUBLIC_URL=https://mangarr.hmphin.space
+      - MANGARR_PUBLIC_URL=${MANGARR_PUBLIC_URL:-http://127.0.0.1:3737}
     ports:
       - "3737:3737"
     volumes:
