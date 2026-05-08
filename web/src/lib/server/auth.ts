@@ -66,11 +66,36 @@ export function isConvexConfigured() {
 	return Boolean(getConvexUrl());
 }
 
-function isSecureRequest(event: Pick<RequestEvent, 'url'>) {
-	return event.url.protocol === 'https:';
+export function isSecureRequest(event: Pick<RequestEvent, 'url' | 'request'>) {
+	if (event.url.protocol === 'https:') {
+		return true;
+	}
+
+	const forwardedHeader = event.request.headers.get('forwarded');
+	if (forwardedHeader) {
+		for (const segment of forwardedHeader.split(',')) {
+			for (const directive of segment.split(';')) {
+				const [rawKey, rawValue] = directive.split('=', 2);
+				if (rawKey?.trim().toLowerCase() !== 'proto') {
+					continue;
+				}
+				const proto = rawValue?.trim().replace(/^"|"$/g, '').toLowerCase();
+				if (proto) {
+					return proto === 'https';
+				}
+			}
+		}
+	}
+
+	const forwardedProto = event.request.headers.get('x-forwarded-proto');
+	if (!forwardedProto) {
+		return false;
+	}
+
+	return forwardedProto.split(',', 1).some((value) => value.trim().toLowerCase() === 'https');
 }
 
-function sessionCookieOptions(event: Pick<RequestEvent, 'url'>, expires: Date) {
+function sessionCookieOptions(event: Pick<RequestEvent, 'url' | 'request'>, expires: Date) {
 	return {
 		path: '/',
 		httpOnly: true,
@@ -376,7 +401,7 @@ function passwordField(formData: FormData) {
 
 function setSessionCookie(
 	cookies: Cookies,
-	event: Pick<RequestEvent, 'url'>,
+	event: Pick<RequestEvent, 'url' | 'request'>,
 	sessionToken: string,
 	expiresAt: number
 ) {
@@ -387,7 +412,7 @@ function setSessionCookie(
 	);
 }
 
-function clearSessionCookie(cookies: Cookies, event: Pick<RequestEvent, 'url'>) {
+function clearSessionCookie(cookies: Cookies, event: Pick<RequestEvent, 'url' | 'request'>) {
 	cookies.delete(getSessionCookieName(), {
 		path: '/',
 		httpOnly: true,
