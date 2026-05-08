@@ -35,6 +35,7 @@ export function isPermanentSourceFailure(message: string): boolean {
 	return (
 		normalized.includes('http error 403') ||
 		normalized.includes('http error 404') ||
+		normalized.includes('too many follow-up requests') ||
 		normalized.includes('not supported') ||
 		normalized.includes('unsupported')
 	);

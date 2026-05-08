@@ -16,6 +16,14 @@ fun classifySourceFailure(
 ): SourceFailureClassification {
     val httpError = error.findHttpException()
     val normalizedMessage = normalizeSourceFailureMessage(error)
+    if (isPermanentSourceRequestFailure(error)) {
+        return SourceFailureClassification(
+            retryable = false,
+            expected = true,
+            message = normalizedMessage,
+            httpCode = httpError?.code,
+        )
+    }
     val permanentChapterFailure =
         commandType == "downloads.chapter" && isPermanentChapterAccessFailure(normalizedMessage)
 
@@ -73,6 +81,18 @@ fun Throwable.findHttpException(): HttpException? {
 fun isPermanentHttpFailure(code: Int): Boolean =
     code in 400..499 && code != 408 && code != 409 && code != 425 && code != 429
 
+internal fun isPermanentSourceRequestFailure(error: Throwable): Boolean {
+    var current: Throwable? = error
+    while (current != null) {
+        val message = current.message?.trim()
+        if (!message.isNullOrBlank() && TOO_MANY_FOLLOW_UP_REQUESTS_PATTERN.containsMatchIn(message)) {
+            return true
+        }
+        current = current.cause
+    }
+    return false
+}
+
 private fun isPermanentChapterAccessFailure(message: String): Boolean {
     val normalized = message.lowercase()
     return normalized.contains("глава не куплена") ||
@@ -99,6 +119,7 @@ private inline fun <reified T : Throwable> Throwable.causedBy(): Boolean {
 }
 
 private val HTTP_ERROR_PATTERN = Regex("HTTP error\\s+(\\d{3})")
+private val TOO_MANY_FOLLOW_UP_REQUESTS_PATTERN = Regex("too many follow-up requests", RegexOption.IGNORE_CASE)
 
 private fun parseHttpStatusCode(message: String?): Int? {
     if (message.isNullOrBlank()) {

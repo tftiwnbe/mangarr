@@ -1239,8 +1239,14 @@ class BridgeService(
 
     private fun shouldRetrySourceRequest(error: Exception): Boolean =
         when (error) {
+            is java.net.ProtocolException -> !isPermanentSourceRequestFailure(error)
             is HttpException -> isRetryableHttpStatus(error.code)
-            is java.io.IOException -> parseHttpStatusCode(error)?.let(::isRetryableHttpStatus) ?: true
+            is java.io.IOException ->
+                if (isPermanentSourceRequestFailure(error)) {
+                    false
+                } else {
+                    parseHttpStatusCode(error)?.let(::isRetryableHttpStatus) ?: true
+                }
             else -> {
                 val statusCode = parseHttpStatusCode(error)
                 statusCode?.let(::isRetryableHttpStatus) ?: false

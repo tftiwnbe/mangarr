@@ -20,6 +20,7 @@ describe('source health', () => {
 
 	it('classifies permanent upstream failures', () => {
 		expect(isPermanentSourceFailure('HTTP error 403')).toBe(true);
+		expect(isPermanentSourceFailure('Too many follow-up requests: 21')).toBe(true);
 		expect(isPermanentSourceFailure('Unsupported source operation')).toBe(true);
 		expect(isPermanentSourceFailure('HTTP error 429')).toBe(false);
 	});
