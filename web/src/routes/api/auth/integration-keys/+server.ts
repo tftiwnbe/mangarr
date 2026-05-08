@@ -7,6 +7,9 @@ import { getConvexClient } from '$lib/server/convex';
 import { generateOpaqueToken, hashToken } from '$lib/server/security';
 
 const MAX_KEY_NAME_LENGTH = 120;
+const NO_STORE_HEADERS = {
+	'cache-control': 'no-store'
+};
 
 export const GET: RequestHandler = async ({ locals }) => {
 	const user = locals.auth.user;
@@ -19,7 +22,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		userId: user.id as GenericId<'users'>
 	});
 
-	return json({ keys });
+	return json({ keys }, { headers: NO_STORE_HEADERS });
 };
 
 export const POST: RequestHandler = async ({ locals, request }) => {
@@ -56,8 +59,13 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		createdAt: now
 	});
 
-	return json({
-		key: rawKey,
-		item: created
-	});
+	return json(
+		{
+			key: rawKey,
+			item: created
+		},
+		{
+			headers: NO_STORE_HEADERS
+		}
+	);
 };

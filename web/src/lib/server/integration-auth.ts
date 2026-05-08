@@ -92,14 +92,16 @@ function readIntegrationApiKey(headers: Headers) {
 	const bearer = headers.get('authorization');
 	if (bearer) {
 		const match = bearer.match(/^Bearer\s+(.+)$/i);
-		if (match?.[1]?.trim()) {
-			return match[1].trim();
+		const token = match?.[1]?.trim();
+		if (token?.startsWith('mgr_')) {
+			return token;
 		}
 	}
 
 	const direct = headers.get('x-api-key');
-	if (direct?.trim()) {
-		return direct.trim();
+	const token = direct?.trim();
+	if (token?.startsWith('mgr_')) {
+		return token;
 	}
 
 	return null;

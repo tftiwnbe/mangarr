@@ -27,5 +27,12 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
 		throw error(404, 'Integration key not found');
 	}
 
-	return json({ revoked: true });
+	return json(
+		{ revoked: true },
+		{
+			headers: {
+				'cache-control': 'no-store'
+			}
+		}
+	);
 };
