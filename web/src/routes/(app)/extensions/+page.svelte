@@ -29,12 +29,7 @@
 	import {
 		buildResetPreferenceEntries,
 		buildPreferenceEntries,
-		deletePreferenceValue,
-		getHiddenStorageKeys,
 		mapSourcePreferencesBundle,
-		normalizeImportedStoragePayload,
-		parseImportedStorageInput,
-		serializeImportedStorage,
 		type PreferenceBundle,
 		type SourcePreferencesResolved
 	} from '$lib/extensions/source-preferences';
@@ -124,12 +119,6 @@
 	let sourceSettingsError = $state<string | null>(null);
 	let sourceSettingsData = $state<SourcePreferencesResolved | null>(null);
 	let pendingPreferenceChanges = new SvelteMap<string, unknown>();
-	let advancedOpen = $state(false);
-
-	let authImportText = $state('');
-	let authImportSaving = $state(false);
-	let authImportError = $state<string | null>(null);
-	let authImportSuccess = $state<string | null>(null);
 	const convexClient = useConvexClient();
 
 	const trimmedSearch = $derived(searchQuery.trim().toLowerCase());
@@ -169,11 +158,8 @@
 
 	const visibleAvailable = $derived(filteredAvailable.slice(0, renderLimit));
 
-	const importedStoragePreferences = $derived.by(() => getHiddenStorageKeys(sourceSettingsData));
 	const canResetSourceSettings = $derived.by(
-		() =>
-			Boolean(sourceSettingsData) &&
-			(sourceSettingsData!.preferences.length > 0 || importedStoragePreferences.length > 0)
+		() => Boolean(sourceSettingsData) && sourceSettingsData!.preferences.length > 0
 	);
 
 	$effect(() => {
@@ -329,6 +315,10 @@
 		const result = await fetchJson<InstalledResponse>('/api/internal/bridge/extensions/installed');
 		installedExtensions = (result.items ?? []).map((item) => ({
 			...item,
+			sources: item.sources.map((source) => ({
+				...source,
+				id: String(source.id)
+			})),
 			name: displayExtensionName(item.name)
 		}));
 	}
@@ -473,6 +463,7 @@
 	}
 
 	async function handleToggleSource(pkg: string, sourceId: string, enabled: boolean) {
+		sourceId = String(sourceId);
 		togglingSourceId = sourceId;
 		error = null;
 		try {
@@ -505,12 +496,12 @@
 	}
 
 	async function openSourceSettings(sourceId: string) {
+		sourceId = String(sourceId);
 		sourceSettingsOpen = true;
 		sourceSettingsLoading = true;
 		sourceSettingsError = null;
 		sourceSettingsData = null;
 		pendingPreferenceChanges.clear();
-		advancedOpen = false;
 		try {
 			const accepted = await fetchJson<AcceptedCommandResponse>(
 				`/api/extensions/source-preferences?sourceId=${encodeURIComponent(sourceId)}`
@@ -520,7 +511,6 @@
 				throw new Error('Source preferences command returned no result');
 			}
 			sourceSettingsData = mapSourcePreferencesBundle(bundle);
-			authImportText = serializeImportedStorage(sourceSettingsData);
 		} catch (cause) {
 			sourceSettingsError =
 				cause instanceof Error ? cause.message : 'Failed to load source preferences';
@@ -535,11 +525,6 @@
 		sourceSettingsError = null;
 		sourceSettingsAction = null;
 		pendingPreferenceChanges.clear();
-		advancedOpen = false;
-		authImportText = '';
-		authImportSaving = false;
-		authImportError = null;
-		authImportSuccess = null;
 	}
 
 	function handlePreferenceChange(key: string, value: unknown) {
@@ -556,21 +541,13 @@
 		sourceSettingsSaving = true;
 		sourceSettingsAction = 'reset';
 		sourceSettingsError = null;
-		authImportError = null;
-		authImportSuccess = null;
 		try {
 			const visibleEntries = buildResetPreferenceEntries(sourceSettingsData) as SourcePreferenceEntry[];
-			const hiddenEntries = buildPreferenceEntries(
-				getHiddenStorageKeys(sourceSettingsData).map((key) => [key, deletePreferenceValue()] as const)
-			) as SourcePreferenceEntry[];
 			const entries = Object.values(
-				[...visibleEntries, ...hiddenEntries].reduce<Record<string, SourcePreferenceEntry>>(
-					(acc, entry) => {
-						acc[entry.key] = entry;
-						return acc;
-					},
-					{}
-				)
+				visibleEntries.reduce<Record<string, SourcePreferenceEntry>>((acc, entry) => {
+					acc[entry.key] = entry;
+					return acc;
+				}, {})
 			);
 			if (entries.length === 0) return;
 			const accepted = await fetchJson<AcceptedCommandResponse>(
@@ -623,54 +600,6 @@
 		} finally {
 			sourceSettingsAction = null;
 			sourceSettingsSaving = false;
-		}
-	}
-
-	async function saveImportedStorageEntries(sourceId: string, entries: SourcePreferenceEntry[]) {
-		const accepted = await fetchJson<AcceptedCommandResponse>(
-			'/api/extensions/source-preferences',
-			{
-				method: 'PUT',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					sourceId,
-					entries
-				})
-			}
-		);
-		await waitForAcceptedCommand(accepted);
-	}
-
-	async function importAuthStorage() {
-		if (!sourceSettingsData) return;
-		authImportSaving = true;
-		authImportError = null;
-		authImportSuccess = null;
-		try {
-			let mapped: Record<string, unknown> = {};
-			if (authImportText.trim()) {
-				const raw = parseImportedStorageInput(authImportText);
-				mapped = normalizeImportedStoragePayload(raw);
-			}
-			const existingKeys = getHiddenStorageKeys(sourceSettingsData);
-			if (existingKeys.length === 0 && Object.keys(mapped).length === 0) {
-				throw new Error('No imported keys yet. Paste JSON map to import.');
-			}
-			const deletes = existingKeys.map((key) => [key, deletePreferenceValue()] as const);
-			await saveImportedStorageEntries(
-				sourceSettingsData.source_id,
-				buildPreferenceEntries([...deletes, ...Object.entries(mapped)]) as SourcePreferenceEntry[]
-			);
-			await openSourceSettings(sourceSettingsData.source_id);
-			authImportSuccess =
-				Object.keys(mapped).length === 0
-					? `Deleted ${existingKeys.length} imported key${existingKeys.length === 1 ? '' : 's'}.`
-					: `Replaced imported storage with ${Object.keys(mapped).length} key${Object.keys(mapped).length === 1 ? '' : 's'}.`;
-		} catch (cause) {
-			authImportError =
-				cause instanceof Error ? cause.message : 'Failed to import auth/storage values';
-		} finally {
-			authImportSaving = false;
 		}
 	}
 </script>
@@ -1042,7 +971,7 @@
 		<Alert variant="error" class="mt-4">{sourceSettingsError}</Alert>
 	{:else if sourceSettingsData}
 		{@const visiblePrefs = sourceSettingsData.preferences.filter((pref) => pref.visible)}
-		{@const hasAnyPrefs = visiblePrefs.length > 0 || importedStoragePreferences.length > 0}
+		{@const hasAnyPrefs = visiblePrefs.length > 0}
 
 		{#if !hasAnyPrefs}
 			<div class="flex flex-col items-center gap-4 py-16 text-center">
@@ -1150,63 +1079,6 @@
 						{/if}
 					</div>
 				{/each}
-
-				{#if sourceSettingsData.preferences.length > 0}
-					<div class="border-t border-[var(--line-soft)] pt-4">
-						<button
-							type="button"
-							class="flex w-full items-center gap-2 py-1 text-[11px] text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)]"
-							onclick={() => (advancedOpen = !advancedOpen)}
-						>
-							{#if advancedOpen}
-								<CaretDownIcon size={11} />
-							{:else}
-								<CaretRightIcon size={11} />
-							{/if}
-							<span class="tracking-wider uppercase">storage import</span>
-							{#if importedStoragePreferences.length > 0}
-								<span class="ml-auto text-[10px] text-[var(--text-ghost)]">
-									{importedStoragePreferences.length} key{importedStoragePreferences.length === 1
-										? ''
-										: 's'}
-								</span>
-							{/if}
-						</button>
-
-						{#if advancedOpen}
-							<div class="flex flex-col gap-3 pt-3" transition:slide={{ duration: 120 }}>
-								<p class="text-[11px] text-[var(--text-ghost)]">
-									Replace hidden extension storage values. Leave empty and apply to clear all.
-								</p>
-
-								<textarea
-									class="min-h-24 w-full resize-y border border-[var(--line-soft)] bg-[var(--void-1)] p-3 text-xs text-[var(--text)] outline-none focus:border-[var(--void-5)]"
-									placeholder="JSON object or key-value pairs"
-									bind:value={authImportText}
-								></textarea>
-
-								{#if authImportError}
-									<Alert variant="error">{authImportError}</Alert>
-								{/if}
-
-								{#if authImportSuccess}
-									<Alert variant="success">{authImportSuccess}</Alert>
-								{/if}
-
-								<Button
-									variant="outline"
-									size="sm"
-									onclick={() => void importAuthStorage()}
-									disabled={authImportSaving ||
-										(!authImportText.trim() && importedStoragePreferences.length === 0)}
-									loading={authImportSaving}
-								>
-									apply
-								</Button>
-							</div>
-						{/if}
-					</div>
-				{/if}
 			</div>
 		{/if}
 	{/if}

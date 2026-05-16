@@ -4,7 +4,6 @@ import {
 	buildResetPreferenceEntries,
 	buildPreferenceEntries,
 	deletePreferenceValue,
-	normalizeImportedStoragePayload,
 	normalizePreferenceValue
 } from './source-preferences';
 
@@ -45,30 +44,6 @@ describe('source preferences', () => {
 			{ key: 'domain', value: deletePreferenceValue() },
 			{ key: 'token', value: deletePreferenceValue() }
 		]);
-	});
-
-	it('normalizes nested imported storage into string payloads', () => {
-		expect(
-			normalizeImportedStoragePayload({
-				token: { token_type: 'Bearer', access_token: 'abc', expires_in: 2592000, timestamp: 123 },
-				auth: { id: 7 }
-			})
-		).toEqual({
-			token: JSON.stringify({
-				token_type: 'Bearer',
-				access_token: 'abc',
-				expires_in: 2592000,
-				timestamp: 123
-			}),
-			auth: JSON.stringify({ id: 7 }),
-			bearer_token: 'abc',
-			user_id: '7',
-			expires_in: '2592000000',
-			TokenStore: JSON.stringify({
-				auth: { id: 7 },
-				token: { token_type: 'Bearer', access_token: 'abc', expires_in: 2592000, timestamp: 123 }
-			})
-		});
 	});
 
 	it('strips bearer prefix when normalizing bearer token preference values', () => {

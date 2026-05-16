@@ -657,7 +657,7 @@ class BridgeCommandRunner(
                             put(
                                 "sourceIds",
                                 kotlinx.serialization.json.buildJsonArray {
-                                    installed.sources.forEach { add(JsonPrimitive(it.id)) }
+                                    installed.sources.forEach { add(JsonPrimitive(it.id.toString())) }
                                 },
                             )
                             put(
@@ -666,7 +666,7 @@ class BridgeCommandRunner(
                                     installed.sources.forEach { source ->
                                         add(
                                             buildJsonObject {
-                                                put("id", source.id)
+                                                put("id", source.id.toString())
                                                 put("name", source.name)
                                                 put("lang", source.lang)
                                                 put("supportsLatest", source.supportsLatest)
@@ -689,7 +689,7 @@ class BridgeCommandRunner(
                     put(
                         "sourceIds",
                         kotlinx.serialization.json.buildJsonArray {
-                            installed.sources.forEach { add(JsonPrimitive(it.id)) }
+                            installed.sources.forEach { add(JsonPrimitive(it.id.toString())) }
                         },
                     )
                     put(
@@ -698,7 +698,7 @@ class BridgeCommandRunner(
                             installed.sources.forEach { source ->
                                 add(
                                     buildJsonObject {
-                                        put("id", source.id)
+                                        put("id", source.id.toString())
                                         put("name", source.name)
                                         put("lang", source.lang)
                                         put("supportsLatest", source.supportsLatest)
@@ -723,7 +723,7 @@ class BridgeCommandRunner(
                             put(
                                 "sourceIds",
                                 kotlinx.serialization.json.buildJsonArray {
-                                    updated.sources.forEach { add(JsonPrimitive(it.id)) }
+                                    updated.sources.forEach { add(JsonPrimitive(it.id.toString())) }
                                 },
                             )
                             put(
@@ -732,7 +732,7 @@ class BridgeCommandRunner(
                                     updated.sources.forEach { source ->
                                         add(
                                             buildJsonObject {
-                                                put("id", source.id)
+                                                put("id", source.id.toString())
                                                 put("name", source.name)
                                                 put("lang", source.lang)
                                                 put("supportsLatest", source.supportsLatest)

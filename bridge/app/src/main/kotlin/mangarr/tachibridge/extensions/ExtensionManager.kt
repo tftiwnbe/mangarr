@@ -659,14 +659,49 @@ class ExtensionManager(
             sources = loader.instantiate(metadata, jarPath)
         }
 
+        val resolvedExtension = reconcileLoadedExtension(ext, sources)
+
         sources.forEach { source ->
             sourceMap[source.id] = source
-            sourceToPackage[source.id] = ext.packageName
+            sourceToPackage[source.id] = resolvedExtension.packageName
 
             if (source is ConfigurableSource) {
                 applyPreferences(source)
             }
         }
+    }
+
+    private fun reconcileLoadedExtension(
+        ext: BridgeConfig.InstalledExtension,
+        sources: List<Source>,
+    ): BridgeConfig.InstalledExtension {
+        val existingByNameAndLang = ext.sources.associateBy { it.name to it.lang }
+        val resolvedSources =
+            sources.map { source ->
+                val existing = existingByNameAndLang[source.name to source.lang]
+                BridgeConfig.SourceInfo(
+                    id = source.id,
+                    name = source.name,
+                    lang = source.lang,
+                    supportsLatest =
+                        existing?.supportsLatest
+                            ?: (source as? CatalogueSource)?.supportsLatest
+                            ?: true,
+                    enabled = existing?.enabled ?: true,
+                )
+            }
+
+        if (resolvedSources == ext.sources) {
+            return ext
+        }
+
+        val repaired = ext.copy(sources = resolvedSources)
+        ConfigManager.upsertExtension(repaired)
+        logger.warn {
+            "Reconciled stored source metadata for ${ext.packageName}: " +
+                "${ext.sources.size} configured -> ${resolvedSources.size} resolved"
+        }
+        return repaired
     }
 
     private suspend inline fun <reified T : Source, R> withSource(
