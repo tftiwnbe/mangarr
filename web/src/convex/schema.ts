@@ -180,6 +180,20 @@ export default defineSchema({
 		updatedAt: v.float64()
 	}).index('by_owner_user_id', ['ownerUserId']),
 
+	libraryDynamicCollections: defineTable({
+		ownerUserId: v.id('users'),
+		name: v.string(),
+		position: v.float64(),
+		filters: v.object({
+			readingStatusIds: v.array(v.string()),
+			sourceStatusKeys: v.array(v.string()),
+			genres: v.array(v.string()),
+			genreMatchMode: v.optional(v.union(v.literal('and'), v.literal('or')))
+		}),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	}).index('by_owner_user_id', ['ownerUserId']),
+
 	titleVariants: defineTable({
 		ownerUserId: v.id('users'),
 		libraryTitleId: v.id('libraryTitles'),

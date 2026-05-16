@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
+	import { Dialog } from 'bits-ui';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import {
 		BookIcon,
@@ -10,14 +11,19 @@
 		CaretDownIcon,
 		CaretUpIcon,
 		FunnelIcon,
-		ImageIcon
+		ImageIcon,
+		PlusIcon,
+		PencilSimpleIcon,
+		TrashIcon
 	} from 'phosphor-svelte';
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import { convexApi } from '$lib/convex/api';
 	import { Alert } from '$lib/elements/alert';
 	import { Button } from '$lib/elements/button';
+	import { ConfirmDialog } from '$lib/elements/confirm-dialog';
 	import { EmptyState } from '$lib/elements/empty-state';
+	import { Input } from '$lib/elements/input';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { PanelSection } from '$lib/elements/panel-section';
 	import { SearchInput } from '$lib/elements/search-input';
@@ -37,7 +43,39 @@
 	type LibraryCollectionResource = {
 		id: string;
 		name: string;
+		position?: number;
+		isDefault?: boolean;
+		titlesCount?: number;
 	};
+
+	type DynamicCollectionFilters = {
+		readingStatusIds: string[];
+		sourceStatusKeys: string[];
+		genres: string[];
+		genreMatchMode?: 'and' | 'or';
+	};
+
+	type DynamicCollectionResource = Awaited<
+		(typeof convexApi.library.listDynamicCollections)['_returnType']
+	>[number];
+
+	type CollectionListItem =
+		| {
+				kind: 'manual';
+				id: string;
+				name: string;
+				titlesCount: number;
+				position: number;
+				isDefault: boolean;
+		  }
+		| {
+				kind: 'dynamic';
+				id: string;
+				name: string;
+				titlesCount: number;
+				position: number;
+				filters: DynamicCollectionFilters;
+		  };
 
 	type LibraryTitleSummary = {
 		id: string;
@@ -72,17 +110,21 @@
 	}));
 	const hiddenLibraryTitles = useQuery(convexApi.library.listHiddenMine, () => ({}));
 	const collectionsQuery = useQuery(convexApi.library.listCollections, () => ({}));
+	const dynamicCollectionsQuery = useQuery(convexApi.library.listDynamicCollections, () => ({}));
 	const totalCountQuery = useQuery(convexApi.library.getMineTotalCount, () => ({}));
 
 	let searchQuery = $state('');
 	let selectedCollectionId = $state<string | null>(null);
+	let selectedDynamicCollectionId = $state<string | null>(null);
 	let filterPanelOpen = $state(false);
+	let collectionsPanelOpen = $state(false);
 	let hiddenPanelOpen = $state(false);
 	let sortMode = $state<SortMode>('added');
 	let sortDesc = $state(true);
 	let activeReadingStatusIds = $state<string[]>([]);
 	let activeSourceStatusKeys = $state<string[]>([]);
 	let activeGenres = $state<string[]>([]);
+	let genreMatchMode = $state<'and' | 'or'>('and');
 	let requestedMetadataTitleIds = $state<string[]>([]);
 	let requestedCoverTitleIds = $state<string[]>([]);
 	let revealTitleId = $state<string | null>(null);
@@ -90,6 +132,17 @@
 	let libraryRenderSentinel = $state<HTMLDivElement | null>(null);
 	let libraryRenderObserver: IntersectionObserver | null = null;
 	let browserOnline = $state(true);
+	let collectionDialogOpen = $state(false);
+	let collectionDialogMode = $state<'create' | 'rename'>('create');
+	let collectionDialogKind = $state<'manual' | 'dynamic'>('manual');
+	let collectionDialogName = $state('');
+	let collectionDialogSaving = $state(false);
+	let collectionDialogError = $state<string | null>(null);
+	let collectionDialogTargetId = $state<string | null>(null);
+	let collectionDialogDraftFilters = $state<DynamicCollectionFilters | null>(null);
+	let collectionsError = $state<string | null>(null);
+	let pendingDelete = $state<{ kind: 'manual' | 'dynamic'; id: string; name: string } | null>(null);
+	let deletingCollectionId = $state<string | null>(null);
 
 	onMount(() => {
 		if (typeof navigator !== 'undefined') {
@@ -145,35 +198,67 @@
 		JSON.stringify({
 			query: debouncedSearch.value?.trim().toLowerCase() ?? '',
 			selectedCollectionId,
+			selectedDynamicCollectionId,
 			sortMode,
 			sortDesc,
 			activeReadingStatusIds: [...activeReadingStatusIds].sort(),
 			activeSourceStatusKeys: [...activeSourceStatusKeys].sort(),
-			activeGenres: [...activeGenres].sort()
+			activeGenres: [...activeGenres].sort(),
+			genreMatchMode
 		})
 	);
 
-	const collections = $derived.by(() => {
-		// Use backend query for accurate counts across all titles
-		if (collectionsQuery.data) {
-			return collectionsQuery.data
-				.filter((col) => col.titlesCount > 0)
-				.map((col) => ({
-					id: String(col.id),
-					name: col.name,
-					titlesCount: col.titlesCount
-				}));
-		}
-		// Fallback to local data if backend query not loaded yet
-		const seen = new SvelteMap<string, LibraryCollectionResource & { titlesCount: number }>();
-		for (const title of titles) {
-			for (const collection of title.collections) {
-				if (!seen.has(collection.id)) {
-					seen.set(collection.id, { ...collection, titlesCount: 0 });
-				}
-			}
-		}
-		return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+	const dynamicCollections = $derived.by(() =>
+		((dynamicCollectionsQuery.data ?? []) as DynamicCollectionResource[]).map((collection) => ({
+			...collection,
+			id: String(collection.id),
+			titlesCount: titles.filter((title) => matchesDynamicCollectionFilters(title, collection.filters))
+				.length
+		}))
+	);
+
+	const selectedDynamicCollection = $derived.by(
+		() => dynamicCollections.find((collection) => collection.id === selectedDynamicCollectionId) ?? null
+	);
+
+	const collections = $derived.by(() =>
+		((collectionsQuery.data ?? []) as Array<{
+			id: Id<'libraryCollections'>;
+			name: string;
+			position: number;
+			isDefault: boolean;
+			titlesCount: number;
+		}>).map((collection) => ({
+			id: String(collection.id),
+			name: collection.name,
+			position: collection.position,
+			isDefault: collection.isDefault,
+			titlesCount: collection.titlesCount
+		}))
+	);
+
+	const combinedCollections = $derived.by(() => {
+		const manual = collections.map(
+			(collection): CollectionListItem => ({
+				kind: 'manual',
+				id: collection.id,
+				name: collection.name,
+				titlesCount: collection.titlesCount ?? 0,
+				position: collection.position ?? 0,
+				isDefault: collection.isDefault ?? false
+			})
+		);
+		const dynamic = dynamicCollections.map(
+			(collection): CollectionListItem => ({
+				kind: 'dynamic',
+				id: collection.id,
+				name: collection.name,
+				titlesCount: collection.titlesCount,
+				position: collection.position,
+				filters: collection.filters
+			})
+		);
+		return [...manual, ...dynamic].sort((a, b) => a.position - b.position);
 	});
 
 	const listedTitlesCount = $derived(totalCountQuery.data?.listedCount ?? titles.length);
@@ -214,6 +299,12 @@
 			activeSourceStatusKeys.length > 0 ||
 			activeGenres.length > 0
 	);
+
+	const currentFilterSnapshot = $derived.by(() => normalizeDynamicCollectionFilters(snapshotActiveFilters()));
+	const selectedDynamicCollectionDirty = $derived.by(() => {
+		if (!selectedDynamicCollection) return false;
+		return !sameDynamicCollectionFilters(selectedDynamicCollection.filters, currentFilterSnapshot);
+	});
 
 	const hasActiveControls = $derived(hasActiveFilters || sortMode !== 'added' || !sortDesc);
 
@@ -456,6 +547,251 @@
 		return getStatusText(title.status);
 	}
 
+	function snapshotActiveFilters(): DynamicCollectionFilters {
+		return {
+			readingStatusIds: [...activeReadingStatusIds],
+			sourceStatusKeys: [...activeSourceStatusKeys],
+			genres: [...activeGenres],
+			genreMatchMode
+		};
+	}
+
+	function normalizeDynamicCollectionFilters(filters: DynamicCollectionFilters): DynamicCollectionFilters {
+		return {
+			readingStatusIds: [...new Set(filters.readingStatusIds)],
+			sourceStatusKeys: [...new Set(filters.sourceStatusKeys)],
+			genres: [...new Set(filters.genres)],
+			genreMatchMode: filters.genreMatchMode === 'or' ? 'or' : 'and'
+		};
+	}
+
+	function sameDynamicCollectionFilters(
+		left: DynamicCollectionFilters,
+		right: DynamicCollectionFilters
+	): boolean {
+		const normalizedLeft = normalizeDynamicCollectionFilters(left);
+		const normalizedRight = normalizeDynamicCollectionFilters(right);
+		return (
+			normalizedLeft.readingStatusIds.join('\u0000') === normalizedRight.readingStatusIds.join('\u0000') &&
+			normalizedLeft.sourceStatusKeys.join('\u0000') === normalizedRight.sourceStatusKeys.join('\u0000') &&
+			normalizedLeft.genres.join('\u0000') === normalizedRight.genres.join('\u0000') &&
+			normalizedLeft.genreMatchMode === normalizedRight.genreMatchMode
+		);
+	}
+
+	function matchesDynamicCollectionFilters(
+		title: LibraryTitleSummary,
+		filters: DynamicCollectionFilters
+	): boolean {
+		const activeSourceValues = SOURCE_STATUS_FILTERS.filter((filter) =>
+			filters.sourceStatusKeys.includes(filter.key)
+		).flatMap((filter) => filter.values);
+
+		if (
+			filters.readingStatusIds.length > 0 &&
+			(!title.user_status || !filters.readingStatusIds.includes(title.user_status.id))
+		) {
+			return false;
+		}
+
+		if (activeSourceValues.length > 0 && !activeSourceValues.includes(title.status)) {
+			return false;
+		}
+
+		if (filters.genres.length > 0) {
+			if (!title.genre) return false;
+			const titleGenres = title.genre.split(',').map((genre) => genre.trim());
+			const matchesGenres =
+				(filters.genreMatchMode ?? 'and') === 'or'
+					? filters.genres.some((genre) => titleGenres.includes(genre))
+					: filters.genres.every((genre) => titleGenres.includes(genre));
+			if (!matchesGenres) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	function applyDynamicCollectionFilters(filters: DynamicCollectionFilters, collectionId: string | null) {
+		activeReadingStatusIds = [...filters.readingStatusIds];
+		activeSourceStatusKeys = [...filters.sourceStatusKeys];
+		activeGenres = [...filters.genres];
+		genreMatchMode = filters.genreMatchMode === 'or' ? 'or' : 'and';
+		selectedDynamicCollectionId = collectionId;
+	}
+
+	function closeCollectionsPanel() {
+		collectionsPanelOpen = false;
+		collectionsError = null;
+	}
+
+	function dynamicCollectionSummary(filters: DynamicCollectionFilters) {
+		const parts: string[] = [];
+		if (filters.readingStatusIds.length > 0) {
+			parts.push(`${filters.readingStatusIds.length} ${$_('library.readingStatus').toLowerCase()}`);
+		}
+		if (filters.sourceStatusKeys.length > 0) {
+			parts.push(`${filters.sourceStatusKeys.length} ${$_('library.sourceStatus').toLowerCase()}`);
+		}
+		if (filters.genres.length > 0) {
+			parts.push(
+				`${filters.genres.length} ${$_('library.genres').toLowerCase()} (${$_(`library.genreMode.${(filters.genreMatchMode ?? 'and')}`)})`
+			);
+		}
+		return parts.join(' · ');
+	}
+
+	async function updateSelectedDynamicCollectionFilters() {
+		if (!selectedDynamicCollection) return;
+		collectionsError = null;
+		try {
+			await client.mutation(convexApi.library.updateDynamicCollection, {
+				collectionId: selectedDynamicCollection.id as Id<'libraryDynamicCollections'>,
+				filters: currentFilterSnapshot
+			});
+			filterPanelOpen = false;
+		} catch (cause) {
+			collectionsError =
+				cause instanceof Error ? cause.message : 'Failed to update dynamic collection';
+		}
+	}
+
+	function selectManualCollection(collectionId: string | null) {
+		selectedCollectionId = collectionId;
+		selectedDynamicCollectionId = null;
+		activeReadingStatusIds = [];
+		activeSourceStatusKeys = [];
+		activeGenres = [];
+		genreMatchMode = 'and';
+	}
+
+	function selectDynamicCollection(collection: Extract<CollectionListItem, { kind: 'dynamic' }>) {
+		selectedCollectionId = null;
+		applyDynamicCollectionFilters(collection.filters, collection.id);
+	}
+
+	function openCreateCollectionDialog() {
+		collectionDialogMode = 'create';
+		collectionDialogKind = 'manual';
+		collectionDialogName = '';
+		collectionDialogSaving = false;
+		collectionDialogError = null;
+		collectionDialogTargetId = null;
+		collectionDialogDraftFilters = null;
+		collectionDialogOpen = true;
+	}
+
+	function openCreateDynamicCollectionDialog() {
+		collectionDialogMode = 'create';
+		collectionDialogKind = 'dynamic';
+		collectionDialogName = '';
+		collectionDialogSaving = false;
+		collectionDialogError = null;
+		collectionDialogTargetId = null;
+		collectionDialogDraftFilters = snapshotActiveFilters();
+		filterPanelOpen = false;
+		collectionDialogOpen = true;
+	}
+
+	function openRenameCollectionDialog(collection: CollectionListItem) {
+		collectionDialogMode = 'rename';
+		collectionDialogKind = collection.kind;
+		collectionDialogName = collection.name;
+		collectionDialogSaving = false;
+		collectionDialogError = null;
+		collectionDialogTargetId = collection.id;
+		collectionDialogDraftFilters = collection.kind === 'dynamic' ? collection.filters : null;
+		collectionDialogOpen = true;
+	}
+
+	function closeCollectionDialog() {
+		collectionDialogOpen = false;
+		collectionDialogError = null;
+		collectionDialogSaving = false;
+		collectionDialogTargetId = null;
+		collectionDialogDraftFilters = null;
+	}
+
+	async function submitCollectionDialog() {
+		const name = collectionDialogName.trim();
+		if (!name) return;
+		collectionDialogSaving = true;
+		collectionDialogError = null;
+		try {
+			if (collectionDialogMode === 'create' && collectionDialogKind === 'manual') {
+				const created = await client.mutation(convexApi.library.createCollection, { name });
+				selectManualCollection(String(created.id));
+			} else if (collectionDialogMode === 'create' && collectionDialogKind === 'dynamic') {
+				if (!collectionDialogDraftFilters) return;
+				const created = await client.mutation(convexApi.library.createDynamicCollection, {
+					name,
+					filters: collectionDialogDraftFilters
+				});
+				selectDynamicCollection({
+					kind: 'dynamic',
+					id: String(created.id),
+					name: created.name,
+					position: created.position,
+					titlesCount: 0,
+					filters: created.filters
+				});
+			} else if (
+				collectionDialogMode === 'rename' &&
+				collectionDialogKind === 'manual' &&
+				collectionDialogTargetId
+			) {
+				await client.mutation(convexApi.library.updateCollection, {
+					collectionId: collectionDialogTargetId as Id<'libraryCollections'>,
+					name
+				});
+			} else if (
+				collectionDialogMode === 'rename' &&
+				collectionDialogKind === 'dynamic' &&
+				collectionDialogTargetId
+			) {
+				await client.mutation(convexApi.library.updateDynamicCollection, {
+					collectionId: collectionDialogTargetId as Id<'libraryDynamicCollections'>,
+					name
+				});
+			}
+			closeCollectionDialog();
+			closeCollectionsPanel();
+		} catch (cause) {
+			collectionDialogError = cause instanceof Error ? cause.message : 'Failed to save collection';
+		} finally {
+			collectionDialogSaving = false;
+		}
+	}
+
+	async function confirmDeleteCollection() {
+		if (!pendingDelete || deletingCollectionId) return;
+		deletingCollectionId = pendingDelete.id;
+		collectionsError = null;
+		try {
+			if (pendingDelete.kind === 'manual') {
+				await client.mutation(convexApi.library.deleteCollection, {
+					collectionId: pendingDelete.id as Id<'libraryCollections'>
+				});
+				if (selectedCollectionId === pendingDelete.id) {
+					selectedCollectionId = null;
+				}
+			} else {
+				await client.mutation(convexApi.library.deleteDynamicCollection, {
+					collectionId: pendingDelete.id as Id<'libraryDynamicCollections'>
+				});
+				if (selectedDynamicCollectionId === pendingDelete.id) {
+					selectedDynamicCollectionId = null;
+				}
+			}
+			pendingDelete = null;
+		} catch (cause) {
+			collectionsError = cause instanceof Error ? cause.message : 'Failed to delete collection';
+		} finally {
+			deletingCollectionId = null;
+		}
+	}
+
 	function toggleReadingStatus(id: string) {
 		activeReadingStatusIds = activeReadingStatusIds.includes(id)
 			? activeReadingStatusIds.filter((value) => value !== id)
@@ -478,6 +814,7 @@
 		activeReadingStatusIds = [];
 		activeSourceStatusKeys = [];
 		activeGenres = [];
+		genreMatchMode = 'and';
 	}
 
 	function sortModeLabel(labelKey: string) {
@@ -504,6 +841,16 @@
 			</Button>
 		{/if}
 		{#if !loading}
+			<Button
+				variant="ghost"
+				size="sm"
+				onclick={() => {
+					collectionsError = null;
+					collectionsPanelOpen = true;
+				}}
+			>
+				{$_('library.collections')}
+			</Button>
 			<button
 				type="button"
 				class="relative flex h-8 w-8 items-center justify-center transition-colors {hasActiveControls
@@ -615,25 +962,34 @@
 		inputSize="sm"
 	/>
 
-	{#if collections.length > 0}
+	{#if combinedCollections.length > 0}
 		<div class="no-scrollbar flex items-center gap-1 overflow-x-auto pb-0.5">
 			<button
 				type="button"
-				class="shrink-0 px-2.5 py-1 text-xs transition-colors {selectedCollectionId === null
+				class="shrink-0 px-2.5 py-1 text-xs transition-colors {selectedCollectionId === null && selectedDynamicCollectionId === null
 					? 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text)]'
 					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-				onclick={() => (selectedCollectionId = null)}
+				onclick={() => {
+					selectedCollectionId = null;
+					selectedDynamicCollectionId = null;
+				}}
 			>
 				{$_('common.all')} · {listedTitlesCount}
 			</button>
-			{#each collections as collection (collection.id)}
+			{#each combinedCollections.filter((collection) => collection.titlesCount > 0) as collection (`${collection.kind}:${collection.id}`)}
 				<button
 					type="button"
-					class="shrink-0 px-2.5 py-1 text-xs transition-colors {selectedCollectionId ===
-					collection.id
+					class="shrink-0 px-2.5 py-1 text-xs transition-colors {(
+						collection.kind === 'manual'
+							? selectedCollectionId === collection.id
+							: selectedDynamicCollectionId === collection.id
+					)
 						? 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text)]'
 						: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-					onclick={() => (selectedCollectionId = collection.id)}
+					onclick={() =>
+						collection.kind === 'manual'
+							? selectManualCollection(collection.id)
+							: selectDynamicCollection(collection)}
 				>
 					{collection.name} · {collection.titlesCount}
 				</button>
@@ -743,6 +1099,170 @@
 </div>
 
 <SlidePanel
+	open={collectionsPanelOpen}
+	title={$_('library.collections')}
+	onclose={closeCollectionsPanel}
+>
+	<div class="flex flex-col gap-4 pt-1">
+		<div class="flex items-center gap-2">
+			<Button variant="outline" size="sm" onclick={openCreateCollectionDialog}>
+				<PlusIcon size={12} />
+				{$_('library.createCollection')}
+			</Button>
+			{#if hasActiveFilters}
+				<Button variant="ghost" size="sm" onclick={openCreateDynamicCollectionDialog}>
+					{$_('library.saveAsDynamicCollection')}
+				</Button>
+			{/if}
+		</div>
+
+		{#if collectionsError}
+			<Alert variant="error">{collectionsError}</Alert>
+		{/if}
+
+		<div class="flex flex-col">
+			<button
+				type="button"
+				class="flex items-center justify-between gap-3 border-b border-[var(--void-3)]/30 py-3 text-left transition-colors hover:text-[var(--text)]"
+				onclick={() => {
+					selectedCollectionId = null;
+					selectedDynamicCollectionId = null;
+					closeCollectionsPanel();
+				}}
+			>
+				<div class="min-w-0">
+					<p class="text-sm text-[var(--text)]">{$_('library.allTitles')}</p>
+				</div>
+				<span class="text-xs text-[var(--text-ghost)]">{listedTitlesCount}</span>
+			</button>
+
+			{#if dynamicCollectionsQuery.isLoading || collectionsQuery.isLoading}
+				<p class="py-3 text-sm text-[var(--text-ghost)]">{$_('common.loading')}</p>
+			{:else if combinedCollections.length === 0}
+				<p class="py-3 text-sm text-[var(--text-ghost)]">{$_('library.noCollections')}</p>
+			{:else}
+				{#each combinedCollections as collection (`${collection.kind}:${collection.id}`)}
+					<div class="flex items-center gap-2 border-b border-[var(--void-3)]/30 py-3 last:border-b-0">
+						<button
+							type="button"
+							class="flex min-w-0 flex-1 items-center justify-between gap-3 text-left transition-colors hover:text-[var(--text)]"
+							onclick={() => {
+								if (collection.kind === 'manual') {
+									selectManualCollection(collection.id);
+								} else {
+									selectDynamicCollection(collection);
+								}
+								closeCollectionsPanel();
+							}}
+						>
+							<div class="min-w-0">
+								<p class="truncate text-sm text-[var(--text)]">{collection.name}</p>
+								{#if collection.kind === 'dynamic'}
+									<p class="mt-0.5 truncate text-xs text-[var(--text-ghost)]">
+										{dynamicCollectionSummary(collection.filters)}
+									</p>
+								{/if}
+							</div>
+							<span class="shrink-0 text-xs text-[var(--text-ghost)]">{collection.titlesCount}</span>
+						</button>
+						<button
+							type="button"
+							class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
+							onclick={() => openRenameCollectionDialog(collection)}
+							aria-label={$_('common.edit')}
+						>
+							<PencilSimpleIcon size={14} />
+						</button>
+						{#if collection.kind === 'dynamic' || !collection.isDefault}
+							<button
+								type="button"
+								class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--error)]"
+								onclick={() =>
+									(pendingDelete = {
+										kind: collection.kind,
+										id: collection.id,
+										name: collection.name
+									})}
+								aria-label={$_('common.delete')}
+							>
+								<TrashIcon size={14} />
+							</button>
+						{:else}
+							<span class="w-8 shrink-0"></span>
+						{/if}
+					</div>
+				{/each}
+			{/if}
+		</div>
+	</div>
+</SlidePanel>
+
+<Dialog.Root bind:open={collectionDialogOpen} onOpenChange={(open) => !open && closeCollectionDialog()}>
+	<Dialog.Portal>
+		<Dialog.Overlay class="animate-fade-in fixed inset-0 z-[70] bg-[var(--void-0)]/85 backdrop-blur-sm" />
+		<Dialog.Content
+			class="animate-scale-in fixed top-1/2 left-1/2 z-[70] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 border border-[var(--line)] bg-[var(--void-1)] shadow-[0_20px_60px_-24px_rgba(0,0,0,0.75)] focus:outline-none"
+		>
+			<div class="border-b border-[var(--line)] px-4 py-4">
+				<Dialog.Title class="text-sm text-[var(--text)]">
+					{collectionDialogMode === 'create'
+						? collectionDialogKind === 'dynamic'
+							? $_('library.saveAsDynamicCollection')
+							: $_('library.createCollection')
+						: $_('library.renameCollection')}
+				</Dialog.Title>
+			</div>
+			<div class="flex flex-col gap-3 px-4 py-4">
+				{#if collectionDialogKind === 'dynamic' && collectionDialogDraftFilters}
+					<p class="rounded-sm bg-[var(--void-2)] px-3 py-2 text-xs text-[var(--text-ghost)]">
+						{dynamicCollectionSummary(collectionDialogDraftFilters)}
+					</p>
+				{/if}
+				<Input
+					label={$_('library.collectionNameLabel')}
+					bind:value={collectionDialogName}
+					placeholder={$_('library.collectionNamePlaceholder')}
+				/>
+				{#if collectionDialogError}
+					<Alert variant="error">{collectionDialogError}</Alert>
+				{/if}
+			</div>
+			<div class="flex items-center justify-end gap-2 border-t border-[var(--line)] px-4 py-3">
+				<Button variant="ghost" size="sm" onclick={closeCollectionDialog} disabled={collectionDialogSaving}>
+					{$_('common.cancel')}
+				</Button>
+				<Button
+					size="sm"
+					onclick={() => void submitCollectionDialog()}
+					loading={collectionDialogSaving}
+					disabled={!collectionDialogName.trim() || collectionDialogSaving}
+				>
+					{collectionDialogMode === 'create' ? $_('common.add') : $_('common.save')}
+				</Button>
+			</div>
+		</Dialog.Content>
+	</Dialog.Portal>
+</Dialog.Root>
+
+<ConfirmDialog
+	open={pendingDelete !== null}
+	title={$_('library.deleteCollectionTitle')}
+	description={
+		pendingDelete
+			? $_('library.deleteCollectionDescription', { values: { name: pendingDelete.name } })
+			: ''
+	}
+	confirmLabel={$_('common.delete')}
+	cancelLabel={$_('common.cancel')}
+	variant="danger"
+	loading={deletingCollectionId !== null}
+	onConfirm={() => void confirmDeleteCollection()}
+	onCancel={() => {
+		if (!deletingCollectionId) pendingDelete = null;
+	}}
+/>
+
+<SlidePanel
 	open={hiddenPanelOpen}
 	title={$_('library.manageHidden')}
 	onclose={() => (hiddenPanelOpen = false)}
@@ -816,13 +1336,25 @@
 	onclose={() => (filterPanelOpen = false)}
 >
 	{#snippet footer()}
-		<div class="flex items-center gap-2">
+		<div class="flex flex-col gap-2">
+			{#if selectedDynamicCollection && selectedDynamicCollectionDirty}
+				<Button variant="outline" onclick={() => void updateSelectedDynamicCollectionFilters()}>
+					{$_('library.updateDynamicCollection')}
+				</Button>
+			{/if}
+			{#if hasActiveFilters}
+				<Button variant="outline" onclick={openCreateDynamicCollectionDialog}>
+					{$_('library.saveAsDynamicCollection')}
+				</Button>
+			{/if}
+			<div class="flex items-center gap-2">
 			<Button variant="ghost" class="flex-1" onclick={() => (filterPanelOpen = false)}>
 				{$_('common.close')}
 			</Button>
 			<Button variant="outline" class="flex-1" onclick={clearFilters} disabled={!hasActiveControls}>
 				{$_('library.clearFilters')}
 			</Button>
+			</div>
 		</div>
 	{/snippet}
 
@@ -892,6 +1424,21 @@
 
 	{#if allGenres.length > 0}
 		<PanelSection label={$_('library.genres')} divider={false}>
+			{#snippet actions()}
+				<div class="flex items-center gap-1">
+					{#each ['and', 'or'] as mode (mode)}
+						<button
+							type="button"
+							class="border px-2 py-0.5 text-[10px] tracking-[0.16em] uppercase transition-colors {genreMatchMode === mode
+								? 'border-[var(--cosmic-halo)] bg-[var(--cosmic-soft)] text-[var(--text)]'
+								: 'border-[var(--void-3)] bg-[var(--void-2)] text-[var(--text-ghost)] hover:border-[var(--void-5)] hover:text-[var(--text-muted)]'}"
+							onclick={() => (genreMatchMode = mode as 'and' | 'or')}
+						>
+							{$_(`library.genreMode.${mode}`)}
+						</button>
+					{/each}
+				</div>
+			{/snippet}
 			{#if allGenres.length > 12}
 				<SearchInput
 					bind:value={genreSearch}

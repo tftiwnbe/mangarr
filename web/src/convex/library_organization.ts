@@ -1,7 +1,7 @@
 import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
 
-import { mutation, query } from './_generated/server';
+import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import {
 	countTitlesInCollection,
 	DEFAULT_COLLECTIONS,
@@ -18,6 +18,44 @@ import {
 	slugifyStatusKey
 } from './library_shared';
 import { scoreMergeSnapshot } from './title_identity';
+
+const dynamicCollectionFiltersValidator = v.object({
+	readingStatusIds: v.array(v.string()),
+	sourceStatusKeys: v.array(v.string()),
+	genres: v.array(v.string()),
+	genreMatchMode: v.optional(v.union(v.literal('and'), v.literal('or')))
+});
+
+type DynamicCollectionFilters = {
+	readingStatusIds: string[];
+	sourceStatusKeys: string[];
+	genres: string[];
+	genreMatchMode?: 'and' | 'or';
+};
+
+function normalizeDynamicCollectionFilters(filters: DynamicCollectionFilters): DynamicCollectionFilters {
+	return {
+		readingStatusIds: [...new Set(filters.readingStatusIds.map((value) => value.trim()).filter(Boolean))],
+		sourceStatusKeys: [...new Set(filters.sourceStatusKeys.map((value) => value.trim()).filter(Boolean))],
+		genres: [...new Set(filters.genres.map((value) => value.trim()).filter(Boolean))],
+		genreMatchMode: filters.genreMatchMode === 'or' ? 'or' : 'and'
+	};
+}
+
+async function requireOwnedDynamicCollection(
+	ctx: MutationCtx | QueryCtx,
+	collectionId: GenericId<'libraryDynamicCollections'>
+) {
+	const identity = await ctx.auth.getUserIdentity();
+	if (!identity) {
+		throw new Error('Not authenticated');
+	}
+	const collection = await ctx.db.get(collectionId);
+	if (!collection || collection.ownerUserId !== (identity.subject as GenericId<'users'>)) {
+		throw new Error('Dynamic library collection not found');
+	}
+	return collection;
+}
 
 export const listUserStatuses = query({
 	args: {},
@@ -270,6 +308,106 @@ export const createCollection = mutation({
 			isDefault: created.isDefault,
 			titlesCount: 0
 		};
+	}
+});
+
+export const listDynamicCollections = query({
+	args: {},
+	handler: async (ctx) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return [];
+		}
+		const userId = identity.subject as GenericId<'users'>;
+		const rows = await ctx.db
+			.query('libraryDynamicCollections')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+			.collect();
+
+		return rows
+			.sort((left, right) => left.position - right.position)
+			.map((row) => ({
+				id: row._id,
+				name: row.name,
+				position: row.position,
+				filters: normalizeDynamicCollectionFilters(row.filters)
+			}));
+	}
+});
+
+export const createDynamicCollection = mutation({
+	args: {
+		name: v.string(),
+		filters: dynamicCollectionFiltersValidator
+	},
+	handler: async (ctx, args) => {
+		const userId = await requireViewerUserId(ctx);
+		const rows = await ctx.db
+			.query('libraryDynamicCollections')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+			.collect();
+		const now = Date.now();
+		const nextPosition = rows.reduce((max, row) => Math.max(max, row.position), -1) + 1;
+		const filters = normalizeDynamicCollectionFilters(args.filters);
+		const collectionId = await ctx.db.insert('libraryDynamicCollections', {
+			ownerUserId: userId,
+			name: args.name.trim(),
+			position: nextPosition,
+			filters,
+			createdAt: now,
+			updatedAt: now
+		});
+
+		const created = await ctx.db.get(collectionId);
+		if (!created) {
+			throw new Error('Failed to create dynamic collection');
+		}
+
+		return {
+			id: created._id,
+			name: created.name,
+			position: created.position,
+			filters: normalizeDynamicCollectionFilters(created.filters)
+		};
+	}
+});
+
+export const updateDynamicCollection = mutation({
+	args: {
+		collectionId: v.id('libraryDynamicCollections'),
+		name: v.optional(v.string()),
+		filters: v.optional(dynamicCollectionFiltersValidator)
+	},
+	handler: async (ctx, args) => {
+		const collection = await requireOwnedDynamicCollection(ctx, args.collectionId);
+		await ctx.db.patch(collection._id, {
+			name: args.name?.trim() ?? collection.name,
+			filters: args.filters ? normalizeDynamicCollectionFilters(args.filters) : collection.filters,
+			updatedAt: Date.now()
+		});
+
+		const updated = await ctx.db.get(collection._id);
+		if (!updated) {
+			throw new Error('Dynamic collection not found');
+		}
+
+		return {
+			id: updated._id,
+			name: updated.name,
+			position: updated.position,
+			filters: normalizeDynamicCollectionFilters(updated.filters)
+		};
+	}
+});
+
+export const deleteDynamicCollection = mutation({
+	args: {
+		collectionId: v.id('libraryDynamicCollections')
+	},
+	handler: async (ctx, args) => {
+		const collection = await requireOwnedDynamicCollection(ctx, args.collectionId);
+		await ctx.db.delete(collection._id);
+		return { deleted: true };
 	}
 });
 

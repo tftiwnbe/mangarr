@@ -44,17 +44,21 @@ export {
 } from './library_reader';
 export {
 	createCollection,
+	createDynamicCollection,
 	createUserStatus,
 	deleteCollection,
+	deleteDynamicCollection,
 	deleteUserStatus,
 	ensureDefaultCollections,
 	ensureDefaultUserStatuses,
 	listCollections,
+	listDynamicCollections,
 	listMergeCandidates,
 	setTitleListedInLibrary,
 	listUserStatuses,
 	mergeTitles,
 	updateCollection,
+	updateDynamicCollection,
 	updateTitleCustomMetadata,
 	updateTitlePreferences,
 	updateUserStatus

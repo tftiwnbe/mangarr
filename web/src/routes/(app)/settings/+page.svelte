@@ -845,7 +845,6 @@
 		<Tabs
 			tabs={[
 				{ value: 'account', label: $_('settings.account') },
-				{ value: 'library', label: $_('nav.library') },
 				{ value: 'system', label: $_('settings.system') },
 				{ value: 'about', label: $_('settings.about') }
 			] satisfies TabItem[]}
