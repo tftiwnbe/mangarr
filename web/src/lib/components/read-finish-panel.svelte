@@ -115,7 +115,9 @@
 		class="mt-2 w-full resize-y border border-[var(--void-4)] bg-[var(--void-1)] px-2 py-1.5 text-xs text-[var(--text-soft)] outline-none focus:border-[var(--cosmic)]"
 	></textarea>
 
-	<div class="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+	<div
+		class="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end"
+	>
 		{#if secondaryAction}
 			<button
 				type="button"

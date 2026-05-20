@@ -72,6 +72,7 @@ jobs:
           cp -R web/build "$runtime_root/build"
           cp -R web/src/convex "$runtime_root/src/convex"
           cp -R web/src/lib/utils "$runtime_root/src/lib/utils"
+          cp web/src/lib/server/logging.js "$runtime_root/src/lib/server/logging.js"
           cp web/src/lib/server/convex-auth-config.ts "$runtime_root/src/lib/server/convex-auth-config.ts"
           (
             cd "$runtime_root"

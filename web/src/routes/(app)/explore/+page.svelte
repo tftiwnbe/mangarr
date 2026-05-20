@@ -680,9 +680,9 @@
 	function importedLookupEntries(): Array<{ sourceId: string; titleUrl: string }> {
 		const items =
 			activeTab === 'search'
-				? (selectedSourceId
-						? searchItemsForSource(selectedSourceId)
-						: searchSources.flatMap((source) => searchItemsForSource(source.id)))
+				? selectedSourceId
+					? searchItemsForSource(selectedSourceId)
+					: searchSources.flatMap((source) => searchItemsForSource(source.id))
 				: activeTab === 'forYou'
 					? forYouResult.items
 					: activeFeedSourceIds.flatMap((sourceId) =>

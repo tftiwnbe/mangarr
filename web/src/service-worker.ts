@@ -29,7 +29,11 @@ const IMAGE_PATH_PREFIXES = [
 
 function isImagePath(pathname: string): boolean {
 	for (const prefix of IMAGE_PATH_PREFIXES) {
-		if (pathname === prefix || pathname.startsWith(`${prefix}/`) || pathname.startsWith(`${prefix}?`)) {
+		if (
+			pathname === prefix ||
+			pathname.startsWith(`${prefix}/`) ||
+			pathname.startsWith(`${prefix}?`)
+		) {
 			return true;
 		}
 	}
@@ -103,9 +107,9 @@ sw.addEventListener('fetch', (event) => {
 					if (res.ok && res.type === 'basic' && res.status === 200) {
 						const cacheControl = res.headers.get('cache-control') ?? '';
 						if (!/no-store|private/i.test(cacheControl)) {
-							cache.put(req, res.clone()).then(() =>
-								trimCache(IMAGE_CACHE, IMAGE_CACHE_MAX_ENTRIES)
-							);
+							cache
+								.put(req, res.clone())
+								.then(() => trimCache(IMAGE_CACHE, IMAGE_CACHE_MAX_ENTRIES));
 						}
 					}
 					return res;

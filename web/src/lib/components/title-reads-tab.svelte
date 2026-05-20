@@ -231,7 +231,9 @@
 				class="border-l-2 border-[var(--cosmic)] bg-[var(--void-2)] px-4 py-3 shadow-[0_0_24px_-12px_var(--cosmic-glow)]"
 			>
 				<div class="flex items-center justify-between gap-3">
-					<div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] tracking-[0.22em] uppercase">
+					<div
+						class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] tracking-[0.22em] uppercase"
+					>
 						<span
 							class="inline-block h-1.5 w-1.5 shrink-0 animate-pulse bg-[var(--cosmic)] shadow-[0_0_6px_var(--cosmic-glow)]"
 						></span>

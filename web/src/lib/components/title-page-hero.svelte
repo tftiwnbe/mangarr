@@ -201,7 +201,9 @@
 						onclick={onOpenReadingStart}
 					>
 						<PlayIcon size={14} />
-						<span>{hasReadingProgress ? $_('title.continueReading') : $_('title.startReading')}</span>
+						<span
+							>{hasReadingProgress ? $_('title.continueReading') : $_('title.startReading')}</span
+						>
 					</button>
 				{:else if isChapterHydrating}
 					<div
@@ -211,7 +213,9 @@
 						<span>{chapterHydrationHeadline}</span>
 					</div>
 				{:else}
-					<div class="flex h-10 flex-1 items-center justify-center text-xs text-[var(--text-ghost)]">
+					<div
+						class="flex h-10 flex-1 items-center justify-center text-xs text-[var(--text-ghost)]"
+					>
 						{$_('title.noChapters')}
 					</div>
 				{/if}
@@ -322,7 +326,9 @@
 						onclick={onOpenReadingStart}
 					>
 						<PlayIcon size={16} />
-						<span>{hasReadingProgress ? $_('title.continueReading') : $_('title.startReading')}</span>
+						<span
+							>{hasReadingProgress ? $_('title.continueReading') : $_('title.startReading')}</span
+						>
 					</button>
 				{:else if isChapterHydrating}
 					<div
@@ -332,7 +338,9 @@
 						<span>{chapterHydrationHeadline}</span>
 					</div>
 				{:else}
-					<div class="flex h-12 flex-1 items-center justify-center text-sm text-[var(--text-ghost)]">
+					<div
+						class="flex h-12 flex-1 items-center justify-center text-sm text-[var(--text-ghost)]"
+					>
 						{$_('title.noChapters')}
 					</div>
 				{/if}

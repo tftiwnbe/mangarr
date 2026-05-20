@@ -58,9 +58,13 @@ export async function proxyBridgeRequest(
 			path: bridgePath,
 			method: init.method ?? 'GET',
 			outcome:
-				cause instanceof DOMException && cause.name === 'TimeoutError' ? 'timeout' : 'network_error',
+				cause instanceof DOMException && cause.name === 'TimeoutError'
+					? 'timeout'
+					: 'network_error',
 			status:
-				cause instanceof DOMException && cause.name === 'TimeoutError' ? 'timeout' : 'network_error',
+				cause instanceof DOMException && cause.name === 'TimeoutError'
+					? 'timeout'
+					: 'network_error',
 			durationMs: Date.now() - startedAt
 		});
 		if (cause instanceof DOMException && cause.name === 'TimeoutError') {

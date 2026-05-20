@@ -212,23 +212,27 @@
 		((dynamicCollectionsQuery.data ?? []) as DynamicCollectionResource[]).map((collection) => ({
 			...collection,
 			id: String(collection.id),
-			titlesCount: titles.filter((title) => matchesDynamicCollectionFilters(title, collection.filters))
-				.length
+			titlesCount: titles.filter((title) =>
+				matchesDynamicCollectionFilters(title, collection.filters)
+			).length
 		}))
 	);
 
 	const selectedDynamicCollection = $derived.by(
-		() => dynamicCollections.find((collection) => collection.id === selectedDynamicCollectionId) ?? null
+		() =>
+			dynamicCollections.find((collection) => collection.id === selectedDynamicCollectionId) ?? null
 	);
 
 	const collections = $derived.by(() =>
-		((collectionsQuery.data ?? []) as Array<{
-			id: Id<'libraryCollections'>;
-			name: string;
-			position: number;
-			isDefault: boolean;
-			titlesCount: number;
-		}>).map((collection) => ({
+		(
+			(collectionsQuery.data ?? []) as Array<{
+				id: Id<'libraryCollections'>;
+				name: string;
+				position: number;
+				isDefault: boolean;
+				titlesCount: number;
+			}>
+		).map((collection) => ({
 			id: String(collection.id),
 			name: collection.name,
 			position: collection.position,
@@ -300,7 +304,9 @@
 			activeGenres.length > 0
 	);
 
-	const currentFilterSnapshot = $derived.by(() => normalizeDynamicCollectionFilters(snapshotActiveFilters()));
+	const currentFilterSnapshot = $derived.by(() =>
+		normalizeDynamicCollectionFilters(snapshotActiveFilters())
+	);
 	const selectedDynamicCollectionDirty = $derived.by(() => {
 		if (!selectedDynamicCollection) return false;
 		return !sameDynamicCollectionFilters(selectedDynamicCollection.filters, currentFilterSnapshot);
@@ -556,7 +562,9 @@
 		};
 	}
 
-	function normalizeDynamicCollectionFilters(filters: DynamicCollectionFilters): DynamicCollectionFilters {
+	function normalizeDynamicCollectionFilters(
+		filters: DynamicCollectionFilters
+	): DynamicCollectionFilters {
 		return {
 			readingStatusIds: [...new Set(filters.readingStatusIds)],
 			sourceStatusKeys: [...new Set(filters.sourceStatusKeys)],
@@ -572,8 +580,10 @@
 		const normalizedLeft = normalizeDynamicCollectionFilters(left);
 		const normalizedRight = normalizeDynamicCollectionFilters(right);
 		return (
-			normalizedLeft.readingStatusIds.join('\u0000') === normalizedRight.readingStatusIds.join('\u0000') &&
-			normalizedLeft.sourceStatusKeys.join('\u0000') === normalizedRight.sourceStatusKeys.join('\u0000') &&
+			normalizedLeft.readingStatusIds.join('\u0000') ===
+				normalizedRight.readingStatusIds.join('\u0000') &&
+			normalizedLeft.sourceStatusKeys.join('\u0000') ===
+				normalizedRight.sourceStatusKeys.join('\u0000') &&
 			normalizedLeft.genres.join('\u0000') === normalizedRight.genres.join('\u0000') &&
 			normalizedLeft.genreMatchMode === normalizedRight.genreMatchMode
 		);
@@ -613,7 +623,10 @@
 		return true;
 	}
 
-	function applyDynamicCollectionFilters(filters: DynamicCollectionFilters, collectionId: string | null) {
+	function applyDynamicCollectionFilters(
+		filters: DynamicCollectionFilters,
+		collectionId: string | null
+	) {
 		activeReadingStatusIds = [...filters.readingStatusIds];
 		activeSourceStatusKeys = [...filters.sourceStatusKeys];
 		activeGenres = [...filters.genres];
@@ -636,7 +649,7 @@
 		}
 		if (filters.genres.length > 0) {
 			parts.push(
-				`${filters.genres.length} ${$_('library.genres').toLowerCase()} (${$_(`library.genreMode.${(filters.genreMatchMode ?? 'and')}`)})`
+				`${filters.genres.length} ${$_('library.genres').toLowerCase()} (${$_(`library.genreMode.${filters.genreMatchMode ?? 'and'}`)})`
 			);
 		}
 		return parts.join(' · ');
@@ -966,7 +979,8 @@
 		<div class="no-scrollbar flex items-center gap-1 overflow-x-auto pb-0.5">
 			<button
 				type="button"
-				class="shrink-0 px-2.5 py-1 text-xs transition-colors {selectedCollectionId === null && selectedDynamicCollectionId === null
+				class="shrink-0 px-2.5 py-1 text-xs transition-colors {selectedCollectionId === null &&
+				selectedDynamicCollectionId === null
 					? 'border border-[var(--line)] bg-[var(--void-3)] text-[var(--text)]'
 					: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
 				onclick={() => {
@@ -1142,7 +1156,9 @@
 				<p class="py-3 text-sm text-[var(--text-ghost)]">{$_('library.noCollections')}</p>
 			{:else}
 				{#each combinedCollections as collection (`${collection.kind}:${collection.id}`)}
-					<div class="flex items-center gap-2 border-b border-[var(--void-3)]/30 py-3 last:border-b-0">
+					<div
+						class="flex items-center gap-2 border-b border-[var(--void-3)]/30 py-3 last:border-b-0"
+					>
 						<button
 							type="button"
 							class="flex min-w-0 flex-1 items-center justify-between gap-3 text-left transition-colors hover:text-[var(--text)]"
@@ -1163,7 +1179,8 @@
 									</p>
 								{/if}
 							</div>
-							<span class="shrink-0 text-xs text-[var(--text-ghost)]">{collection.titlesCount}</span>
+							<span class="shrink-0 text-xs text-[var(--text-ghost)]">{collection.titlesCount}</span
+							>
 						</button>
 						<button
 							type="button"
@@ -1197,9 +1214,14 @@
 	</div>
 </SlidePanel>
 
-<Dialog.Root bind:open={collectionDialogOpen} onOpenChange={(open) => !open && closeCollectionDialog()}>
+<Dialog.Root
+	bind:open={collectionDialogOpen}
+	onOpenChange={(open) => !open && closeCollectionDialog()}
+>
 	<Dialog.Portal>
-		<Dialog.Overlay class="animate-fade-in fixed inset-0 z-[70] bg-[var(--void-0)]/85 backdrop-blur-sm" />
+		<Dialog.Overlay
+			class="animate-fade-in fixed inset-0 z-[70] bg-[var(--void-0)]/85 backdrop-blur-sm"
+		/>
 		<Dialog.Content
 			class="animate-scale-in fixed top-1/2 left-1/2 z-[70] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 border border-[var(--line)] bg-[var(--void-1)] shadow-[0_20px_60px_-24px_rgba(0,0,0,0.75)] focus:outline-none"
 		>
@@ -1228,7 +1250,12 @@
 				{/if}
 			</div>
 			<div class="flex items-center justify-end gap-2 border-t border-[var(--line)] px-4 py-3">
-				<Button variant="ghost" size="sm" onclick={closeCollectionDialog} disabled={collectionDialogSaving}>
+				<Button
+					variant="ghost"
+					size="sm"
+					onclick={closeCollectionDialog}
+					disabled={collectionDialogSaving}
+				>
 					{$_('common.cancel')}
 				</Button>
 				<Button
@@ -1247,11 +1274,9 @@
 <ConfirmDialog
 	open={pendingDelete !== null}
 	title={$_('library.deleteCollectionTitle')}
-	description={
-		pendingDelete
-			? $_('library.deleteCollectionDescription', { values: { name: pendingDelete.name } })
-			: ''
-	}
+	description={pendingDelete
+		? $_('library.deleteCollectionDescription', { values: { name: pendingDelete.name } })
+		: ''}
 	confirmLabel={$_('common.delete')}
 	cancelLabel={$_('common.cancel')}
 	variant="danger"
@@ -1348,12 +1373,17 @@
 				</Button>
 			{/if}
 			<div class="flex items-center gap-2">
-			<Button variant="ghost" class="flex-1" onclick={() => (filterPanelOpen = false)}>
-				{$_('common.close')}
-			</Button>
-			<Button variant="outline" class="flex-1" onclick={clearFilters} disabled={!hasActiveControls}>
-				{$_('library.clearFilters')}
-			</Button>
+				<Button variant="ghost" class="flex-1" onclick={() => (filterPanelOpen = false)}>
+					{$_('common.close')}
+				</Button>
+				<Button
+					variant="outline"
+					class="flex-1"
+					onclick={clearFilters}
+					disabled={!hasActiveControls}
+				>
+					{$_('library.clearFilters')}
+				</Button>
 			</div>
 		</div>
 	{/snippet}
@@ -1429,7 +1459,8 @@
 					{#each ['and', 'or'] as mode (mode)}
 						<button
 							type="button"
-							class="border px-2 py-0.5 text-[10px] tracking-[0.16em] uppercase transition-colors {genreMatchMode === mode
+							class="border px-2 py-0.5 text-[10px] tracking-[0.16em] uppercase transition-colors {genreMatchMode ===
+							mode
 								? 'border-[var(--cosmic-halo)] bg-[var(--cosmic-soft)] text-[var(--text)]'
 								: 'border-[var(--void-3)] bg-[var(--void-2)] text-[var(--text-ghost)] hover:border-[var(--void-5)] hover:text-[var(--text-muted)]'}"
 							onclick={() => (genreMatchMode = mode as 'and' | 'or')}

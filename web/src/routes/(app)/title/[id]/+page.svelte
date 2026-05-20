@@ -396,9 +396,7 @@
 	);
 	const addedAt = $derived(title?.createdAt ?? null);
 	const lastReadAt = $derived(title?.readingProgress.latest?.updatedAt ?? null);
-	const lastUpdatedAt = $derived(
-		title?.downloadProfile?.lastSuccessAt ?? title?.updatedAt ?? null
-	);
+	const lastUpdatedAt = $derived(title?.downloadProfile?.lastSuccessAt ?? title?.updatedAt ?? null);
 	const startReadingChapter = $derived.by(() => {
 		if (!title) return null;
 		if (title.readingProgress.latest) {
@@ -968,7 +966,11 @@
 		);
 	}
 
-	async function loadSourceMatches(options?: { manual?: boolean; query?: string; sourceId?: string }) {
+	async function loadSourceMatches(options?: {
+		manual?: boolean;
+		query?: string;
+		sourceId?: string;
+	}) {
 		if (!title || sourceMatchesLoading) return;
 
 		const manual = options?.manual === true;
@@ -1245,118 +1247,118 @@
 			onSetRating={setRating}
 		>
 			{#if actionError}
-					<Alert variant="error" class="mt-3">{actionError}</Alert>
-				{/if}
+				<Alert variant="error" class="mt-3">{actionError}</Alert>
+			{/if}
 
-				<div class="mt-8 flex gap-1">
-					<button
-						type="button"
-						class="px-3 py-1.5 text-xs transition-colors {activeTab === 'info'
-							? 'bg-[var(--void-4)] text-[var(--text)]'
-							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-						onclick={() => (activeTab = 'info')}
+			<div class="mt-8 flex gap-1">
+				<button
+					type="button"
+					class="px-3 py-1.5 text-xs transition-colors {activeTab === 'info'
+						? 'bg-[var(--void-4)] text-[var(--text)]'
+						: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+					onclick={() => (activeTab = 'info')}
+				>
+					{$_('title.info')}
+				</button>
+				<button
+					type="button"
+					class="px-3 py-1.5 text-xs transition-colors {activeTab === 'chapters'
+						? 'bg-[var(--void-4)] text-[var(--text)]'
+						: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+					onclick={() => (activeTab = 'chapters')}
+				>
+					{$_('title.chapters')}
+					<span
+						class="ml-1 text-[10px] {activeTab === 'chapters'
+							? 'text-[var(--text-muted)]'
+							: 'text-[var(--void-6)]'}"
 					>
-						{$_('title.info')}
-					</button>
-					<button
-						type="button"
-						class="px-3 py-1.5 text-xs transition-colors {activeTab === 'chapters'
-							? 'bg-[var(--void-4)] text-[var(--text)]'
-							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-						onclick={() => (activeTab = 'chapters')}
-					>
-						{$_('title.chapters')}
+						{title.chapterStats.total}
+					</span>
+				</button>
+				<button
+					type="button"
+					class="px-3 py-1.5 text-xs transition-colors {activeTab === 'comments'
+						? 'bg-[var(--void-4)] text-[var(--text)]'
+						: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+					onclick={() => (activeTab = 'comments')}
+				>
+					{$_('title.comments')}
+				</button>
+				<button
+					type="button"
+					class="px-3 py-1.5 text-xs transition-colors {activeTab === 'reads'
+						? 'bg-[var(--void-4)] text-[var(--text)]'
+						: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
+					onclick={() => (activeTab = 'reads')}
+				>
+					{$_('title.reads')}
+					{#if completedReadCount > 0}
 						<span
-							class="ml-1 text-[10px] {activeTab === 'chapters'
+							class="ml-1 text-[10px] {activeTab === 'reads'
 								? 'text-[var(--text-muted)]'
 								: 'text-[var(--void-6)]'}"
 						>
-							{title.chapterStats.total}
+							{completedReadCount}
 						</span>
-					</button>
-					<button
-						type="button"
-						class="px-3 py-1.5 text-xs transition-colors {activeTab === 'comments'
-							? 'bg-[var(--void-4)] text-[var(--text)]'
-							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-						onclick={() => (activeTab = 'comments')}
-					>
-						{$_('title.comments')}
-					</button>
-					<button
-						type="button"
-						class="px-3 py-1.5 text-xs transition-colors {activeTab === 'reads'
-							? 'bg-[var(--void-4)] text-[var(--text)]'
-							: 'text-[var(--text-ghost)] hover:text-[var(--text-muted)]'}"
-						onclick={() => (activeTab = 'reads')}
-					>
-						{$_('title.reads')}
-						{#if completedReadCount > 0}
-							<span
-								class="ml-1 text-[10px] {activeTab === 'reads'
-									? 'text-[var(--text-muted)]'
-									: 'text-[var(--void-6)]'}"
-							>
-								{completedReadCount}
-							</span>
-						{/if}
-					</button>
-				</div>
-
-				<div class="mt-4">
-					{#if activeTab === 'info'}
-						<TitleInfoTab
-							description={title.description ?? null}
-							{showFullDescription}
-							onToggleDescription={() => (showFullDescription = !showFullDescription)}
-							{genres}
-							{author}
-							{artist}
-							{displayStatus}
-							{sourceName}
-							sourceLang={title.sourceLang}
-							{addedAt}
-							{lastReadAt}
-							{lastUpdatedAt}
-							{similarTitles}
-							similarTitlesLoading={similarTitlesQuery.isLoading}
-							similarTitlesWarming={similarTitlesResult.warming}
-						/>
-					{:else if activeTab === 'chapters'}
-						<TitleChaptersTab
-							{titleChapters}
-							{chapterHydrationStatus}
-							{chapterHydrationHeadline}
-							{chapterHydrationDescription}
-							{downloadingChapterIds}
-							onRetryHydration={() => void retryTitleHydration()}
-							onOpenChapter={(chapter) => openChapter(chapter as ChapterRow)}
-							onDownloadChapter={(chapterId) =>
-								void downloadChapter(chapterId as Id<'libraryChapters'>)}
-							onResetChapterProgress={(chapterId) =>
-								void resetChapterReadProgress(chapterId as Id<'libraryChapters'>)}
-							onMarkPreviousRead={(chapterId) =>
-								void markPreviousChaptersRead(chapterId as Id<'libraryChapters'>)}
-							onFetchNewChapters={() => void refreshSourceState()}
-							fetchingNewChapters={sourceStatusRefreshing}
-							{progressActionChapterId}
-						/>
-					{:else if activeTab === 'comments'}
-						<TitleCommentsTab loading={titleCommentsQuery.isLoading} {titleComments} />
-					{:else}
-						<TitleReadsTab
-							sessions={titleReadSessions}
-							loading={titleReadSessionsQuery.isLoading}
-							busySessionId={readSessionBusyId}
-							startingSession={startingReadSession}
-							onStartSession={(startedAt) => void startReadSession(startedAt)}
-							onFinishSession={(sessionId, finishedAt, rating, notes) =>
-								void finishReadSession(sessionId, finishedAt, rating, notes)}
-							onUpdateSession={(sessionId, patch) => void updateReadSession(sessionId, patch)}
-							onDeleteSession={(sessionId) => void deleteReadSession(sessionId)}
-						/>
 					{/if}
-				</div>
+				</button>
+			</div>
+
+			<div class="mt-4">
+				{#if activeTab === 'info'}
+					<TitleInfoTab
+						description={title.description ?? null}
+						{showFullDescription}
+						onToggleDescription={() => (showFullDescription = !showFullDescription)}
+						{genres}
+						{author}
+						{artist}
+						{displayStatus}
+						{sourceName}
+						sourceLang={title.sourceLang}
+						{addedAt}
+						{lastReadAt}
+						{lastUpdatedAt}
+						{similarTitles}
+						similarTitlesLoading={similarTitlesQuery.isLoading}
+						similarTitlesWarming={similarTitlesResult.warming}
+					/>
+				{:else if activeTab === 'chapters'}
+					<TitleChaptersTab
+						{titleChapters}
+						{chapterHydrationStatus}
+						{chapterHydrationHeadline}
+						{chapterHydrationDescription}
+						{downloadingChapterIds}
+						onRetryHydration={() => void retryTitleHydration()}
+						onOpenChapter={(chapter) => openChapter(chapter as ChapterRow)}
+						onDownloadChapter={(chapterId) =>
+							void downloadChapter(chapterId as Id<'libraryChapters'>)}
+						onResetChapterProgress={(chapterId) =>
+							void resetChapterReadProgress(chapterId as Id<'libraryChapters'>)}
+						onMarkPreviousRead={(chapterId) =>
+							void markPreviousChaptersRead(chapterId as Id<'libraryChapters'>)}
+						onFetchNewChapters={() => void refreshSourceState()}
+						fetchingNewChapters={sourceStatusRefreshing}
+						{progressActionChapterId}
+					/>
+				{:else if activeTab === 'comments'}
+					<TitleCommentsTab loading={titleCommentsQuery.isLoading} {titleComments} />
+				{:else}
+					<TitleReadsTab
+						sessions={titleReadSessions}
+						loading={titleReadSessionsQuery.isLoading}
+						busySessionId={readSessionBusyId}
+						startingSession={startingReadSession}
+						onStartSession={(startedAt) => void startReadSession(startedAt)}
+						onFinishSession={(sessionId, finishedAt, rating, notes) =>
+							void finishReadSession(sessionId, finishedAt, rating, notes)}
+						onUpdateSession={(sessionId, patch) => void updateReadSession(sessionId, patch)}
+						onDeleteSession={(sessionId) => void deleteReadSession(sessionId)}
+					/>
+				{/if}
+			</div>
 		</TitlePageHero>
 	{:else}
 		<div class="flex flex-col items-center gap-4 py-20 text-center">
@@ -1379,7 +1381,7 @@
 {#if title}
 	<TitleSourceManagementPanel
 		open={showManagementPanel}
-		title={title}
+		{title}
 		{hasStaleVariants}
 		{preferredVariantId}
 		{preferredVariantSavingId}

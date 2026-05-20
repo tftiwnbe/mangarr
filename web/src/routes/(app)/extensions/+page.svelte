@@ -542,7 +542,9 @@
 		sourceSettingsAction = 'reset';
 		sourceSettingsError = null;
 		try {
-			const visibleEntries = buildResetPreferenceEntries(sourceSettingsData) as SourcePreferenceEntry[];
+			const visibleEntries = buildResetPreferenceEntries(
+				sourceSettingsData
+			) as SourcePreferenceEntry[];
 			const entries = Object.values(
 				visibleEntries.reduce<Record<string, SourcePreferenceEntry>>((acc, entry) => {
 					acc[entry.key] = entry;

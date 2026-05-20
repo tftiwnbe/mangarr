@@ -87,9 +87,13 @@ export const GET: RequestHandler = async ({ locals }) => {
 			path: '/extensions/repository',
 			method: 'GET',
 			outcome:
-				cause instanceof DOMException && cause.name === 'TimeoutError' ? 'timeout' : 'network_error',
+				cause instanceof DOMException && cause.name === 'TimeoutError'
+					? 'timeout'
+					: 'network_error',
 			status:
-				cause instanceof DOMException && cause.name === 'TimeoutError' ? 'timeout' : 'network_error',
+				cause instanceof DOMException && cause.name === 'TimeoutError'
+					? 'timeout'
+					: 'network_error',
 			durationMs: Date.now() - startedAt
 		});
 		return json({

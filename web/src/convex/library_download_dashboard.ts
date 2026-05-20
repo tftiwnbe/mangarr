@@ -93,9 +93,7 @@ export const getDownloadDashboard = query({
 		// dashboard's overview/watched cards describe titles the user actively
 		// manages — i.e. those with profiles — so the profile set is the right
 		// scope here.
-		const profileTitleIds = Array.from(
-			new Set(profileRows.map((p) => String(p.libraryTitleId)))
-		);
+		const profileTitleIds = Array.from(new Set(profileRows.map((p) => String(p.libraryTitleId))));
 		const profileTitles = await Promise.all(
 			profileTitleIds.map((titleId) => ctx.db.get(titleId as GenericId<'libraryTitles'>))
 		);

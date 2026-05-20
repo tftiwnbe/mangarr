@@ -33,10 +33,16 @@ type DynamicCollectionFilters = {
 	genreMatchMode?: 'and' | 'or';
 };
 
-function normalizeDynamicCollectionFilters(filters: DynamicCollectionFilters): DynamicCollectionFilters {
+function normalizeDynamicCollectionFilters(
+	filters: DynamicCollectionFilters
+): DynamicCollectionFilters {
 	return {
-		readingStatusIds: [...new Set(filters.readingStatusIds.map((value) => value.trim()).filter(Boolean))],
-		sourceStatusKeys: [...new Set(filters.sourceStatusKeys.map((value) => value.trim()).filter(Boolean))],
+		readingStatusIds: [
+			...new Set(filters.readingStatusIds.map((value) => value.trim()).filter(Boolean))
+		],
+		sourceStatusKeys: [
+			...new Set(filters.sourceStatusKeys.map((value) => value.trim()).filter(Boolean))
+		],
 		genres: [...new Set(filters.genres.map((value) => value.trim()).filter(Boolean))],
 		genreMatchMode: filters.genreMatchMode === 'or' ? 'or' : 'and'
 	};

@@ -73,9 +73,13 @@ export const POST: RequestHandler = async (event) => {
 			path: '/downloads/reconcile',
 			method: 'POST',
 			outcome:
-				cause instanceof DOMException && cause.name === 'TimeoutError' ? 'timeout' : 'network_error',
+				cause instanceof DOMException && cause.name === 'TimeoutError'
+					? 'timeout'
+					: 'network_error',
 			status:
-				cause instanceof DOMException && cause.name === 'TimeoutError' ? 'timeout' : 'network_error',
+				cause instanceof DOMException && cause.name === 'TimeoutError'
+					? 'timeout'
+					: 'network_error',
 			durationMs: Date.now() - startedAt
 		});
 		return null;

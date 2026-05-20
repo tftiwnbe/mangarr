@@ -112,10 +112,10 @@ export const listHiddenMine = query({
 			.order('desc')
 			.take(limit);
 		const routeSegments = await Promise.all(
-			titles.map(async (title) => [
-				String(title._id),
-				await resolveOwnerTitleRouteSegment(ctx, title)
-			] as const)
+			titles.map(
+				async (title) =>
+					[String(title._id), await resolveOwnerTitleRouteSegment(ctx, title)] as const
+			)
 		);
 		const titleRouteSegments = new Map(routeSegments);
 
@@ -817,18 +817,17 @@ export const listAllMineChapters = query({
 				.map((title) => [String(title._id), title] as const)
 		);
 
-		return chapters
-			.map((chapter) => {
-				const title = titleById.get(String(chapter.libraryTitleId));
-				return {
-					...chapter,
-					title: title?.title ?? '',
-					sourcePkg: chapter.sourcePkg,
-					sourceLang: chapter.sourceLang,
-					titleCoverUrl: title?.coverUrl ?? null,
-					localCoverPath: title?.localCoverPath ?? null
-				};
-			});
+		return chapters.map((chapter) => {
+			const title = titleById.get(String(chapter.libraryTitleId));
+			return {
+				...chapter,
+				title: title?.title ?? '',
+				sourcePkg: chapter.sourcePkg,
+				sourceLang: chapter.sourceLang,
+				titleCoverUrl: title?.coverUrl ?? null,
+				localCoverPath: title?.localCoverPath ?? null
+			};
+		});
 	}
 });
 
