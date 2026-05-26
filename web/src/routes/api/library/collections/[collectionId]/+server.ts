@@ -15,9 +15,13 @@ function requireUser(locals: App.Locals) {
 
 export const PUT: RequestHandler = async ({ locals, params, request }) => {
 	const user = requireUser(locals);
-	let payload: { name?: string; position?: number };
+	let payload: { name?: string; position?: number; notifyOnNewChapters?: boolean };
 	try {
-		payload = (await request.json()) as { name?: string; position?: number };
+		payload = (await request.json()) as {
+			name?: string;
+			position?: number;
+			notifyOnNewChapters?: boolean;
+		};
 	} catch {
 		throw error(400, 'Request body must be valid JSON');
 	}
@@ -31,7 +35,9 @@ export const PUT: RequestHandler = async ({ locals, params, request }) => {
 	const updated = await client.mutation(convexApi.library.updateCollection, {
 		collectionId: params.collectionId as GenericId<'libraryCollections'>,
 		name,
-		position: typeof payload.position === 'number' ? payload.position : undefined
+		position: typeof payload.position === 'number' ? payload.position : undefined,
+		notifyOnNewChapters:
+			typeof payload.notifyOnNewChapters === 'boolean' ? payload.notifyOnNewChapters : undefined
 	});
 	return json(updated);
 };

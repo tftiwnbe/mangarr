@@ -6,6 +6,7 @@
 
 	import type { Id } from '$convex/_generated/dataModel';
 	import { waitForCommand } from '$lib/client/commands';
+	import NotificationSettingsPanel from '$lib/components/notification-settings-panel.svelte';
 	import { convexApi } from '$lib/convex/api';
 	import { Button } from '$lib/elements/button';
 	import { Input } from '$lib/elements/input';
@@ -64,6 +65,7 @@
 		name: string;
 		position: number;
 		isDefault: boolean;
+		notifyOnNewChapters: boolean;
 		titlesCount: number;
 	};
 
@@ -630,6 +632,12 @@
 		);
 	}
 
+	function handleCollectionNotificationToggle(collectionId: string, value: boolean) {
+		collections = collections.map((collection) =>
+			collection.id === collectionId ? { ...collection, notifyOnNewChapters: value } : collection
+		);
+	}
+
 	async function handleSaveCollection(collectionId: string) {
 		const collection = collections.find((item) => item.id === collectionId);
 		if (!collection || collectionSavingId === collectionId) return;
@@ -643,7 +651,8 @@
 					headers: { 'content-type': 'application/json' },
 					body: JSON.stringify({
 						name: collection.name,
-						position: collection.position
+						position: collection.position,
+						notifyOnNewChapters: collection.notifyOnNewChapters
 					})
 				}
 			);
@@ -959,6 +968,8 @@
 					</form>
 				</section>
 
+				<NotificationSettingsPanel />
+
 				<section class="flex flex-col gap-4">
 					<div class="flex flex-col gap-1">
 						<h2 class="text-sm font-medium text-[var(--text-soft)]">
@@ -1158,20 +1169,32 @@
 							{#if sortedCollections.length === 0}
 								<p class="py-2 text-xs text-[var(--text-ghost)]">{$_('settings.noCollections')}</p>
 							{:else}
-								{#each sortedCollections as collection (collection.id)}
+							{#each sortedCollections as collection (collection.id)}
 									<div
 										class="flex items-center gap-2 border-b border-[var(--void-3)]/30 py-2.5 last:border-b-0"
 									>
-										<input
-											type="text"
-											class="settings-input-compact min-w-0 flex-1"
-											value={collection.name}
-											oninput={(event) =>
-												handleCollectionFieldChange(
-													collection.id,
-													(event.currentTarget as HTMLInputElement).value
-												)}
-										/>
+										<div class="flex min-w-0 flex-1 flex-col gap-2">
+											<input
+												type="text"
+												class="settings-input-compact min-w-0 flex-1"
+												value={collection.name}
+												oninput={(event) =>
+													handleCollectionFieldChange(
+														collection.id,
+														(event.currentTarget as HTMLInputElement).value
+													)}
+											/>
+											<div class="flex items-center justify-between gap-3">
+												<span class="text-[11px] uppercase tracking-[0.18em] text-[var(--text-ghost)]">
+													notify on new chapters
+												</span>
+												<Switch
+													checked={collection.notifyOnNewChapters}
+													onCheckedChange={(value) =>
+														handleCollectionNotificationToggle(collection.id, value)}
+												/>
+											</div>
+										</div>
 										<Button
 											variant="ghost"
 											size="sm"
@@ -1181,24 +1204,20 @@
 										>
 											{$_('common.save').toLowerCase()}
 										</Button>
-										{#if !collection.isDefault}
-											<button
-												type="button"
-												class="flex h-10 w-10 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:bg-[var(--error-soft)] hover:text-[var(--error)]"
-												onclick={() => handleDeleteCollection(collection.id)}
-												disabled={deletingCollectionId === collection.id ||
-													collectionSavingId === collection.id}
-												title={$_('common.delete')}
-											>
-												{#if deletingCollectionId === collection.id}
-													<SpinnerIcon size={14} class="animate-spin" />
-												{:else}
-													<TrashIcon size={14} />
-												{/if}
-											</button>
-										{:else}
-											<span class="w-10 shrink-0"></span>
-										{/if}
+										<button
+											type="button"
+											class="flex h-10 w-10 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:bg-[var(--error-soft)] hover:text-[var(--error)]"
+											onclick={() => handleDeleteCollection(collection.id)}
+											disabled={deletingCollectionId === collection.id ||
+												collectionSavingId === collection.id}
+											title={$_('common.delete')}
+										>
+											{#if deletingCollectionId === collection.id}
+												<SpinnerIcon size={14} class="animate-spin" />
+											{:else}
+												<TrashIcon size={14} />
+											{/if}
+										</button>
 									</div>
 								{/each}
 							{/if}

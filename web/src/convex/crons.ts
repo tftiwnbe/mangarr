@@ -32,6 +32,15 @@ crons.interval(
 );
 
 crons.interval(
+	'chapter notification push delivery',
+	{ minutes: 1 },
+	internal.notifications_push.processPendingEvents,
+	{
+		limit: 20
+	}
+);
+
+crons.interval(
 	'discovery crawl scheduler',
 	{ minutes: 15 },
 	internalMaintenance.discovery.runScheduler,

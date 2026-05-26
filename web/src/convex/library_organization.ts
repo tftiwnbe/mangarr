@@ -63,6 +63,28 @@ async function requireOwnedDynamicCollection(
 	return collection;
 }
 
+async function markCollectionsInitialized(ctx: MutationCtx, ownerUserId: GenericId<'users'>) {
+	const existing = await ctx.db
+		.query('userPreferences')
+		.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+		.unique();
+	const now = Date.now();
+	if (existing) {
+		if (existing.defaultCollectionsInitialized === true) return;
+		await ctx.db.patch(existing._id, {
+			defaultCollectionsInitialized: true,
+			updatedAt: now
+		});
+		return;
+	}
+	await ctx.db.insert('userPreferences', {
+		ownerUserId,
+		defaultCollectionsInitialized: true,
+		createdAt: now,
+		updatedAt: now
+	});
+}
+
 export const listUserStatuses = query({
 	args: {},
 	handler: async (ctx) => {
@@ -247,6 +269,7 @@ export const listCollections = query({
 				name: row.name,
 				position: row.position,
 				isDefault: row.isDefault,
+				notifyOnNewChapters: row.notifyOnNewChapters === true,
 				titlesCount: titlesCountByCollectionId.get(String(row._id)) ?? 0
 			}));
 	}
@@ -256,13 +279,22 @@ export const ensureDefaultCollections = mutation({
 	args: {},
 	handler: async (ctx) => {
 		const userId = await requireViewerUserId(ctx);
-		const existing = await ctx.db
-			.query('libraryCollections')
-			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
-			.collect();
+		const [existing, preferences] = await Promise.all([
+			ctx.db
+				.query('libraryCollections')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+				.collect(),
+			ctx.db
+				.query('userPreferences')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+				.unique()
+		]);
 
 		if (existing.length > 0) {
 			return { created: false, count: existing.length };
+		}
+		if (preferences?.defaultCollectionsInitialized === true) {
+			return { created: false, count: 0 };
 		}
 
 		const now = Date.now();
@@ -272,6 +304,20 @@ export const ensureDefaultCollections = mutation({
 				name: collection.name,
 				position: index,
 				isDefault: true,
+				notifyOnNewChapters: false,
+				createdAt: now,
+				updatedAt: now
+			});
+		}
+		if (preferences) {
+			await ctx.db.patch(preferences._id, {
+				defaultCollectionsInitialized: true,
+				updatedAt: now
+			});
+		} else {
+			await ctx.db.insert('userPreferences', {
+				ownerUserId: userId,
+				defaultCollectionsInitialized: true,
 				createdAt: now,
 				updatedAt: now
 			});
@@ -298,9 +344,11 @@ export const createCollection = mutation({
 			name: args.name.trim(),
 			position: nextPosition,
 			isDefault: false,
+			notifyOnNewChapters: false,
 			createdAt: now,
 			updatedAt: now
 		});
+		await markCollectionsInitialized(ctx, userId);
 
 		const created = await ctx.db.get(collectionId);
 		if (!created) {
@@ -312,6 +360,7 @@ export const createCollection = mutation({
 			name: created.name,
 			position: created.position,
 			isDefault: created.isDefault,
+			notifyOnNewChapters: created.notifyOnNewChapters === true,
 			titlesCount: 0
 		};
 	}
@@ -363,6 +412,7 @@ export const createDynamicCollection = mutation({
 			createdAt: now,
 			updatedAt: now
 		});
+		await markCollectionsInitialized(ctx, userId);
 
 		const created = await ctx.db.get(collectionId);
 		if (!created) {
@@ -421,13 +471,15 @@ export const updateCollection = mutation({
 	args: {
 		collectionId: v.id('libraryCollections'),
 		name: v.string(),
-		position: v.optional(v.float64())
+		position: v.optional(v.float64()),
+		notifyOnNewChapters: v.optional(v.boolean())
 	},
 	handler: async (ctx, args) => {
 		const collection = await requireOwnedCollection(ctx, args.collectionId);
 		await ctx.db.patch(collection._id, {
 			name: args.name.trim(),
 			position: args.position ?? collection.position,
+			notifyOnNewChapters: args.notifyOnNewChapters ?? collection.notifyOnNewChapters,
 			updatedAt: Date.now()
 		});
 
@@ -441,7 +493,39 @@ export const updateCollection = mutation({
 			name: updated.name,
 			position: updated.position,
 			isDefault: updated.isDefault,
+			notifyOnNewChapters: updated.notifyOnNewChapters === true,
 			titlesCount: await countTitlesInCollection(ctx, updated.ownerUserId, updated._id)
+		};
+	}
+});
+
+export const setDefaultCollection = mutation({
+	args: {
+		collectionId: v.optional(v.union(v.id('libraryCollections'), v.null()))
+	},
+	handler: async (ctx, args) => {
+		const ownerUserId = await requireViewerUserId(ctx);
+		const rows = await ctx.db
+			.query('libraryCollections')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+			.collect();
+		const targetId = args.collectionId ?? null;
+		if (targetId !== null) {
+			await requireOwnedCollection(ctx, targetId);
+		}
+
+		const now = Date.now();
+		for (const row of rows) {
+			const nextIsDefault = targetId !== null && row._id === targetId;
+			if (row.isDefault === nextIsDefault) continue;
+			await ctx.db.patch(row._id, {
+				isDefault: nextIsDefault,
+				updatedAt: now
+			});
+		}
+
+		return {
+			defaultCollectionId: targetId
 		};
 	}
 });
@@ -452,9 +536,6 @@ export const deleteCollection = mutation({
 	},
 	handler: async (ctx, args) => {
 		const collection = await requireOwnedCollection(ctx, args.collectionId);
-		if (collection.isDefault) {
-			throw new Error('Default collections cannot be deleted');
-		}
 
 		const collectionTitles = await ctx.db
 			.query('libraryCollectionTitles')

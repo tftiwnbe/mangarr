@@ -10,6 +10,7 @@ ENV PNPM_HOME=/pnpm \
     PNPM_STORE_DIR=/pnpm/store
 
 RUN corepack enable && \
+    corepack prepare pnpm@10.33.4 --activate && \
     mkdir -p "${PNPM_STORE_DIR}"
 
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
@@ -36,6 +37,7 @@ ENV NODE_ENV=production \
     PNPM_STORE_DIR=/pnpm/store
 
 RUN corepack enable && \
+    corepack prepare pnpm@10.33.4 --activate && \
     mkdir -p "${PNPM_STORE_DIR}"
 
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./

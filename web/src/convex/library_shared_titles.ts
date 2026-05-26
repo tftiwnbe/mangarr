@@ -194,7 +194,8 @@ export async function listCollectionsForTitle(
 				id: collection._id,
 				name: collection.name,
 				position: collection.position,
-				isDefault: collection.isDefault
+				isDefault: collection.isDefault,
+				notifyOnNewChapters: collection.notifyOnNewChapters === true
 			};
 		})
 	);

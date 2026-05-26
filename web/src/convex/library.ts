@@ -13,6 +13,7 @@ import {
 	requireOwnedTitle
 } from './library_shared';
 import { refreshTitleChapterStats, scheduleTitleStatsRefresh } from './library_shared';
+import { createNotificationEventForNewChapters } from './notifications';
 import { insertCommand } from './command_payloads';
 import { pickBestMergeCandidate } from './title_identity';
 
@@ -54,6 +55,7 @@ export {
 	listCollections,
 	listDynamicCollections,
 	listMergeCandidates,
+	setDefaultCollection,
 	setTitleListedInLibrary,
 	listUserStatuses,
 	mergeTitles,
@@ -83,6 +85,15 @@ export {
 	setChapterDownloadState,
 	updateDownloadProfile
 } from './library_downloads';
+export {
+	acknowledgeEvent as acknowledgeNotificationEvent,
+	getPreferences as getNotificationPreferences,
+	listPendingEvents as listNotificationEvents,
+	listStatus as listNotificationStatus,
+	subscribeWebPush,
+	unsubscribeWebPush,
+	updatePreferences as updateNotificationPreferences
+} from './notifications';
 export {
 	ensureTitleReady,
 	beginTitleOpen,
@@ -216,6 +227,8 @@ export const upsertChaptersForTitle = mutation({
 				.map((chapter) => [chapter.chapterUrl, chapter])
 		);
 		const seenChapterUrls = new Set<string>();
+		const insertedChapterIds: GenericId<'libraryChapters'>[] = [];
+		let latestInsertedChapterName = '';
 		let chapterRowsChanged = false;
 
 		for (const [index, chapter] of args.chapters.entries()) {
@@ -254,7 +267,7 @@ export const upsertChaptersForTitle = mutation({
 				continue;
 			}
 
-			await ctx.db.insert('libraryChapters', {
+			const chapterId = await ctx.db.insert('libraryChapters', {
 				ownerUserId: title.ownerUserId,
 				libraryTitleId: title._id,
 				titleVariantId: variant._id,
@@ -274,6 +287,8 @@ export const upsertChaptersForTitle = mutation({
 				createdAt: args.now,
 				updatedAt: args.now
 			});
+			insertedChapterIds.push(chapterId);
+			latestInsertedChapterName = chapter.name;
 			chapterRowsChanged = true;
 		}
 
@@ -317,6 +332,17 @@ export const upsertChaptersForTitle = mutation({
 			await scheduleTitleStatsRefresh(ctx, {
 				libraryTitleId: title._id,
 				ownerUserId: title.ownerUserId,
+				now: args.now
+			});
+		}
+
+		if (insertedChapterIds.length > 0) {
+			await createNotificationEventForNewChapters(ctx, {
+				ownerUserId: title.ownerUserId,
+				libraryTitleId: title._id,
+				newChapterIds: insertedChapterIds,
+				latestChapterName:
+					latestInsertedChapterName || args.chapters.at(-1)?.name || title.title,
 				now: args.now
 			});
 		}

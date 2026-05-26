@@ -6,6 +6,7 @@
 	import { Dialog } from 'bits-ui';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import {
+		BellIcon,
 		BookIcon,
 		BookOpenIcon,
 		CaretDownIcon,
@@ -67,6 +68,7 @@
 				titlesCount: number;
 				position: number;
 				isDefault: boolean;
+				notifyOnNewChapters: boolean;
 		  }
 		| {
 				kind: 'dynamic';
@@ -143,6 +145,7 @@
 	let collectionsError = $state<string | null>(null);
 	let pendingDelete = $state<{ kind: 'manual' | 'dynamic'; id: string; name: string } | null>(null);
 	let deletingCollectionId = $state<string | null>(null);
+	let defaultCollectionBootstrapped = $state(false);
 
 	onMount(() => {
 		if (typeof navigator !== 'undefined') {
@@ -230,6 +233,7 @@
 				name: string;
 				position: number;
 				isDefault: boolean;
+				notifyOnNewChapters: boolean;
 				titlesCount: number;
 			}>
 		).map((collection) => ({
@@ -237,6 +241,7 @@
 			name: collection.name,
 			position: collection.position,
 			isDefault: collection.isDefault,
+			notifyOnNewChapters: collection.notifyOnNewChapters,
 			titlesCount: collection.titlesCount
 		}))
 	);
@@ -249,7 +254,8 @@
 				name: collection.name,
 				titlesCount: collection.titlesCount ?? 0,
 				position: collection.position ?? 0,
-				isDefault: collection.isDefault ?? false
+				isDefault: collection.isDefault ?? false,
+				notifyOnNewChapters: collection.notifyOnNewChapters ?? false
 			})
 		);
 		const dynamic = dynamicCollections.map(
@@ -264,6 +270,21 @@
 		);
 		return [...manual, ...dynamic].sort((a, b) => a.position - b.position);
 	});
+	const manualCollections = $derived.by(
+		() => combinedCollections.filter((collection) => collection.kind === 'manual') as Extract<
+			CollectionListItem,
+			{ kind: 'manual' }
+		>[]
+	);
+	const dynamicCollectionsList = $derived.by(
+		() => combinedCollections.filter((collection) => collection.kind === 'dynamic') as Extract<
+			CollectionListItem,
+			{ kind: 'dynamic' }
+		>[]
+	);
+	const defaultManualCollection = $derived.by(
+		() => manualCollections.find((collection) => collection.isDefault) ?? null
+	);
 
 	const listedTitlesCount = $derived(totalCountQuery.data?.listedCount ?? titles.length);
 
@@ -423,6 +444,23 @@
 	$effect(() => {
 		void renderContextKey;
 		libraryRenderLimit = INITIAL_LIBRARY_RENDER_LIMIT;
+	});
+
+	$effect(() => {
+		if (collectionsQuery.isLoading || defaultCollectionBootstrapped) return;
+		defaultCollectionBootstrapped = true;
+		if (
+			selectedCollectionId !== null ||
+			selectedDynamicCollectionId !== null ||
+			activeReadingStatusIds.length > 0 ||
+			activeSourceStatusKeys.length > 0 ||
+			activeGenres.length > 0
+		) {
+			return;
+		}
+		if (defaultManualCollection) {
+			selectManualCollection(defaultManualCollection.id);
+		}
 	});
 
 	$effect(() => {
@@ -716,6 +754,34 @@
 		collectionDialogTargetId = collection.id;
 		collectionDialogDraftFilters = collection.kind === 'dynamic' ? collection.filters : null;
 		collectionDialogOpen = true;
+	}
+
+	async function toggleManualCollectionNotifications(
+		collection: Extract<CollectionListItem, { kind: 'manual' }>
+	) {
+		collectionsError = null;
+		try {
+			await client.mutation(convexApi.library.updateCollection, {
+				collectionId: collection.id as Id<'libraryCollections'>,
+				name: collection.name,
+				notifyOnNewChapters: !collection.notifyOnNewChapters
+			});
+		} catch (cause) {
+			collectionsError =
+				cause instanceof Error ? cause.message : 'Failed to update collection notifications';
+		}
+	}
+
+	async function setLibraryDefaultCollection(collectionId: string | null) {
+		collectionsError = null;
+		try {
+			await client.mutation(convexApi.library.setDefaultCollection, {
+				collectionId: collectionId ? (collectionId as Id<'libraryCollections'>) : null
+			});
+		} catch (cause) {
+			collectionsError =
+				cause instanceof Error ? cause.message : 'Failed to update default collection';
+		}
 	}
 
 	function closeCollectionDialog() {
@@ -1118,18 +1184,6 @@
 	onclose={closeCollectionsPanel}
 >
 	<div class="flex flex-col gap-4 pt-1">
-		<div class="flex items-center gap-2">
-			<Button variant="outline" size="sm" onclick={openCreateCollectionDialog}>
-				<PlusIcon size={12} />
-				{$_('library.createCollection')}
-			</Button>
-			{#if hasActiveFilters}
-				<Button variant="ghost" size="sm" onclick={openCreateDynamicCollectionDialog}>
-					{$_('library.saveAsDynamicCollection')}
-				</Button>
-			{/if}
-		</div>
-
 		{#if collectionsError}
 			<Alert variant="error">{collectionsError}</Alert>
 		{/if}
@@ -1137,17 +1191,20 @@
 		<div class="flex flex-col">
 			<button
 				type="button"
-				class="flex items-center justify-between gap-3 border-b border-[var(--void-3)]/30 py-3 text-left transition-colors hover:text-[var(--text)]"
-				onclick={() => {
-					selectedCollectionId = null;
-					selectedDynamicCollectionId = null;
-					closeCollectionsPanel();
-				}}
+				class="flex items-center justify-between gap-3 py-3 text-left transition-colors hover:text-[var(--text)]"
+				onclick={() => void setLibraryDefaultCollection(null)}
 			>
 				<div class="min-w-0">
-					<p class="text-sm text-[var(--text)]">{$_('library.allTitles')}</p>
+					<div class="flex items-center gap-2">
+						<p class="text-sm text-[var(--text)]">{$_('library.allTitles')}</p>
+						{#if defaultManualCollection === null}
+							<span class="shrink-0 text-[10px] uppercase tracking-[0.18em] text-[var(--text-ghost)]">
+								default
+							</span>
+						{/if}
+					</div>
+					<p class="mt-0.5 text-xs tabular-nums text-[var(--text-ghost)]">{listedTitlesCount}</p>
 				</div>
-				<span class="text-xs text-[var(--text-ghost)]">{listedTitlesCount}</span>
 			</button>
 
 			{#if dynamicCollectionsQuery.isLoading || collectionsQuery.isLoading}
@@ -1155,61 +1212,128 @@
 			{:else if combinedCollections.length === 0}
 				<p class="py-3 text-sm text-[var(--text-ghost)]">{$_('library.noCollections')}</p>
 			{:else}
-				{#each combinedCollections as collection (`${collection.kind}:${collection.id}`)}
-					<div
-						class="flex items-center gap-2 border-b border-[var(--void-3)]/30 py-3 last:border-b-0"
-					>
-						<button
-							type="button"
-							class="flex min-w-0 flex-1 items-center justify-between gap-3 text-left transition-colors hover:text-[var(--text)]"
-							onclick={() => {
-								if (collection.kind === 'manual') {
-									selectManualCollection(collection.id);
-								} else {
-									selectDynamicCollection(collection);
-								}
-								closeCollectionsPanel();
-							}}
-						>
-							<div class="min-w-0">
-								<p class="truncate text-sm text-[var(--text)]">{collection.name}</p>
-								{#if collection.kind === 'dynamic'}
-									<p class="mt-0.5 truncate text-xs text-[var(--text-ghost)]">
-										{dynamicCollectionSummary(collection.filters)}
-									</p>
-								{/if}
+				<div class="mt-2 border-t border-[var(--void-3)]/30 pt-2">
+					<div class="flex flex-col gap-1">
+						{#each manualCollections as collection (collection.id)}
+							<div class="flex items-center gap-2 py-2.5">
+								<button
+									type="button"
+									class="flex min-w-0 flex-1 items-center justify-between gap-3 text-left transition-colors hover:text-[var(--text)] {collection.isDefault
+										? 'text-[var(--text)]'
+										: ''}"
+									onclick={() => void setLibraryDefaultCollection(collection.id)}
+								>
+									<div class="min-w-0">
+										<p class="truncate text-sm text-[var(--text)]">{collection.name}</p>
+										<p class="mt-0.5 text-xs tabular-nums text-[var(--text-ghost)]">
+											{collection.titlesCount}
+										</p>
+									</div>
+									{#if collection.isDefault}
+										<span class="shrink-0 text-[10px] uppercase tracking-[0.18em] text-[var(--text-ghost)]">
+											default
+										</span>
+									{/if}
+								</button>
+								<button
+									type="button"
+									class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:bg-[var(--void-2)] hover:text-[var(--text)]"
+									onclick={() => void toggleManualCollectionNotifications(collection)}
+									aria-label={collection.notifyOnNewChapters
+										? 'Disable notifications for collection'
+										: 'Enable notifications for collection'}
+									title={collection.notifyOnNewChapters
+										? 'Disable notifications'
+										: 'Enable notifications'}
+								>
+									<BellIcon
+										size={14}
+										weight={collection.notifyOnNewChapters ? 'fill' : 'regular'}
+									/>
+								</button>
+								<button
+									type="button"
+									class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
+									onclick={() => openRenameCollectionDialog(collection)}
+									aria-label={$_('common.edit')}
+								>
+									<PencilSimpleIcon size={14} />
+								</button>
+								<button
+									type="button"
+									class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--error)]"
+									onclick={() =>
+										(pendingDelete = {
+											kind: collection.kind,
+											id: collection.id,
+											name: collection.name
+										})}
+									aria-label={$_('common.delete')}
+								>
+									<TrashIcon size={14} />
+								</button>
 							</div>
-							<span class="shrink-0 text-xs text-[var(--text-ghost)]">{collection.titlesCount}</span
-							>
-						</button>
-						<button
-							type="button"
-							class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
-							onclick={() => openRenameCollectionDialog(collection)}
-							aria-label={$_('common.edit')}
-						>
-							<PencilSimpleIcon size={14} />
-						</button>
-						{#if collection.kind === 'dynamic' || !collection.isDefault}
-							<button
-								type="button"
-								class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--error)]"
-								onclick={() =>
-									(pendingDelete = {
-										kind: collection.kind,
-										id: collection.id,
-										name: collection.name
-									})}
-								aria-label={$_('common.delete')}
-							>
-								<TrashIcon size={14} />
-							</button>
-						{:else}
-							<span class="w-8 shrink-0"></span>
-						{/if}
+						{/each}
 					</div>
-				{/each}
+				</div>
+
+				{#if dynamicCollectionsList.length > 0}
+					<div class="mt-3 border-t border-[var(--void-3)]/30 pt-3">
+						<p class="mb-1 text-[11px] uppercase tracking-[0.18em] text-[var(--text-ghost)]">
+							Dynamic collections
+						</p>
+						<div class="flex flex-col gap-1">
+							{#each dynamicCollectionsList as collection (collection.id)}
+								<div class="flex items-center gap-2 py-2.5">
+									<button
+										type="button"
+										class="flex min-w-0 flex-1 items-center justify-between gap-3 text-left transition-colors hover:text-[var(--text)]"
+										onclick={() => {
+											selectDynamicCollection(collection);
+											closeCollectionsPanel();
+										}}
+									>
+										<div class="min-w-0">
+											<p class="truncate text-sm text-[var(--text)]">{collection.name}</p>
+											<p class="mt-0.5 truncate text-xs text-[var(--text-ghost)]">
+												{collection.titlesCount} · {dynamicCollectionSummary(collection.filters)}
+											</p>
+										</div>
+									</button>
+									<button
+										type="button"
+										class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
+										onclick={() => openRenameCollectionDialog(collection)}
+										aria-label={$_('common.edit')}
+									>
+										<PencilSimpleIcon size={14} />
+									</button>
+									<button
+										type="button"
+										class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--error)]"
+										onclick={() =>
+											(pendingDelete = {
+												kind: collection.kind,
+												id: collection.id,
+												name: collection.name
+											})}
+										aria-label={$_('common.delete')}
+									>
+										<TrashIcon size={14} />
+									</button>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
 			{/if}
+		</div>
+
+		<div class="border-t border-[var(--void-3)]/30 pt-3">
+			<Button variant="ghost" size="sm" onclick={openCreateCollectionDialog} class="w-full">
+				<PlusIcon size={12} />
+				{$_('library.createCollection')}
+			</Button>
 		</div>
 	</div>
 </SlidePanel>

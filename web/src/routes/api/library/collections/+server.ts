@@ -22,9 +22,9 @@ export const GET: RequestHandler = async ({ locals }) => {
 
 export const POST: RequestHandler = async ({ locals, request }) => {
 	const user = requireUser(locals);
-	let payload: { name?: string };
+	let payload: { name?: string; notifyOnNewChapters?: boolean };
 	try {
-		payload = (await request.json()) as { name?: string };
+		payload = (await request.json()) as { name?: string; notifyOnNewChapters?: boolean };
 	} catch {
 		throw error(400, 'Request body must be valid JSON');
 	}

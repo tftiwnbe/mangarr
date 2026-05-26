@@ -27,6 +27,27 @@ const IMAGE_PATH_PREFIXES = [
 	'/api/internal/bridge/reader/page'
 ];
 
+type NotificationClickData = {
+	kind?: 'title-update';
+	titleId?: string;
+	eventId?: string;
+	path?: string;
+};
+
+type PushPayload = {
+	web_push?: number;
+	notification?: {
+		title?: string;
+		body?: string;
+		navigate?: string;
+		tag?: string;
+		icon?: string;
+		badge?: string;
+		app_badge?: string;
+		data?: NotificationClickData;
+	};
+};
+
 function isImagePath(pathname: string): boolean {
 	for (const prefix of IMAGE_PATH_PREFIXES) {
 		if (
@@ -38,6 +59,15 @@ function isImagePath(pathname: string): boolean {
 		}
 	}
 	return false;
+}
+
+function buildNotificationTargetUrl(path: string | undefined, eventId: string | undefined): string {
+	const basePath = path && path.startsWith('/') ? path : '/library';
+	const url = new URL(basePath, sw.location.origin);
+	if (eventId) {
+		url.searchParams.set('notificationEventId', eventId);
+	}
+	return url.toString();
 }
 
 async function trimCache(name: string, max: number): Promise<void> {
@@ -123,4 +153,58 @@ sw.addEventListener('fetch', (event) => {
 	}
 
 	// Everything else (pages, API, convex traffic) hits the network unmodified.
+});
+
+sw.addEventListener('push', (event) => {
+	event.waitUntil(
+		(async () => {
+			let payload: PushPayload | null = null;
+			try {
+				payload = event.data?.json() as PushPayload | null;
+			} catch {
+				payload = null;
+			}
+			const notification = payload?.notification;
+			const title = notification?.title?.trim() || 'Mangarr';
+			await sw.registration.showNotification(title, {
+				body: notification?.body?.trim() || '',
+				tag: notification?.tag?.trim() || undefined,
+				icon: notification?.icon?.trim() || '/icon-192.png',
+				badge: notification?.badge?.trim() || '/icon-192.png',
+				data: {
+					kind: notification?.data?.kind ?? 'title-update',
+					titleId: notification?.data?.titleId,
+					eventId: notification?.data?.eventId,
+					path: notification?.data?.path ?? notification?.navigate ?? '/library'
+				} satisfies NotificationClickData
+			});
+		})()
+	);
+});
+
+sw.addEventListener('notificationclick', (event) => {
+	const data = (event.notification.data ?? {}) as NotificationClickData;
+	event.notification.close();
+	event.waitUntil(
+		(async () => {
+			const targetUrl = buildNotificationTargetUrl(data.path, data.eventId);
+			const windowClients = await sw.clients.matchAll({
+				type: 'window',
+				includeUncontrolled: true
+			});
+			for (const client of windowClients) {
+				if (!('focus' in client)) continue;
+				try {
+					if ('navigate' in client && typeof client.navigate === 'function') {
+						await client.navigate(targetUrl);
+					}
+				} catch {
+					// Fall through to focus the existing window even if navigation failed.
+				}
+				await client.focus();
+				return;
+			}
+			await sw.clients.openWindow(targetUrl);
+		})()
+	);
 });

@@ -38,6 +38,8 @@ import type * as library_shared_titles from "../library_shared_titles.js";
 import type * as library_shared_values from "../library_shared_values.js";
 import type * as library_title_variants from "../library_title_variants.js";
 import type * as maintenance from "../maintenance.js";
+import type * as notifications from "../notifications.js";
+import type * as notifications_push from "../notifications_push.js";
 import type * as settings from "../settings.js";
 import type * as title_identity from "../title_identity.js";
 import type * as user_preferences from "../user_preferences.js";
@@ -81,6 +83,8 @@ const fullApi: ApiFromModules<{
   library_shared_values: typeof library_shared_values;
   library_title_variants: typeof library_title_variants;
   maintenance: typeof maintenance;
+  notifications: typeof notifications;
+  notifications_push: typeof notifications_push;
   settings: typeof settings;
   title_identity: typeof title_identity;
   user_preferences: typeof user_preferences;

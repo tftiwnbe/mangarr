@@ -31,6 +31,7 @@ export default defineSchema({
 		theme: v.optional(v.string()),
 		locale: v.optional(v.string()),
 		pwaResumeEnabled: v.optional(v.boolean()),
+		defaultCollectionsInitialized: v.optional(v.boolean()),
 		createdAt: v.float64(),
 		updatedAt: v.float64()
 	}).index('by_owner_user_id', ['ownerUserId']),
@@ -176,9 +177,70 @@ export default defineSchema({
 		name: v.string(),
 		position: v.float64(),
 		isDefault: v.boolean(),
+		notifyOnNewChapters: v.optional(v.boolean()),
 		createdAt: v.float64(),
 		updatedAt: v.float64()
 	}).index('by_owner_user_id', ['ownerUserId']),
+
+	notificationPreferences: defineTable({
+		ownerUserId: v.id('users'),
+		collectionNotificationsEnabled: v.boolean(),
+		iosPwaPushEnabled: v.boolean(),
+		foregroundNotificationsEnabled: v.boolean(),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	}).index('by_owner_user_id', ['ownerUserId']),
+
+	webPushSubscriptions: defineTable({
+		ownerUserId: v.id('users'),
+		endpoint: v.string(),
+		p256dh: v.string(),
+		auth: v.string(),
+		userAgent: v.optional(v.string()),
+		platform: v.optional(v.string()),
+		installationKey: v.string(),
+		supportsBadging: v.boolean(),
+		lastSeenAt: v.float64(),
+		lastPushSucceededAt: v.optional(v.float64()),
+		lastPushFailedAt: v.optional(v.float64()),
+		lastErrorMessage: v.optional(v.string()),
+		revokedAt: v.optional(v.float64()),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_owner_user_id', ['ownerUserId'])
+		.index('by_owner_user_id_revoked_at', ['ownerUserId', 'revokedAt'])
+		.index('by_owner_user_id_endpoint', ['ownerUserId', 'endpoint']),
+
+	chapterNotificationEvents: defineTable({
+		ownerUserId: v.id('users'),
+		libraryTitleId: v.id('libraryTitles'),
+		collectionIds: v.array(v.id('libraryCollections')),
+		newChapterIds: v.array(v.id('libraryChapters')),
+		newChapterCount: v.float64(),
+		titleName: v.string(),
+		latestChapterName: v.string(),
+		coverUrl: v.optional(v.string()),
+		routeBase: v.optional(v.string()),
+		dedupeKey: v.string(),
+		status: v.union(
+			v.literal('pending'),
+			v.literal('sending'),
+			v.literal('sent'),
+			v.literal('partial'),
+			v.literal('failed'),
+			v.literal('ignored')
+		),
+		lastAttemptAt: v.optional(v.float64()),
+		lastDeliveredAt: v.optional(v.float64()),
+		acknowledgedAt: v.optional(v.float64()),
+		attemptCount: v.float64(),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_status_created_at', ['status', 'createdAt'])
+		.index('by_owner_user_id_created_at', ['ownerUserId', 'createdAt'])
+		.index('by_dedupe_key', ['dedupeKey']),
 
 	libraryDynamicCollections: defineTable({
 		ownerUserId: v.id('users'),

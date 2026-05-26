@@ -3,6 +3,7 @@
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
+	"packageManager": "pnpm@10.33.4",
 	"scripts": {
 		"ensure:env": "test -f .env.local || : > .env.local",
 		"dev": "pnpm run ensure:env && vite dev --host 0.0.0.0 --port 3737 --strictPort",
@@ -34,7 +35,8 @@
 		"jose": "^6.2.1",
 		"phosphor-svelte": "^3.1.0",
 		"svelte-i18n": "^4.0.1",
-		"tailwind-merge": "^3.4.0"
+		"tailwind-merge": "^3.4.0",
+		"web-push": "^3.6.7"
 	},
 	"devDependencies": {
 		"@eslint/compat": "^2.0.2",
@@ -46,6 +48,7 @@
 		"@tailwindcss/forms": "^0.5.11",
 		"@tailwindcss/vite": "^4.1.18",
 		"@types/node": "^24",
+		"@types/web-push": "^3.6.4",
 		"@vitest/browser-playwright": "^4.0.18",
 		"eslint": "^9.39.2",
 		"eslint-config-prettier": "^10.1.8",
@@ -63,10 +66,5 @@
 		"vite": "^7.3.1",
 		"vitest": "^4.0.18",
 		"vitest-browser-svelte": "^2.0.2"
-	},
-	"pnpm": {
-		"overrides": {
-			"svelte-i18n>esbuild": "0.27.3"
-		}
 	}
 }

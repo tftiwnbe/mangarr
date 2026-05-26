@@ -5,6 +5,8 @@
 	import { onMount } from 'svelte';
 
 	import { setupConvexClient } from '$lib/convex/client';
+	import { registerMangarrServiceWorker } from '$lib/client/pwa-notifications';
+	import NotificationManager from '$lib/components/notification-manager.svelte';
 	import { StarField } from '$lib/elements/starfield';
 	import { ToastContainer } from '$lib/elements/toast';
 	import { BookIcon, CompassIcon, DownloadIcon, PuzzlePieceIcon, GearIcon } from 'phosphor-svelte';
@@ -74,6 +76,7 @@
 	onMount(() => {
 		void loadContentLanguages();
 		void loadUserPreferences();
+		void registerMangarrServiceWorker();
 	});
 </script>
 
@@ -140,6 +143,7 @@
 	{/if}
 
 	<ToastContainer />
+	<NotificationManager />
 
 	<aside
 		class="fixed inset-y-0 left-0 z-40 hidden w-16 flex-col border-r border-[var(--line)] bg-[var(--void-1)] {isReaderRoute
