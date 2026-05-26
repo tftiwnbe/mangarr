@@ -1580,7 +1580,6 @@
 						onclick={() => toggleExtensionFilter(extension.pkg)}
 					>
 						<span>{extension.name}</span>
-						<span class="text-[10px] text-[var(--text-ghost)]">{extension.sourceCount}</span>
 					</button>
 				{/each}
 			</div>
