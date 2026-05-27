@@ -21,15 +21,21 @@ import { scoreMergeSnapshot } from './title_identity';
 
 const dynamicCollectionFiltersValidator = v.object({
 	readingStatusIds: v.array(v.string()),
+	excludedReadingStatusIds: v.optional(v.array(v.string())),
 	sourceStatusKeys: v.array(v.string()),
+	excludedSourceStatusKeys: v.optional(v.array(v.string())),
 	genres: v.array(v.string()),
+	excludedGenres: v.optional(v.array(v.string())),
 	genreMatchMode: v.optional(v.union(v.literal('and'), v.literal('or')))
 });
 
 type DynamicCollectionFilters = {
 	readingStatusIds: string[];
+	excludedReadingStatusIds?: string[];
 	sourceStatusKeys: string[];
+	excludedSourceStatusKeys?: string[];
 	genres: string[];
+	excludedGenres?: string[];
 	genreMatchMode?: 'and' | 'or';
 };
 
@@ -40,10 +46,19 @@ function normalizeDynamicCollectionFilters(
 		readingStatusIds: [
 			...new Set(filters.readingStatusIds.map((value) => value.trim()).filter(Boolean))
 		],
+		excludedReadingStatusIds: [
+			...new Set((filters.excludedReadingStatusIds ?? []).map((value) => value.trim()).filter(Boolean))
+		],
 		sourceStatusKeys: [
 			...new Set(filters.sourceStatusKeys.map((value) => value.trim()).filter(Boolean))
 		],
+		excludedSourceStatusKeys: [
+			...new Set((filters.excludedSourceStatusKeys ?? []).map((value) => value.trim()).filter(Boolean))
+		],
 		genres: [...new Set(filters.genres.map((value) => value.trim()).filter(Boolean))],
+		excludedGenres: [
+			...new Set((filters.excludedGenres ?? []).map((value) => value.trim()).filter(Boolean))
+		],
 		genreMatchMode: filters.genreMatchMode === 'or' ? 'or' : 'and'
 	};
 }

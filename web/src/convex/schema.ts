@@ -248,8 +248,11 @@ export default defineSchema({
 		position: v.float64(),
 		filters: v.object({
 			readingStatusIds: v.array(v.string()),
+			excludedReadingStatusIds: v.optional(v.array(v.string())),
 			sourceStatusKeys: v.array(v.string()),
+			excludedSourceStatusKeys: v.optional(v.array(v.string())),
 			genres: v.array(v.string()),
+			excludedGenres: v.optional(v.array(v.string())),
 			genreMatchMode: v.optional(v.union(v.literal('and'), v.literal('or')))
 		}),
 		createdAt: v.float64(),

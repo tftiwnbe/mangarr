@@ -51,8 +51,11 @@
 
 	type DynamicCollectionFilters = {
 		readingStatusIds: string[];
+		excludedReadingStatusIds?: string[];
 		sourceStatusKeys: string[];
+		excludedSourceStatusKeys?: string[];
 		genres: string[];
+		excludedGenres?: string[];
 		genreMatchMode?: 'and' | 'or';
 	};
 
@@ -124,8 +127,11 @@
 	let sortMode = $state<SortMode>('added');
 	let sortDesc = $state(true);
 	let activeReadingStatusIds = $state<string[]>([]);
+	let excludedReadingStatusIds = $state<string[]>([]);
 	let activeSourceStatusKeys = $state<string[]>([]);
+	let excludedSourceStatusKeys = $state<string[]>([]);
 	let activeGenres = $state<string[]>([]);
+	let excludedGenres = $state<string[]>([]);
 	let genreMatchMode = $state<'and' | 'or'>('and');
 	let requestedMetadataTitleIds = $state<string[]>([]);
 	let requestedCoverTitleIds = $state<string[]>([]);
@@ -205,8 +211,11 @@
 			sortMode,
 			sortDesc,
 			activeReadingStatusIds: [...activeReadingStatusIds].sort(),
+			excludedReadingStatusIds: [...excludedReadingStatusIds].sort(),
 			activeSourceStatusKeys: [...activeSourceStatusKeys].sort(),
+			excludedSourceStatusKeys: [...excludedSourceStatusKeys].sort(),
 			activeGenres: [...activeGenres].sort(),
+			excludedGenres: [...excludedGenres].sort(),
 			genreMatchMode
 		})
 	);
@@ -321,8 +330,11 @@
 
 	const hasActiveFilters = $derived(
 		activeReadingStatusIds.length > 0 ||
+			excludedReadingStatusIds.length > 0 ||
 			activeSourceStatusKeys.length > 0 ||
-			activeGenres.length > 0
+			excludedSourceStatusKeys.length > 0 ||
+			activeGenres.length > 0 ||
+			excludedGenres.length > 0
 	);
 
 	const currentFilterSnapshot = $derived.by(() =>
@@ -348,6 +360,9 @@
 		const activeSourceValues = SOURCE_STATUS_FILTERS.filter((filter) =>
 			activeSourceStatusKeys.includes(filter.key)
 		).flatMap((filter) => filter.values);
+		const excludedSourceValues = SOURCE_STATUS_FILTERS.filter((filter) =>
+			excludedSourceStatusKeys.includes(filter.key)
+		).flatMap((filter) => filter.values);
 
 		let result = titles.filter((title) => {
 			if (selectedCollectionId !== null) {
@@ -366,7 +381,15 @@
 				return false;
 			}
 
+			if (title.user_status && excludedReadingStatusIds.includes(title.user_status.id)) {
+				return false;
+			}
+
 			if (activeSourceValues.length > 0 && !activeSourceValues.includes(title.status)) {
+				return false;
+			}
+
+			if (excludedSourceValues.length > 0 && excludedSourceValues.includes(title.status)) {
 				return false;
 			}
 
@@ -374,6 +397,11 @@
 				if (!title.genre) return false;
 				const titleGenres = title.genre.split(',').map((genre) => genre.trim());
 				if (!titleGenres.some((genre) => activeGenres.includes(genre))) return false;
+			}
+
+			if (excludedGenres.length > 0 && title.genre) {
+				const titleGenres = title.genre.split(',').map((genre) => genre.trim());
+				if (titleGenres.some((genre) => excludedGenres.includes(genre))) return false;
 			}
 
 			return true;
@@ -454,7 +482,10 @@
 			selectedDynamicCollectionId !== null ||
 			activeReadingStatusIds.length > 0 ||
 			activeSourceStatusKeys.length > 0 ||
-			activeGenres.length > 0
+			excludedReadingStatusIds.length > 0 ||
+			excludedSourceStatusKeys.length > 0 ||
+			activeGenres.length > 0 ||
+			excludedGenres.length > 0
 		) {
 			return;
 		}
@@ -594,8 +625,11 @@
 	function snapshotActiveFilters(): DynamicCollectionFilters {
 		return {
 			readingStatusIds: [...activeReadingStatusIds],
+			excludedReadingStatusIds: [...excludedReadingStatusIds],
 			sourceStatusKeys: [...activeSourceStatusKeys],
+			excludedSourceStatusKeys: [...excludedSourceStatusKeys],
 			genres: [...activeGenres],
+			excludedGenres: [...excludedGenres],
 			genreMatchMode
 		};
 	}
@@ -605,8 +639,11 @@
 	): DynamicCollectionFilters {
 		return {
 			readingStatusIds: [...new Set(filters.readingStatusIds)],
+			excludedReadingStatusIds: [...new Set(filters.excludedReadingStatusIds ?? [])],
 			sourceStatusKeys: [...new Set(filters.sourceStatusKeys)],
+			excludedSourceStatusKeys: [...new Set(filters.excludedSourceStatusKeys ?? [])],
 			genres: [...new Set(filters.genres)],
+			excludedGenres: [...new Set(filters.excludedGenres ?? [])],
 			genreMatchMode: filters.genreMatchMode === 'or' ? 'or' : 'and'
 		};
 	}
@@ -620,9 +657,15 @@
 		return (
 			normalizedLeft.readingStatusIds.join('\u0000') ===
 				normalizedRight.readingStatusIds.join('\u0000') &&
+			(normalizedLeft.excludedReadingStatusIds ?? []).join('\u0000') ===
+				(normalizedRight.excludedReadingStatusIds ?? []).join('\u0000') &&
 			normalizedLeft.sourceStatusKeys.join('\u0000') ===
 				normalizedRight.sourceStatusKeys.join('\u0000') &&
+			(normalizedLeft.excludedSourceStatusKeys ?? []).join('\u0000') ===
+				(normalizedRight.excludedSourceStatusKeys ?? []).join('\u0000') &&
 			normalizedLeft.genres.join('\u0000') === normalizedRight.genres.join('\u0000') &&
+			(normalizedLeft.excludedGenres ?? []).join('\u0000') ===
+				(normalizedRight.excludedGenres ?? []).join('\u0000') &&
 			normalizedLeft.genreMatchMode === normalizedRight.genreMatchMode
 		);
 	}
@@ -634,6 +677,9 @@
 		const activeSourceValues = SOURCE_STATUS_FILTERS.filter((filter) =>
 			filters.sourceStatusKeys.includes(filter.key)
 		).flatMap((filter) => filter.values);
+		const excludedSourceValues = SOURCE_STATUS_FILTERS.filter((filter) =>
+			(filters.excludedSourceStatusKeys ?? []).includes(filter.key)
+		).flatMap((filter) => filter.values);
 
 		if (
 			filters.readingStatusIds.length > 0 &&
@@ -642,7 +688,18 @@
 			return false;
 		}
 
+		if (
+			title.user_status &&
+			(filters.excludedReadingStatusIds ?? []).includes(title.user_status.id)
+		) {
+			return false;
+		}
+
 		if (activeSourceValues.length > 0 && !activeSourceValues.includes(title.status)) {
+			return false;
+		}
+
+		if (excludedSourceValues.length > 0 && excludedSourceValues.includes(title.status)) {
 			return false;
 		}
 
@@ -658,6 +715,13 @@
 			}
 		}
 
+		if ((filters.excludedGenres ?? []).length > 0 && title.genre) {
+			const titleGenres = title.genre.split(',').map((genre) => genre.trim());
+			if ((filters.excludedGenres ?? []).some((genre) => titleGenres.includes(genre))) {
+				return false;
+			}
+		}
+
 		return true;
 	}
 
@@ -666,8 +730,11 @@
 		collectionId: string | null
 	) {
 		activeReadingStatusIds = [...filters.readingStatusIds];
+		excludedReadingStatusIds = [...(filters.excludedReadingStatusIds ?? [])];
 		activeSourceStatusKeys = [...filters.sourceStatusKeys];
+		excludedSourceStatusKeys = [...(filters.excludedSourceStatusKeys ?? [])];
 		activeGenres = [...filters.genres];
+		excludedGenres = [...(filters.excludedGenres ?? [])];
 		genreMatchMode = filters.genreMatchMode === 'or' ? 'or' : 'and';
 		selectedDynamicCollectionId = collectionId;
 	}
@@ -679,15 +746,20 @@
 
 	function dynamicCollectionSummary(filters: DynamicCollectionFilters) {
 		const parts: string[] = [];
-		if (filters.readingStatusIds.length > 0) {
-			parts.push(`${filters.readingStatusIds.length} ${$_('library.readingStatus').toLowerCase()}`);
+		const readingStatusCount =
+			filters.readingStatusIds.length + (filters.excludedReadingStatusIds?.length ?? 0);
+		if (readingStatusCount > 0) {
+			parts.push(`${readingStatusCount} ${$_('library.readingStatus').toLowerCase()}`);
 		}
-		if (filters.sourceStatusKeys.length > 0) {
-			parts.push(`${filters.sourceStatusKeys.length} ${$_('library.sourceStatus').toLowerCase()}`);
+		const sourceStatusCount =
+			filters.sourceStatusKeys.length + (filters.excludedSourceStatusKeys?.length ?? 0);
+		if (sourceStatusCount > 0) {
+			parts.push(`${sourceStatusCount} ${$_('library.sourceStatus').toLowerCase()}`);
 		}
-		if (filters.genres.length > 0) {
+		const genreCount = filters.genres.length + (filters.excludedGenres?.length ?? 0);
+		if (genreCount > 0) {
 			parts.push(
-				`${filters.genres.length} ${$_('library.genres').toLowerCase()} (${$_(`library.genreMode.${filters.genreMatchMode ?? 'and'}`)})`
+				`${genreCount} ${$_('library.genres').toLowerCase()} (${$_(`library.genreMode.${filters.genreMatchMode ?? 'and'}`)})`
 			);
 		}
 		return parts.join(' · ');
@@ -712,8 +784,11 @@
 		selectedCollectionId = collectionId;
 		selectedDynamicCollectionId = null;
 		activeReadingStatusIds = [];
+		excludedReadingStatusIds = [];
 		activeSourceStatusKeys = [];
+		excludedSourceStatusKeys = [];
 		activeGenres = [];
+		excludedGenres = [];
 		genreMatchMode = 'and';
 	}
 
@@ -872,28 +947,62 @@
 	}
 
 	function toggleReadingStatus(id: string) {
-		activeReadingStatusIds = activeReadingStatusIds.includes(id)
-			? activeReadingStatusIds.filter((value) => value !== id)
-			: [...activeReadingStatusIds, id];
+		if (activeReadingStatusIds.includes(id)) {
+			activeReadingStatusIds = activeReadingStatusIds.filter((value) => value !== id);
+			excludedReadingStatusIds = [...new Set([...excludedReadingStatusIds, id])];
+			return;
+		}
+		if (excludedReadingStatusIds.includes(id)) {
+			excludedReadingStatusIds = excludedReadingStatusIds.filter((value) => value !== id);
+			return;
+		}
+		activeReadingStatusIds = [...new Set([...activeReadingStatusIds, id])];
 	}
 
 	function toggleSourceStatus(key: string) {
-		activeSourceStatusKeys = activeSourceStatusKeys.includes(key)
-			? activeSourceStatusKeys.filter((value) => value !== key)
-			: [...activeSourceStatusKeys, key];
+		if (activeSourceStatusKeys.includes(key)) {
+			activeSourceStatusKeys = activeSourceStatusKeys.filter((value) => value !== key);
+			excludedSourceStatusKeys = [...new Set([...excludedSourceStatusKeys, key])];
+			return;
+		}
+		if (excludedSourceStatusKeys.includes(key)) {
+			excludedSourceStatusKeys = excludedSourceStatusKeys.filter((value) => value !== key);
+			return;
+		}
+		activeSourceStatusKeys = [...new Set([...activeSourceStatusKeys, key])];
 	}
 
 	function toggleGenre(genre: string) {
-		activeGenres = activeGenres.includes(genre)
-			? activeGenres.filter((value) => value !== genre)
-			: [...activeGenres, genre];
+		if (activeGenres.includes(genre)) {
+			activeGenres = activeGenres.filter((value) => value !== genre);
+			excludedGenres = [...new Set([...excludedGenres, genre])];
+			return;
+		}
+		if (excludedGenres.includes(genre)) {
+			excludedGenres = excludedGenres.filter((value) => value !== genre);
+			return;
+		}
+		activeGenres = [...new Set([...activeGenres, genre])];
 	}
 
 	function clearFilters() {
 		activeReadingStatusIds = [];
+		excludedReadingStatusIds = [];
 		activeSourceStatusKeys = [];
+		excludedSourceStatusKeys = [];
 		activeGenres = [];
+		excludedGenres = [];
 		genreMatchMode = 'and';
+	}
+
+	function filterChipClass(state: 'off' | 'include' | 'exclude') {
+		if (state === 'include') {
+			return 'border-[var(--cosmic-halo)] bg-[var(--cosmic-soft)] text-[var(--text)]';
+		}
+		if (state === 'exclude') {
+			return 'border-[var(--danger)] bg-[rgba(255,143,143,0.16)] text-[#ffb3b3] shadow-[inset_0_0_0_1px_rgba(255,143,143,0.22)]';
+		}
+		return 'border-[var(--void-3)] bg-[var(--void-2)] text-[var(--text-ghost)] hover:border-[var(--void-5)] hover:text-[var(--text-muted)]';
 	}
 
 	function sortModeLabel(labelKey: string) {
@@ -1542,12 +1651,14 @@
 		<PanelSection label={$_('library.readingStatus')}>
 			<div class="flex flex-wrap gap-1.5">
 				{#each allUserStatuses as status (status.id)}
-					{@const active = activeReadingStatusIds.includes(status.id)}
+					{@const state = activeReadingStatusIds.includes(status.id)
+						? 'include'
+						: excludedReadingStatusIds.includes(status.id)
+							? 'exclude'
+							: 'off'}
 					<button
 						type="button"
-						class="border px-2.5 py-1 text-xs transition-colors {active
-							? 'border-[var(--cosmic-halo)] bg-[var(--cosmic-soft)] text-[var(--text)]'
-							: 'border-[var(--void-3)] bg-[var(--void-2)] text-[var(--text-ghost)] hover:border-[var(--void-5)] hover:text-[var(--text-muted)]'}"
+						class="border px-2.5 py-1 text-xs transition-colors {filterChipClass(state)}"
 						onclick={() => toggleReadingStatus(status.id)}
 					>
 						{status.label}
@@ -1561,12 +1672,14 @@
 		<PanelSection label={$_('library.sourceStatus')}>
 			<div class="flex flex-wrap gap-1.5">
 				{#each SOURCE_STATUS_FILTERS.filter( (filter) => presentSourceStatusKeys.includes(filter.key) ) as sourceFilter (sourceFilter.key)}
-					{@const active = activeSourceStatusKeys.includes(sourceFilter.key)}
+					{@const state = activeSourceStatusKeys.includes(sourceFilter.key)
+						? 'include'
+						: excludedSourceStatusKeys.includes(sourceFilter.key)
+							? 'exclude'
+							: 'off'}
 					<button
 						type="button"
-						class="border px-2.5 py-1 text-xs transition-colors {active
-							? 'border-[var(--cosmic-halo)] bg-[var(--cosmic-soft)] text-[var(--text)]'
-							: 'border-[var(--void-3)] bg-[var(--void-2)] text-[var(--text-ghost)] hover:border-[var(--void-5)] hover:text-[var(--text-muted)]'}"
+						class="border px-2.5 py-1 text-xs transition-colors {filterChipClass(state)}"
 						onclick={() => toggleSourceStatus(sourceFilter.key)}
 					>
 						{sourceStatusLabel(sourceFilter.labelKey)}
@@ -1603,12 +1716,14 @@
 			{/if}
 			<div class="flex flex-wrap gap-1.5">
 				{#each filteredGenreOptions as genre (genre)}
-					{@const active = activeGenres.includes(genre)}
+					{@const state = activeGenres.includes(genre)
+						? 'include'
+						: excludedGenres.includes(genre)
+							? 'exclude'
+							: 'off'}
 					<button
 						type="button"
-						class="border px-2.5 py-1 text-xs transition-colors {active
-							? 'border-[var(--cosmic-halo)] bg-[var(--cosmic-soft)] text-[var(--text)]'
-							: 'border-[var(--void-3)] bg-[var(--void-2)] text-[var(--text-ghost)] hover:border-[var(--void-5)] hover:text-[var(--text-muted)]'}"
+						class="border px-2.5 py-1 text-xs transition-colors {filterChipClass(state)}"
 						onclick={() => toggleGenre(genre)}
 					>
 						{genre}
