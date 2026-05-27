@@ -52,6 +52,7 @@
 	type DynamicCollectionFilters = {
 		readingStatusIds: string[];
 		excludedReadingStatusIds?: string[];
+		updateStateKeys?: string[];
 		sourceStatusKeys: string[];
 		excludedSourceStatusKeys?: string[];
 		genres: string[];
@@ -95,6 +96,10 @@
 		status: number;
 		genre: string | null;
 		collections: LibraryCollectionResource[];
+		download_profile: {
+			enabled: boolean;
+			paused: boolean;
+		} | null;
 		user_rating: number | null;
 		offline_readiness: TitleItem['offlineReadiness'];
 	};
@@ -128,6 +133,7 @@
 	let sortDesc = $state(true);
 	let activeReadingStatusIds = $state<string[]>([]);
 	let excludedReadingStatusIds = $state<string[]>([]);
+	let activeUpdateStateKeys = $state<string[]>([]);
 	let activeSourceStatusKeys = $state<string[]>([]);
 	let excludedSourceStatusKeys = $state<string[]>([]);
 	let activeGenres = $state<string[]>([]);
@@ -181,6 +187,11 @@
 		{ value: 'status', labelKey: 'library.sortModes.status' }
 	];
 
+	const UPDATE_STATE_FILTERS = [
+		{ key: 'enabled', label: () => $_('downloads.enabled') },
+		{ key: 'disabled', label: () => $_('downloads.disabled') }
+	] as const;
+
 	const SOURCE_STATUS_FILTERS: Array<{ key: string; labelKey: string; values: number[] }> = [
 		{ key: 'ongoing', labelKey: 'status.ongoing', values: [TITLE_STATUS.ONGOING] },
 		{
@@ -212,6 +223,7 @@
 			sortDesc,
 			activeReadingStatusIds: [...activeReadingStatusIds].sort(),
 			excludedReadingStatusIds: [...excludedReadingStatusIds].sort(),
+			activeUpdateStateKeys: [...activeUpdateStateKeys].sort(),
 			activeSourceStatusKeys: [...activeSourceStatusKeys].sort(),
 			excludedSourceStatusKeys: [...excludedSourceStatusKeys].sort(),
 			activeGenres: [...activeGenres].sort(),
@@ -331,6 +343,7 @@
 	const hasActiveFilters = $derived(
 		activeReadingStatusIds.length > 0 ||
 			excludedReadingStatusIds.length > 0 ||
+			activeUpdateStateKeys.length > 0 ||
 			activeSourceStatusKeys.length > 0 ||
 			excludedSourceStatusKeys.length > 0 ||
 			activeGenres.length > 0 ||
@@ -365,6 +378,7 @@
 		).flatMap((filter) => filter.values);
 
 		let result = titles.filter((title) => {
+			const updateState = monitorStateKey(title);
 			if (selectedCollectionId !== null) {
 				const inCollection = title.collections.some(
 					(collection) => collection.id === selectedCollectionId
@@ -382,6 +396,10 @@
 			}
 
 			if (title.user_status && excludedReadingStatusIds.includes(title.user_status.id)) {
+				return false;
+			}
+
+			if (activeUpdateStateKeys.length > 0 && !activeUpdateStateKeys.includes(updateState)) {
 				return false;
 			}
 
@@ -483,6 +501,7 @@
 			activeReadingStatusIds.length > 0 ||
 			activeSourceStatusKeys.length > 0 ||
 			excludedReadingStatusIds.length > 0 ||
+			activeUpdateStateKeys.length > 0 ||
 			excludedSourceStatusKeys.length > 0 ||
 			activeGenres.length > 0 ||
 			excludedGenres.length > 0
@@ -537,6 +556,7 @@
 					id: String(collection.id),
 					name: collection.name
 				})) ?? [],
+			download_profile: title.downloadProfile ?? null,
 			user_rating: title.userRating ?? null,
 			offline_readiness: title.offlineReadiness
 		};
@@ -626,6 +646,7 @@
 		return {
 			readingStatusIds: [...activeReadingStatusIds],
 			excludedReadingStatusIds: [...excludedReadingStatusIds],
+			updateStateKeys: [...activeUpdateStateKeys],
 			sourceStatusKeys: [...activeSourceStatusKeys],
 			excludedSourceStatusKeys: [...excludedSourceStatusKeys],
 			genres: [...activeGenres],
@@ -640,6 +661,7 @@
 		return {
 			readingStatusIds: [...new Set(filters.readingStatusIds)],
 			excludedReadingStatusIds: [...new Set(filters.excludedReadingStatusIds ?? [])],
+			updateStateKeys: [...new Set(filters.updateStateKeys ?? [])],
 			sourceStatusKeys: [...new Set(filters.sourceStatusKeys)],
 			excludedSourceStatusKeys: [...new Set(filters.excludedSourceStatusKeys ?? [])],
 			genres: [...new Set(filters.genres)],
@@ -659,6 +681,8 @@
 				normalizedRight.readingStatusIds.join('\u0000') &&
 			(normalizedLeft.excludedReadingStatusIds ?? []).join('\u0000') ===
 				(normalizedRight.excludedReadingStatusIds ?? []).join('\u0000') &&
+			(normalizedLeft.updateStateKeys ?? []).join('\u0000') ===
+				(normalizedRight.updateStateKeys ?? []).join('\u0000') &&
 			normalizedLeft.sourceStatusKeys.join('\u0000') ===
 				normalizedRight.sourceStatusKeys.join('\u0000') &&
 			(normalizedLeft.excludedSourceStatusKeys ?? []).join('\u0000') ===
@@ -674,6 +698,7 @@
 		title: LibraryTitleSummary,
 		filters: DynamicCollectionFilters
 	): boolean {
+		const updateState = monitorStateKey(title);
 		const activeSourceValues = SOURCE_STATUS_FILTERS.filter((filter) =>
 			filters.sourceStatusKeys.includes(filter.key)
 		).flatMap((filter) => filter.values);
@@ -691,6 +716,13 @@
 		if (
 			title.user_status &&
 			(filters.excludedReadingStatusIds ?? []).includes(title.user_status.id)
+		) {
+			return false;
+		}
+
+		if (
+			(filters.updateStateKeys ?? []).length > 0 &&
+			!(filters.updateStateKeys ?? []).includes(updateState)
 		) {
 			return false;
 		}
@@ -731,6 +763,7 @@
 	) {
 		activeReadingStatusIds = [...filters.readingStatusIds];
 		excludedReadingStatusIds = [...(filters.excludedReadingStatusIds ?? [])];
+		activeUpdateStateKeys = [...(filters.updateStateKeys ?? [])];
 		activeSourceStatusKeys = [...filters.sourceStatusKeys];
 		excludedSourceStatusKeys = [...(filters.excludedSourceStatusKeys ?? [])];
 		activeGenres = [...filters.genres];
@@ -755,6 +788,10 @@
 			filters.sourceStatusKeys.length + (filters.excludedSourceStatusKeys?.length ?? 0);
 		if (sourceStatusCount > 0) {
 			parts.push(`${sourceStatusCount} ${$_('library.sourceStatus').toLowerCase()}`);
+		}
+		const updateStateCount = filters.updateStateKeys?.length ?? 0;
+		if (updateStateCount > 0) {
+			parts.push(`${updateStateCount} ${$_('downloads.monitor').toLowerCase()}`);
 		}
 		const genreCount = filters.genres.length + (filters.excludedGenres?.length ?? 0);
 		if (genreCount > 0) {
@@ -785,6 +822,7 @@
 		selectedDynamicCollectionId = null;
 		activeReadingStatusIds = [];
 		excludedReadingStatusIds = [];
+		activeUpdateStateKeys = [];
 		activeSourceStatusKeys = [];
 		excludedSourceStatusKeys = [];
 		activeGenres = [];
@@ -972,6 +1010,14 @@
 		activeSourceStatusKeys = [...new Set([...activeSourceStatusKeys, key])];
 	}
 
+	function toggleUpdateState(key: string) {
+		if (activeUpdateStateKeys.includes(key)) {
+			activeUpdateStateKeys = activeUpdateStateKeys.filter((value) => value !== key);
+			return;
+		}
+		activeUpdateStateKeys = [key];
+	}
+
 	function toggleGenre(genre: string) {
 		if (activeGenres.includes(genre)) {
 			activeGenres = activeGenres.filter((value) => value !== genre);
@@ -988,6 +1034,7 @@
 	function clearFilters() {
 		activeReadingStatusIds = [];
 		excludedReadingStatusIds = [];
+		activeUpdateStateKeys = [];
 		activeSourceStatusKeys = [];
 		excludedSourceStatusKeys = [];
 		activeGenres = [];
@@ -1003,6 +1050,12 @@
 			return 'border-[var(--danger)] bg-[rgba(255,143,143,0.16)] text-[#ffb3b3] shadow-[inset_0_0_0_1px_rgba(255,143,143,0.22)]';
 		}
 		return 'border-[var(--void-3)] bg-[var(--void-2)] text-[var(--text-ghost)] hover:border-[var(--void-5)] hover:text-[var(--text-muted)]';
+	}
+
+	function monitorStateKey(title: LibraryTitleSummary): 'enabled' | 'disabled' {
+		return title.download_profile?.enabled && !title.download_profile.paused
+			? 'enabled'
+			: 'disabled';
 	}
 
 	function sortModeLabel(labelKey: string) {
@@ -1688,6 +1741,21 @@
 			</div>
 		</PanelSection>
 	{/if}
+
+	<PanelSection label={$_('downloads.monitor')}>
+		<div class="flex flex-wrap gap-1.5">
+			{#each UPDATE_STATE_FILTERS as updateFilter (updateFilter.key)}
+				{@const state = activeUpdateStateKeys.includes(updateFilter.key) ? 'include' : 'off'}
+				<button
+					type="button"
+					class="border px-2.5 py-1 text-xs transition-colors {filterChipClass(state)}"
+					onclick={() => toggleUpdateState(updateFilter.key)}
+				>
+					{updateFilter.label()}
+				</button>
+			{/each}
+		</div>
+	</PanelSection>
 
 	{#if allGenres.length > 0}
 		<PanelSection label={$_('library.genres')} divider={false}>

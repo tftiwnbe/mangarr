@@ -37,7 +37,8 @@ export const listMine = query({
 		const limit = Math.min(Math.max(1, Math.floor(args.limit ?? 5000)), 10000);
 		const offset = Math.max(0, Math.floor(args.offset ?? 0));
 
-		const [allTitles, statusById, collectionById, collectionIdsByTitleId] = await Promise.all([
+		const [allTitles, statusById, collectionById, collectionIdsByTitleId, downloadProfiles] =
+			await Promise.all([
 			ctx.db
 				.query('libraryTitles')
 				.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', userId))
@@ -45,8 +46,15 @@ export const listMine = query({
 				.take(limit + offset),
 			loadOwnerUserStatusMap(ctx, userId),
 			loadOwnerCollectionMap(ctx, userId),
-			loadOwnerCollectionIdsByTitleId(ctx, userId)
+			loadOwnerCollectionIdsByTitleId(ctx, userId),
+			ctx.db
+				.query('downloadProfiles')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+				.collect()
 		]);
+		const downloadProfileByTitleId = new Map(
+			downloadProfiles.map((profile) => [String(profile.libraryTitleId), profile] as const)
+		);
 
 		const titles = allTitles.slice(offset);
 
@@ -54,6 +62,7 @@ export const listMine = query({
 			.filter((title) => title.listedInLibrary !== false)
 			.map((title) => {
 				const collectionIds = collectionIdsByTitleId.get(String(title._id)) ?? [];
+				const downloadProfile = downloadProfileByTitleId.get(String(title._id)) ?? null;
 				const chapterStats = {
 					total: title.chapterCount ?? 0,
 					queued: title.queuedChapterCount ?? 0,
@@ -82,6 +91,12 @@ export const listMine = query({
 							(collection): collection is NonNullable<typeof collection> => collection !== null
 						)
 						.sort((left, right) => left.position - right.position),
+					downloadProfile: downloadProfile
+						? {
+								enabled: downloadProfile.enabled,
+								paused: downloadProfile.paused
+							}
+						: null,
 					chapterStats,
 					offlineReadiness: summarizeOfflineReadiness(title, {
 						total: chapterStats.total,

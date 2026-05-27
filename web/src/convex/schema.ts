@@ -249,6 +249,7 @@ export default defineSchema({
 		filters: v.object({
 			readingStatusIds: v.array(v.string()),
 			excludedReadingStatusIds: v.optional(v.array(v.string())),
+			updateStateKeys: v.optional(v.array(v.string())),
 			sourceStatusKeys: v.array(v.string()),
 			excludedSourceStatusKeys: v.optional(v.array(v.string())),
 			genres: v.array(v.string()),

@@ -22,6 +22,7 @@ import { scoreMergeSnapshot } from './title_identity';
 const dynamicCollectionFiltersValidator = v.object({
 	readingStatusIds: v.array(v.string()),
 	excludedReadingStatusIds: v.optional(v.array(v.string())),
+	updateStateKeys: v.optional(v.array(v.string())),
 	sourceStatusKeys: v.array(v.string()),
 	excludedSourceStatusKeys: v.optional(v.array(v.string())),
 	genres: v.array(v.string()),
@@ -32,6 +33,7 @@ const dynamicCollectionFiltersValidator = v.object({
 type DynamicCollectionFilters = {
 	readingStatusIds: string[];
 	excludedReadingStatusIds?: string[];
+	updateStateKeys?: string[];
 	sourceStatusKeys: string[];
 	excludedSourceStatusKeys?: string[];
 	genres: string[];
@@ -48,6 +50,9 @@ function normalizeDynamicCollectionFilters(
 		],
 		excludedReadingStatusIds: [
 			...new Set((filters.excludedReadingStatusIds ?? []).map((value) => value.trim()).filter(Boolean))
+		],
+		updateStateKeys: [
+			...new Set((filters.updateStateKeys ?? []).map((value) => value.trim()).filter(Boolean))
 		],
 		sourceStatusKeys: [
 			...new Set(filters.sourceStatusKeys.map((value) => value.trim()).filter(Boolean))
