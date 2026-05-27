@@ -821,16 +821,23 @@
 			syncReaderHeaderVisibility();
 		}}
 	>
-		<div class="flex h-10 items-center justify-between px-2">
+		<div class="flex min-h-10 items-center justify-between px-2 py-1">
 			<div class="flex min-w-0 flex-1 items-center gap-1.5">
 				<Button variant="ghost" size="icon-sm" onclick={() => void goto(canonicalTitlePath)}>
 					<CaretLeftIcon size={18} />
 				</Button>
 				<a
 					href={canonicalTitlePath}
-					class="truncate text-xs text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
+					class="block min-w-0 flex-1 transition-colors hover:text-[var(--text)]"
 				>
-					{title?.title || $_('reader.title')}
+					<p class="truncate text-xs text-[var(--text-muted)]">
+						{title?.title || $_('reader.title')}
+					</p>
+					{#if chapter?.chapterName}
+						<p class="truncate text-[11px] text-[var(--text-ghost)]">
+							{chapter.chapterName}
+						</p>
+					{/if}
 				</a>
 			</div>
 
@@ -975,9 +982,6 @@
 		<div
 			class="flex flex-col items-center gap-6 px-6 pt-16 pb-[calc(7rem+env(safe-area-inset-bottom))] md:pb-16"
 		>
-			{#if chapter?.chapterName}
-				<p class="text-xs text-[var(--text-ghost)]">{chapter.chapterName}</p>
-			{/if}
 			<div class="flex items-center gap-3">
 				{#if prevChapter}
 					<Button variant="outline" size="sm" onclick={() => openChapter(prevChapter)}>
