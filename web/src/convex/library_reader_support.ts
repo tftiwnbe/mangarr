@@ -381,20 +381,50 @@ export async function loadTitleOverviewContext(ctx: QueryCtx, title: Doc<'librar
 		[...activeProgressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
 
 	const chapterStats = summarizeDownloadStats(activeChapters);
+	const progressByVariantId = new Map<string, Set<string>>();
+	for (const row of progressRows) {
+		const chapter = chapters.find((item) => String(item._id) === String(row.chapterId));
+		if (!chapter) continue;
+		const key = String(chapter.titleVariantId);
+		const current = progressByVariantId.get(key) ?? new Set<string>();
+		current.add(String(row.chapterId));
+		progressByVariantId.set(key, current);
+	}
+	const chaptersByVariantId = new Map<string, typeof chapters>();
+	for (const chapter of chapters) {
+		const key = String(chapter.titleVariantId);
+		const current = chaptersByVariantId.get(key) ?? [];
+		current.push(chapter);
+		chaptersByVariantId.set(key, current);
+	}
+	const variantsWithProgress = variants.map((variant) => {
+		const variantChapters = chaptersByVariantId.get(String(variant.id)) ?? [];
+		const availableVariantChapters = variantChapters.filter(
+			(chapter) => chapter.isAvailableFromSource !== false
+		);
+		const readChapterCount = progressByVariantId.get(String(variant.id))?.size ?? 0;
+		return {
+			...variant,
+			progress: {
+				readChapters: Math.min(readChapterCount, availableVariantChapters.length),
+				totalChapters: availableVariantChapters.length
+			}
+		};
+	});
 
 	return {
 		routeSegment,
 		chapters: activeChapters,
 		userStatus,
 		collections,
-		variants,
+		variants: variantsWithProgress,
 		progressRows: activeProgressRows,
 		latestProgress,
 		downloadProfile,
 		chapterStats,
 		offlineReadiness: summarizeOfflineReadiness(title, chapterStats),
 		readingProgress: {
-			startedChapters: progressRows.length,
+			startedChapters: activeProgressRows.length,
 			latest: latestProgress
 				? {
 						chapterId: latestProgress.chapterId,

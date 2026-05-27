@@ -32,6 +32,10 @@
 		title: string;
 		isEnabled?: boolean;
 		isStale?: boolean;
+		progress: {
+			readChapters: number;
+			totalChapters: number;
+		};
 	};
 
 	type TitleData = {

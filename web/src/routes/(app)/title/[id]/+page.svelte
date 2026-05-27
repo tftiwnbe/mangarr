@@ -92,6 +92,10 @@
 			isStale?: boolean;
 			isPreferred: boolean;
 			lastSyncedAt?: number | null;
+			progress: {
+				readChapters: number;
+				totalChapters: number;
+			};
 		}>;
 		createdAt: number;
 		updatedAt: number;
