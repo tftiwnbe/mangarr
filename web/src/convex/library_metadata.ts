@@ -221,11 +221,14 @@ export const ensureTitlesMetadata = mutation({
 
 export const ensureTitleCoverCache = mutation({
 	args: {
-		titleId: v.id('libraryTitles')
+		titleId: v.id('libraryTitles'),
+		force: v.optional(v.boolean())
 	},
 	handler: async (ctx, args) => {
 		const title = await requireOwnedTitle(ctx, args.titleId);
-		const commandId = await ensureCoverCacheForTitle(ctx, title, Date.now());
+		const commandId = args.force
+			? await forceCoverCacheForTitle(ctx, title, Date.now())
+			: await ensureCoverCacheForTitle(ctx, title, Date.now());
 		return {
 			commandId,
 			enqueued: commandId !== null
@@ -705,6 +708,41 @@ async function ensureCoverCacheForTitle(
 	}
 
 	const idempotencyKey = `library.cover.cache:${String(title._id)}:${coverUrl}`;
+	const reusable = await ctx.db
+		.query('commands')
+		.withIndex('by_idempotency_key', (q) => q.eq('idempotencyKey', idempotencyKey))
+		.collect();
+	const existingCommand = reusable
+		.filter((command) => command.requestedByUserId === title.ownerUserId)
+		.sort((left, right) => right.createdAt - left.createdAt)
+		.find((command) => REUSABLE_COMMAND_STATUSES.has(command.status));
+	if (existingCommand) {
+		return existingCommand._id;
+	}
+
+	return insertCommand(ctx, {
+		commandType: 'library.cover.cache',
+		requestedByUserId: title.ownerUserId,
+		payload: { titleId: title._id, sourceId: title.sourceId, coverUrl },
+		idempotencyKey,
+		priority: 80,
+		maxAttempts: 3,
+		runAfter: now,
+		now
+	});
+}
+
+async function forceCoverCacheForTitle(
+	ctx: MutationCtx,
+	title: DocLike<'libraryTitles'>,
+	now: number
+) {
+	const coverUrl = (title.coverUrl ?? '').trim();
+	if (!coverUrl) {
+		return null;
+	}
+
+	const idempotencyKey = `library.cover.cache:${String(title._id)}:${coverUrl}:force`;
 	const reusable = await ctx.db
 		.query('commands')
 		.withIndex('by_idempotency_key', (q) => q.eq('idempotencyKey', idempotencyKey))

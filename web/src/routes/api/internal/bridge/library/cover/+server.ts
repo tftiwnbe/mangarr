@@ -23,13 +23,16 @@ export const GET: RequestHandler = async (event) => {
 		throw error(404, 'Title not found');
 	}
 	if (!title.localCoverPath) {
+		if (title.coverUrl) {
+			return Response.redirect(title.coverUrl, 307);
+		}
 		throw error(404, 'Library cover asset is unavailable');
 	}
 
 	const upstream = new URL('assets/library/cover', 'http://bridge.internal/');
 	upstream.searchParams.set('path', title.localCoverPath);
 
-	return proxyBridgeRequest(
+	const response = await proxyBridgeRequest(
 		event,
 		`${upstream.pathname.slice(1)}?${upstream.searchParams.toString()}`,
 		{
@@ -37,4 +40,31 @@ export const GET: RequestHandler = async (event) => {
 			timeoutMs: 30000
 		}
 	);
+	if (response.status !== 404) {
+		return response;
+	}
+
+	await queueCoverRepair(client, titleId as Id<'libraryTitles'>);
+	if (title.coverUrl) {
+		return Response.redirect(title.coverUrl, 307);
+	}
+
+	return response;
 };
+
+async function queueCoverRepair(
+	client: Awaited<ReturnType<typeof getUserConvexClient>>,
+	titleId: Id<'libraryTitles'>
+) {
+	try {
+		await client.mutation(convexApi.library.ensureTitleCoverCache, {
+			titleId,
+			force: true
+		});
+	} catch (cause) {
+		console.warn('Failed to enqueue library cover cache repair', {
+			titleId,
+			error: cause instanceof Error ? cause.message : String(cause)
+		});
+	}
+}
