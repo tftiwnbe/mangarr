@@ -1212,7 +1212,7 @@
 	<title>{title?.title || $_('common.loading')} | {$_('app.name')}</title>
 </svelte:head>
 
-<div class="flex flex-col">
+<div class="flex min-w-0 flex-col overflow-x-hidden">
 	<div class="mb-6 hidden items-center gap-2 md:flex">
 		<Button variant="ghost" size="icon-sm" onclick={handleBack}>
 			<CaretLeftIcon size={18} />
