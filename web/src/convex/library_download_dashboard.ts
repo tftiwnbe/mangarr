@@ -14,7 +14,6 @@ const DOWNLOAD_TASK_STATUS = {
 
 export const getDownloadDashboard = query({
 	args: {
-		watchedLimit: v.optional(v.float64()),
 		activeLimit: v.optional(v.float64()),
 		recentLimit: v.optional(v.float64())
 	},
@@ -30,12 +29,12 @@ export const getDownloadDashboard = query({
 				},
 				activeTasks: [],
 				recentTasks: [],
-				watchedTitles: []
+				watchedTitles: [],
+				watchedTotal: 0
 			};
 		}
 
 		const ownerUserId = identity.subject as GenericId<'users'>;
-		const watchedLimit = Math.max(1, Math.min(Math.floor(args.watchedLimit ?? 30), 100));
 		const activeLimit = Math.max(1, Math.min(Math.floor(args.activeLimit ?? 20), 100));
 		const recentLimit = Math.max(1, Math.min(Math.floor(args.recentLimit ?? 20), 100));
 
@@ -55,7 +54,7 @@ export const getDownloadDashboard = query({
 			ctx.db
 				.query('downloadProfiles')
 				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
-				.take(100),
+				.collect(),
 			ctx.db.query('installedExtensions').collect(),
 			ctx.db
 				.query('downloadTasks')
@@ -87,18 +86,12 @@ export const getDownloadDashboard = query({
 				.take(recentLimit)
 		]);
 
-		// Resolve titles only for the user's download profiles. Scanning the entire
-		// libraryTitles table on every dashboard re-run was the dominant cost and
-		// blew past the 15s syscall ceiling for users with large libraries. The
-		// dashboard's overview/watched cards describe titles the user actively
-		// manages — i.e. those with profiles — so the profile set is the right
-		// scope here.
-		const profileTitleIds = Array.from(new Set(profileRows.map((p) => String(p.libraryTitleId))));
-		const profileTitles = await Promise.all(
-			profileTitleIds.map((titleId) => ctx.db.get(titleId as GenericId<'libraryTitles'>))
-		);
-		const titles = profileTitles
-			.filter((t): t is NonNullable<typeof t> => t !== null)
+		const titles = (
+			await ctx.db
+				.query('libraryTitles')
+				.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', ownerUserId))
+				.collect()
+		)
 			.sort((left, right) => right.updatedAt - left.updatedAt);
 
 		const sourceNamesById = new Map<string, string>();
@@ -184,8 +177,7 @@ export const getDownloadDashboard = query({
 					return left.enabled ? -1 : 1;
 				}
 				return right.updatedAt - left.updatedAt;
-			})
-			.slice(0, watchedLimit);
+			});
 
 		const watchedTitles = watchedCandidates;
 
@@ -199,7 +191,8 @@ export const getDownloadDashboard = query({
 			},
 			activeTasks: activeTaskRows.slice(0, activeLimit).map(mapDownloadTaskRow),
 			recentTasks: recentTaskRows.map(mapDownloadTaskRow),
-			watchedTitles
+			watchedTitles,
+			watchedTotal: watchedCandidates.length
 		};
 	}
 });

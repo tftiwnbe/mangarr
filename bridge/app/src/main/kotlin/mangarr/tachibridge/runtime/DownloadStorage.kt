@@ -9,6 +9,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
+import java.nio.file.DirectoryNotEmptyException
 import java.security.MessageDigest
 import java.text.Normalizer
 import java.util.zip.ZipEntry
@@ -49,6 +50,12 @@ data class StoredChapterFilePayload(
     val deleteAfterSend: Boolean = false,
 )
 
+data class StoredChapterNormalizationPayload(
+    val stored: StoredChapterPayload?,
+    val moved: Boolean,
+    val conflict: Boolean,
+)
+
 class DownloadStorage(
     dataPath: Path,
 ) {
@@ -72,13 +79,12 @@ class DownloadStorage(
         attemptOwner: String,
     ): ChapterWorkspace {
         val finalDir =
-            storedChapterPath(
+            normalizedStoredChapterPath(
                 titleId = titleId,
                 titleName = titleName,
                 sourceId = sourceId,
                 sourcePkg = sourcePkg,
                 sourceLang = sourceLang,
-                chapterUrl = chapterUrl,
                 chapterName = chapterName,
                 chapterNumber = chapterNumber,
             )
@@ -120,14 +126,27 @@ class DownloadStorage(
 
     fun finalizeChapterDownload(workspace: ChapterWorkspace): StoredChapterPayload {
         val downloadsRoot = downloadsRoot()
-        require(!workspace.finalDir.exists()) { "Chapter download target already exists" }
+        val existing = existingStoredChapterPayload(workspace.finalDir, downloadsRoot)
+        if (existing != null) {
+            cleanupChapterWorkspace(workspace)
+            return existing
+        }
         Files.createDirectories(workspace.finalDir.parent)
-        Files.move(
-            workspace.tempDir,
-            workspace.finalDir,
-            StandardCopyOption.REPLACE_EXISTING,
-            StandardCopyOption.ATOMIC_MOVE,
-        )
+        try {
+            Files.move(
+                workspace.tempDir,
+                workspace.finalDir,
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE,
+            )
+        } catch (error: DirectoryNotEmptyException) {
+            val racedExisting = existingStoredChapterPayload(workspace.finalDir, downloadsRoot)
+            if (racedExisting != null) {
+                cleanupChapterWorkspace(workspace)
+                return racedExisting
+            }
+            throw error
+        }
         deleteEmptyTempRoot(workspace.tempRootDir)
 
         return StoredChapterPayload(
@@ -200,7 +219,7 @@ class DownloadStorage(
         chapterNumber: Double?,
     ): StoredChapterPayload? {
         val directory =
-            storedChapterPath(
+            resolveStoredChapterDirectory(
                 titleId = titleId,
                 titleName = titleName,
                 sourceId = sourceId,
@@ -209,16 +228,85 @@ class DownloadStorage(
                 chapterUrl = chapterUrl,
                 chapterName = chapterName,
                 chapterNumber = chapterNumber,
+            ) ?: return null
+
+        return existingStoredChapterPayload(directory, downloadsRoot())
+    }
+
+    fun normalizeStoredChapter(
+        titleId: String,
+        titleName: String,
+        sourceId: String,
+        sourcePkg: String,
+        sourceLang: String,
+        chapterUrl: String,
+        chapterName: String,
+        chapterNumber: Double?,
+        relativePath: String?,
+    ): StoredChapterNormalizationPayload {
+        val downloadsRoot = downloadsRoot()
+        val currentDirectory =
+            if (!relativePath.isNullOrBlank()) {
+                resolveRelative(downloadsRoot, relativePath).takeIf { it.exists() && it.isDirectory() }
+            } else {
+                resolveStoredChapterDirectory(
+                    titleId = titleId,
+                    titleName = titleName,
+                    sourceId = sourceId,
+                    sourcePkg = sourcePkg,
+                    sourceLang = sourceLang,
+                    chapterUrl = chapterUrl,
+                    chapterName = chapterName,
+                    chapterNumber = chapterNumber,
+                )
+            } ?: return StoredChapterNormalizationPayload(stored = null, moved = false, conflict = false)
+
+        val targetDirectory =
+            normalizedStoredChapterPath(
+                titleId = titleId,
+                titleName = titleName,
+                sourceId = sourceId,
+                sourcePkg = sourcePkg,
+                sourceLang = sourceLang,
+                chapterName = chapterName,
+                chapterNumber = chapterNumber,
+                currentDirectory = currentDirectory,
             )
-        if (!directory.exists() || !directory.isDirectory()) {
-            return null
+
+        if (currentDirectory == targetDirectory) {
+            return StoredChapterNormalizationPayload(
+                stored = existingStoredChapterPayload(currentDirectory, downloadsRoot),
+                moved = false,
+                conflict = false,
+            )
         }
 
-        return StoredChapterPayload(
-            storageKind = "directory",
-            localRelativePath = directory.relativeTo(downloadsRoot()).pathString.replace('\\', '/'),
-            fileSizeBytes = pathSize(directory),
-            pageCount = countStoredPages(directory),
+        if (targetDirectory.exists()) {
+            val targetStored = existingStoredChapterPayload(targetDirectory, downloadsRoot)
+            if (targetStored != null) {
+                currentDirectory.toFile().deleteRecursively()
+                cleanupEmptyAncestors(currentDirectory.parent, downloadsRoot)
+                return StoredChapterNormalizationPayload(
+                    stored = targetStored,
+                    moved = true,
+                    conflict = false,
+                )
+            }
+            return StoredChapterNormalizationPayload(
+                stored = existingStoredChapterPayload(currentDirectory, downloadsRoot),
+                moved = false,
+                conflict = true,
+            )
+        }
+
+        Files.createDirectories(targetDirectory.parent)
+        Files.move(currentDirectory, targetDirectory, StandardCopyOption.ATOMIC_MOVE)
+        cleanupEmptyAncestors(currentDirectory.parent, downloadsRoot)
+
+        return StoredChapterNormalizationPayload(
+            stored = existingStoredChapterPayload(targetDirectory, downloadsRoot),
+            moved = true,
+            conflict = false,
         )
     }
 
@@ -238,7 +326,7 @@ class DownloadStorage(
         }
 
         val directory =
-            storedChapterPath(
+            resolveStoredChapterDirectory(
                 titleId = titleId,
                 titleName = titleName,
                 sourceId = sourceId,
@@ -247,7 +335,7 @@ class DownloadStorage(
                 chapterUrl = chapterUrl,
                 chapterName = chapterName,
                 chapterNumber = chapterNumber,
-            )
+            ) ?: return false
         return deleteResolvedStoredChapter(directory)
     }
 
@@ -354,18 +442,106 @@ class DownloadStorage(
         chapterUrl: String,
         chapterName: String,
         chapterNumber: Double?,
+    ): Path {
+        val downloadsRoot = downloadsRoot()
+        val titleDir =
+            resolveContainerDirectory(
+                parent = downloadsRoot,
+                preferredName = titleDirectoryName(titleName),
+                stableSuffix = "--${shortSuffix(titleId)}",
+            )
+        val sourceDir =
+            resolveContainerDirectory(
+                parent = titleDir,
+                preferredName = sourceDirectoryName(sourcePkg, sourceLang),
+                stableSuffix = "--${shortSuffix(sourceId)}",
+            )
+        return sourceDir.resolve(chapterDirectoryName(chapterName, chapterNumber, chapterUrl))
+    }
+
+    private fun normalizedStoredChapterPath(
+        titleId: String,
+        titleName: String,
+        sourceId: String,
+        sourcePkg: String,
+        sourceLang: String,
+        chapterName: String,
+        chapterNumber: Double?,
+        currentDirectory: Path? = null,
+    ): Path {
+        val downloadsRoot = downloadsRoot()
+        val currentSourceDir = currentDirectory?.parent
+        val currentTitleDir = currentSourceDir?.parent
+        val preferredTitleDir = downloadsRoot.resolve(titleDirectoryName(titleName))
+        val preferredSourceDir = preferredTitleDir.resolve(sourceDirectoryName(sourcePkg, sourceLang))
+        val titleDir =
+            when {
+                !preferredTitleDir.exists() || !preferredTitleDir.isDirectory() -> preferredTitleDir
+                currentTitleDir == null -> preferredTitleDir
+                currentTitleDir.fileName.toString() == preferredTitleDir.fileName.toString() -> preferredTitleDir
+                currentTitleDir.fileName.toString().endsWith("--${shortSuffix(titleId)}") -> preferredTitleDir
+                else -> downloadsRoot.resolve(collidingTitleDirectoryName(titleName, titleId))
+            }
+        val sourceDir =
+            normalizedContainerDirectory(
+                parent = titleDir,
+                preferredName = sourceDirectoryName(sourcePkg, sourceLang),
+                collisionName = collidingSourceDirectoryName(sourcePkg, sourceLang, sourceId),
+                stableSuffix = "--${shortSuffix(sourceId)}",
+                currentDirectory = currentSourceDir,
+            )
+        return sourceDir.resolve(normalizedChapterDirectoryName(chapterName, chapterNumber))
+    }
+
+    private fun legacyStoredChapterPath(
+        titleId: String,
+        titleName: String,
+        sourceId: String,
+        sourcePkg: String,
+        sourceLang: String,
+        chapterUrl: String,
+        chapterName: String,
+        chapterNumber: Double?,
     ): Path =
         downloadsRoot()
-            .resolve(titleDirectoryName(titleName, titleId))
-            .resolve(sourceDirectoryName(sourcePkg, sourceLang, sourceId))
-            .resolve(chapterDirectoryName(chapterName, chapterNumber, chapterUrl))
+            .resolve(legacyTitleDirectoryName(titleName, titleId))
+            .resolve(legacySourceDirectoryName(sourcePkg, sourceLang, sourceId))
+            .resolve(legacyChapterDirectoryName(chapterName, chapterNumber, chapterUrl))
 
-    private fun titleDirectoryName(
+    private fun titleDirectoryName(titleName: String): String = pathSegment(titleName, 72, "title")
+
+    private fun collidingTitleDirectoryName(
+        titleName: String,
+        titleId: String,
+    ): String = "${titleDirectoryName(titleName)}--${shortSuffix(titleId)}"
+
+    private fun legacyTitleDirectoryName(
         titleName: String,
         titleId: String,
     ): String = "${slugSegment(titleName, 72, "title")}--${shortSuffix(titleId)}"
 
     private fun sourceDirectoryName(
+        sourcePkg: String,
+        sourceLang: String,
+    ): String {
+        val baseName =
+            buildString {
+                append(sourcePkg.substringAfterLast('.').ifBlank { "source" })
+                if (sourceLang.isNotBlank()) {
+                    append("-")
+                    append(sourceLang)
+                }
+            }
+        return pathSegment(baseName, 48, "source")
+    }
+
+    private fun collidingSourceDirectoryName(
+        sourcePkg: String,
+        sourceLang: String,
+        sourceId: String,
+    ): String = "${sourceDirectoryName(sourcePkg, sourceLang)}--${shortSuffix(sourceId)}"
+
+    private fun legacySourceDirectoryName(
         sourcePkg: String,
         sourceLang: String,
         sourceId: String,
@@ -386,7 +562,36 @@ class DownloadStorage(
         chapterNumber: Double?,
         chapterUrl: String,
     ): String {
-        val numberPrefix = formatChapterNumber(chapterNumber)
+        val normalized = normalizedChapterDirectoryName(chapterName, chapterNumber)
+        return if (normalizedChapterNumber(chapterNumber) != null) {
+            normalized
+        } else {
+            "$normalized--${hashKey(chapterUrl)}"
+        }
+    }
+
+    private fun normalizedChapterDirectoryName(
+        chapterName: String,
+        chapterNumber: Double?,
+    ): String {
+        val normalizedChapter = normalizedChapterNumber(chapterNumber)
+        if (normalizedChapter != null) {
+            val normalizedVolume = extractVolumeNumber(chapterName)
+            return if (normalizedVolume != null) {
+                "v$normalizedVolume-ch-$normalizedChapter"
+            } else {
+                "ch-$normalizedChapter"
+            }
+        }
+        return pathSegment(chapterLabel(chapterName, chapterNumber), 88, "chapter")
+    }
+
+    private fun legacyChapterDirectoryName(
+        chapterName: String,
+        chapterNumber: Double?,
+        chapterUrl: String,
+    ): String {
+        val numberPrefix = legacyFormatChapterNumber(chapterNumber)
         val raw =
             listOfNotNull(numberPrefix, chapterName.trim().takeIf { it.isNotEmpty() })
                 .joinToString(" ")
@@ -403,12 +608,95 @@ class DownloadStorage(
         return "$taskSegment-$ownerSegment"
     }
 
-    private fun formatChapterNumber(chapterNumber: Double?): String? {
-        val value = chapterNumber ?: return null
-        if (!value.isFinite()) return null
-        val normalized = if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
+    private fun chapterLabel(
+        chapterName: String,
+        chapterNumber: Double?,
+    ): String {
+        val trimmedName = chapterName.trim()
+        val numberLabel = formatChapterNumberLabel(chapterNumber)
+        if (trimmedName.isBlank()) {
+            return numberLabel ?: "Chapter"
+        }
+        if (numberLabel == null || chapterNumberAppearsInName(trimmedName, chapterNumber)) {
+            return trimmedName
+        }
+        return "$numberLabel $trimmedName"
+    }
+
+    private fun extractVolumeNumber(chapterName: String): String? {
+        val match =
+            Regex("(?iu)(?:^|[^\\p{L}\\p{N}])(?:vol(?:ume)?|том)\\.?\\s*([0-9]+(?:[.,][0-9]+)?)")
+                .find(chapterName)
+                ?: return null
+        return normalizeNumberString(match.groupValues.getOrNull(1))
+    }
+
+    private fun formatChapterNumberLabel(chapterNumber: Double?): String? {
+        val normalized = normalizedChapterNumber(chapterNumber) ?: return null
+        return "Chapter $normalized"
+    }
+
+    private fun legacyFormatChapterNumber(chapterNumber: Double?): String? {
+        val normalized = normalizedChapterNumber(chapterNumber) ?: return null
         return "ch-$normalized"
     }
+
+    private fun normalizedChapterNumber(chapterNumber: Double?): String? {
+        val value = chapterNumber ?: return null
+        if (!value.isFinite()) return null
+        return if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
+    }
+
+    private fun normalizeNumberString(value: String?): String? {
+        val raw = value?.trim()?.replace(',', '.') ?: return null
+        val parsed = raw.toDoubleOrNull() ?: return raw.ifBlank { null }
+        return if (parsed % 1.0 == 0.0) parsed.toLong().toString() else parsed.toString()
+    }
+
+    private fun chapterNumberAppearsInName(
+        chapterName: String,
+        chapterNumber: Double?,
+    ): Boolean {
+        val normalized = normalizedChapterNumber(chapterNumber) ?: return false
+        val variants = buildList {
+            add(Regex.escape(normalized))
+            if (normalized.contains('.')) {
+                add(Regex.escape(normalized.replace('.', ',')))
+            }
+        }
+        return variants.any { variant ->
+            Regex("(^|[^\\p{L}\\p{N}])$variant([^\\p{L}\\p{N}]|$)", RegexOption.IGNORE_CASE)
+                .containsMatchIn(chapterName)
+        }
+    }
+
+    private fun pathSegment(
+        value: String,
+        maxLength: Int,
+        fallback: String,
+    ): String {
+        val cleaned =
+            Normalizer
+                .normalize(transliterateForPath(value), Normalizer.Form.NFKD)
+                .replace("\\p{M}+".toRegex(), "")
+                .replace("[\\p{Cntrl}]".toRegex(), " ")
+                .replace("[/\\\\:*?\"<>|]+".toRegex(), " ")
+                .replace("[^\\x20-\\x7E]+".toRegex(), " ")
+                .replace("\\s+".toRegex(), " ")
+                .trim()
+                .trim('.')
+                .take(maxLength)
+                .trim()
+                .trim('.')
+        return cleaned.ifBlank { fallback }
+    }
+
+    private fun transliterateForPath(value: String): String =
+        buildString(value.length) {
+            value.forEach { char ->
+                append(CYRILLIC_PATH_TRANSLITERATION[char] ?: char)
+            }
+        }
 
     private fun slugSegment(
         value: String,
@@ -427,6 +715,124 @@ class DownloadStorage(
     }
 
     private fun shortSuffix(value: String): String = hashKey(value).take(6)
+
+    private fun resolveStoredChapterDirectory(
+        titleId: String,
+        titleName: String,
+        sourceId: String,
+        sourcePkg: String,
+        sourceLang: String,
+        chapterUrl: String,
+        chapterName: String,
+        chapterNumber: Double?,
+    ): Path? {
+        val exactCandidates =
+            listOf(
+                normalizedStoredChapterPath(
+                    titleId = titleId,
+                    titleName = titleName,
+                    sourceId = sourceId,
+                    sourcePkg = sourcePkg,
+                    sourceLang = sourceLang,
+                    chapterName = chapterName,
+                    chapterNumber = chapterNumber,
+                ),
+                storedChapterPath(
+                    titleId = titleId,
+                    titleName = titleName,
+                    sourceId = sourceId,
+                    sourcePkg = sourcePkg,
+                    sourceLang = sourceLang,
+                    chapterUrl = chapterUrl,
+                    chapterName = chapterName,
+                    chapterNumber = chapterNumber,
+                ),
+                legacyStoredChapterPath(
+                    titleId = titleId,
+                    titleName = titleName,
+                    sourceId = sourceId,
+                    sourcePkg = sourcePkg,
+                    sourceLang = sourceLang,
+                    chapterUrl = chapterUrl,
+                    chapterName = chapterName,
+                    chapterNumber = chapterNumber,
+                ),
+            ).distinct()
+        exactCandidates.firstOrNull { it.exists() && it.isDirectory() }?.let { return it }
+
+        val downloadsRoot = downloadsRoot()
+        val titleDir = findChildBySuffix(downloadsRoot, "--${shortSuffix(titleId)}") ?: return null
+        val sourceDir = findChildBySuffix(titleDir, "--${shortSuffix(sourceId)}") ?: return null
+        sourceDir.resolve(normalizedChapterDirectoryName(chapterName, chapterNumber))
+            .takeIf { it.exists() && it.isDirectory() }
+            ?.let { return it }
+        return findChildBySuffix(sourceDir, "--${hashKey(chapterUrl)}")
+    }
+
+    private fun findChildBySuffix(
+        parent: Path,
+        suffix: String,
+    ): Path? {
+        if (!parent.exists() || !parent.isDirectory()) {
+            return null
+        }
+        Files.list(parent).use { stream ->
+            return stream
+                .filter { Files.isDirectory(it) && it.fileName.toString().endsWith(suffix) }
+                .findFirst()
+                .orElse(null)
+        }
+    }
+
+    private fun resolveContainerDirectory(
+        parent: Path,
+        preferredName: String,
+        stableSuffix: String,
+    ): Path {
+        val preferred = parent.resolve(preferredName)
+        if (preferred.exists() && preferred.isDirectory()) {
+            return preferred
+        }
+        return findChildBySuffix(parent, stableSuffix) ?: preferred
+    }
+
+    private fun normalizedContainerDirectory(
+        parent: Path,
+        preferredName: String,
+        collisionName: String,
+        stableSuffix: String,
+        currentDirectory: Path?,
+    ): Path {
+        val preferred = parent.resolve(preferredName)
+        if (!preferred.exists() || !preferred.isDirectory()) {
+            return preferred
+        }
+        val currentName = currentDirectory?.fileName?.toString()
+        return if (currentName == null || currentName == preferredName || currentName.endsWith(stableSuffix)) {
+            preferred
+        } else {
+            parent.resolve(collisionName)
+        }
+    }
+
+    private fun existingStoredChapterPayload(
+        directory: Path,
+        downloadsRoot: Path,
+    ): StoredChapterPayload? {
+        if (!directory.exists() || !directory.isDirectory()) {
+            return null
+        }
+        val pageCount = countStoredPages(directory)
+        if (pageCount <= 0) {
+            return null
+        }
+        return StoredChapterPayload(
+            storageKind = "directory",
+            localRelativePath = directory.relativeTo(downloadsRoot).pathString.replace('\\', '/'),
+            fileSizeBytes = pathSize(directory),
+            pageCount = pageCount,
+        )
+    }
 
     private fun resolveRelative(
         root: Path,
@@ -460,6 +866,28 @@ class DownloadStorage(
             if (!stream.findAny().isPresent) {
                 path.deleteIfExists()
             }
+        }
+    }
+
+    private fun cleanupEmptyAncestors(
+        start: Path,
+        stopExclusive: Path,
+    ) {
+        var current: Path? = start
+        while (current != null && current.startsWith(stopExclusive) && current != stopExclusive) {
+            if (!current.exists() || !current.isDirectory()) {
+                current = current.parent
+                continue
+            }
+            val isEmpty =
+                Files.list(current).use { stream ->
+                    !stream.findAny().isPresent
+                }
+            if (!isEmpty) {
+                return
+            }
+            current.deleteIfExists()
+            current = current.parent
         }
     }
 
@@ -521,6 +949,86 @@ class DownloadStorage(
 
     private fun isImage(name: String): Boolean =
         URLConnection.guessContentTypeFromName(name)?.startsWith("image/") == true
+
+    private companion object {
+        val CYRILLIC_PATH_TRANSLITERATION =
+            mapOf(
+                'А' to "A",
+                'Б' to "B",
+                'В' to "V",
+                'Г' to "G",
+                'Д' to "D",
+                'Е' to "E",
+                'Ё' to "E",
+                'Ж' to "Zh",
+                'З' to "Z",
+                'И' to "I",
+                'Й' to "Y",
+                'К' to "K",
+                'Л' to "L",
+                'М' to "M",
+                'Н' to "N",
+                'О' to "O",
+                'П' to "P",
+                'Р' to "R",
+                'С' to "S",
+                'Т' to "T",
+                'У' to "U",
+                'Ф' to "F",
+                'Х' to "Kh",
+                'Ц' to "Ts",
+                'Ч' to "Ch",
+                'Ш' to "Sh",
+                'Щ' to "Shch",
+                'Ъ' to "",
+                'Ы' to "Y",
+                'Ь' to "",
+                'Э' to "E",
+                'Ю' to "Yu",
+                'Я' to "Ya",
+                'а' to "a",
+                'б' to "b",
+                'в' to "v",
+                'г' to "g",
+                'д' to "d",
+                'е' to "e",
+                'ё' to "e",
+                'ж' to "zh",
+                'з' to "z",
+                'и' to "i",
+                'й' to "y",
+                'к' to "k",
+                'л' to "l",
+                'м' to "m",
+                'н' to "n",
+                'о' to "o",
+                'п' to "p",
+                'р' to "r",
+                'с' to "s",
+                'т' to "t",
+                'у' to "u",
+                'ф' to "f",
+                'х' to "kh",
+                'ц' to "ts",
+                'ч' to "ch",
+                'ш' to "sh",
+                'щ' to "shch",
+                'ъ' to "",
+                'ы' to "y",
+                'ь' to "",
+                'э' to "e",
+                'ю' to "yu",
+                'я' to "ya",
+                'І' to "I",
+                'Ї' to "Yi",
+                'Є' to "Ye",
+                'Ґ' to "G",
+                'і' to "i",
+                'ї' to "yi",
+                'є' to "ye",
+                'ґ' to "g",
+            )
+    }
 }
 
 data class ChapterWorkspace(

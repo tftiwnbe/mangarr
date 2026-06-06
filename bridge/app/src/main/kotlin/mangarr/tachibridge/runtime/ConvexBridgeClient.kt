@@ -183,6 +183,9 @@ class ConvexBridgeClient(
     fun setLibraryChapterDownloadState(args: JsonObject): OkResponse =
         mutation("library:setChapterDownloadState", args)
 
+    fun syncLibraryChapterStorageState(args: JsonObject): OkResponse =
+        mutation("library:syncChapterStorageStateFromBridge", args)
+
     fun recoverActiveDownloads(args: JsonObject): RecoverDownloadsResponse =
         mutation("library:recoverActiveDownloads", args)
 

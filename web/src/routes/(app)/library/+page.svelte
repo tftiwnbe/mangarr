@@ -53,6 +53,8 @@
 		readingStatusIds: string[];
 		excludedReadingStatusIds?: string[];
 		updateStateKeys?: string[];
+		sourceIds?: string[];
+		excludedSourceIds?: string[];
 		sourceStatusKeys: string[];
 		excludedSourceStatusKeys?: string[];
 		genres: string[];
@@ -92,6 +94,8 @@
 		updated_at: number;
 		added_at: number;
 		last_read_at: number | null;
+		current_source_id: string;
+		current_source_label: string;
 		user_status: RawUserStatus | null;
 		status: number;
 		genre: string | null;
@@ -134,6 +138,8 @@
 	let activeReadingStatusIds = $state<string[]>([]);
 	let excludedReadingStatusIds = $state<string[]>([]);
 	let activeUpdateStateKeys = $state<string[]>([]);
+	let activeSourceIds = $state<string[]>([]);
+	let excludedSourceIds = $state<string[]>([]);
 	let activeSourceStatusKeys = $state<string[]>([]);
 	let excludedSourceStatusKeys = $state<string[]>([]);
 	let activeGenres = $state<string[]>([]);
@@ -224,6 +230,8 @@
 			activeReadingStatusIds: [...activeReadingStatusIds].sort(),
 			excludedReadingStatusIds: [...excludedReadingStatusIds].sort(),
 			activeUpdateStateKeys: [...activeUpdateStateKeys].sort(),
+			activeSourceIds: [...activeSourceIds].sort(),
+			excludedSourceIds: [...excludedSourceIds].sort(),
 			activeSourceStatusKeys: [...activeSourceStatusKeys].sort(),
 			excludedSourceStatusKeys: [...excludedSourceStatusKeys].sort(),
 			activeGenres: [...activeGenres].sort(),
@@ -328,6 +336,18 @@
 		).map((filter) => filter.key);
 	});
 
+	const availableCurrentSources = $derived.by(() => {
+		const seen = new SvelteMap<string, string>();
+		for (const title of titles) {
+			if (!seen.has(title.current_source_id)) {
+				seen.set(title.current_source_id, title.current_source_label);
+			}
+		}
+		return [...seen.entries()]
+			.map(([id, label]) => ({ id, label }))
+			.sort((left, right) => left.label.localeCompare(right.label));
+	});
+
 	const allGenres = $derived.by(() => {
 		const genres = new SvelteSet<string>();
 		for (const title of titles) {
@@ -344,6 +364,8 @@
 		activeReadingStatusIds.length > 0 ||
 			excludedReadingStatusIds.length > 0 ||
 			activeUpdateStateKeys.length > 0 ||
+			activeSourceIds.length > 0 ||
+			excludedSourceIds.length > 0 ||
 			activeSourceStatusKeys.length > 0 ||
 			excludedSourceStatusKeys.length > 0 ||
 			activeGenres.length > 0 ||
@@ -400,6 +422,14 @@
 			}
 
 			if (activeUpdateStateKeys.length > 0 && !activeUpdateStateKeys.includes(updateState)) {
+				return false;
+			}
+
+			if (activeSourceIds.length > 0 && !activeSourceIds.includes(title.current_source_id)) {
+				return false;
+			}
+
+			if (excludedSourceIds.length > 0 && excludedSourceIds.includes(title.current_source_id)) {
 				return false;
 			}
 
@@ -548,6 +578,8 @@
 			updated_at: title.updatedAt,
 			added_at: title.createdAt,
 			last_read_at: title.lastReadAt ?? null,
+			current_source_id: title.currentSourceId,
+			current_source_label: title.currentSourceLabel,
 			user_status: title.userStatus ?? null,
 			status: title.status ?? 0,
 			genre: title.genre ?? null,
@@ -647,6 +679,8 @@
 			readingStatusIds: [...activeReadingStatusIds],
 			excludedReadingStatusIds: [...excludedReadingStatusIds],
 			updateStateKeys: [...activeUpdateStateKeys],
+			sourceIds: [...activeSourceIds],
+			excludedSourceIds: [...excludedSourceIds],
 			sourceStatusKeys: [...activeSourceStatusKeys],
 			excludedSourceStatusKeys: [...excludedSourceStatusKeys],
 			genres: [...activeGenres],
@@ -662,6 +696,8 @@
 			readingStatusIds: [...new Set(filters.readingStatusIds)],
 			excludedReadingStatusIds: [...new Set(filters.excludedReadingStatusIds ?? [])],
 			updateStateKeys: [...new Set(filters.updateStateKeys ?? [])],
+			sourceIds: [...new Set(filters.sourceIds ?? [])],
+			excludedSourceIds: [...new Set(filters.excludedSourceIds ?? [])],
 			sourceStatusKeys: [...new Set(filters.sourceStatusKeys)],
 			excludedSourceStatusKeys: [...new Set(filters.excludedSourceStatusKeys ?? [])],
 			genres: [...new Set(filters.genres)],
@@ -683,6 +719,10 @@
 				(normalizedRight.excludedReadingStatusIds ?? []).join('\u0000') &&
 			(normalizedLeft.updateStateKeys ?? []).join('\u0000') ===
 				(normalizedRight.updateStateKeys ?? []).join('\u0000') &&
+			(normalizedLeft.sourceIds ?? []).join('\u0000') ===
+				(normalizedRight.sourceIds ?? []).join('\u0000') &&
+			(normalizedLeft.excludedSourceIds ?? []).join('\u0000') ===
+				(normalizedRight.excludedSourceIds ?? []).join('\u0000') &&
 			normalizedLeft.sourceStatusKeys.join('\u0000') ===
 				normalizedRight.sourceStatusKeys.join('\u0000') &&
 			(normalizedLeft.excludedSourceStatusKeys ?? []).join('\u0000') ===
@@ -727,6 +767,17 @@
 			return false;
 		}
 
+		if ((filters.sourceIds ?? []).length > 0 && !(filters.sourceIds ?? []).includes(title.current_source_id)) {
+			return false;
+		}
+
+		if (
+			(filters.excludedSourceIds ?? []).length > 0 &&
+			(filters.excludedSourceIds ?? []).includes(title.current_source_id)
+		) {
+			return false;
+		}
+
 		if (activeSourceValues.length > 0 && !activeSourceValues.includes(title.status)) {
 			return false;
 		}
@@ -764,6 +815,8 @@
 		activeReadingStatusIds = [...filters.readingStatusIds];
 		excludedReadingStatusIds = [...(filters.excludedReadingStatusIds ?? [])];
 		activeUpdateStateKeys = [...(filters.updateStateKeys ?? [])];
+		activeSourceIds = [...(filters.sourceIds ?? [])];
+		excludedSourceIds = [...(filters.excludedSourceIds ?? [])];
 		activeSourceStatusKeys = [...filters.sourceStatusKeys];
 		excludedSourceStatusKeys = [...(filters.excludedSourceStatusKeys ?? [])];
 		activeGenres = [...filters.genres];
@@ -788,6 +841,10 @@
 			filters.sourceStatusKeys.length + (filters.excludedSourceStatusKeys?.length ?? 0);
 		if (sourceStatusCount > 0) {
 			parts.push(`${sourceStatusCount} ${$_('library.sourceStatus').toLowerCase()}`);
+		}
+		const sourceCount = (filters.sourceIds?.length ?? 0) + (filters.excludedSourceIds?.length ?? 0);
+		if (sourceCount > 0) {
+			parts.push(`${sourceCount} ${$_('settings.sources').toLowerCase()}`);
 		}
 		const updateStateCount = filters.updateStateKeys?.length ?? 0;
 		if (updateStateCount > 0) {
@@ -823,6 +880,8 @@
 		activeReadingStatusIds = [];
 		excludedReadingStatusIds = [];
 		activeUpdateStateKeys = [];
+		activeSourceIds = [];
+		excludedSourceIds = [];
 		activeSourceStatusKeys = [];
 		excludedSourceStatusKeys = [];
 		activeGenres = [];
@@ -1008,6 +1067,19 @@
 			return;
 		}
 		activeSourceStatusKeys = [...new Set([...activeSourceStatusKeys, key])];
+	}
+
+	function toggleCurrentSource(id: string) {
+		if (activeSourceIds.includes(id)) {
+			activeSourceIds = activeSourceIds.filter((value) => value !== id);
+			excludedSourceIds = [...new Set([...excludedSourceIds, id])];
+			return;
+		}
+		if (excludedSourceIds.includes(id)) {
+			excludedSourceIds = excludedSourceIds.filter((value) => value !== id);
+			return;
+		}
+		activeSourceIds = [...new Set([...activeSourceIds, id])];
 	}
 
 	function toggleUpdateState(key: string) {
@@ -1736,6 +1808,27 @@
 						onclick={() => toggleSourceStatus(sourceFilter.key)}
 					>
 						{sourceStatusLabel(sourceFilter.labelKey)}
+					</button>
+				{/each}
+			</div>
+		</PanelSection>
+	{/if}
+
+	{#if availableCurrentSources.length > 0}
+		<PanelSection label={$_('settings.sources')}>
+			<div class="flex flex-wrap gap-1.5">
+				{#each availableCurrentSources as source (source.id)}
+					{@const state = activeSourceIds.includes(source.id)
+						? 'include'
+						: excludedSourceIds.includes(source.id)
+							? 'exclude'
+							: 'off'}
+					<button
+						type="button"
+						class="border px-2.5 py-1 text-xs transition-colors {filterChipClass(state)}"
+						onclick={() => toggleCurrentSource(source.id)}
+					>
+						{source.label}
 					</button>
 				{/each}
 			</div>

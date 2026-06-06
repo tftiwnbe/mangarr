@@ -1,9 +1,16 @@
 import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
 
+import type { Doc } from './_generated/dataModel';
 import { internalMutation, mutation, type MutationCtx, type QueryCtx } from './_generated/server';
 import { requireBridgeIdentity } from './bridge_auth';
-import { getPreferredVariantForTitle, markTitleListedInLibrary } from './library_shared';
+import { collapseChapterReleases } from './chapter_groups';
+import {
+	chapterBelongsToVariant,
+	getPreferredVariantForTitle,
+	markTitleListedInLibrary,
+	resolveStorageTitleBaseForTitle
+} from './library_shared';
 import { insertCommand } from './command_payloads';
 import {
 	applyChapterDownloadCounterDelta,
@@ -41,8 +48,32 @@ function isActiveDownloadTaskStatus(status: DownloadTaskStatus) {
 	return status === DOWNLOAD_TASK_STATUS.QUEUED || status === DOWNLOAD_TASK_STATUS.DOWNLOADING;
 }
 
-function isChapterAvailableFromSource(chapter: { isAvailableFromSource?: boolean }) {
-	return chapter.isAvailableFromSource !== false;
+async function loadActiveTitleChapterReleases(
+	ctx: QueryCtx | MutationCtx,
+	title: {
+		_id: GenericId<'libraryTitles'>;
+		ownerUserId: GenericId<'users'>;
+		preferredVariantId?: GenericId<'titleVariants'>;
+		sourceId: string;
+		sourcePkg: string;
+		titleUrl: string;
+	}
+) {
+	const [chapters, preferredVariant] = await Promise.all([
+		ctx.db
+			.query('libraryChapters')
+			.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+			.collect(),
+		getPreferredVariantForTitle(ctx, title)
+	]);
+	const activeChapterSource = preferredVariant ?? title;
+	return chapters.filter((chapter) => chapterBelongsToVariant(chapter, activeChapterSource));
+}
+
+function selectDownloadableGroupedChapters(chapters: readonly Doc<'libraryChapters'>[]) {
+	return collapseChapterReleases(chapters).filter((chapter) =>
+		chapter.releases.some((release) => release.isAvailableFromSource !== false)
+	);
 }
 
 export const cancelQueuedChapterDownload = mutation({
@@ -303,25 +334,8 @@ export const requestMissingDownloads = mutation({
 		const now = Date.now();
 		await markTitleListedInLibrary(ctx, title, now);
 
-		const [missingChapters, failedChapters, queuedChapters, queuedTaskRows] = await Promise.all([
-			ctx.db
-				.query('libraryChapters')
-				.withIndex('by_library_title_id_download_status', (q) =>
-					q.eq('libraryTitleId', title._id).eq('downloadStatus', DOWNLOAD_STATUS.MISSING)
-				)
-				.collect(),
-			ctx.db
-				.query('libraryChapters')
-				.withIndex('by_library_title_id_download_status', (q) =>
-					q.eq('libraryTitleId', title._id).eq('downloadStatus', DOWNLOAD_STATUS.FAILED)
-				)
-				.collect(),
-			ctx.db
-				.query('libraryChapters')
-				.withIndex('by_library_title_id_download_status', (q) =>
-					q.eq('libraryTitleId', title._id).eq('downloadStatus', DOWNLOAD_STATUS.QUEUED)
-				)
-				.collect(),
+		const [titleChapters, queuedTaskRows] = await Promise.all([
+			loadActiveTitleChapterReleases(ctx, title),
 			ctx.db
 				.query('downloadTasks')
 				.withIndex('by_owner_user_id_status_updated_at', (q) =>
@@ -342,14 +356,18 @@ export const requestMissingDownloads = mutation({
 				chapter !== null && chapter.libraryTitleId === title._id && chapter.ownerUserId === userId
 		);
 
+		const queuedChapters = titleChapters.filter(
+			(chapter) => chapter.downloadStatus === DOWNLOAD_STATUS.QUEUED
+		);
 		const eligibleRetryChapters = [...queuedChapters, ...queuedTaskChapters]
 			.filter(
 				(chapter, index, chapters) =>
 					chapters.findIndex((entry) => entry._id === chapter._id) === index
 			)
 			.sort((left, right) => left.sequence - right.sequence);
+		let retriedQueued = 0;
 		for (const chapter of eligibleRetryChapters) {
-			await queueDownloadAttempt(ctx, {
+			const queued = await queueDownloadAttempt(ctx, {
 				chapter,
 				title,
 				requestedByUserId: userId,
@@ -357,21 +375,35 @@ export const requestMissingDownloads = mutation({
 				priority: DOWNLOAD_COMMAND_PRIORITY_BASE,
 				now
 			});
+			if (!queued.alreadyQueued) {
+				retriedQueued += 1;
+			}
 		}
 
-		const eligible = [...missingChapters, ...failedChapters].sort(
-			(left, right) => left.sequence - right.sequence
-		);
+		const eligible = selectDownloadableGroupedChapters(titleChapters)
+			.filter(
+				(chapter) =>
+					chapter.downloadStatus === DOWNLOAD_STATUS.MISSING ||
+					chapter.downloadStatus === DOWNLOAD_STATUS.FAILED
+			);
+		const orderedEligible = prioritizeMissingBeforeFailed(eligible);
 		const remainingSlots = await remainingDownloadCapacityForUser(ctx, userId);
 		if (remainingSlots <= 0) {
 			return {
 				enqueued: 0,
 				commandIds: [],
 				taskIds: [],
-				deferred: eligible.length
+				deferred: orderedEligible.length,
+				retriedQueued,
+				blocked:
+					orderedEligible.length > 0
+						? ('capacity' as const)
+						: retriedQueued > 0
+							? null
+							: ('no_candidates' as const)
 			};
 		}
-		const chaptersToQueue = eligible.slice(
+		const chaptersToQueue = orderedEligible.slice(
 			0,
 			Math.min(MAX_ENQUEUED_DOWNLOADS_PER_TITLE_REQUEST, remainingSlots)
 		);
@@ -402,7 +434,10 @@ export const requestMissingDownloads = mutation({
 			enqueued: commandIds.length,
 			commandIds,
 			taskIds,
-			deferred: Math.max(0, eligible.length - chaptersToQueue.length)
+			deferred: Math.max(0, orderedEligible.length - chaptersToQueue.length),
+			retriedQueued,
+			blocked:
+				commandIds.length > 0 || retriedQueued > 0 ? null : ('no_candidates' as const)
 		};
 	}
 });
@@ -561,6 +596,77 @@ export const setChapterDownloadState = mutation({
 	}
 });
 
+export const syncChapterStorageStateFromBridge = mutation({
+	args: {
+		chapterId: v.id('libraryChapters'),
+		status: v.union(v.literal('missing'), v.literal('downloaded')),
+		downloadedPages: v.optional(v.float64()),
+		totalPages: v.optional(v.float64()),
+		localRelativePath: v.optional(v.union(v.string(), v.null())),
+		storageKind: v.optional(v.union(v.literal('directory'), v.literal('archive'), v.null())),
+		fileSizeBytes: v.optional(v.union(v.float64(), v.null())),
+		lastErrorMessage: v.optional(v.union(v.string(), v.null())),
+		now: v.float64()
+	},
+	handler: async (ctx, args) => {
+		await requireBridgeIdentity(ctx);
+		const chapter = await ctx.db.get(args.chapterId);
+		if (!chapter) {
+			throw new Error('Library chapter not found');
+		}
+
+		const oldStatus = chapter.downloadStatus;
+		const oldFileSizeBytes = chapter.fileSizeBytes;
+		const newFileSizeBytes =
+			args.fileSizeBytes === undefined ? chapter.fileSizeBytes : (args.fileSizeBytes ?? undefined);
+
+		try {
+			await ctx.db.patch(chapter._id, {
+				downloadStatus: args.status,
+				downloadedPages: args.downloadedPages ?? chapter.downloadedPages,
+				totalPages: args.totalPages ?? chapter.totalPages,
+				localRelativePath:
+					args.localRelativePath === undefined
+						? chapter.localRelativePath
+						: (args.localRelativePath ?? undefined),
+				storageKind:
+					args.storageKind === undefined ? chapter.storageKind : (args.storageKind ?? undefined),
+				fileSizeBytes: newFileSizeBytes,
+				lastErrorMessage:
+					args.lastErrorMessage === undefined
+						? chapter.lastErrorMessage
+						: normalizeOptionalString(args.lastErrorMessage),
+				downloadedAt:
+					args.status === DOWNLOAD_STATUS.DOWNLOADED ? args.now : chapter.downloadedAt,
+				updatedAt: args.now
+			});
+		} catch (error) {
+			if (!(error instanceof Error) || !error.message?.includes('changed while this mutation')) {
+				throw error;
+			}
+			const latestChapter = await ctx.db.get(args.chapterId);
+			if (!latestChapter || !isConcurrentDownloadStateSatisfied(latestChapter, args)) {
+				throw error;
+			}
+			return { ok: true };
+		}
+
+		const statusChanged = oldStatus !== args.status;
+		const sizeChanged = (oldFileSizeBytes ?? 0) !== (newFileSizeBytes ?? 0);
+		if (statusChanged || sizeChanged) {
+			await applyChapterDownloadCounterDelta(ctx, {
+				libraryTitleId: chapter.libraryTitleId,
+				oldStatus,
+				newStatus: args.status,
+				oldFileSizeBytes,
+				newFileSizeBytes
+			});
+		}
+
+		return { ok: true };
+	}
+});
+
 async function countRecentConsecutiveFailures(
 	ctx: QueryCtx | MutationCtx,
 	chapterId: GenericId<'libraryChapters'>
@@ -596,6 +702,7 @@ async function queueDownloadAttempt(
 		now: number;
 	}
 ) {
+	const storageTitleBase = await resolveStorageTitleBaseForTitle(ctx, args.title);
 	const activeTask = await findActiveDownloadTaskForChapter(
 		ctx,
 		args.chapter.ownerUserId,
@@ -649,7 +756,7 @@ async function queueDownloadAttempt(
 				const replacementCommandId = await insertCommand(ctx, {
 					commandType: 'downloads.chapter',
 					requestedByUserId: args.requestedByUserId,
-					payload: buildDownloadCommandPayload(args.chapter, activeTask._id, args.title.title),
+					payload: buildDownloadCommandPayload(args.chapter, activeTask._id, storageTitleBase),
 					idempotencyKey: `downloads.chapter:${String(args.chapter._id)}:retry:${args.now}`,
 					priority: args.priority,
 					maxAttempts: 10,
@@ -723,7 +830,7 @@ async function queueDownloadAttempt(
 	const commandId = await insertCommand(ctx, {
 		commandType: 'downloads.chapter',
 		requestedByUserId: args.requestedByUserId,
-		payload: buildDownloadCommandPayload(args.chapter, taskId, args.title.title),
+		payload: buildDownloadCommandPayload(args.chapter, taskId, storageTitleBase),
 		idempotencyKey: `downloads.chapter:${String(args.chapter._id)}:${attemptNumber}:${args.now}`,
 		priority: args.priority,
 		maxAttempts: 10, // Increased from 3 to 10 for pay-to-read or temporarily unavailable chapters
@@ -848,6 +955,26 @@ function shouldTreatDownloadFailureAsPermanent(
 	return (task.errorMessage ?? '').toLowerCase().includes('http error 404');
 }
 
+function prioritizeMissingBeforeFailed<
+	T extends {
+		downloadStatus: string;
+		sequence: number;
+	}
+>(chapters: readonly T[]) {
+	const missing: T[] = [];
+	const failed: T[] = [];
+	for (const chapter of chapters) {
+		if (chapter.downloadStatus === DOWNLOAD_STATUS.FAILED) {
+			failed.push(chapter);
+		} else {
+			missing.push(chapter);
+		}
+	}
+	missing.sort((left, right) => left.sequence - right.sequence);
+	failed.sort((left, right) => left.sequence - right.sequence);
+	return [...missing, ...failed];
+}
+
 async function runDownloadCycleForUser(
 	ctx: MutationCtx,
 	args: {
@@ -858,14 +985,18 @@ async function runDownloadCycleForUser(
 ) {
 	const cyclePlan = await selectDownloadCycleCandidatesForUser(ctx, args);
 	if (cyclePlan.hasInFlightDownloads) {
-		return { checked: cyclePlan.checkedProfiles, enqueued: 0 };
+		return { checked: cyclePlan.checkedProfiles, enqueued: 0, blocked: 'in_flight' as const };
 	}
 	let remainingCapacity = await remainingDownloadCapacityForUser(ctx, args.userId);
 	if (remainingCapacity <= 0) {
-		return { checked: cyclePlan.checkedProfiles, enqueued: 0 };
+		return { checked: cyclePlan.checkedProfiles, enqueued: 0, blocked: 'capacity' as const };
 	}
 
 	let enqueued = 0;
+	let eligibleChapters = 0;
+	for (const entry of cyclePlan.entries) {
+		eligibleChapters += entry.chapters.length;
+	}
 	while (remainingCapacity > 0) {
 		let progressed = false;
 		for (const entry of cyclePlan.entries) {
@@ -908,7 +1039,12 @@ async function runDownloadCycleForUser(
 		});
 	}
 
-	return { checked: cyclePlan.checkedProfiles, enqueued };
+	return {
+		checked: cyclePlan.checkedProfiles,
+		enqueued,
+		eligibleChapters,
+		blocked: enqueued > 0 ? null : ('no_candidates' as const)
+	};
 }
 
 async function remainingDownloadCapacityForUser(
@@ -978,7 +1114,17 @@ async function selectDownloadCycleCandidatesForUser(
 			)
 			.collect()
 	)
-		.sort((left, right) => right.updatedAt - left.updatedAt)
+		.sort((left, right) => {
+			const leftCheckedAt = left.lastCheckedAt ?? 0;
+			const rightCheckedAt = right.lastCheckedAt ?? 0;
+			if (leftCheckedAt !== rightCheckedAt) {
+				return leftCheckedAt - rightCheckedAt;
+			}
+			if (left.updatedAt !== right.updatedAt) {
+				return left.updatedAt - right.updatedAt;
+			}
+			return left.createdAt - right.createdAt;
+		})
 		.slice(0, args.limit);
 	const activeProfiles = profiles.filter((profile) => !profile.paused);
 
@@ -991,79 +1137,29 @@ async function selectDownloadCycleCandidatesForUser(
 	);
 	const validTitles = titles.filter((t): t is NonNullable<typeof t> => t !== null);
 
-	const activeDownloadingTasks = await loadDownloadTasksForUserStatus(
-		ctx,
-		args.userId,
-		DOWNLOAD_TASK_STATUS.DOWNLOADING,
-		1
-	);
-	const hasInFlightDownloads = activeDownloadingTasks.length > 0;
-	if (hasInFlightDownloads) {
-		return {
-			checkedProfiles: activeProfiles.length,
-			hasInFlightDownloads,
-			entries: []
-		};
-	}
-
-	// Load chapters only for titles with active download profiles to avoid timeout
-	const [missingChapters, failedChapters] = await Promise.all([
-		Promise.all(
-			titleIds.map(async (titleId) =>
-				ctx.db
-					.query('libraryChapters')
-					.withIndex('by_library_title_id_download_status', (q) =>
-						q
-							.eq('libraryTitleId', titleId as GenericId<'libraryTitles'>)
-							.eq('downloadStatus', DOWNLOAD_STATUS.MISSING)
-					)
-					.collect()
-			)
-		).then((results) => results.flat()),
-		Promise.all(
-			titleIds.map(async (titleId) =>
-				ctx.db
-					.query('libraryChapters')
-					.withIndex('by_library_title_id_download_status', (q) =>
-						q
-							.eq('libraryTitleId', titleId as GenericId<'libraryTitles'>)
-							.eq('downloadStatus', DOWNLOAD_STATUS.FAILED)
-					)
-					.collect()
-			)
-		).then((results) => results.flat())
-	]);
 	const titleById = new Map(validTitles.map((title) => [String(title._id), title] as const));
-	const eligibleChaptersByTitleId = new Map<
-		string,
-		Array<(typeof missingChapters)[number] | (typeof failedChapters)[number]>
-	>();
-	for (const chapter of missingChapters) {
-		const titleId = String(chapter.libraryTitleId);
-		if (!titleById.has(titleId) || !isChapterAvailableFromSource(chapter)) {
-			continue;
+	const eligibleChaptersByTitleId = new Map<string, ReturnType<typeof selectDownloadableGroupedChapters>>();
+	for (const title of validTitles) {
+		const chapters = selectDownloadableGroupedChapters(await loadActiveTitleChapterReleases(ctx, title));
+		const next = [];
+		for (const chapter of chapters) {
+			if (chapter.downloadStatus === DOWNLOAD_STATUS.MISSING) {
+				next.push(chapter);
+				continue;
+			}
+			if (chapter.downloadStatus === DOWNLOAD_STATUS.FAILED) {
+				const latestTask = await findLatestDownloadTaskForChapter(ctx, chapter._id);
+				if (!shouldTreatDownloadFailureAsPermanent(latestTask)) {
+					next.push(chapter);
+				}
+			}
 		}
-		const next = eligibleChaptersByTitleId.get(titleId) ?? [];
-		next.push(chapter);
-		eligibleChaptersByTitleId.set(titleId, next);
-	}
-	for (const chapter of failedChapters) {
-		const titleId = String(chapter.libraryTitleId);
-		if (!titleById.has(titleId) || !isChapterAvailableFromSource(chapter)) {
-			continue;
-		}
-		const latestTask = await findLatestDownloadTaskForChapter(ctx, chapter._id);
-		if (shouldTreatDownloadFailureAsPermanent(latestTask)) {
-			continue;
-		}
-		const next = eligibleChaptersByTitleId.get(titleId) ?? [];
-		next.push(chapter);
-		eligibleChaptersByTitleId.set(titleId, next);
+		eligibleChaptersByTitleId.set(String(title._id), prioritizeMissingBeforeFailed(next));
 	}
 
 	return {
 		checkedProfiles: activeProfiles.length,
-		hasInFlightDownloads,
+		hasInFlightDownloads: false,
 		validTitles,
 		entries: activeProfiles
 			.map((profile) => {
@@ -1071,9 +1167,7 @@ async function selectDownloadCycleCandidatesForUser(
 				if (!title) {
 					return null;
 				}
-				const chapters = [...(eligibleChaptersByTitleId.get(String(title._id)) ?? [])].sort(
-					(left, right) => left.sequence - right.sequence
-				);
+				const chapters = [...(eligibleChaptersByTitleId.get(String(title._id)) ?? [])];
 				return {
 					profile,
 					title,
@@ -1162,10 +1256,15 @@ async function requeueRecoveredTask(
 		});
 	}
 	if (!command) {
+		const title = await ctx.db.get(chapter.libraryTitleId);
+		const storageTitleBase =
+			title && title.ownerUserId === chapter.ownerUserId
+				? await resolveStorageTitleBaseForTitle(ctx, title)
+				: task.titleName;
 		const replacementCommandId = await insertCommand(ctx, {
 			commandType: 'downloads.chapter',
 			requestedByUserId: task.requestedByUserId ?? task.ownerUserId,
-			payload: buildDownloadCommandPayload(chapter, task._id, task.titleName),
+			payload: buildDownloadCommandPayload(chapter, task._id, storageTitleBase),
 			idempotencyKey: `downloads.chapter:${String(chapter._id)}:recovery:${now}`,
 			priority: DOWNLOAD_COMMAND_PRIORITY_BASE,
 			maxAttempts: 10,
@@ -1217,7 +1316,7 @@ function buildDownloadCommandPayload(
 		| 'chapterNumber'
 	>,
 	downloadTaskId: GenericId<'downloadTasks'>,
-	title: string
+	storageTitle: string
 ) {
 	return {
 		chapterId: chapter._id,
@@ -1228,7 +1327,7 @@ function buildDownloadCommandPayload(
 		sourceLang: chapter.sourceLang,
 		titleUrl: chapter.titleUrl,
 		chapterUrl: chapter.chapterUrl,
-		title,
+		title: storageTitle,
 		chapterName: chapter.chapterName,
 		chapterNumber: chapter.chapterNumber
 	};
@@ -1420,7 +1519,7 @@ function isConcurrentDownloadStateSatisfied(
 		totalPages?: number;
 		localRelativePath?: string | null;
 		storageKind?: 'directory' | 'archive' | null;
-		fileSizeBytes?: number;
+		fileSizeBytes?: number | null;
 		lastErrorMessage?: string | null;
 	}
 ) {
@@ -1444,7 +1543,7 @@ function isConcurrentDownloadStateSatisfied(
 				(args.totalPages === undefined || (chapter.totalPages ?? 0) >= args.totalPages) &&
 				(args.localRelativePath == null || chapter.localRelativePath === args.localRelativePath) &&
 				(args.storageKind == null || chapter.storageKind === args.storageKind) &&
-				(args.fileSizeBytes === undefined || (chapter.fileSizeBytes ?? 0) >= args.fileSizeBytes)
+				(args.fileSizeBytes == null || (chapter.fileSizeBytes ?? 0) >= args.fileSizeBytes)
 			);
 		case DOWNLOAD_STATUS.FAILED:
 			return (

@@ -3,10 +3,12 @@ import type { GenericId } from 'convex/values';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { buildTitleRouteBaseFromUrl } from '../lib/utils/route-segments';
 import { insertCommand } from './command_payloads';
+import { summarizeGroupedChapterStatuses } from './chapter_groups';
 import { reconcileTitleDownloadCounters } from './download_counters';
 import { DOWNLOAD_STATUS } from './library_shared_access';
 import { loadInstalledSourceCatalog, variantInstalledSourceRecord } from './library_shared_sources';
 import { pickNumber, pickString } from './library_shared_values';
+import { pickStorageTitleBase } from './storage_names';
 
 const ACTIVE_COMMAND_STATUSES = new Set(['queued', 'leased', 'running']);
 
@@ -142,6 +144,32 @@ export async function listVariantsForTitle(
 			}
 			return left.title.localeCompare(right.title);
 		});
+}
+
+export async function resolveStorageTitleBaseForTitle(
+	ctx: QueryCtx | MutationCtx,
+	title: {
+		_id: GenericId<'libraryTitles'>;
+		ownerUserId: GenericId<'users'>;
+		title: string;
+		titleUrl: string;
+	}
+) {
+	const variants = await ctx.db
+		.query('titleVariants')
+		.withIndex('by_owner_user_id_library_title_id', (q) =>
+			q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+		)
+		.collect();
+
+	return pickStorageTitleBase({
+		canonicalTitle: title.title,
+		canonicalTitleUrl: title.titleUrl,
+		variants: variants.map((variant) => ({
+			title: variant.title,
+			titleUrl: variant.titleUrl
+		}))
+	});
 }
 
 export async function resolveOwnedTitleUserStatus(
@@ -519,37 +547,18 @@ export async function refreshTitleChapterStats(
 			.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', libraryTitleId))
 			.collect();
 
-		let queued = 0;
-		let downloading = 0;
-		let downloaded = 0;
-		let failed = 0;
-		let downloadedBytes = 0;
 		const activeChapterSource = preferredVariant ?? title;
-		const availableChapters = chapters.filter(
-			(chapter) =>
-				chapter.isAvailableFromSource !== false &&
-				chapterBelongsToVariant(chapter, activeChapterSource)
+		const stats = summarizeGroupedChapterStatuses(
+			chapters.filter((chapter) => chapterBelongsToVariant(chapter, activeChapterSource))
 		);
-		for (const chapter of availableChapters) {
-			switch (chapter.downloadStatus) {
-				case DOWNLOAD_STATUS.QUEUED:
-					queued++;
-					break;
-				case DOWNLOAD_STATUS.DOWNLOADING:
-					downloading++;
-					break;
-				case DOWNLOAD_STATUS.DOWNLOADED:
-					downloaded++;
-					downloadedBytes += chapter.fileSizeBytes ?? 0;
-					break;
-				case DOWNLOAD_STATUS.FAILED:
-					failed++;
-					break;
-			}
-		}
+		const queued = stats.queued;
+		const downloading = stats.downloading;
+		const downloaded = stats.downloaded;
+		const failed = stats.failed;
+		const downloadedBytes = stats.downloadedBytes;
 
 		await ctx.db.patch(libraryTitleId, {
-			chapterCount: availableChapters.length,
+			chapterCount: stats.total,
 			downloadedChapterCount: downloaded,
 			downloadedChapterBytes: downloadedBytes,
 			queuedChapterCount: queued,

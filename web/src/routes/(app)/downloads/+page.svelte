@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { Dialog } from 'bits-ui';
 	import { onMount } from 'svelte';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 	import {
@@ -17,6 +18,7 @@
 	import { EmptyState } from '$lib/elements/empty-state';
 	import { LazyImage } from '$lib/elements/lazy-image';
 	import { Switch } from '$lib/elements/switch';
+	import { toast } from '$lib/elements/toast';
 	import { _ } from '$lib/i18n';
 	import { buildTitlePath } from '$lib/utils/routes';
 
@@ -32,9 +34,11 @@
 		activeTasks: DashboardTask[];
 		recentTasks: DashboardTask[];
 		watchedTitles: WatchedTitle[];
+		watchedTotal: number;
 	};
 
 	type DashboardTask = {
+		taskId: string;
 		chapterId: Id<'libraryChapters'>;
 		titleId: Id<'libraryTitles'>;
 		title: string;
@@ -84,9 +88,40 @@
 		message?: string;
 	};
 
+	type NormalizeResult = {
+		ok?: boolean;
+		dryRun?: boolean;
+		normalized?: number;
+		pruned?: number;
+		conflicts?: number;
+		missing?: number;
+		fixed?: number;
+		scanned?: number;
+		normalizeCandidates?: number;
+		pruneCandidates?: number;
+		nextCursor?: number | null;
+		totalTitles?: number;
+		processedTitles?: number;
+		message?: string;
+	};
+
+	type RunDownloadCycleResult = {
+		checked: number;
+		enqueued: number;
+		eligibleChapters?: number;
+		blocked?: 'in_flight' | 'capacity' | 'no_candidates' | null;
+	};
+
+	type RetryMissingDownloadsResult = {
+		enqueued: number;
+		deferred: number;
+		retriedQueued?: number;
+		blocked?: 'capacity' | 'no_candidates' | null;
+	};
+
 	const client = useConvexClient();
+	let watchedVisibleCount = $state(10);
 	const dashboardQuery = useQuery(convexApi.library.getDownloadDashboard, () => ({
-		watchedLimit: 100,
 		activeLimit: 100,
 		recentLimit: 40
 	}));
@@ -101,7 +136,13 @@
 	let reconcileLoading = $state(false);
 	let reconcileError = $state<string | null>(null);
 	let reconcileResult = $state<ReconcileResult | null>(null);
+	let normalizeLoading = $state(false);
+	let normalizeError = $state<string | null>(null);
+	let normalizeResult = $state<NormalizeResult | null>(null);
+	let failuresDialogOpen = $state(false);
 	let actionError = $state<string | null>(null);
+	let watchedSentinel = $state<HTMLDivElement | null>(null);
+	let watchedIntersectionObserver: IntersectionObserver | null = null;
 
 	const dashboard = $derived(
 		(dashboardQuery.data as DashboardData | null) ?? {
@@ -113,7 +154,8 @@
 			},
 			activeTasks: [],
 			recentTasks: [],
-			watchedTitles: []
+			watchedTitles: [],
+			watchedTotal: 0
 		}
 	);
 	const isLoading = $derived(dashboardQuery.isLoading);
@@ -125,15 +167,39 @@
 			.sort((a, b) => a.chapterId.localeCompare(b.chapterId))
 	);
 
+	const failedRecentTasks = $derived(
+		dashboard.recentTasks.filter((task) => task.status === 'failed')
+	);
+
 	const chapterProgress = $derived(
 		dashboard.overview.totalChapters > 0
 			? (dashboard.overview.downloadedChapters / dashboard.overview.totalChapters) * 100
 			: 0
 	);
+	const canLoadMoreWatched = $derived(
+		watchedVisibleCount < dashboard.watchedTitles.length
+	);
+	const visibleWatchedTitles = $derived(
+		dashboard.watchedTitles.slice(0, watchedVisibleCount)
+	);
 
 	onMount(() => {
 		void loadStorage();
+		return () => {
+			watchedIntersectionObserver?.disconnect();
+			watchedIntersectionObserver = null;
+		};
 	});
+
+	function resetWatchedObserver() {
+		watchedIntersectionObserver?.disconnect();
+		watchedIntersectionObserver = null;
+	}
+
+	async function maybeLoadMoreWatched() {
+		if (dashboardQuery.isLoading || !canLoadMoreWatched) return;
+		watchedVisibleCount += 10;
+	}
 
 	function getBrowserFetch(): typeof window.fetch {
 		if (!browser) {
@@ -176,9 +242,13 @@
 		runningAction = 'cycle';
 		actionError = null;
 		try {
-			await client.mutation(convexApi.library.runDownloadCycle, { limit: 25 });
+			const result = await client.mutation(convexApi.library.runDownloadCycle, {
+				limit: 25
+			});
+			notifyRunCycleResult(result as RunDownloadCycleResult);
 		} catch (cause) {
 			actionError = cause instanceof Error ? cause.message : 'Failed to run downloads';
+			toast.error(actionError, { title: 'Run now failed' });
 		} finally {
 			runningAction = null;
 		}
@@ -206,6 +276,67 @@
 		}
 	}
 
+	async function handleNormalizeDownloads() {
+		normalizeLoading = true;
+		normalizeError = null;
+		try {
+			let cursor = 0;
+			let aggregated: NormalizeResult = {
+				ok: true,
+				dryRun: false,
+				normalized: 0,
+				pruned: 0,
+				conflicts: 0,
+				missing: 0,
+				fixed: 0,
+				scanned: 0,
+				normalizeCandidates: 0,
+				pruneCandidates: 0,
+				totalTitles: 0,
+				processedTitles: 0,
+				nextCursor: null
+			};
+			while (true) {
+				const batch = await fetchJson<NormalizeResult>('/api/internal/bridge/downloads/normalize', {
+					method: 'POST',
+					headers: {
+						'content-type': 'application/json'
+					},
+					body: JSON.stringify({
+						cursor,
+						maxTitles: 8
+					})
+				});
+				aggregated = {
+					...aggregated,
+					normalized: (aggregated.normalized ?? 0) + (batch.normalized ?? 0),
+					pruned: (aggregated.pruned ?? 0) + (batch.pruned ?? 0),
+					conflicts: (aggregated.conflicts ?? 0) + (batch.conflicts ?? 0),
+					missing: (aggregated.missing ?? 0) + (batch.missing ?? 0),
+					fixed: (aggregated.fixed ?? 0) + (batch.fixed ?? 0),
+					scanned: (aggregated.scanned ?? 0) + (batch.scanned ?? 0),
+					normalizeCandidates:
+						(aggregated.normalizeCandidates ?? 0) + (batch.normalizeCandidates ?? 0),
+					pruneCandidates: (aggregated.pruneCandidates ?? 0) + (batch.pruneCandidates ?? 0),
+					totalTitles: batch.totalTitles ?? aggregated.totalTitles ?? 0,
+					processedTitles:
+						(aggregated.processedTitles ?? 0) + (batch.processedTitles ?? 0),
+					nextCursor: batch.nextCursor ?? null
+				};
+				normalizeResult = aggregated;
+				if (batch.nextCursor == null) {
+					break;
+				}
+				cursor = batch.nextCursor;
+			}
+			await loadStorage();
+		} catch (cause) {
+			normalizeError = cause instanceof Error ? cause.message : 'Failed to normalize downloads';
+		} finally {
+			normalizeLoading = false;
+		}
+	}
+
 	async function toggleWatch(titleId: Id<'libraryTitles'>, enabled: boolean) {
 		if (profileActionTitleId === titleId) return;
 		profileActionTitleId = titleId;
@@ -228,14 +359,68 @@
 		taskActionKey = actionKey;
 		actionError = null;
 		try {
-			await client.mutation(convexApi.library.requestMissingDownloads, {
+			const result = await client.mutation(convexApi.library.requestMissingDownloads, {
 				titleId
 			});
+			notifyRetryResult(result as RetryMissingDownloadsResult);
 		} catch (cause) {
 			actionError = cause instanceof Error ? cause.message : 'Failed to queue missing downloads';
+			toast.error(actionError, { title: 'Retry failed' });
 		} finally {
 			taskActionKey = null;
 		}
+	}
+
+	function notifyRunCycleResult(result: RunDownloadCycleResult) {
+		if (result.enqueued > 0) {
+			const eligible = result.eligibleChapters ?? result.enqueued;
+			toast.success(`Queued ${result.enqueued} chapters from ${eligible} available picks.`, {
+				title: 'Downloads queued'
+			});
+			return;
+		}
+		if (result.blocked === 'in_flight') {
+			toast.info('Downloads are already active. Wait for current tasks to clear first.', {
+				title: 'Queue already busy'
+			});
+			return;
+		}
+		if (result.blocked === 'capacity') {
+			toast.info('Download slots are full right now. Wait for queued items to start or finish.', {
+				title: 'No free slots'
+			});
+			return;
+		}
+		toast.info('No eligible chapters were found for watched titles.', {
+			title: 'Nothing to queue'
+		});
+	}
+
+	function notifyRetryResult(result: RetryMissingDownloadsResult) {
+		const retriedQueued = result.retriedQueued ?? 0;
+		if (result.enqueued > 0 || retriedQueued > 0) {
+			const parts: string[] = [];
+			if (result.enqueued > 0) {
+				parts.push(`queued ${result.enqueued} missing chapters`);
+			}
+			if (retriedQueued > 0) {
+				parts.push(`reissued ${retriedQueued} stuck queue entries`);
+			}
+			if (result.deferred > 0) {
+				parts.push(`${result.deferred} deferred`);
+			}
+			toast.success(`${parts.join(', ')}.`, { title: 'Retry requested' });
+			return;
+		}
+		if (result.blocked === 'capacity') {
+			toast.info('Download slots are full right now. Retry again after active tasks move forward.', {
+				title: 'No free slots'
+			});
+			return;
+		}
+		toast.info('No missing or failed chapters were found for this title.', {
+			title: 'Nothing to retry'
+		});
 	}
 
 	function formatBytes(bytes: number): string {
@@ -284,6 +469,27 @@
 		if (minutes >= 1) return `${minutes}m`;
 		return `${totalSeconds}s`;
 	}
+
+	$effect(() => {
+		if (typeof window === 'undefined' || !watchedSentinel || !canLoadMoreWatched) {
+			resetWatchedObserver();
+			return;
+		}
+		resetWatchedObserver();
+		watchedIntersectionObserver = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((entry) => entry.isIntersecting)) {
+					void maybeLoadMoreWatched();
+				}
+			},
+			{
+				root: null,
+				rootMargin: '720px 0px 720px 0px',
+				threshold: 0
+			}
+		);
+		watchedIntersectionObserver.observe(watchedSentinel);
+	});
 </script>
 
 <svelte:head>
@@ -296,6 +502,18 @@
 			{$_('nav.downloads').toLowerCase()}
 		</h1>
 		<div class="flex items-center gap-1">
+			{#if failedRecentTasks.length > 0}
+				<button
+					type="button"
+					class="group/btn flex h-8 items-center gap-1.5 px-2 text-[rgba(248,113,113,0.76)] transition-colors hover:text-[rgba(248,113,113,0.96)]"
+					onclick={() => (failuresDialogOpen = true)}
+					title="Recent failures"
+					aria-label="Recent failures"
+				>
+					<WarningCircleIcon size={15} weight="duotone" />
+					<span class="text-[10px] tabular-nums">{failedRecentTasks.length}</span>
+				</button>
+			{/if}
 			<button
 				type="button"
 				class="group/btn flex h-8 w-8 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)] disabled:opacity-40"
@@ -322,6 +540,20 @@
 					<SpinnerIcon size={15} class="animate-spin" />
 				{:else}
 					<HardDriveIcon size={15} weight="duotone" />
+				{/if}
+			</button>
+			<button
+				type="button"
+				class="group/btn flex h-8 w-8 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text)] disabled:opacity-40"
+				onclick={handleNormalizeDownloads}
+				disabled={normalizeLoading}
+				title="Check storage"
+				aria-label="Check storage"
+			>
+				{#if normalizeLoading}
+					<SpinnerIcon size={15} class="animate-spin" />
+				{:else}
+					<ArrowClockwiseIcon size={15} weight="duotone" />
 				{/if}
 			</button>
 		</div>
@@ -376,6 +608,21 @@
 			{/if}
 			{#if reconcileError}
 				<Alert variant="error">{reconcileError}</Alert>
+			{/if}
+		</div>
+	{/if}
+
+	{#if normalizeResult || normalizeError}
+		<div class="flex flex-col gap-1 border-l border-[var(--line)] pl-3">
+			{#if normalizeResult}
+				<p class="text-[11px] text-[var(--text-muted)]">
+					Processed {normalizeResult.scanned ?? 0} chapters across {normalizeResult.processedTitles ?? 0}/{normalizeResult.totalTitles ??
+						0} titles · repaired {normalizeResult.fixed ?? 0} · relocated {normalizeResult.normalized ?? 0} · pruned {normalizeResult.pruned ??
+						0} · missing or damaged {normalizeResult.missing ?? 0}
+				</p>
+			{/if}
+			{#if normalizeError}
+				<Alert variant="error">{normalizeError}</Alert>
 			{/if}
 		</div>
 	{/if}
@@ -488,7 +735,7 @@
 			/>
 		{:else}
 			<ul class="flex flex-col">
-				{#each dashboard.watchedTitles as item (item.titleId)}
+				{#each visibleWatchedTitles as item (item.titleId)}
 					{@const progress =
 						item.totalChapters > 0
 							? Math.round((item.downloadedChapters / item.totalChapters) * 100)
@@ -601,6 +848,94 @@
 					</li>
 				{/each}
 			</ul>
+			{#if canLoadMoreWatched}
+				<div bind:this={watchedSentinel} class="flex items-center justify-center py-5">
+					{#if dashboardQuery.isLoading}
+						<SpinnerIcon size={14} class="animate-spin text-[var(--text-ghost)]" />
+					{:else}
+						<span class="text-[10px] tracking-[0.16em] text-[var(--text-ghost)] uppercase">
+							Loading more
+						</span>
+					{/if}
+				</div>
+			{/if}
 		{/if}
 	</section>
 </div>
+
+<Dialog.Root bind:open={failuresDialogOpen}>
+	<Dialog.Portal>
+		<Dialog.Overlay
+			class="animate-fade-in fixed inset-0 z-[70] bg-[var(--void-0)]/85 backdrop-blur-sm"
+		/>
+		<Dialog.Content
+			class="animate-scale-in fixed top-1/2 left-1/2 z-[70] flex max-h-[min(40rem,calc(100vh-2rem))] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 flex-col border border-[var(--line)] bg-[var(--void-1)] shadow-[0_20px_60px_-24px_rgba(0,0,0,0.75)] focus:outline-none"
+		>
+			<div class="flex items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-4">
+				<div class="flex items-center gap-2">
+					<WarningCircleIcon size={14} class="text-[rgba(248,113,113,0.82)]" />
+					<Dialog.Title class="text-sm text-[var(--text)]">Recent failures</Dialog.Title>
+				</div>
+				<span class="text-[10px] text-[var(--text-ghost)] tabular-nums">
+					{failedRecentTasks.length}
+				</span>
+			</div>
+			<div class="overflow-y-auto px-4 py-3">
+				{#if failedRecentTasks.length === 0}
+					<p class="py-6 text-center text-[11px] text-[var(--text-muted)]">
+						No recent failures.
+					</p>
+				{:else}
+					<ul class="flex flex-col">
+						{#each failedRecentTasks as task (task.taskId)}
+							<li class="flex gap-3 py-3">
+								<a href={buildTitlePath(task.titleId, task.title)} class="shrink-0 self-start">
+									<div
+										class="relative h-16 w-11 overflow-hidden bg-[var(--void-3)] ring-1 ring-[rgba(248,113,113,0.15)]"
+									>
+										<LazyImage
+											src={coverSrc(task)}
+											alt={task.title}
+											class="absolute inset-0 h-full w-full"
+										/>
+									</div>
+								</a>
+								<div class="flex min-w-0 flex-1 flex-col gap-1">
+									<a
+										href={buildTitlePath(task.titleId, task.title)}
+										class="flex min-w-0 flex-col gap-0.5"
+									>
+										<div class="flex items-baseline justify-between gap-2">
+											<p class="line-clamp-1 text-sm text-[var(--text)]">{task.title}</p>
+											<span class="shrink-0 text-[10px] text-[var(--text-ghost)] tabular-nums">
+												{new Date(task.updatedAt).toLocaleDateString()}
+											</span>
+										</div>
+										<p class="truncate text-xs text-[var(--text-muted)]">{task.chapter}</p>
+									</a>
+									{#if task.error}
+										<div
+											class="flex min-w-0 items-start gap-1 text-[11px] leading-tight text-[rgba(248,113,113,0.76)]"
+										>
+											<WarningCircleIcon size={11} class="mt-px shrink-0 opacity-70" />
+											<span class="line-clamp-3 min-w-0">{task.error}</span>
+										</div>
+									{/if}
+								</div>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
+			<div class="flex items-center justify-end border-t border-[var(--line)] px-4 py-3">
+				<button
+					type="button"
+					class="text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
+					onclick={() => (failuresDialogOpen = false)}
+				>
+					Close
+				</button>
+			</div>
+		</Dialog.Content>
+	</Dialog.Portal>
+</Dialog.Root>

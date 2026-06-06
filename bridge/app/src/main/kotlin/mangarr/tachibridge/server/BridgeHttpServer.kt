@@ -695,11 +695,30 @@ class BridgeHttpServer(
                     continue
                 }
 
+                if (isStoredChapterDamaged(chapter, stored)) {
+                    updateChapterState(
+                        client = client,
+                        chapterId = chapter.chapterId,
+                        status = "missing",
+                        downloadedPages = 0,
+                        totalPages = null,
+                        localRelativePath = null,
+                        storageKind = null,
+                        fileSizeBytes = null,
+                    )
+                    fixed += 1
+                    missing += 1
+                    continue
+                }
+
                 downloaded += 1
                 if (
                     chapter.currentStatus != "downloaded" ||
                     chapter.localRelativePath != stored.localRelativePath ||
-                    chapter.storageKind != stored.storageKind
+                    chapter.storageKind != stored.storageKind ||
+                    chapter.downloadedPages != stored.pageCount ||
+                    chapter.totalPages != stored.pageCount ||
+                    chapter.fileSizeBytes != stored.fileSizeBytes
                 ) {
                     updateChapterState(
                         client = client,
@@ -723,6 +742,165 @@ class BridgeHttpServer(
                     put("fixed", fixed)
                     put("downloaded", downloaded)
                     put("missing", missing)
+                },
+            )
+        }
+
+        createContext("/downloads/normalize") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+            if (exchange.requestMethod.uppercase() != "POST") {
+                sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+                return@createContext
+            }
+
+            val client = requireBridgeClient(exchange) ?: return@createContext
+            val payload = readJsonBody(exchange)
+            val normalizeChapters = payload["normalizeChapters"]?.jsonArray?.map(::parseReconcileChapter).orEmpty()
+            val pruneChapters = payload["pruneChapters"]?.jsonArray?.map(::parseReconcileChapter).orEmpty()
+            val dryRun = payload.optionalBoolean("dryRun") ?: false
+
+            var normalized = 0
+            var pruned = 0
+            var conflicts = 0
+            var missing = 0
+            var fixed = 0
+
+            for (chapter in normalizeChapters) {
+                val result =
+                    bridgeService.normalizeStoredChapter(
+                        titleId = chapter.titleId,
+                        titleName = chapter.titleName,
+                        sourceId = chapter.sourceId,
+                        sourcePkg = chapter.sourcePkg,
+                        sourceLang = chapter.sourceLang,
+                        chapterUrl = chapter.chapterUrl,
+                        chapterName = chapter.chapterName,
+                        chapterNumber = chapter.chapterNumber,
+                        localRelativePath = chapter.localRelativePath,
+                    )
+                val stored = result.stored
+                if (stored == null) {
+                    missing += 1
+                    if (!dryRun && (chapter.currentStatus == "downloaded" || !chapter.localRelativePath.isNullOrBlank())) {
+                        updateChapterState(
+                            client = client,
+                            chapterId = chapter.chapterId,
+                            status = "missing",
+                            downloadedPages = 0,
+                            totalPages = null,
+                            localRelativePath = null,
+                            storageKind = null,
+                            fileSizeBytes = null,
+                        )
+                        fixed += 1
+                    }
+                    continue
+                }
+
+                if (isStoredChapterDamaged(chapter, stored)) {
+                    missing += 1
+                    if (!dryRun) {
+                        updateChapterState(
+                            client = client,
+                            chapterId = chapter.chapterId,
+                            status = "missing",
+                            downloadedPages = 0,
+                            totalPages = null,
+                            localRelativePath = null,
+                            storageKind = null,
+                            fileSizeBytes = null,
+                        )
+                        fixed += 1
+                    }
+                    continue
+                }
+
+                if (result.conflict) {
+                    conflicts += 1
+                }
+                if (result.moved) {
+                    normalized += 1
+                }
+                if (!dryRun &&
+                    (
+                        result.moved ||
+                            chapter.currentStatus != "downloaded" ||
+                            chapter.localRelativePath != stored.localRelativePath ||
+                            chapter.storageKind != stored.storageKind ||
+                            chapter.downloadedPages != stored.pageCount ||
+                            chapter.totalPages != stored.pageCount ||
+                            chapter.fileSizeBytes != stored.fileSizeBytes
+                    )
+                ) {
+                    updateChapterState(
+                        client = client,
+                        chapterId = chapter.chapterId,
+                        status = "downloaded",
+                        downloadedPages = stored.pageCount,
+                        totalPages = stored.pageCount,
+                        localRelativePath = stored.localRelativePath,
+                        storageKind = stored.storageKind,
+                        fileSizeBytes = stored.fileSizeBytes,
+                    )
+                    fixed += 1
+                }
+            }
+
+            for (chapter in pruneChapters) {
+                val stored =
+                    bridgeService.resolveStoredChapter(
+                        titleId = chapter.titleId,
+                        titleName = chapter.titleName,
+                        sourceId = chapter.sourceId,
+                        sourcePkg = chapter.sourcePkg,
+                        sourceLang = chapter.sourceLang,
+                        chapterUrl = chapter.chapterUrl,
+                        chapterName = chapter.chapterName,
+                        chapterNumber = chapter.chapterNumber,
+                    )
+                if (stored == null) {
+                    continue
+                }
+                if (!dryRun) {
+                    bridgeService.deleteDownloadedChapter(
+                        titleId = chapter.titleId,
+                        titleName = chapter.titleName,
+                        sourceId = chapter.sourceId,
+                        sourcePkg = chapter.sourcePkg,
+                        sourceLang = chapter.sourceLang,
+                        chapterUrl = chapter.chapterUrl,
+                        chapterName = chapter.chapterName,
+                        chapterNumber = chapter.chapterNumber,
+                        localRelativePath = chapter.localRelativePath,
+                    )
+                    updateChapterState(
+                        client = client,
+                        chapterId = chapter.chapterId,
+                        status = "missing",
+                        downloadedPages = 0,
+                        totalPages = null,
+                        localRelativePath = null,
+                        storageKind = null,
+                        fileSizeBytes = null,
+                    )
+                    fixed += 1
+                }
+                pruned += 1
+            }
+
+            sendJson(
+                exchange,
+                200,
+                buildJsonObject {
+                    put("ok", true)
+                    put("dryRun", dryRun)
+                    put("normalized", normalized)
+                    put("pruned", pruned)
+                    put("conflicts", conflicts)
+                    put("missing", missing)
+                    put("fixed", fixed)
                 },
             )
         }
@@ -1131,8 +1309,11 @@ class BridgeHttpServer(
             chapterName = payload.requiredString("chapterName"),
             chapterNumber = payload.optionalDouble("chapterNumber"),
             currentStatus = payload.requiredString("currentStatus"),
+            downloadedPages = payload.optionalInt("downloadedPages"),
+            totalPages = payload.optionalInt("totalPages"),
             localRelativePath = payload.optionalString("localRelativePath"),
             storageKind = payload.optionalString("storageKind"),
+            fileSizeBytes = payload.optionalLong("fileSizeBytes"),
         )
     }
 
@@ -1146,7 +1327,7 @@ class BridgeHttpServer(
         storageKind: String?,
         fileSizeBytes: Long?,
     ) {
-        client.setLibraryChapterDownloadState(
+        client.syncLibraryChapterStorageState(
             client.payload(
                 buildJsonObject {
                     put("chapterId", chapterId)
@@ -1167,6 +1348,17 @@ class BridgeHttpServer(
         )
     }
 
+    private fun isStoredChapterDamaged(
+        chapter: DownloadReconcileChapter,
+        stored: mangarr.tachibridge.runtime.StoredChapterPayload,
+    ): Boolean {
+        if (chapter.currentStatus != "downloaded") {
+            return false
+        }
+        val expectedPages = listOfNotNull(chapter.totalPages, chapter.downloadedPages).maxOrNull() ?: return false
+        return expectedPages > 0 && stored.pageCount < expectedPages
+    }
+
     private fun JsonObject.requiredString(name: String): String =
         this[name]?.jsonPrimitive?.contentOrNull ?: error("Missing $name")
 
@@ -1181,6 +1373,9 @@ class BridgeHttpServer(
 
     private fun JsonObject.optionalDouble(name: String): Double? =
         this[name]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull()
+
+    private fun JsonObject.optionalLong(name: String): Long? =
+        this[name]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
 
     private fun JsonPrimitive.intLikeOrNull(): Int? {
         val numeric = contentOrNull?.toDoubleOrNull() ?: return null

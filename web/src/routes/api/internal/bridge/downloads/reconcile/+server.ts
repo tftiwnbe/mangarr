@@ -19,8 +19,11 @@ type LibraryChapter = {
 	sourceId: string;
 	sourcePkg: string;
 	sourceLang: string;
+	downloadedPages?: number;
+	totalPages?: number;
 	localRelativePath?: string | null;
 	storageKind?: string | null;
+	fileSizeBytes?: number | null;
 };
 
 export const POST: RequestHandler = async (event) => {
@@ -63,8 +66,11 @@ export const POST: RequestHandler = async (event) => {
 				chapterName: chapter.chapterName,
 				chapterNumber: chapter.chapterNumber ?? null,
 				currentStatus: chapter.downloadStatus,
+				downloadedPages: chapter.downloadedPages ?? 0,
+				totalPages: chapter.totalPages ?? null,
 				localRelativePath: chapter.localRelativePath ?? null,
-				storageKind: chapter.storageKind ?? null
+				storageKind: chapter.storageKind ?? null,
+				fileSizeBytes: chapter.fileSizeBytes ?? null
 			}))
 		}),
 		signal: AbortSignal.timeout(30_000)

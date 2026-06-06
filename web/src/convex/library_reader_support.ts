@@ -16,6 +16,7 @@ import {
 	resolveOwnedTitleUserStatus
 } from './library_shared_titles';
 import { DOWNLOAD_STATUS } from './library_shared_access';
+import { chapterGroupKeyForRow, collapseChapterReleases, summarizeGroupedChapterStatuses } from './chapter_groups';
 
 const ROUTE_COLLISION_DELIMITER = '~';
 
@@ -248,38 +249,31 @@ export async function findOwnedTitleByRouteSegment(
 
 export function summarizeDownloadStats(
 	chapters: Array<{
+		chapterGroupKey?: string;
 		downloadStatus: (typeof DOWNLOAD_STATUS)[keyof typeof DOWNLOAD_STATUS];
 		isAvailableFromSource?: boolean;
+		chapterName: string;
+		chapterNumber?: number | null;
+		scanlator?: string | null;
+		dateUpload?: number | null;
+		sequence: number;
+		downloadedPages: number;
+		totalPages?: number;
+		localRelativePath?: string | null;
+		fileSizeBytes?: number | null;
+		lastErrorMessage?: string | null;
+		downloadedAt?: number | null;
+		updatedAt?: number | null;
+		_id: GenericId<'libraryChapters'>;
 	}>
 ) {
-	let queued = 0;
-	let downloading = 0;
-	let downloaded = 0;
-	let failed = 0;
-	const availableChapters = chapters.filter((chapter) => chapter.isAvailableFromSource !== false);
-	for (const chapter of availableChapters) {
-		switch (chapter.downloadStatus) {
-			case DOWNLOAD_STATUS.QUEUED:
-				queued += 1;
-				break;
-			case DOWNLOAD_STATUS.DOWNLOADING:
-				downloading += 1;
-				break;
-			case DOWNLOAD_STATUS.DOWNLOADED:
-				downloaded += 1;
-				break;
-			case DOWNLOAD_STATUS.FAILED:
-				failed += 1;
-				break;
-		}
-	}
-
+	const stats = summarizeGroupedChapterStatuses(chapters);
 	return {
-		total: availableChapters.length,
-		queued,
-		downloading,
-		downloaded,
-		failed
+		total: stats.total,
+		queued: stats.queued,
+		downloading: stats.downloading,
+		downloaded: stats.downloaded,
+		failed: stats.failed
 	};
 }
 
@@ -373,25 +367,48 @@ export async function loadTitleOverviewContext(ctx: QueryCtx, title: Doc<'librar
 	const activeChapters = chapters.filter((chapter) =>
 		chapterBelongsToVariant(chapter, activeChapterSource)
 	);
-	const activeChapterIds = new Set(activeChapters.map((chapter) => String(chapter._id)));
-	const activeProgressRows = progressRows.filter((row) =>
-		activeChapterIds.has(String(row.chapterId))
+	const groupedChapters = collapseChapterReleases(activeChapters);
+	const releaseById = new Map(activeChapters.map((chapter) => [String(chapter._id), chapter] as const));
+	const groupedChapterByKey = new Map(
+		groupedChapters.map((chapter) => [chapter.chapterGroupKey, chapter] as const)
 	);
+	const visibleGroupedChapters = groupedChapters.filter((chapter) =>
+		chapter.releases.some((release) => release.isAvailableFromSource !== false) ||
+		chapter.downloadStatus !== DOWNLOAD_STATUS.MISSING ||
+		progressRows.some((row) => chapter.releaseIds.some((releaseId) => String(releaseId) === String(row.chapterId)))
+	);
+	const activeProgressRows = progressRows
+		.map((row) => {
+			const release = releaseById.get(String(row.chapterId));
+			if (!release) {
+				return null;
+			}
+			const groupKey = chapterGroupKeyForRow(release);
+			const group = groupedChapterByKey.get(groupKey);
+			if (!group) {
+				return null;
+			}
+			return {
+				...row,
+				chapterId: group._id
+			};
+		})
+		.filter((row): row is NonNullable<typeof row> => row !== null);
 	const latestProgress =
 		[...activeProgressRows].sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
 
-	const chapterStats = summarizeDownloadStats(activeChapters);
+	const chapterStats = summarizeDownloadStats(visibleGroupedChapters);
 	const progressByVariantId = new Map<string, Set<string>>();
 	for (const row of progressRows) {
 		const chapter = chapters.find((item) => String(item._id) === String(row.chapterId));
 		if (!chapter) continue;
 		const key = String(chapter.titleVariantId);
 		const current = progressByVariantId.get(key) ?? new Set<string>();
-		current.add(String(row.chapterId));
+		current.add(chapterGroupKeyForRow(chapter));
 		progressByVariantId.set(key, current);
 	}
-	const chaptersByVariantId = new Map<string, typeof chapters>();
-	for (const chapter of chapters) {
+	const chaptersByVariantId = new Map<string, typeof groupedChapters>();
+	for (const chapter of collapseChapterReleases(chapters)) {
 		const key = String(chapter.titleVariantId);
 		const current = chaptersByVariantId.get(key) ?? [];
 		current.push(chapter);
@@ -414,7 +431,7 @@ export async function loadTitleOverviewContext(ctx: QueryCtx, title: Doc<'librar
 
 	return {
 		routeSegment,
-		chapters: activeChapters,
+		chapters: visibleGroupedChapters,
 		userStatus,
 		collections,
 		variants: variantsWithProgress,
@@ -424,7 +441,7 @@ export async function loadTitleOverviewContext(ctx: QueryCtx, title: Doc<'librar
 		chapterStats,
 		offlineReadiness: summarizeOfflineReadiness(title, chapterStats),
 		readingProgress: {
-			startedChapters: activeProgressRows.length,
+			startedChapters: new Set(activeProgressRows.map((row) => String(row.chapterId))).size,
 			latest: latestProgress
 				? {
 						chapterId: latestProgress.chapterId,

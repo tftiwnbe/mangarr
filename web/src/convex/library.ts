@@ -4,6 +4,7 @@ import { v } from 'convex/values';
 import { mutation, type MutationCtx } from './_generated/server';
 import { buildTitleRouteBaseFromUrl } from '../lib/utils/route-segments';
 import { requireBridgeIdentity } from './bridge_auth';
+import { buildChapterGroupKey } from './chapter_groups';
 import {
 	applyVariantMetadataToTitle,
 	applyVariantSnapshotToTitle,
@@ -28,7 +29,10 @@ export {
 	getMineTotalCount,
 	getMineVisibilitySummary,
 	listHiddenMine,
+	listDownloadedMineChapters,
 	getMineChapterById,
+	listNormalizeDownloadTitles,
+	getStorageTitleBases,
 	getReaderByChapterId,
 	getReaderByRouteSegments,
 	listTitleComments,
@@ -83,6 +87,7 @@ export {
 	requestMissingDownloads,
 	runDownloadCycle,
 	setChapterDownloadState,
+	syncChapterStorageStateFromBridge,
 	updateDownloadProfile
 } from './library_downloads';
 export {
@@ -232,6 +237,10 @@ export const upsertChaptersForTitle = mutation({
 		let chapterRowsChanged = false;
 
 		for (const [index, chapter] of args.chapters.entries()) {
+			const chapterGroupKey = buildChapterGroupKey({
+				chapterName: chapter.name,
+				chapterNumber: chapter.chapterNumber
+			});
 			seenChapterUrls.add(chapter.url);
 			const current = byUrl.get(chapter.url);
 			if (current) {
@@ -241,6 +250,7 @@ export const upsertChaptersForTitle = mutation({
 					current.sourcePkg !== variant.sourcePkg ||
 					current.sourceLang !== variant.sourceLang ||
 					current.titleUrl !== variant.titleUrl ||
+					current.chapterGroupKey !== chapterGroupKey ||
 					current.chapterName !== chapter.name ||
 					current.chapterNumber !== chapter.chapterNumber ||
 					current.scanlator !== chapter.scanlator ||
@@ -251,12 +261,13 @@ export const upsertChaptersForTitle = mutation({
 					await ctx.db.patch(current._id, {
 						titleVariantId: variant._id,
 						sourceId: variant.sourceId,
-						sourcePkg: variant.sourcePkg,
-						sourceLang: variant.sourceLang,
-						titleUrl: variant.titleUrl,
-						chapterName: chapter.name,
-						chapterNumber: chapter.chapterNumber,
-						scanlator: chapter.scanlator,
+							sourcePkg: variant.sourcePkg,
+							sourceLang: variant.sourceLang,
+							titleUrl: variant.titleUrl,
+							chapterGroupKey,
+							chapterName: chapter.name,
+							chapterNumber: chapter.chapterNumber,
+							scanlator: chapter.scanlator,
 						dateUpload: chapter.dateUpload,
 						isAvailableFromSource: true,
 						sequence: index,
@@ -272,13 +283,14 @@ export const upsertChaptersForTitle = mutation({
 				libraryTitleId: title._id,
 				titleVariantId: variant._id,
 				sourceId: variant.sourceId,
-				sourcePkg: variant.sourcePkg,
-				sourceLang: variant.sourceLang,
-				titleUrl: variant.titleUrl,
-				chapterUrl: chapter.url,
-				chapterName: chapter.name,
-				chapterNumber: chapter.chapterNumber,
-				scanlator: chapter.scanlator,
+					sourcePkg: variant.sourcePkg,
+					sourceLang: variant.sourceLang,
+					titleUrl: variant.titleUrl,
+					chapterUrl: chapter.url,
+					chapterGroupKey,
+					chapterName: chapter.name,
+					chapterNumber: chapter.chapterNumber,
+					scanlator: chapter.scanlator,
 				dateUpload: chapter.dateUpload,
 				sequence: index,
 				isAvailableFromSource: true,
@@ -382,6 +394,30 @@ export const refreshTitleStatsFromBridge = mutation({
 		await requireBridgeIdentity(ctx);
 		await refreshTitleChapterStats(ctx, args.titleId, args.now);
 		return { ok: true };
+	}
+});
+
+export const refreshMyTitleStats = mutation({
+	args: {
+		titleIds: v.array(v.id('libraryTitles'))
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			throw new Error('Not authenticated');
+		}
+		const userId = identity.subject as GenericId<'users'>;
+		const now = Date.now();
+		let refreshed = 0;
+		for (const titleId of [...new Set(args.titleIds.map(String))].map((id) => id as GenericId<'libraryTitles'>)) {
+			const title = await ctx.db.get(titleId);
+			if (!title || title.ownerUserId !== userId) {
+				continue;
+			}
+			await refreshTitleChapterStats(ctx, titleId, now);
+			refreshed += 1;
+		}
+		return { ok: true, refreshed };
 	}
 });
 

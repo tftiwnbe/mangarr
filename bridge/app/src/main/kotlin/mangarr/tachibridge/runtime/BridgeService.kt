@@ -660,6 +660,26 @@ class BridgeService(
     ): JsonObject {
         val config = ConfigManager.config.downloads
 
+        downloadStorage.resolveStoredChapter(
+            titleId = titleId,
+            titleName = titleName,
+            sourceId = sourceId,
+            sourcePkg = sourcePkg,
+            sourceLang = sourceLang,
+            chapterUrl = chapterUrl,
+            chapterName = chapterName,
+            chapterNumber = chapterNumber,
+        )?.let { stored ->
+            return buildJsonObject {
+                put("ok", true)
+                put("totalPages", stored.pageCount)
+                put("downloadedPages", stored.pageCount)
+                put("storageKind", stored.storageKind)
+                put("localRelativePath", stored.localRelativePath)
+                put("fileSizeBytes", stored.fileSizeBytes)
+            }
+        }
+
         // Wait for minimum delay between chapters from the same source
         rateLimiter.waitForChapterStart(
             sourceId = sourceId,
@@ -1011,6 +1031,29 @@ class BridgeService(
             chapterNumber = chapterNumber,
         )
 
+    fun normalizeStoredChapter(
+        titleId: String,
+        titleName: String,
+        sourceId: String,
+        sourcePkg: String,
+        sourceLang: String,
+        chapterUrl: String,
+        chapterName: String,
+        chapterNumber: Double?,
+        localRelativePath: String?,
+    ): StoredChapterNormalizationPayload =
+        downloadStorage.normalizeStoredChapter(
+            titleId = titleId,
+            titleName = titleName,
+            sourceId = sourceId,
+            sourcePkg = sourcePkg,
+            sourceLang = sourceLang,
+            chapterUrl = chapterUrl,
+            chapterName = chapterName,
+            chapterNumber = chapterNumber,
+            relativePath = localRelativePath,
+        )
+
     suspend fun cacheCover(
         titleId: String,
         sourceId: String?,
@@ -1296,8 +1339,11 @@ data class DownloadReconcileChapter(
     val chapterName: String,
     val chapterNumber: Double? = null,
     val currentStatus: String,
+    val downloadedPages: Int? = null,
+    val totalPages: Int? = null,
     val localRelativePath: String? = null,
     val storageKind: String? = null,
+    val fileSizeBytes: Long? = null,
 )
 
 data class InstalledExtensionPayload(

@@ -3,6 +3,10 @@ import { v } from 'convex/values';
 
 import { query } from './_generated/server';
 import { buildChapterRouteBase, buildTitleRouteBaseFromUrl } from '../lib/utils/route-segments';
+import { chapterGroupKeyForRow, collapseChapterReleases } from './chapter_groups';
+import { DOWNLOAD_STATUS } from './library_shared_access';
+import { cleanExtensionLabel, humanizeSourcePkg } from './library_shared_values';
+import { pickStorageTitleBase } from './storage_names';
 import {
 	chapterBelongsToVariant,
 	getPreferredVariantForTitle,
@@ -10,6 +14,7 @@ import {
 	loadOwnerCollectionIdsByTitleId,
 	loadOwnerCollectionMap,
 	loadOwnerUserStatusMap,
+	resolveStorageTitleBaseForTitle,
 	requireOwnedChapter,
 	requireOwnedTitle
 } from './library_shared';
@@ -37,7 +42,15 @@ export const listMine = query({
 		const limit = Math.min(Math.max(1, Math.floor(args.limit ?? 5000)), 10000);
 		const offset = Math.max(0, Math.floor(args.offset ?? 0));
 
-		const [allTitles, statusById, collectionById, collectionIdsByTitleId, downloadProfiles] =
+		const [
+			allTitles,
+			statusById,
+			collectionById,
+			collectionIdsByTitleId,
+			downloadProfiles,
+			variants,
+			installedExtensions
+		] =
 			await Promise.all([
 			ctx.db
 				.query('libraryTitles')
@@ -50,19 +63,40 @@ export const listMine = query({
 			ctx.db
 				.query('downloadProfiles')
 				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
-				.collect()
+				.collect(),
+			ctx.db.query('titleVariants').collect(),
+			ctx.db.query('installedExtensions').collect()
 		]);
 		const downloadProfileByTitleId = new Map(
 			downloadProfiles.map((profile) => [String(profile.libraryTitleId), profile] as const)
 		);
+		const preferredVariantByTitleId = new Map(
+			variants
+				.filter((variant) => variant.ownerUserId === userId && variant.isPreferred)
+				.map((variant) => [String(variant.libraryTitleId), variant] as const)
+		);
+		const sourceNamesById = new Map<string, string>();
+		const sourceNamesByPkg = new Map<string, string>();
+		for (const extension of installedExtensions) {
+			const extensionName = cleanExtensionLabel(extension.name);
+			sourceNamesByPkg.set(extension.pkg, extensionName);
+			for (const source of extension.sources ?? []) {
+				sourceNamesById.set(source.id, source.name);
+			}
+		}
 
 		const titles = allTitles.slice(offset);
 
 		return titles
 			.filter((title) => title.listedInLibrary !== false)
 			.map((title) => {
+				const activeSource = preferredVariantByTitleId.get(String(title._id)) ?? title;
 				const collectionIds = collectionIdsByTitleId.get(String(title._id)) ?? [];
 				const downloadProfile = downloadProfileByTitleId.get(String(title._id)) ?? null;
+				const currentSourceName =
+					sourceNamesById.get(activeSource.sourceId) ??
+					sourceNamesByPkg.get(activeSource.sourcePkg) ??
+					humanizeSourcePkg(activeSource.sourcePkg);
 				const chapterStats = {
 					total: title.chapterCount ?? 0,
 					queued: title.queuedChapterCount ?? 0,
@@ -81,6 +115,8 @@ export const listMine = query({
 					lastReadAt: title.lastReadAt ?? null,
 					createdAt: title.createdAt,
 					updatedAt: title.updatedAt,
+					currentSourceId: activeSource.sourceId,
+					currentSourceLabel: `${currentSourceName}${activeSource.sourceLang ? ` [${activeSource.sourceLang}]` : ''}`,
 					userStatus: title.userStatusId
 						? (statusById.get(String(title.userStatusId)) ?? null)
 						: null,
@@ -378,15 +414,42 @@ export const listTitleChapters = query({
 				.collect()
 		]);
 		const activeChapterSource = preferredVariant ?? title;
-		const activeChapters = chapters.filter((chapter) =>
+		const activeReleases = chapters.filter((chapter) =>
 			chapterBelongsToVariant(chapter, activeChapterSource)
 		);
-		const activeChapterIds = new Set(activeChapters.map((chapter) => String(chapter._id)));
+		const progressByGroupKey = new Map<string, { pageIndex: number; updatedAt: number }>();
+		for (const row of progressRows) {
+			const release = activeReleases.find((chapter) => String(chapter._id) === String(row.chapterId));
+			if (!release) continue;
+			const groupKey = chapterGroupKeyForRow(release);
+			const current = progressByGroupKey.get(groupKey);
+			if (!current || row.updatedAt > current.updatedAt) {
+				progressByGroupKey.set(groupKey, {
+					pageIndex: row.pageIndex,
+					updatedAt: row.updatedAt
+				});
+			}
+		}
+		const activeChapters = collapseChapterReleases(activeReleases).filter((chapter) => {
+			if (chapter.releases.some((release) => release.isAvailableFromSource !== false)) {
+				return true;
+			}
+			if (chapter.downloadStatus !== DOWNLOAD_STATUS.MISSING) {
+				return true;
+			}
+			return progressByGroupKey.has(chapter.chapterGroupKey);
+		});
 		const chapterRouteSegments = buildChapterRouteSegments(activeChapters);
 		const progressByChapterId = new Map(
-			progressRows
-				.filter((row) => activeChapterIds.has(String(row.chapterId)))
-				.map((row) => [String(row.chapterId), row] as const)
+			activeChapters
+				.filter((chapter) => progressByGroupKey.has(chapter.chapterGroupKey))
+				.map((chapter) => [
+					String(chapter._id),
+					{
+						pageIndex: progressByGroupKey.get(chapter.chapterGroupKey)!.pageIndex,
+						updatedAt: progressByGroupKey.get(chapter.chapterGroupKey)!.updatedAt
+					}
+				] as const)
 		);
 
 		return sortLibraryChaptersInReadingOrder(activeChapters).map((chapter) => {
@@ -397,6 +460,9 @@ export const listTitleChapters = query({
 				routeSegment:
 					chapterRouteSegments.get(String(chapter._id)) ??
 					buildChapterRouteBase(chapter.chapterName, chapter.chapterNumber ?? null),
+				releaseCount: chapter.releaseCount,
+				hasAlternateReleases: chapter.hasAlternateReleases,
+				scanlators: chapter.scanlators,
 				isRead: progress !== null,
 				progressPageIndex: progress?.pageIndex ?? null,
 				progressUpdatedAt: progress?.updatedAt ?? null
@@ -627,13 +693,35 @@ export const getReaderByChapterId = query({
 			getPreferredVariantForTitle(ctx, title)
 		]);
 		const activeChapterSource = preferredVariant ?? title;
-		const activeChapters = chapters.filter(
+		const activeChapters = collapseChapterReleases(
+			chapters.filter((item) => chapterBelongsToVariant(item, activeChapterSource))
+		).filter(
 			(item) =>
-				item.isAvailableFromSource !== false && chapterBelongsToVariant(item, activeChapterSource)
+				item.releases.some((release) => release.isAvailableFromSource !== false) ||
+				item.downloadStatus !== DOWNLOAD_STATUS.MISSING ||
+				item.releaseIds.some((releaseId) => releaseId === chapter._id)
 		);
+		const currentChapter =
+			activeChapters.find(
+				(item) =>
+					item.chapterGroupKey ===
+					chapterGroupKeyForRow({
+						chapterGroupKey: chapter.chapterGroupKey,
+						chapterName: chapter.chapterName,
+						chapterNumber: chapter.chapterNumber
+					})
+			) ?? activeChapters.find((item) => item.releaseIds.some((releaseId) => releaseId === chapter._id));
+		if (!currentChapter) {
+			throw new Error('Library chapter group not found');
+		}
 		const chapterRouteSegments = buildChapterRouteSegments(activeChapters);
 
-		const progress = await getOwnedChapterProgressRow(ctx, chapter._id);
+		const progress =
+			(await Promise.all(
+				currentChapter.releaseIds.map((releaseId) => getOwnedChapterProgressRow(ctx, releaseId))
+			))
+				.filter((row): row is NonNullable<typeof row> => row !== null)
+				.sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
 
 		return {
 			title: {
@@ -641,10 +729,10 @@ export const getReaderByChapterId = query({
 				routeSegment: titleRouteSegment
 			},
 			chapter: {
-				...chapter,
+				...currentChapter,
 				routeSegment:
-					chapterRouteSegments.get(String(chapter._id)) ??
-					buildChapterRouteBase(chapter.chapterName, chapter.chapterNumber ?? null)
+					chapterRouteSegments.get(String(currentChapter._id)) ??
+					buildChapterRouteBase(currentChapter.chapterName, currentChapter.chapterNumber ?? null)
 			},
 			chapters: activeChapters
 				.sort((left, right) => left.sequence - right.sequence)
@@ -691,9 +779,12 @@ export const getReaderByRouteSegments = query({
 			.collect();
 		const preferredVariant = await getPreferredVariantForTitle(ctx, title);
 		const activeChapterSource = preferredVariant ?? title;
-		const activeChapters = chapters.filter(
+		const activeChapters = collapseChapterReleases(
+			chapters.filter((item) => chapterBelongsToVariant(item, activeChapterSource))
+		).filter(
 			(item) =>
-				item.isAvailableFromSource !== false && chapterBelongsToVariant(item, activeChapterSource)
+				item.releases.some((release) => release.isAvailableFromSource !== false) ||
+				item.downloadStatus !== DOWNLOAD_STATUS.MISSING
 		);
 		const chapterRouteSegments = buildChapterRouteSegments(activeChapters);
 		const chapter =
@@ -707,7 +798,10 @@ export const getReaderByRouteSegments = query({
 			return null;
 		}
 
-		const progress = await getOwnedChapterProgressRow(ctx, chapter._id);
+		const progress =
+			(await Promise.all(chapter.releaseIds.map((releaseId) => getOwnedChapterProgressRow(ctx, releaseId))))
+				.filter((row): row is NonNullable<typeof row> => row !== null)
+				.sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
 
 		return {
 			title: {
@@ -843,6 +937,124 @@ export const listAllMineChapters = query({
 				localCoverPath: title?.localCoverPath ?? null
 			};
 		});
+	}
+});
+
+export const listDownloadedMineChapters = query({
+	args: {
+		titleId: v.optional(v.id('libraryTitles')),
+		limit: v.optional(v.float64())
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return [];
+		}
+		const userId = identity.subject as GenericId<'users'>;
+		const limit = Math.min(Math.max(100, Math.floor(args.limit ?? 5000)), 10000);
+
+		const chapters =
+			args.titleId != null
+				? (
+						await ctx.db
+							.query('libraryChapters')
+							.withIndex('by_library_title_id_download_status', (q) =>
+								q.eq('libraryTitleId', args.titleId!).eq('downloadStatus', DOWNLOAD_STATUS.DOWNLOADED)
+							)
+							.order('desc')
+							.take(limit)
+					).filter(
+						(chapter) =>
+							chapter.ownerUserId === userId &&
+							typeof chapter.localRelativePath === 'string' &&
+							chapter.localRelativePath.length > 0
+					)
+				: await ctx.db
+						.query('libraryChapters')
+						.withIndex('by_owner_user_id_download_status', (q) =>
+							q.eq('ownerUserId', userId).eq('downloadStatus', DOWNLOAD_STATUS.DOWNLOADED)
+						)
+						.order('desc')
+						.take(limit);
+
+		return chapters.map((chapter) => ({
+			...chapter,
+			sourcePkg: chapter.sourcePkg,
+			sourceLang: chapter.sourceLang
+		}));
+	}
+});
+
+export const listNormalizeDownloadTitles = query({
+	args: {
+		titleId: v.optional(v.id('libraryTitles'))
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return [];
+		}
+		const userId = identity.subject as GenericId<'users'>;
+
+		const titles =
+			args.titleId != null
+				? [await ctx.db.get(args.titleId)].filter(
+						(title): title is NonNullable<typeof title> =>
+							title !== null && title.ownerUserId === userId
+					)
+				: await ctx.db
+						.query('libraryTitles')
+						.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', userId))
+						.order('desc')
+						.take(2000);
+
+		const variants = await ctx.db
+			.query('titleVariants')
+			.withIndex('by_owner_user_id_library_title_id', (q) => q.eq('ownerUserId', userId))
+			.collect();
+		const variantsByTitleId = new Map<string, typeof variants>();
+		for (const variant of variants) {
+			const key = String(variant.libraryTitleId);
+			const current = variantsByTitleId.get(key) ?? [];
+			current.push(variant);
+			variantsByTitleId.set(key, current);
+		}
+
+		return titles.map((title) => ({
+			titleId: title._id,
+			storageTitleBase: pickStorageTitleBase({
+				canonicalTitle: title.title,
+				canonicalTitleUrl: title.titleUrl,
+				variants: (variantsByTitleId.get(String(title._id)) ?? []).map((variant) => ({
+					title: variant.title,
+					titleUrl: variant.titleUrl
+				}))
+			}),
+			downloadedChapterCount: title.downloadedChapterCount ?? 0
+		}));
+	}
+});
+
+export const getStorageTitleBases = query({
+	args: {
+		titleIds: v.array(v.id('libraryTitles'))
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return {};
+		}
+		const userId = identity.subject as GenericId<'users'>;
+		const uniqueTitleIds = [...new Set(args.titleIds.map((titleId) => String(titleId)))].slice(0, 1000);
+		const titles = await Promise.all(
+			uniqueTitleIds.map((titleId) => ctx.db.get(titleId as GenericId<'libraryTitles'>))
+		);
+		const entries = await Promise.all(
+			titles
+				.filter((title): title is NonNullable<typeof title> => title !== null && title.ownerUserId === userId)
+				.map(async (title) => [String(title._id), await resolveStorageTitleBaseForTitle(ctx, title)] as const)
+		);
+		return Object.fromEntries(entries);
 	}
 });
 

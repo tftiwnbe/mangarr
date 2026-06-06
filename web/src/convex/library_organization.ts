@@ -23,6 +23,8 @@ const dynamicCollectionFiltersValidator = v.object({
 	readingStatusIds: v.array(v.string()),
 	excludedReadingStatusIds: v.optional(v.array(v.string())),
 	updateStateKeys: v.optional(v.array(v.string())),
+	sourceIds: v.optional(v.array(v.string())),
+	excludedSourceIds: v.optional(v.array(v.string())),
 	sourceStatusKeys: v.array(v.string()),
 	excludedSourceStatusKeys: v.optional(v.array(v.string())),
 	genres: v.array(v.string()),
@@ -34,6 +36,8 @@ type DynamicCollectionFilters = {
 	readingStatusIds: string[];
 	excludedReadingStatusIds?: string[];
 	updateStateKeys?: string[];
+	sourceIds?: string[];
+	excludedSourceIds?: string[];
 	sourceStatusKeys: string[];
 	excludedSourceStatusKeys?: string[];
 	genres: string[];
@@ -53,6 +57,10 @@ function normalizeDynamicCollectionFilters(
 		],
 		updateStateKeys: [
 			...new Set((filters.updateStateKeys ?? []).map((value) => value.trim()).filter(Boolean))
+		],
+		sourceIds: [...new Set((filters.sourceIds ?? []).map((value) => value.trim()).filter(Boolean))],
+		excludedSourceIds: [
+			...new Set((filters.excludedSourceIds ?? []).map((value) => value.trim()).filter(Boolean))
 		],
 		sourceStatusKeys: [
 			...new Set(filters.sourceStatusKeys.map((value) => value.trim()).filter(Boolean))
