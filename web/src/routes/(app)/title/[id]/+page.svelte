@@ -288,6 +288,8 @@
 	const MATCH_SEARCH_CONCURRENCY = 3;
 	const MATCH_SEARCH_LIMIT = 12;
 	const MATCH_SEARCH_PER_SOURCE_LIMIT = 6;
+	const AUTO_MATCH_COMMAND_TIMEOUT_MS = 10_000;
+	const MANUAL_MATCH_COMMAND_TIMEOUT_MS = 30_000;
 
 	const title = $derived(rawTitleQueryData);
 	const titleChapters = $derived((titleChaptersQuery.data ?? []) as ChapterRow[]);
@@ -1037,13 +1039,21 @@
 					.slice(0, MATCH_SEARCH_LIMIT)
 					.map(({ item }) => item);
 			};
+			const syncMatches = () => {
+				sourceMatches = buildRankedMatches();
+			};
+			const commandTimeoutMs = manual
+				? MANUAL_MATCH_COMMAND_TIMEOUT_MS
+				: AUTO_MATCH_COMMAND_TIMEOUT_MS;
 			const fetchDirectVariant = async (source: SourceItem, titleUrl: string) => {
 				const { commandId } = await client.mutation(convexApi.commands.enqueueExploreTitleFetch, {
 					sourceId: source.id,
 					titleUrl,
 					contextKey: String(title._id)
 				});
-				const command = await waitForCommand(client, commandId);
+				const command = await waitForCommand(client, commandId, {
+					timeoutMs: commandTimeoutMs
+				});
 				const resolved = (command.result?.title as Record<string, unknown> | undefined) ?? {};
 				const resolvedTitle = String(resolved.title ?? '').trim();
 				const resolvedUrl = String(resolved.titleUrl ?? titleUrl).trim();
@@ -1059,6 +1069,7 @@
 					description: typeof resolved.description === 'string' ? resolved.description : undefined,
 					coverUrl: typeof resolved.coverUrl === 'string' ? resolved.coverUrl : null
 				});
+				syncMatches();
 			};
 			const searchSource = async (source: SourceItem, searchQuery: string) => {
 				const { commandId } = await client.mutation(convexApi.commands.enqueueExploreSearch, {
@@ -1066,9 +1077,12 @@
 					sourceId: source.id,
 					limit: MATCH_SEARCH_PER_SOURCE_LIMIT
 				});
-				const command = await waitForCommand(client, commandId);
+				const command = await waitForCommand(client, commandId, {
+					timeoutMs: commandTimeoutMs
+				});
 				const items = ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[];
 				collected.push(...items);
+				syncMatches();
 			};
 			const searchSourceBatch = async (sourceBatch: SourceItem[]) => {
 				await runWithConcurrency(sourceBatch, MATCH_SEARCH_CONCURRENCY, async (source) => {
@@ -1112,21 +1126,24 @@
 						}
 					}
 
-					for (const variantQuery of rankedQueries) {
-						await searchSource(source, variantQuery);
+					const quickQuery = rankedQueries[0] ?? query;
+					if (!quickQuery) return;
+					try {
+						await searchSource(source, quickQuery);
+					} catch {
+						// Quick match is best-effort. Keep partial matches from other sources.
 					}
 				});
 			};
 
 			if (manual) {
 				await searchSourceBatch(candidateSources);
-				sourceMatches = buildRankedMatches();
+				syncMatches();
 			} else {
 				const batchSize = 6;
 				sourceMatches = [];
 				for (let index = 0; index < candidateSources.length; index += batchSize) {
 					await searchSourceBatch(candidateSources.slice(index, index + batchSize));
-					sourceMatches = buildRankedMatches();
 					if (sourceMatches.length >= Math.min(6, MATCH_SEARCH_LIMIT)) {
 						break;
 					}
@@ -1134,7 +1151,11 @@
 			}
 		} catch (cause) {
 			sourceManagementError =
-				cause instanceof Error ? cause.message : $_('title.sourceMatchFailed');
+				cause instanceof Error && cause.message.includes('Command timed out')
+					? $_('title.sourceMatchFailed')
+					: cause instanceof Error
+						? cause.message
+						: $_('title.sourceMatchFailed');
 			sourceMatches = [];
 		} finally {
 			sourceMatchesLoading = false;

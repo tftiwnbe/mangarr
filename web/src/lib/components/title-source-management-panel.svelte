@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { SpinnerIcon } from 'phosphor-svelte';
+	import { MagnifyingGlassIcon, SparkleIcon, SpinnerIcon } from 'phosphor-svelte';
 
 	import { Alert } from '$lib/elements/alert';
 	import { Button } from '$lib/elements/button';
@@ -290,18 +290,33 @@
 		{/if}
 
 		{#if sourceMatchesVisible}
-			<div class="flex flex-col gap-2 border-t border-[var(--void-3)] pt-3">
-				<div class="flex items-baseline justify-between gap-2">
-					<span class="font-mono text-[10px] tracking-[0.18em] text-[var(--text-ghost)] uppercase">
-						{$_('title.suggestedMatches')}
-					</span>
-					<span class="font-mono text-[9px] tracking-[0.16em] text-[var(--text-dim)] uppercase">
-						{$_('title.enabledSourcesOnly')}
+			<div class="flex flex-col gap-3 border-t border-[var(--void-3)] pt-4">
+				<div
+					class="flex flex-col gap-2 border border-[var(--void-3)] bg-[linear-gradient(135deg,var(--void-2),color-mix(in_srgb,var(--void-2)_72%,var(--cosmic-soft)))] px-3 py-3 sm:flex-row sm:items-start sm:justify-between"
+				>
+					<div class="min-w-0">
+						<div class="flex items-center gap-2">
+							<span
+								class="inline-flex h-6 w-6 items-center justify-center rounded-full border border-[var(--cosmic-halo)] bg-[var(--cosmic-soft)] text-[var(--cosmic)]"
+							>
+								<SparkleIcon size={12} weight="fill" />
+							</span>
+							<span class="text-sm text-[var(--text)]">{$_('title.suggestedMatches')}</span>
+						</div>
+						<p class="mt-1 pl-8 text-[11px] leading-relaxed text-[var(--text-ghost)]">
+							{$_('title.enabledSourcesOnly')}
+						</p>
+					</div>
+					<span
+						class="ml-8 inline-flex w-fit items-center gap-1 border border-[var(--void-4)] px-2 py-1 font-mono text-[9px] tracking-[0.16em] text-[var(--text-dim)] uppercase sm:ml-0"
+					>
+						<MagnifyingGlassIcon size={10} />
+						{$_('title.quickPass')}
 					</span>
 				</div>
 
 				{#if sourceMatchesLoading}
-					<div class="flex items-center gap-2 text-xs text-[var(--text-ghost)]">
+					<div class="flex items-center gap-2 border border-[var(--void-3)] bg-[var(--void-2)] px-3 py-3 text-xs text-[var(--text-ghost)]">
 						<SpinnerIcon size={12} class="animate-spin" />
 						<span>{$_('common.loading')}</span>
 					</div>
@@ -337,7 +352,21 @@
 						{/each}
 					</div>
 				{:else if sourceMatchesAttempted}
-					<p class="text-xs text-[var(--text-ghost)]">{$_('title.noSourceMatches')}</p>
+					<div class="border border-dashed border-[var(--void-4)] bg-[var(--void-2)] px-4 py-5">
+						<div class="flex items-start gap-3">
+							<span
+								class="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--void-4)] bg-[var(--void-1)] text-[var(--text-dim)]"
+							>
+								<MagnifyingGlassIcon size={14} />
+							</span>
+							<div>
+								<p class="text-sm text-[var(--text)]">{$_('title.noSourceMatches')}</p>
+								<p class="mt-1 text-[11px] leading-relaxed text-[var(--text-ghost)]">
+									{$_('title.manualSearchHint')}
+								</p>
+							</div>
+						</div>
+					</div>
 				{/if}
 			</div>
 		{/if}
