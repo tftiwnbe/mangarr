@@ -368,8 +368,10 @@ export const updatePreferences = mutation({
 });
 
 export const listStatus = query({
-	args: {},
-	handler: async (ctx) => {
+	args: {
+		installationKey: v.optional(v.string())
+	},
+	handler: async (ctx, args) => {
 		const identity = await ctx.auth.getUserIdentity();
 		if (!identity) {
 			return {
@@ -377,19 +379,27 @@ export const listStatus = query({
 				backgroundPushConfigured: false,
 				vapidPublicKey: null,
 				activeSubscriptionCount: 0,
-				hasActiveSubscription: false
+				hasActiveSubscription: false,
+				hasActiveSubscriptionOnThisDevice: false
 			};
 		}
 		const ownerUserId = identity.subject as GenericId<'users'>;
 		const preferences = await loadNotificationPreferences(ctx, ownerUserId);
 		const activeSubscriptions = await loadActiveSubscriptions(ctx, ownerUserId);
 		const push = getPushConfiguration();
+		const installationKey = args.installationKey?.trim();
 		return {
 			...preferences,
 			backgroundPushConfigured: push.configured,
 			vapidPublicKey: push.publicKey || null,
 			activeSubscriptionCount: activeSubscriptions.length,
-			hasActiveSubscription: activeSubscriptions.length > 0
+			hasActiveSubscription: activeSubscriptions.length > 0,
+			hasActiveSubscriptionOnThisDevice:
+				installationKey !== undefined && installationKey.length > 0
+					? activeSubscriptions.some(
+							(subscription) => subscription.installationKey === installationKey
+						)
+					: false
 		};
 	}
 });

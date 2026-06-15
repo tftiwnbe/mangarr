@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import { useConvexClient, useQuery } from 'convex-svelte';
 
@@ -7,32 +8,67 @@
 	import { Button } from '$lib/elements/button';
 	import { Switch } from '$lib/elements/switch';
 	import {
+		getOrCreateNotificationInstallationKey,
+		getNotificationInstallationKey,
 		getNotificationCapability,
 		subscribeToWebPush,
 		unsubscribeFromWebPush
 	} from '$lib/client/pwa-notifications';
 
 	const client = useConvexClient();
-	const statusQuery = useQuery(convexApi.notifications.listStatus, () => ({}));
+	let installationKey = $state('');
+	const statusQuery = useQuery(convexApi.notifications.listStatus, () => ({
+		installationKey: installationKey || undefined
+	}));
 
 	let enabling = $state(false);
 	let disabling = $state(false);
 	let savingPreferences = $state(false);
 	let error = $state<string | null>(null);
+	let serverPushConfig = $state<{
+		backgroundPushConfigured: boolean;
+		vapidPublicKey: string | null;
+		subject: string | null;
+	} | null>(null);
 
 	const capability = $derived(browser ? getNotificationCapability() : null);
 	const status = $derived(statusQuery.data ?? null);
+	const effectiveBackgroundPushConfigured = $derived(
+		serverPushConfig?.backgroundPushConfigured ?? status?.backgroundPushConfigured ?? false
+	);
+	const effectiveVapidPublicKey = $derived(
+		serverPushConfig?.vapidPublicKey ?? status?.vapidPublicKey ?? null
+	);
 	const backgroundStatusLabel = $derived.by(() => {
 		if (!capability?.supported || !capability.pushSupported) return 'Notifications are not supported here.';
-		if (!status?.backgroundPushConfigured) return 'Background push is not configured on the server.';
+		if (!effectiveBackgroundPushConfigured)
+			return 'Background push is not configured on the server.';
 		if (capability.iosLike && !capability.installed) {
-			return 'On iPhone and iPad, install Mangarr to the Home Screen before enabling notifications.';
+			return 'Install Mangarr to the Home Screen, then enable notifications from the installed app.';
 		}
 		if (capability.permission === 'denied') return 'Notification permission is denied for this app.';
-		if (status?.hasActiveSubscription) return 'Background notifications are enabled for this device.';
-		if (capability.permission === 'granted') return 'Permission is granted, but this device is not subscribed yet.';
-		return 'Enable notifications from this installed app to receive chapter alerts while closed.';
+		return null;
 	});
+
+	onMount(() => {
+		installationKey =
+			getNotificationInstallationKey() || getOrCreateNotificationInstallationKey();
+		void loadServerPushConfig();
+	});
+
+	async function loadServerPushConfig() {
+		try {
+			const response = await fetch('/api/notifications/push-config', {
+				headers: { accept: 'application/json' }
+			});
+			if (!response.ok) {
+				return;
+			}
+			serverPushConfig = (await response.json()) as typeof serverPushConfig;
+		} catch {
+			// Leave Convex-backed fallback state in place.
+		}
+	}
 
 	async function savePreferences(partial: {
 		collectionNotificationsEnabled?: boolean;
@@ -51,14 +87,16 @@
 	}
 
 	async function handleEnableBackground() {
-		if (!status?.vapidPublicKey || enabling) return;
+		if (!effectiveVapidPublicKey || enabling) return;
 		enabling = true;
 		error = null;
 		try {
 			await subscribeToWebPush({
 				client,
-				applicationServerKey: status.vapidPublicKey
+				applicationServerKey: effectiveVapidPublicKey
 			});
+			installationKey =
+				getNotificationInstallationKey() || getOrCreateNotificationInstallationKey();
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Failed to enable notifications';
 		} finally {
@@ -139,11 +177,9 @@
 	<div class="flex flex-col gap-2 border border-[var(--line)] p-3">
 		<div class="flex flex-col gap-1">
 			<span class="text-sm text-[var(--text-soft)]">device status</span>
-			<p class="text-xs text-[var(--text-ghost)]">{backgroundStatusLabel}</p>
-			<p class="text-[11px] uppercase tracking-[0.2em] text-[var(--text-ghost)]">
-				permission: {capability?.permission ?? 'unsupported'} · subscriptions:
-				{status?.activeSubscriptionCount ?? 0}
-			</p>
+			{#if backgroundStatusLabel}
+				<p class="text-xs text-[var(--text-ghost)]">{backgroundStatusLabel}</p>
+			{/if}
 		</div>
 
 		<div class="flex flex-wrap gap-2">
@@ -151,12 +187,12 @@
 				variant="outline"
 				size="sm"
 				onclick={handleEnableBackground}
-				disabled={!status?.backgroundPushConfigured ||
+				disabled={!effectiveBackgroundPushConfigured ||
 					!capability?.supported ||
 					!capability?.pushSupported ||
 					(capability?.iosLike && !capability?.installed) ||
 					enabling ||
-					status?.hasActiveSubscription === true}
+					status?.hasActiveSubscriptionOnThisDevice === true}
 				loading={enabling}
 			>
 				enable notifications
@@ -165,7 +201,7 @@
 				variant="ghost"
 				size="sm"
 				onclick={handleDisableBackground}
-				disabled={!status?.hasActiveSubscription || disabling}
+				disabled={!status?.hasActiveSubscriptionOnThisDevice || disabling}
 				loading={disabling}
 			>
 				disable on this device

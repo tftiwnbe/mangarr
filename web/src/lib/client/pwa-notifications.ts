@@ -106,6 +106,15 @@ export function getOrCreateNotificationInstallationKey() {
 	}
 }
 
+export function getNotificationInstallationKey() {
+	if (!browser) return '';
+	try {
+		return localStorage.getItem(INSTALLATION_KEY)?.trim() ?? '';
+	} catch {
+		return '';
+	}
+}
+
 export async function subscribeToWebPush(args: {
 	client: Pick<ConvexClient, 'mutation'>;
 	applicationServerKey: string;
