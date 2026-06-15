@@ -32,13 +32,6 @@
 		toMainContentLanguages
 	} from '$lib/utils/content-languages';
 	import { buildTitlePath } from '$lib/utils/routes';
-	import {
-		effectiveSourceHealthState,
-		isPermanentSourceFailure,
-		sourceHealthRetryInMinutes,
-		sourceHealthLabelKey,
-		type SourceHealthEntry
-	} from '$lib/utils/source-health';
 	import { directSourceTitleUrlCandidates } from '$lib/utils/source-title-url';
 	import type { FilterMeta, PreferenceBundle } from '$lib/extensions/source-preferences';
 
@@ -105,19 +98,11 @@
 		warming: boolean;
 	};
 
-	type SourceFailureScope = 'feed' | 'search';
-	type SourceFailure = {
-		sourceId: string;
-		scope: SourceFailureScope;
-		message: string;
-		retryAfter: number;
-		permanent: boolean;
-	};
-
 	const FEED_LIMIT = 24;
 	const FEED_SOURCE_BATCH_SIZE = 4;
 	const FEED_COMMAND_CONCURRENCY = 1;
-	const COMMAND_CONCURRENCY = 3;
+	const COMMAND_CONCURRENCY = 4;
+	const SEARCH_COMMAND_TIMEOUT_MS = 45_000;
 	const FEED_DUPLICATE_PAGE_TOLERANCE = 3;
 	const INITIAL_CARD_RENDER_LIMIT = 60;
 	const CARD_RENDER_PAGE_SIZE = 48;
@@ -182,7 +167,6 @@
 	let liveSearchResults = $state<Record<string, SearchResult>>({});
 	let loadedSearchPagesBySource = $state<Record<string, number>>({});
 	let exhaustedSearchSources = $state<Record<string, boolean>>({});
-	let sourceFailures = $state<Record<string, SourceFailure>>({});
 	let cards = $state<ExploreCard[]>([]);
 	let stableCardOrder: string[] = [];
 	let stableCardsByKey: Record<string, ExploreCard> = {};
@@ -243,17 +227,6 @@
 	const canRunSearch = $derived(
 		searchQuery.trim().length > 0 || (Boolean(selectedSourceId) && hasAppliedSearchFilters)
 	);
-	const sourceHealthQuery = useQuery(convexApi.commands.listSourceHealth, () => ({
-		sourceIds:
-			activeTab === 'forYou'
-				? []
-				: activeTab === 'search'
-					? selectedSourceId
-						? [selectedSourceId]
-						: searchSources.map((source) => source.id)
-					: visibleSources.map((source) => source.id)
-	}));
-
 	const importedLibraryIds = $derived.by(() => {
 		const entries = (importedLookupQuery.data ?? []) as Array<
 			ImportedLookupEntry & { sourceId: string; titleUrl: string }
@@ -264,7 +237,6 @@
 		}
 		return lookup;
 	});
-	const persistedSourceFailures = $derived((sourceHealthQuery.data ?? []) as SourceHealthEntry[]);
 	const forYouResult = $derived(
 		((forYouQuery.data ?? { items: [], warming: true }) as ForYouResult) ?? {
 			items: [],
@@ -284,43 +256,6 @@
 			importedLookupQuery.isLoading ||
 			(activeTab === 'forYou' && forYouQuery.isLoading)
 	);
-	const combinedSourceFailures = $derived.by(() => {
-		const merged: Record<string, SourceFailure> = { ...sourceFailures };
-		for (const failure of persistedSourceFailures) {
-			if (failure.scope === 'title') continue;
-			const key = sourceFailureKey(failure.sourceId, failure.scope);
-			const current = merged[key];
-			if (
-				!current ||
-				(failure.retryAfter ?? 0) >= current.retryAfter ||
-				(failure.permanent && !current.permanent)
-			) {
-				merged[key] = {
-					sourceId: failure.sourceId,
-					scope: failure.scope,
-					message: failure.message,
-					retryAfter: failure.retryAfter ?? failure.updatedAt + 30 * 60_000,
-					permanent: failure.permanent
-				};
-			}
-		}
-		return merged;
-	});
-	const activeSourceFailures = $derived.by(() => {
-		if (activeTab === 'forYou') {
-			return [];
-		}
-		const scope: SourceFailureScope = activeTab === 'search' ? 'search' : 'feed';
-		const now = Date.now();
-		return Object.values(combinedSourceFailures)
-			.filter((failure) => failure.scope === scope && failure.retryAfter > now)
-			.map((failure) => ({
-				...failure,
-				sourceName: sourceNameFor(failure.sourceId),
-				retryInMinutes: sourceHealthRetryInMinutes(failure.retryAfter, now) ?? 1
-			}))
-			.sort((left, right) => left.sourceName.localeCompare(right.sourceName));
-	});
 	const incomingCards = $derived.by(() => {
 		const sourceIds =
 			activeTab === 'search'
@@ -447,72 +382,6 @@
 
 	function sourceNameFor(sourceId: string): string {
 		return sources.find((source) => source.id === sourceId)?.name ?? 'Source';
-	}
-
-	function sourceFailureKey(sourceId: string, scope: SourceFailureScope) {
-		return `${scope}:${sourceId}`;
-	}
-
-	function parseSourceFailure(
-		sourceId: string,
-		scope: SourceFailureScope,
-		cause: unknown
-	): SourceFailure {
-		const message =
-			cause instanceof Error ? cause.message : `Unable to load ${sourceNameFor(sourceId)}`;
-		const normalized = message.toLowerCase();
-		const permanent = isPermanentSourceFailure(normalized);
-		const rateLimited = normalized.includes('http error 429') || normalized.includes('rate limit');
-		const retryAfter =
-			Date.now() + (permanent ? 30 * 60_000 : rateLimited ? 10 * 60_000 : 5 * 60_000);
-		return {
-			sourceId,
-			scope,
-			message,
-			retryAfter,
-			permanent
-		};
-	}
-
-	function recordSourceFailure(sourceId: string, scope: SourceFailureScope, cause: unknown) {
-		const failure = parseSourceFailure(sourceId, scope, cause);
-		sourceFailures = {
-			...sourceFailures,
-			[sourceFailureKey(sourceId, scope)]: failure
-		};
-		return failure;
-	}
-
-	function clearSourceFailure(sourceId: string, scope: SourceFailureScope) {
-		const key = sourceFailureKey(sourceId, scope);
-		if (!(key in sourceFailures)) return;
-		const next = { ...sourceFailures };
-		delete next[key];
-		sourceFailures = next;
-	}
-
-	function sourceIsUnavailable(sourceId: string, scope: SourceFailureScope) {
-		const failure = combinedSourceFailures[sourceFailureKey(sourceId, scope)];
-		return failure ? failure.retryAfter > Date.now() : false;
-	}
-
-	function sourceFailureFor(sourceId: string, scope: SourceFailureScope) {
-		const failure = combinedSourceFailures[sourceFailureKey(sourceId, scope)];
-		return failure && failure.retryAfter > Date.now() ? failure : null;
-	}
-
-	function sourceFailureLabel(failure: SourceFailure) {
-		return $_(
-			sourceHealthLabelKey({
-				state: effectiveSourceHealthState(failure),
-				permanent: failure.permanent
-			})
-		);
-	}
-
-	function sourceFailureRetrySuffix(failure: SourceFailure) {
-		const retryInMinutes = sourceHealthRetryInMinutes(failure.retryAfter);
-		return retryInMinutes === null ? null : `${retryInMinutes}m`;
 	}
 
 	function displayExtensionName(name: string): string {
@@ -837,20 +706,14 @@
 	) {
 		canLoadMoreFeed =
 			visibleSources.some((source) => {
-				if (sourceIsUnavailable(source.id, 'feed')) return false;
 				const page = nextLoaded[source.id] ?? 0;
 				return page > 0 && nextExhausted[source.id] !== true;
 			}) ||
-			visibleSources.some(
-				(source) =>
-					!sourceIsUnavailable(source.id, 'feed') && !activeFeedSourceIds.includes(source.id)
-			);
+			visibleSources.some((source) => !activeFeedSourceIds.includes(source.id));
 	}
 
 	async function loadFeedInitial(generation: number) {
-		const sourceIds = activeFeedSourceIds.filter(
-			(sourceId) => !sourceIsUnavailable(sourceId, 'feed')
-		);
+		const sourceIds = activeFeedSourceIds;
 		if (sourceIds.length === 0) {
 			loadedPagesBySource = {};
 			exhaustedFeedSources = {};
@@ -889,7 +752,6 @@
 		await runWithConcurrency(sourceIds, FEED_COMMAND_CONCURRENCY, async (sourceId) => {
 			try {
 				const result = await fetchFeedPage(sourceId, 1);
-				clearSourceFailure(sourceId, 'feed');
 				successfulSources += 1;
 				nextLiveFeedResults[feedResultKey(feedCommandType, sourceId, 1)] = result;
 				nextPages[sourceId] = 1;
@@ -899,7 +761,6 @@
 					nextExhausted[sourceId] = true;
 				}
 			} catch (cause) {
-				recordSourceFailure(sourceId, 'feed', cause);
 				nextExhausted[sourceId] = true;
 				failures.push(
 					cause instanceof Error ? cause.message : `Unable to load ${sourceNameFor(sourceId)}`
@@ -938,7 +799,6 @@
 		const requestCommandType = feedCommandType;
 
 		const nextSourcePages = visibleSources
-			.filter((source) => !sourceIsUnavailable(source.id, 'feed'))
 			.filter((source) => sourceHasMore(feedCommandType, source.id))
 			.map((source) => ({
 				sourceId: source.id,
@@ -948,7 +808,6 @@
 		if (nextSourcePages.length === 0) {
 			const nextSourceIds = visibleSources
 				.map((source) => source.id)
-				.filter((sourceId) => !sourceIsUnavailable(sourceId, 'feed'))
 				.filter((sourceId) => !activeFeedSourceIds.includes(sourceId))
 				.slice(0, FEED_SOURCE_BATCH_SIZE);
 			if (nextSourceIds.length === 0) return;
@@ -979,7 +838,6 @@
 						page,
 						existingItems
 					);
-					clearSourceFailure(sourceId, 'feed');
 					successfulSources += 1;
 					nextLiveFeedResults[feedResultKey(feedCommandType, sourceId, finalPage)] = result;
 					nextLoaded[sourceId] = finalPage;
@@ -989,7 +847,6 @@
 						delete nextExhausted[sourceId];
 					}
 				} catch (cause) {
-					recordSourceFailure(sourceId, 'feed', cause);
 					nextExhausted[sourceId] = true;
 					failures.push(
 						cause instanceof Error
@@ -1031,12 +888,10 @@
 		const sourceIds =
 			selectedSourceId && searchSources.some((source) => source.id === selectedSourceId)
 				? [selectedSourceId]
-				: searchSources
-						.map((source) => source.id)
-						.filter((sourceId) => !sourceIsUnavailable(sourceId, 'search'));
+				: searchSources.map((source) => source.id);
 
 		if (sourceIds.length === 0) {
-			error = activeSourceFailures[0]?.message ?? null;
+			error = null;
 			loading = false;
 			return;
 		}
@@ -1066,7 +921,9 @@
 									contextKey: `explore:${sourceId}`
 								}
 							);
-							const command = await waitForCommand(client, commandId);
+							const command = await waitForCommand(client, commandId, {
+								timeoutMs: SEARCH_COMMAND_TIMEOUT_MS
+							});
 							title = (command.result?.title as ExploreItem | undefined) ?? null;
 							if (title) break;
 						} catch (cause) {
@@ -1083,7 +940,6 @@
 					};
 					nextLoadedPagesBySource[sourceId] = 1;
 					nextExhaustedSearchSources[sourceId] = true;
-					clearSourceFailure(sourceId, 'search');
 					return;
 				}
 				const { commandId } = await client.mutation(convexApi.commands.enqueueExploreSearch, {
@@ -1093,8 +949,9 @@
 					page: 1,
 					...(Object.keys(searchFilters).length > 0 ? { searchFilters } : {})
 				});
-				const command = await waitForCommand(client, commandId);
-				clearSourceFailure(sourceId, 'search');
+				const command = await waitForCommand(client, commandId, {
+					timeoutMs: SEARCH_COMMAND_TIMEOUT_MS
+				});
 				const hasNextPage = Boolean(command.result?.hasNextPage ?? false);
 				nextLiveSearchResults[searchResultKey(sourceId, value, searchFilters, 1)] = {
 					items: ((command.result?.items as ExploreItem[] | undefined) ?? []) as ExploreItem[],
@@ -1104,7 +961,6 @@
 				nextLoadedPagesBySource[sourceId] = 1;
 				nextExhaustedSearchSources[sourceId] = !hasNextPage;
 			} catch (cause) {
-				recordSourceFailure(sourceId, 'search', cause);
 				nextLoadedPagesBySource[sourceId] = 0;
 				nextExhaustedSearchSources[sourceId] = true;
 				failures.push(
@@ -1154,9 +1010,11 @@
 				query,
 				limit: 42,
 				page: nextPage,
-				...(Object.keys(searchFilters).length > 0 ? { searchFilters } : {})
+			...(Object.keys(searchFilters).length > 0 ? { searchFilters } : {})
 			});
-			const command = await waitForCommand(client, commandId);
+			const command = await waitForCommand(client, commandId, {
+				timeoutMs: SEARCH_COMMAND_TIMEOUT_MS
+			});
 			const hasNextPage = Boolean(command.result?.hasNextPage ?? false);
 			liveSearchResults = {
 				...liveSearchResults,
@@ -1175,9 +1033,7 @@
 				[sourceId]: !hasNextPage
 			};
 			canLoadMoreSearch = hasNextPage;
-			clearSourceFailure(sourceId, 'search');
 		} catch (cause) {
-			recordSourceFailure(sourceId, 'search', cause);
 			canLoadMoreSearch = false;
 			error =
 				cause instanceof Error ? cause.message : `Search failed for ${sourceNameFor(sourceId)}`;
@@ -1397,7 +1253,6 @@
 		}
 		lastFeedLoadSignature = signature;
 		activeFeedSourceIds = visibleSources
-			.filter((source) => !sourceIsUnavailable(source.id, 'feed'))
 			.slice(0, FEED_SOURCE_BATCH_SIZE)
 			.map((source) => source.id);
 		canLoadMoreFeed = activeFeedSourceIds.length > 0;
@@ -1494,7 +1349,6 @@
 							{$_('explore.allSources')}
 						</button>
 						{#each searchSources as source (source.id)}
-							{@const searchFailure = sourceFailureFor(source.id, 'search')}
 							<button
 								type="button"
 								class="h-7 shrink-0 px-3 text-[10px] tracking-wider uppercase transition-colors {selectedSourceId ===
@@ -1507,19 +1361,8 @@
 									if (searchQuery.trim() || appliedSearchFiltersBySource[source.id])
 										void runSearch();
 								}}
-								title={searchFailure
-									? `${sourceFailureLabel(searchFailure)}: ${searchFailure.message}`
-									: undefined}
 							>
 								{source.name}{source.lang ? ` [${source.lang}]` : ''}
-								{#if searchFailure}
-									<span class="ml-1 text-[9px] text-[var(--text-dim)]">
-										{sourceFailureLabel(searchFailure)}
-										{#if sourceFailureRetrySuffix(searchFailure)}
-											· {sourceFailureRetrySuffix(searchFailure)}
-										{/if}
-									</span>
-								{/if}
 							</button>
 						{/each}
 					</div>
@@ -1588,20 +1431,6 @@
 
 	{#if error}
 		<Alert variant="error">{error}</Alert>
-	{/if}
-
-	{#if activeSourceFailures.length > 0}
-		<div
-			class="border border-[var(--line)] bg-[var(--void-2)] px-4 py-3 text-sm text-[var(--text-muted)]"
-		>
-			{activeSourceFailures.length} source{activeSourceFailures.length === 1 ? '' : 's'} temporarily skipped:
-			{activeSourceFailures
-				.map(
-					(failure) =>
-						`${failure.sourceName}${failure.permanent ? '' : ` (${failure.retryInMinutes}m)`}`
-				)
-				.join(', ')}
-		</div>
 	{/if}
 
 	<div class="flex items-center justify-between text-sm text-[var(--text-ghost)]">

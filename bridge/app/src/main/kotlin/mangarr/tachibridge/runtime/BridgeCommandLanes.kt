@@ -7,7 +7,6 @@ private val interactiveCapabilities =
         "extensions.repo",
         "extensions.install",
         "sources.preferences",
-        "explore.search",
         "explore.feed",
         "explore.title.fetch",
         "reader.pages.fetch",
@@ -17,6 +16,7 @@ private val interactiveCapabilities =
         "library.import",
     )
 
+private val searchCapabilities = listOf("explore.search")
 private val discoveryCapabilities = listOf("discovery.feed", "discovery.metadata")
 
 internal enum class BridgeCommandLane(
@@ -24,6 +24,7 @@ internal enum class BridgeCommandLane(
     val capabilities: List<String>,
 ) {
     INTERACTIVE(concurrency = 2, capabilities = interactiveCapabilities),
+    SEARCH(concurrency = 4, capabilities = searchCapabilities),
     DOWNLOAD(concurrency = 2, capabilities = listOf("downloads.chapter")),
     DISCOVERY(concurrency = 1, capabilities = discoveryCapabilities),
     ;
@@ -31,6 +32,7 @@ internal enum class BridgeCommandLane(
     companion object {
         fun fromCommandType(commandType: String): BridgeCommandLane =
             when (commandType) {
+                "explore.search" -> SEARCH
                 "downloads.chapter" -> DOWNLOAD
                 "discovery.feed.crawl", "discovery.title.hydrate" -> DISCOVERY
                 else -> INTERACTIVE
