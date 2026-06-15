@@ -635,7 +635,7 @@
 		sourceStatusRefreshing = true;
 		actionError = null;
 		try {
-			await Promise.all([
+			const [metadataResponse, chapterSyncResponse] = await Promise.all([
 				client.mutation(convexApi.library.ensureTitleMetadata, {
 					titleId: title._id
 				}),
@@ -643,7 +643,24 @@
 					titleId: title._id
 				})
 			]);
+			chapterHydrationStatus = titleChapters.length === 0 ? 'syncing' : 'refreshing';
+			const pendingCommands: Promise<unknown>[] = [];
+			if (metadataResponse.commandId) {
+				pendingCommands.push(waitForCommand(client, metadataResponse.commandId));
+			}
+			if (chapterSyncResponse.commandId) {
+				pendingCommands.push(
+					waitForCommand(client, chapterSyncResponse.commandId, {
+						timeoutMs: 30_000
+					})
+				);
+			}
+			if (pendingCommands.length > 0) {
+				await Promise.all(pendingCommands);
+			}
+			chapterHydrationStatus = 'idle';
 		} catch (error) {
+			chapterHydrationStatus = titleChapters.length === 0 ? 'failed' : 'idle';
 			actionError = error instanceof Error ? error.message : $_('title.sourceRefreshFailed');
 		} finally {
 			sourceStatusRefreshing = false;
