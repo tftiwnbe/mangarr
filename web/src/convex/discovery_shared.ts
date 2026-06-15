@@ -22,6 +22,7 @@ export type DiscoveryFeedType = 'popular' | 'latest';
 export type DiscoverySnapshot = {
 	title?: string | null;
 	author?: string | null;
+	artist?: string | null;
 	description?: string | null;
 	genre?: string | null;
 	sourcePkg?: string | null;
@@ -203,6 +204,30 @@ export function rankSimilarCandidate(args: {
 	return rankSimilarCandidateBreakdown(args).total;
 }
 
+export function rankSimilarCandidateAcrossAnchors(args: {
+	anchors: DiscoverySnapshot[];
+	candidate: DiscoverySnapshot;
+	edge: DiscoveryEdgeWeights;
+	preferredLanguages?: string[];
+	now?: number;
+}) {
+	const anchors = args.anchors.length > 0 ? args.anchors : [{}];
+	let best = Number.NEGATIVE_INFINITY;
+	for (const anchor of anchors) {
+		best = Math.max(
+			best,
+			rankSimilarCandidate({
+				anchor,
+				candidate: args.candidate,
+				edge: args.edge,
+				preferredLanguages: args.preferredLanguages,
+				now: args.now
+			})
+		);
+	}
+	return Number.isFinite(best) ? best : 0;
+}
+
 export function rankSimilarCandidateBreakdown(args: {
 	anchor: DiscoverySnapshot;
 	candidate: DiscoverySnapshot;
@@ -323,6 +348,25 @@ export function isDiscoveryRecommendationStrong(args: {
 	);
 }
 
+export function isDiscoveryRecommendationStrongAcrossAnchors(args: {
+	anchors: DiscoverySnapshot[];
+	candidate: DiscoverySnapshot;
+	edge: DiscoveryEdgeWeights;
+	preferredLanguages?: string[];
+	now?: number;
+}) {
+	const anchors = args.anchors.length > 0 ? args.anchors : [{}];
+	return anchors.some((anchor) =>
+		isDiscoveryRecommendationStrong({
+			anchor,
+			candidate: args.candidate,
+			edge: args.edge,
+			preferredLanguages: args.preferredLanguages,
+			now: args.now
+		})
+	);
+}
+
 export function isDiscoveryMetadataRecommendationStrong(args: {
 	anchor: DiscoverySnapshot;
 	candidate: DiscoverySnapshot;
@@ -340,6 +384,23 @@ export function isDiscoveryMetadataRecommendationStrong(args: {
 		breakdown.similarity >= DISCOVERY_MIN_SIMILARITY_SCORE &&
 		(breakdown.authorBonus > 0 || breakdown.genreScore > 0) &&
 		breakdown.total >= DISCOVERY_MIN_METADATA_TOTAL_SCORE
+	);
+}
+
+export function isDiscoveryMetadataRecommendationStrongAcrossAnchors(args: {
+	anchors: DiscoverySnapshot[];
+	candidate: DiscoverySnapshot;
+	preferredLanguages?: string[];
+	now?: number;
+}) {
+	const anchors = args.anchors.length > 0 ? args.anchors : [{}];
+	return anchors.some((anchor) =>
+		isDiscoveryMetadataRecommendationStrong({
+			anchor,
+			candidate: args.candidate,
+			preferredLanguages: args.preferredLanguages,
+			now: args.now
+		})
 	);
 }
 

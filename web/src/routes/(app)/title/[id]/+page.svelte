@@ -166,7 +166,7 @@
 	};
 
 	type SimilarTitlesResult = {
-		items: (ExploreItem & { score: number })[];
+		items: (ExploreItem & { score: number; origin: 'discovery' | 'library' })[];
 		warming: boolean;
 	};
 

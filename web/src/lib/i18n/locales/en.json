@@ -178,6 +178,8 @@
 		"similarTitles": "Similar Titles",
 		"similarTitlesWarming": "Discovery is still warming up for this title.",
 		"similarTitlesEmpty": "No similar titles found yet.",
+		"similarFromDiscovery": "Discovery",
+		"similarFromLibrary": "Your library",
 		"findOtherSources": "Find Other Sources",
 		"addSource": "Add Source",
 		"suggestedMatches": "Suggested matches",

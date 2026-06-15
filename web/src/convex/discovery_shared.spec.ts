@@ -5,10 +5,13 @@ import {
 	computeDiscoverySuccessState,
 	discoveryMaxPage,
 	discoveryPairKey,
+	isDiscoveryMetadataRecommendationStrongAcrossAnchors,
 	isDiscoveryMetadataRecommendationStrong,
+	isDiscoveryRecommendationStrongAcrossAnchors,
 	isDiscoveryRecommendationStrong,
 	nextDiscoveryPage,
 	rankForYouCandidate,
+	rankSimilarCandidateAcrossAnchors,
 	rankSimilarCandidate,
 	scoreSeedWeight
 } from './discovery_shared';
@@ -218,6 +221,120 @@ describe('discovery shared helpers', () => {
 					lastSeenAt: now - 2 * 24 * 60 * 60 * 1000
 				},
 				preferredLanguages: ['en'],
+				now
+			})
+		).toBe(true);
+	});
+
+	it('uses alternate anchors when ranking similar candidates', () => {
+		const now = Date.now();
+		const score = rankSimilarCandidateAcrossAnchors({
+			anchors: [
+				{
+					title: 'The Return of the Crazy Demon',
+					author: 'JP',
+					sourcePkg: 'source.a',
+					sourceLang: 'en',
+					titleUrl: '/title/return-of-the-crazy-demon'
+				},
+				{
+					title: 'Gwangmahoegwi',
+					author: 'JP',
+					sourcePkg: 'source.b',
+					sourceLang: 'ko',
+					titleUrl: '/series/gwangmahoegwi'
+				}
+			],
+			candidate: {
+				title: 'Gwangmahoegwi Side Story',
+				author: 'JP',
+				sourcePkg: 'source.c',
+				sourceLang: 'ko',
+				titleUrl: '/title/gwangmahoegwi-side-story',
+				lastSeenAt: now - 2 * 24 * 60 * 60 * 1000
+			},
+			edge: {
+				popularCount: 4,
+				latestCount: 1,
+				lastObservedAt: now - 2 * 24 * 60 * 60 * 1000
+			},
+			preferredLanguages: ['en'],
+			now
+		});
+
+		expect(score).toBeGreaterThan(
+			rankSimilarCandidate({
+				anchor: {
+					title: 'The Return of the Crazy Demon',
+					author: 'JP',
+					sourcePkg: 'source.a',
+					sourceLang: 'en',
+					titleUrl: '/title/return-of-the-crazy-demon'
+				},
+				candidate: {
+					title: 'Gwangmahoegwi Side Story',
+					author: 'JP',
+					sourcePkg: 'source.c',
+					sourceLang: 'ko',
+					titleUrl: '/title/gwangmahoegwi-side-story',
+					lastSeenAt: now - 2 * 24 * 60 * 60 * 1000
+				},
+				edge: {
+					popularCount: 4,
+					latestCount: 1,
+					lastObservedAt: now - 2 * 24 * 60 * 60 * 1000
+				},
+				preferredLanguages: ['en'],
+				now
+			})
+		);
+	});
+
+	it('accepts stronger matches through alternate anchors', () => {
+		const now = Date.now();
+		const anchors = [
+			{
+				title: 'The Villainess Turns the Hourglass',
+				author: 'Sansobee',
+				sourcePkg: 'source.a',
+				sourceLang: 'en',
+				titleUrl: '/title/the-villainess-turns-the-hourglass'
+			},
+			{
+				title: 'Agyeogui Ending-eun Jugeumppun',
+				author: 'Sansobee',
+				sourcePkg: 'source.b',
+				sourceLang: 'ko',
+				titleUrl: '/title/agyeogui-ending'
+			}
+		];
+		const candidate = {
+			title: 'Agyeog-ui Ending-eun Jugeumppun Side Story',
+			author: 'Sansobee',
+			sourcePkg: 'source.c',
+			sourceLang: 'ko',
+			titleUrl: '/title/agyeog-side-story',
+			lastSeenAt: now - 3 * 24 * 60 * 60 * 1000
+		};
+
+		expect(
+			isDiscoveryRecommendationStrongAcrossAnchors({
+				anchors,
+				candidate,
+				edge: {
+					popularCount: 5,
+					latestCount: 1,
+					lastObservedAt: now - 3 * 24 * 60 * 60 * 1000
+				},
+				preferredLanguages: ['ko'],
+				now
+			})
+		).toBe(true);
+		expect(
+			isDiscoveryMetadataRecommendationStrongAcrossAnchors({
+				anchors,
+				candidate,
+				preferredLanguages: ['ko'],
 				now
 			})
 		).toBe(true);

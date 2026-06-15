@@ -178,6 +178,8 @@
 		"similarTitles": "Похожие тайтлы",
 		"similarTitlesWarming": "Для этого тайтла рекомендации ещё прогреваются.",
 		"similarTitlesEmpty": "Похожие тайтлы пока не найдены.",
+		"similarFromDiscovery": "Подборка",
+		"similarFromLibrary": "Ваша библиотека",
 		"findOtherSources": "Найти другие источники",
 		"addSource": "Добавить источник",
 		"suggestedMatches": "Похожие совпадения",

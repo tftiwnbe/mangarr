@@ -26,13 +26,15 @@ import {
 	computeDiscoveryMetadataSuccessState,
 	computeDiscoverySuccessState,
 	discoveryPairKey,
+	isDiscoveryMetadataRecommendationStrongAcrossAnchors,
 	isDiscoveryMetadataRecommendationStrong,
-	isDiscoveryRecommendationStrong,
+	isDiscoveryRecommendationStrongAcrossAnchors,
 	isDiscoverySameWork,
 	rankForYouCandidate,
-	rankSimilarCandidate,
+	rankSimilarCandidateAcrossAnchors,
 	rankSimilarCandidateBreakdown,
 	scoreSeedWeight,
+	type DiscoverySnapshot,
 	type DiscoveryFeedType
 } from './discovery_shared';
 import { normalizeMergeText } from './title_identity';
@@ -91,6 +93,8 @@ type DiscoveryTitleDoc = {
 	createdAt: number;
 	updatedAt: number;
 };
+
+type SimilarTitleItemOrigin = 'discovery' | 'library';
 
 function sanitizeDiscoveryItem(item: DiscoveryItemPayload): DiscoveryItemPayload | null {
 	const sourceId = item.sourceId.trim();
@@ -432,6 +436,7 @@ function isImportedDiscoveryCandidate(
 }
 
 function mapDiscoveryItem(title: {
+	origin?: SimilarTitleItemOrigin;
 	canonicalKey: string;
 	sourceId: string;
 	sourcePkg?: string | null;
@@ -443,6 +448,7 @@ function mapDiscoveryItem(title: {
 	coverUrl?: string | null;
 }) {
 	return {
+		origin: title.origin ?? ('discovery' as SimilarTitleItemOrigin),
 		canonicalKey: title.canonicalKey,
 		sourceId: title.sourceId,
 		sourcePkg: title.sourcePkg ?? '',
@@ -469,6 +475,7 @@ function mapLibraryTitleAsDiscoveryItem(title: {
 	lastSeenAt?: number;
 }) {
 	return {
+		origin: 'library' as SimilarTitleItemOrigin,
 		canonicalKey: buildDiscoveryCanonicalKey(title.sourceId, title.titleUrl),
 		sourceId: title.sourceId,
 		sourcePkg: title.sourcePkg,
@@ -480,6 +487,72 @@ function mapLibraryTitleAsDiscoveryItem(title: {
 		coverUrl: title.coverUrl ?? null,
 		lastSeenAt: title.lastSeenAt ?? 0
 	};
+}
+
+function buildSimilarAnchors(
+	title: {
+		title: string;
+		author?: string | null;
+		artist?: string | null;
+		description?: string | null;
+		genre?: string | null;
+		sourcePkg: string;
+		sourceLang: string;
+		titleUrl: string;
+	},
+	variants: Array<{
+		title: string;
+		author?: string | null;
+		artist?: string | null;
+		description?: string | null;
+		genre?: string | null;
+		sourcePkg: string;
+		sourceLang: string;
+		titleUrl: string;
+	}>
+) {
+	const seen = new Set<string>();
+	const anchors: DiscoverySnapshot[] = [];
+	const pushAnchor = (anchor: DiscoverySnapshot) => {
+		const normalizedTitle = buildDiscoveryNormalizedTitle(anchor.title);
+		if (!normalizedTitle) return;
+		const key = [
+			normalizedTitle,
+			buildDiscoveryNormalizedAuthor(anchor.author),
+			buildDiscoveryNormalizedAuthor(anchor.artist),
+			normalizeMergeText(anchor.sourcePkg),
+			normalizeMergeText(anchor.sourceLang),
+			normalizeMergeText(anchor.titleUrl)
+		].join('::');
+		if (seen.has(key)) return;
+		seen.add(key);
+		anchors.push(anchor);
+	};
+
+	pushAnchor({
+		title: title.title,
+		author: title.author ?? null,
+		artist: title.artist ?? null,
+		description: title.description ?? null,
+		genre: title.genre ?? null,
+		sourcePkg: title.sourcePkg,
+		sourceLang: title.sourceLang,
+		titleUrl: title.titleUrl
+	});
+	for (const variant of variants) {
+		pushAnchor({
+			title: variant.title,
+			author: variant.author ?? title.author ?? null,
+			artist: variant.artist ?? title.artist ?? null,
+			description: variant.description ?? title.description ?? null,
+			genre: variant.genre ?? title.genre ?? null,
+			sourcePkg: variant.sourcePkg,
+			sourceLang: variant.sourceLang,
+			titleUrl: variant.titleUrl
+		});
+	}
+
+	return anchors.slice(0, 8);
 }
 
 async function listFallbackRecentTitles(
@@ -838,17 +911,17 @@ export const listSimilarForLibraryTitle = query({
 		const title = await requireOwnedTitle(ctx, args.titleId);
 		const limit = Math.max(1, Math.min(Math.floor(args.limit ?? DISCOVERY_SIMILAR_LIMIT), 24));
 		const preferredLanguages = await getPreferredContentLanguages(ctx);
-		const imported = await loadImportedLookup(ctx, title.ownerUserId);
+		const [imported, titleVariants] = await Promise.all([
+			loadImportedLookup(ctx, title.ownerUserId),
+			ctx.db
+				.query('titleVariants')
+				.withIndex('by_owner_user_id_library_title_id', (q) =>
+					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+				)
+				.collect()
+		]);
 		const importedSets = buildImportedDiscoverySets(imported);
-		const anchor = {
-			title: title.title,
-			author: title.author ?? null,
-			description: title.description ?? null,
-			genre: title.genre ?? null,
-			sourcePkg: title.sourcePkg,
-			sourceLang: title.sourceLang,
-			titleUrl: title.titleUrl
-		};
+		const anchors = buildSimilarAnchors(title, titleVariants);
 		const candidateEntries = new Map<
 			string,
 			{ title: DiscoveryTitleDoc; edge: typeof EMPTY_DISCOVERY_EDGE }
@@ -869,7 +942,9 @@ export const listSimilarForLibraryTitle = query({
 		}
 
 		const ranked: Array<{
-			title: DiscoveryTitleDoc | ReturnType<typeof mapLibraryTitleAsDiscoveryItem>;
+			title:
+				| (DiscoveryTitleDoc & { origin: SimilarTitleItemOrigin })
+				| ReturnType<typeof mapLibraryTitleAsDiscoveryItem>;
 			score: number;
 			lastSeenAt: number;
 		}> = [];
@@ -884,26 +959,28 @@ export const listSimilarForLibraryTitle = query({
 			if (candidate.sourceId === title.sourceId && candidate.titleUrl === title.titleUrl) continue;
 			if (isImportedDiscoveryCandidate(candidate, importedSets)) continue;
 			if (
-				isDiscoverySameWork(anchor, {
-					title: candidate.title,
-					author: candidate.author,
-					sourcePkg: candidate.sourcePkg,
-					sourceLang: candidate.sourceLang,
-					titleUrl: candidate.titleUrl
-				})
+				anchors.some((anchor) =>
+					isDiscoverySameWork(anchor, {
+						title: candidate.title,
+						author: candidate.author,
+						sourcePkg: candidate.sourcePkg,
+						sourceLang: candidate.sourceLang,
+						titleUrl: candidate.titleUrl
+					})
+				)
 			) {
 				continue;
 			}
 			const strong =
 				edge.popularCount > 0 || edge.latestCount > 0
-					? isDiscoveryRecommendationStrong({
-							anchor,
+					? isDiscoveryRecommendationStrongAcrossAnchors({
+							anchors,
 							candidate,
 							edge,
 							preferredLanguages
 						})
-					: isDiscoveryMetadataRecommendationStrong({
-							anchor,
+					: isDiscoveryMetadataRecommendationStrongAcrossAnchors({
+							anchors,
 							candidate,
 							preferredLanguages
 						});
@@ -911,10 +988,10 @@ export const listSimilarForLibraryTitle = query({
 				continue;
 			}
 			ranked.push({
-				title: candidate,
+				title: { ...candidate, origin: 'discovery' },
 				lastSeenAt: candidate.lastSeenAt,
-				score: rankSimilarCandidate({
-					anchor,
+				score: rankSimilarCandidateAcrossAnchors({
+					anchors,
 					candidate,
 					edge,
 					preferredLanguages
@@ -931,29 +1008,42 @@ export const listSimilarForLibraryTitle = query({
 			for (const candidate of libraryCandidates) {
 				if (candidate._id === title._id) continue;
 				if (
-					isDiscoverySameWork(anchor, {
-						title: candidate.title,
-						author: candidate.author,
-						sourcePkg: candidate.sourcePkg,
-						sourceLang: candidate.sourceLang,
-						titleUrl: candidate.titleUrl
-					})
+					anchors.some((anchor) =>
+						isDiscoverySameWork(anchor, {
+							title: candidate.title,
+							author: candidate.author,
+							sourcePkg: candidate.sourcePkg,
+							sourceLang: candidate.sourceLang,
+							titleUrl: candidate.titleUrl
+						})
+					)
 				) {
 					continue;
 				}
 				if (
-					!isDiscoveryMetadataRecommendationStrong({
-						anchor,
+					!isDiscoveryMetadataRecommendationStrongAcrossAnchors({
+						anchors,
 						candidate,
 						preferredLanguages
 					})
 				) {
-					const breakdown = rankSimilarCandidateBreakdown({
-						anchor,
-						candidate,
-						edge: EMPTY_DISCOVERY_EDGE,
-						preferredLanguages
-					});
+					const breakdown = anchors.reduce(
+						(best, anchor) => {
+							const next = rankSimilarCandidateBreakdown({
+								anchor,
+								candidate,
+								edge: EMPTY_DISCOVERY_EDGE,
+								preferredLanguages
+							});
+							return next.total > best.total ? next : best;
+						},
+						rankSimilarCandidateBreakdown({
+							anchor: anchors[0] ?? {},
+							candidate,
+							edge: EMPTY_DISCOVERY_EDGE,
+							preferredLanguages
+						})
+					);
 					if (
 						(breakdown.authorBonus > 0 ||
 							breakdown.genreScore > 0 ||
@@ -971,8 +1061,8 @@ export const listSimilarForLibraryTitle = query({
 				ranked.push({
 					title: mapLibraryTitleAsDiscoveryItem(candidate),
 					lastSeenAt: candidate.updatedAt,
-					score: rankSimilarCandidate({
-						anchor,
+					score: rankSimilarCandidateAcrossAnchors({
+						anchors,
 						candidate,
 						edge: EMPTY_DISCOVERY_EDGE,
 						preferredLanguages
@@ -981,25 +1071,30 @@ export const listSimilarForLibraryTitle = query({
 			}
 		}
 
+		const dedupedSoftFallback = softFallback.filter(
+			(entry, index, all) =>
+				all.findIndex((candidate) => candidate.title.canonicalKey === entry.title.canonicalKey) ===
+				index
+		);
+		const sortedRanked = ranked.sort((left, right) => {
+			if (left.score !== right.score) return right.score - left.score;
+			return right.lastSeenAt - left.lastSeenAt;
+		});
+		const discoveryRanked = sortedRanked.filter((entry) => entry.title.origin === 'discovery');
+		const libraryRanked = sortedRanked.filter((entry) => entry.title.origin === 'library');
+		const libraryFallbackLimit = discoveryRanked.length > 0 ? Math.min(2, limit) : limit;
 		const finalRanked =
-			ranked.length > 0
-				? ranked
-				: softFallback.filter(
-						(entry, index, all) =>
-							all.findIndex(
-								(candidate) => candidate.title.canonicalKey === entry.title.canonicalKey
-							) === index
-					);
+			discoveryRanked.length > 0
+				? [...discoveryRanked, ...libraryRanked.slice(0, libraryFallbackLimit)]
+				: libraryRanked.length > 0
+					? libraryRanked
+					: dedupedSoftFallback;
 
 		return {
 			items: finalRanked
-				.sort((left, right) => {
-					if (left.score !== right.score) return right.score - left.score;
-					return right.lastSeenAt - left.lastSeenAt;
-				})
 				.slice(0, limit)
 				.map((entry) => ({ ...mapDiscoveryItem(entry.title), score: entry.score })),
-			warming: finalRanked.length < DISCOVERY_WARM_MIN_ITEMS
+			warming: discoveryRanked.length < DISCOVERY_WARM_MIN_ITEMS
 		};
 	}
 });

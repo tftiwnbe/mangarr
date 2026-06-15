@@ -17,7 +17,10 @@
 		lastReadAt: number | null;
 		lastUpdatedAt: number | null;
 		similarTitles: Array<{
+			origin: 'discovery' | 'library';
 			title: string;
+			sourceName?: string | null;
+			sourceLang?: string | null;
 			coverUrl?: string | null;
 			href: string;
 		}>;
@@ -189,9 +192,22 @@
 									</div>
 								{/if}
 							</div>
-							<p class="line-clamp-2 text-[10px] leading-snug text-[var(--text)]">
-								{item.title}
-							</p>
+							<div class="flex flex-col gap-1">
+								<p class="line-clamp-2 text-[10px] leading-snug text-[var(--text)]">
+									{item.title}
+								</p>
+								<p class="text-[9px] uppercase tracking-[0.16em] text-[var(--text-dim)]">
+									{#if item.origin === 'library'}
+										{$_('title.similarFromLibrary')}
+									{:else if item.sourceName}
+										{item.sourceName}{item.sourceLang ? ` [${item.sourceLang}]` : ''}
+									{:else if item.sourceLang}
+										{$_('title.similarFromDiscovery')} [{item.sourceLang}]
+									{:else}
+										{$_('title.similarFromDiscovery')}
+									{/if}
+								</p>
+							</div>
 						</a>
 					{/each}
 				</div>
