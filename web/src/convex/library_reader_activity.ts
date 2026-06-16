@@ -2,6 +2,7 @@ import { v } from 'convex/values';
 
 import { mutation } from './_generated/server';
 import {
+	clearTitleLibraryListingIfUnanchored,
 	getOwnedChapterProgressRow,
 	requireOwnedTitle,
 	requireOwnedChapter,
@@ -127,6 +128,13 @@ export const resetChapterProgress = mutation({
 					: undefined,
 			updatedAt: now
 		});
+		if (remainingProgressRows.length + createdRemainingRows === 0) {
+			await clearTitleLibraryListingIfUnanchored(
+				ctx,
+				{ ...title, lastReadAt: undefined, updatedAt: now },
+				now
+			);
+		}
 
 		return { ok: true };
 	}
@@ -222,10 +230,16 @@ export const resetTitleProgress = mutation({
 			await ctx.db.delete(row._id);
 		}
 
+		const now = Date.now();
 		await ctx.db.patch(title._id, {
 			lastReadAt: undefined,
-			updatedAt: Date.now()
+			updatedAt: now
 		});
+		await clearTitleLibraryListingIfUnanchored(
+			ctx,
+			{ ...title, lastReadAt: undefined, updatedAt: now },
+			now
+		);
 
 		return { ok: true, clearedChapters: progressRows.length };
 	}

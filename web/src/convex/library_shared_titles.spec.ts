@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyVariantMetadataToTitle, pickStablePreferredTitle } from './library_shared_titles';
+import {
+	applyVariantMetadataToTitle,
+	hasPersistentLibraryListingSignal,
+	pickStablePreferredTitle
+} from './library_shared_titles';
 
 describe('preferred title stability', () => {
 	it('keeps the existing canonical title when switching preferred variants', () => {
@@ -38,5 +42,21 @@ describe('preferred title stability', () => {
 		expect(patch).not.toHaveProperty('routeBase');
 		expect(patch).not.toHaveProperty('sourceId');
 		expect(patch).not.toHaveProperty('titleUrl');
+	});
+});
+
+describe('library listing signals', () => {
+	it('treats empty imported titles as unanchored', () => {
+		expect(hasPersistentLibraryListingSignal({})).toBe(false);
+	});
+
+	it('keeps titles listed when user engagement still exists', () => {
+		expect(hasPersistentLibraryListingSignal({ userStatusId: 'status-id' as never })).toBe(true);
+		expect(hasPersistentLibraryListingSignal({ userRating: 4 })).toBe(true);
+		expect(hasPersistentLibraryListingSignal({ downloadedChapterCount: 1 })).toBe(true);
+	});
+
+	it('does not treat read history alone as library membership', () => {
+		expect(hasPersistentLibraryListingSignal({ lastReadAt: 123 } as never)).toBe(false);
 	});
 });

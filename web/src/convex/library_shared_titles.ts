@@ -488,6 +488,75 @@ export async function markTitleListedInLibrary(
 	return true;
 }
 
+export function hasPersistentLibraryListingSignal(args: {
+	userStatusId?: GenericId<'libraryUserStatuses'>;
+	userRating?: number;
+	downloadedChapterCount?: number;
+	queuedChapterCount?: number;
+	downloadingChapterCount?: number;
+	failedChapterCount?: number;
+}) {
+	return (
+		args.userStatusId !== undefined ||
+		args.userRating !== undefined ||
+		(args.downloadedChapterCount ?? 0) > 0 ||
+		(args.queuedChapterCount ?? 0) > 0 ||
+		(args.downloadingChapterCount ?? 0) > 0 ||
+		(args.failedChapterCount ?? 0) > 0
+	);
+}
+
+export async function clearTitleLibraryListingIfUnanchored(
+	ctx: MutationCtx,
+	title: {
+		_id: GenericId<'libraryTitles'>;
+		ownerUserId: GenericId<'users'>;
+		listedInLibrary?: boolean;
+		userStatusId?: GenericId<'libraryUserStatuses'>;
+		userRating?: number;
+		lastReadAt?: number;
+		downloadedChapterCount?: number;
+		queuedChapterCount?: number;
+		downloadingChapterCount?: number;
+		failedChapterCount?: number;
+		updatedAt: number;
+	},
+	now: number
+) {
+	if (title.listedInLibrary === false) {
+		return false;
+	}
+
+	if (hasPersistentLibraryListingSignal(title)) {
+		return false;
+	}
+
+	const [collectionRows, downloadProfile] = await Promise.all([
+		ctx.db
+			.query('libraryCollectionTitles')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+			)
+			.collect(),
+		ctx.db
+			.query('downloadProfiles')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+			)
+			.unique()
+	]);
+
+	if (collectionRows.length > 0 || downloadProfile) {
+		return false;
+	}
+
+	await ctx.db.patch(title._id, {
+		listedInLibrary: false,
+		updatedAt: Math.max(now, title.updatedAt)
+	});
+	return true;
+}
+
 export async function applyVariantSnapshotToTitle(
 	ctx: MutationCtx,
 	titleId: GenericId<'libraryTitles'>,

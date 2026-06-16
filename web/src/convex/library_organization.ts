@@ -3,6 +3,7 @@ import { v } from 'convex/values';
 
 import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import {
+	clearTitleLibraryListingIfUnanchored,
 	countTitlesInCollection,
 	DEFAULT_COLLECTIONS,
 	DEFAULT_USER_STATUSES,
@@ -259,6 +260,11 @@ export const deleteUserStatus = mutation({
 				userStatusId: undefined,
 				updatedAt: now
 			});
+			await clearTitleLibraryListingIfUnanchored(
+				ctx,
+				{ ...title, userStatusId: undefined, updatedAt: now },
+				now
+			);
 		}
 
 		await ctx.db.delete(status._id);
@@ -632,7 +638,11 @@ export const updateTitlePreferences = mutation({
 		if (Object.keys(patch).length > 0) {
 			patch.updatedAt = now;
 			await ctx.db.patch(title._id, patch);
-			await markTitleListedInLibrary(ctx, { ...title, ...patch }, now);
+			const patchedTitle = { ...title, ...patch, updatedAt: now };
+			await markTitleListedInLibrary(ctx, patchedTitle, now);
+			if (args.userStatusId === null || args.userRating === null) {
+				await clearTitleLibraryListingIfUnanchored(ctx, patchedTitle, now);
+			}
 		}
 
 		if (args.collectionIds !== undefined) {
@@ -680,6 +690,7 @@ export const updateTitlePreferences = mutation({
 				updatedAt: now
 			});
 			await markTitleListedInLibrary(ctx, title, now);
+			await clearTitleLibraryListingIfUnanchored(ctx, { ...title, updatedAt: now }, now);
 		}
 
 		if (shouldUpdatePreferredVariant) {
