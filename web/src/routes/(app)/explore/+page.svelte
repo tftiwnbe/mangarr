@@ -75,6 +75,14 @@
 		importedRouteSegment?: string | null;
 	};
 
+	type TitleOpenNavigationState = {
+		titlePreview?: {
+			title: string;
+			description: string | null;
+			thumbnailUrl: string | null;
+		};
+	};
+
 	type ImportedLookupEntry = {
 		libraryId: string;
 		listedInLibrary: boolean;
@@ -1150,9 +1158,6 @@
 			source_pkg: item.sourcePkg,
 			source_lang: item.sourceLang,
 			title_url: item.titleUrl,
-			title: item.title,
-			description: item.description ?? '',
-			thumbnail_url: item.thumbnailUrl ?? '',
 			canonical_key: item.canonicalKey
 		});
 		return `/title/open?${query.toString()}`;
@@ -1174,7 +1179,14 @@
 		if (openingTitleKey) return;
 		event.preventDefault();
 		openingTitleKey = item.key;
-		void goto(buildPreviewHref(item)).finally(() => {
+		const state: TitleOpenNavigationState = {
+			titlePreview: {
+				title: item.title,
+				description: item.description ?? null,
+				thumbnailUrl: item.thumbnailUrl ?? null
+			}
+		};
+		void goto(buildPreviewHref(item), { state }).finally(() => {
 			openingTitleKey = null;
 		});
 	}

@@ -14,12 +14,43 @@
 
 	const client = useConvexClient();
 
+	type TitleOpenNavigationState = {
+		titlePreview?: {
+			title?: string | null;
+			description?: string | null;
+			thumbnailUrl?: string | null;
+		};
+	};
+
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let titleName = $state('');
 	let titleDescription = $state('');
 	let thumbnailUrl = $state('');
 	let openPhase = $state<'checking' | 'importing' | 'syncing'>('checking');
+
+	async function hydratePreview(sourceId: string, titleUrl: string): Promise<void> {
+		const state = (page.state ?? {}) as TitleOpenNavigationState;
+		const titlePreview = state.titlePreview ?? null;
+		if (titlePreview) {
+			titleName = titlePreview.title?.trim() ?? '';
+			titleDescription = titlePreview.description?.trim() ?? '';
+			thumbnailUrl = titlePreview.thumbnailUrl?.trim() ?? '';
+			return;
+		}
+
+		const preview = await client.query(convexApi.library.getExploreTitlePreview, {
+			sourceId,
+			titleUrl
+		});
+		if (!preview) {
+			return;
+		}
+
+		titleName = preview.title?.trim() ?? '';
+		titleDescription = preview.description?.trim() ?? '';
+		thumbnailUrl = preview.coverUrl?.trim() ?? '';
+	}
 
 	async function waitForTitleHydration(
 		titleId: string,
@@ -75,6 +106,8 @@
 		error = null;
 		openPhase = 'checking';
 		try {
+			await hydratePreview(sourceId, titleUrl);
+
 			const openRequest = await client.mutation(convexApi.library.beginTitleOpen, {
 				canonicalKey,
 				sourceId,
@@ -146,9 +179,6 @@
 	}
 
 	onMount(() => {
-		titleName = page.url.searchParams.get('title')?.trim() ?? '';
-		titleDescription = page.url.searchParams.get('description')?.trim() ?? '';
-		thumbnailUrl = page.url.searchParams.get('thumbnail_url')?.trim() ?? '';
 		void openTitle();
 	});
 
