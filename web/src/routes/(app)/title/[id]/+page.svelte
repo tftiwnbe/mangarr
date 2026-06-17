@@ -166,8 +166,16 @@
 	};
 
 	type SimilarTitlesResult = {
-		items: (ExploreItem & { score: number; origin: 'discovery' | 'library' })[];
+		items: (ExploreItem & { score: number; similarityPercent: number | null })[];
 		warming: boolean;
+	};
+
+	type ImportedLookupResult = {
+		sourceId: string;
+		titleUrl: string;
+		libraryId: string;
+		listedInLibrary: boolean;
+		routeSegment: string;
 	};
 
 	type UserStatusOption = {
@@ -251,6 +259,10 @@
 		return `/title/open?${query.toString()}`;
 	}
 
+	function similarTitleLookupKey(item: { sourceId: string; titleUrl: string }) {
+		return `${item.sourceId}::${item.titleUrl}`;
+	}
+
 	const client = useConvexClient();
 	const titleQuery = useQuery(convexApi.library.getMineOverviewByRouteSegment, () =>
 		data.titleSegment ? { routeSegment: data.titleSegment } : 'skip'
@@ -300,10 +312,36 @@
 			warming: true
 		}
 	);
+	const similarTitlesImportedLookupQuery = useQuery(
+		convexApi.library.getMineImportedSourceLookup,
+		() =>
+			similarTitlesResult.items.length > 0
+				? {
+						entries: similarTitlesResult.items.map((item) => ({
+							sourceId: item.sourceId,
+							titleUrl: item.titleUrl
+						}))
+					}
+				: 'skip'
+	);
+	const similarTitlesImportedLookup = $derived(
+		(similarTitlesImportedLookupQuery.data ?? []) as ImportedLookupResult[]
+	);
+	const similarTitlesImportedLookupByKey = $derived.by(
+		() =>
+			new Map(
+				similarTitlesImportedLookup.map((item) => [similarTitleLookupKey(item), item] as const)
+			)
+	);
 	const similarTitles = $derived(
 		similarTitlesResult.items.map((item) => ({
 			...item,
-			href: buildOpenTitleHref(item)
+			href: (() => {
+				const imported = similarTitlesImportedLookupByKey.get(similarTitleLookupKey(item));
+				return imported
+					? buildTitlePath(imported.libraryId, item.title, imported.routeSegment)
+					: buildOpenTitleHref(item);
+			})()
 		}))
 	);
 	const sources = $derived((sourcesQuery.data ?? []) as SourceItem[]);

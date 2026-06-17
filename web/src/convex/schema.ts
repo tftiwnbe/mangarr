@@ -335,6 +335,7 @@ export default defineSchema({
 	})
 		.index('by_source_id_title_url', ['sourceId', 'titleUrl'])
 		.index('by_canonical_key', ['canonicalKey'])
+		.index('by_normalized_author_last_seen_at', ['normalizedAuthor', 'lastSeenAt'])
 		.index('by_normalized_title', ['normalizedTitle'])
 		.index('by_last_seen_at', ['lastSeenAt']),
 
@@ -377,19 +378,19 @@ export default defineSchema({
 		.index('by_owner_user_id_library_title_id', ['ownerUserId', 'libraryTitleId'])
 		.index('by_owner_user_id_collection_id', ['ownerUserId', 'collectionId']),
 
-		libraryChapters: defineTable({
-			ownerUserId: v.id('users'),
-			libraryTitleId: v.id('libraryTitles'),
-			titleVariantId: v.optional(v.id('titleVariants')),
-			sourceId: v.string(),
-			sourcePkg: v.string(),
-			sourceLang: v.string(),
-			titleUrl: v.string(),
-			chapterUrl: v.string(),
-			chapterGroupKey: v.optional(v.string()),
-			chapterName: v.string(),
-			chapterNumber: v.optional(v.float64()),
-			scanlator: v.optional(v.string()),
+	libraryChapters: defineTable({
+		ownerUserId: v.id('users'),
+		libraryTitleId: v.id('libraryTitles'),
+		titleVariantId: v.optional(v.id('titleVariants')),
+		sourceId: v.string(),
+		sourcePkg: v.string(),
+		sourceLang: v.string(),
+		titleUrl: v.string(),
+		chapterUrl: v.string(),
+		chapterGroupKey: v.optional(v.string()),
+		chapterName: v.string(),
+		chapterNumber: v.optional(v.float64()),
+		scanlator: v.optional(v.string()),
 		dateUpload: v.optional(v.float64()),
 		sequence: v.float64(),
 		isAvailableFromSource: v.optional(v.boolean()),
@@ -409,13 +410,13 @@ export default defineSchema({
 		downloadedAt: v.optional(v.float64()),
 		createdAt: v.float64(),
 		updatedAt: v.float64()
-		})
-			.index('by_library_title_id', ['libraryTitleId'])
-			.index('by_library_title_id_download_status', ['libraryTitleId', 'downloadStatus'])
-			.index('by_library_title_id_chapter_group_key', ['libraryTitleId', 'chapterGroupKey'])
-			.index('by_owner_user_id_library_title_id', ['ownerUserId', 'libraryTitleId'])
-			.index('by_owner_user_id_updated_at', ['ownerUserId', 'updatedAt'])
-			.index('by_owner_user_id_download_status', ['ownerUserId', 'downloadStatus'])
+	})
+		.index('by_library_title_id', ['libraryTitleId'])
+		.index('by_library_title_id_download_status', ['libraryTitleId', 'downloadStatus'])
+		.index('by_library_title_id_chapter_group_key', ['libraryTitleId', 'chapterGroupKey'])
+		.index('by_owner_user_id_library_title_id', ['ownerUserId', 'libraryTitleId'])
+		.index('by_owner_user_id_updated_at', ['ownerUserId', 'updatedAt'])
+		.index('by_owner_user_id_download_status', ['ownerUserId', 'downloadStatus'])
 		.index('by_library_title_id_chapter_url', ['libraryTitleId', 'chapterUrl']),
 
 	downloadProfiles: defineTable({

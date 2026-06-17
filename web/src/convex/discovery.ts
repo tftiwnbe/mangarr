@@ -31,8 +31,8 @@ import {
 	isDiscoveryRecommendationStrongAcrossAnchors,
 	isDiscoverySameWork,
 	rankForYouCandidate,
+	rankSimilarBreakdownAcrossAnchors,
 	rankSimilarCandidateAcrossAnchors,
-	rankSimilarCandidateBreakdown,
 	scoreSeedWeight,
 	type DiscoverySnapshot,
 	type DiscoveryFeedType
@@ -44,8 +44,9 @@ const DISCOVERY_HYDRATE_BATCH_SIZE = 6;
 const DISCOVERY_HYDRATE_MIN_SEEN_COUNT = 1;
 const DISCOVERY_HYDRATE_MAX_PER_SOURCE = 2;
 const DISCOVERY_SIMILAR_CANDIDATE_SCAN_LIMIT = 256;
-const DISCOVERY_SIMILAR_LIBRARY_FALLBACK_LIMIT = 256;
-const DISCOVERY_SIMILAR_SOFT_LIBRARY_MIN_SCORE = 24;
+const DISCOVERY_SIMILAR_GRAPH_EDGE_LIMIT = 512;
+const DISCOVERY_SIMILAR_AUTHOR_CANDIDATE_LIMIT = 96;
+const DISCOVERY_SIMILAR_TITLE_FALLBACK_LIMIT = 16;
 const DISCOVERY_FOR_YOU_SEED_LIMIT = 6;
 const DISCOVERY_FOR_YOU_CANDIDATE_SCAN_LIMIT = 96;
 
@@ -94,7 +95,39 @@ type DiscoveryTitleDoc = {
 	updatedAt: number;
 };
 
-type SimilarTitleItemOrigin = 'discovery' | 'library';
+type DiscoveryEdgeDoc = {
+	_id: GenericId<'discoveryEdges'>;
+	pairKey: string;
+	leftDiscoveryTitleId: GenericId<'discoveryTitles'>;
+	rightDiscoveryTitleId: GenericId<'discoveryTitles'>;
+	popularCount: number;
+	latestCount: number;
+	lastObservedAt: number;
+	createdAt: number;
+	updatedAt: number;
+};
+
+type SimilarCandidateDoc = {
+	canonicalKey: string;
+	sourceId: string;
+	sourcePkg: string;
+	sourceLang: string;
+	sourceName?: string | null;
+	titleUrl: string;
+	title: string;
+	author?: string | null;
+	artist?: string | null;
+	description?: string | null;
+	coverUrl?: string | null;
+	genre?: string | null;
+	status?: number | null;
+	lastSeenAt: number;
+};
+
+type SimilarCandidateEntry = {
+	title: SimilarCandidateDoc;
+	edge: typeof EMPTY_DISCOVERY_EDGE;
+};
 
 function sanitizeDiscoveryItem(item: DiscoveryItemPayload): DiscoveryItemPayload | null {
 	const sourceId = item.sourceId.trim();
@@ -352,25 +385,29 @@ async function recordCrawlFailureCore(
 	return { ok: true };
 }
 
-async function loadImportedLookup(ctx: QueryCtx, ownerUserId: GenericId<'users'>) {
-	const [titles, variants] = await Promise.all([
-		ctx.db
-			.query('libraryTitles')
-			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
-			.collect(),
-		ctx.db
-			.query('titleVariants')
-			.withIndex('by_owner_user_id_library_title_id', (q) => q.eq('ownerUserId', ownerUserId))
-			.collect()
-	]);
-	const importedKeys = new Set<string>();
-	for (const title of titles) {
-		importedKeys.add(buildDiscoveryCanonicalKey(title.sourceId, title.titleUrl));
-	}
-	for (const variant of variants) {
-		importedKeys.add(buildDiscoveryCanonicalKey(variant.sourceId, variant.titleUrl));
-	}
-	return { titles, variants, importedKeys };
+function shouldKeepSecondarySimilarCandidate(args: {
+	similarity: number;
+	total: number;
+	authorBonus: number;
+	genreScore: number;
+}) {
+	if (args.authorBonus >= 38 && args.genreScore >= 14) return true;
+	if (args.genreScore >= 26 && args.total >= 48) return true;
+	if (args.similarity >= 72) return true;
+	if (args.similarity >= 52 && args.total >= 56) return true;
+	return args.similarity >= 40 && (args.authorBonus > 0 || args.genreScore > 0) && args.total >= 52;
+}
+
+function shouldKeepTertiarySimilarCandidate(args: {
+	similarity: number;
+	total: number;
+	authorBonus: number;
+	genreScore: number;
+}) {
+	if (args.authorBonus >= 18 && args.genreScore >= 14) return true;
+	if (args.genreScore >= 14 && args.total >= 40) return true;
+	if (args.similarity >= 36) return true;
+	return args.similarity >= 28 && (args.authorBonus > 0 || args.genreScore > 0);
 }
 
 async function loadImportedTitlesOnly(ctx: QueryCtx, ownerUserId: GenericId<'users'>) {
@@ -436,7 +473,6 @@ function isImportedDiscoveryCandidate(
 }
 
 function mapDiscoveryItem(title: {
-	origin?: SimilarTitleItemOrigin;
 	canonicalKey: string;
 	sourceId: string;
 	sourcePkg?: string | null;
@@ -448,7 +484,6 @@ function mapDiscoveryItem(title: {
 	coverUrl?: string | null;
 }) {
 	return {
-		origin: title.origin ?? ('discovery' as SimilarTitleItemOrigin),
 		canonicalKey: title.canonicalKey,
 		sourceId: title.sourceId,
 		sourcePkg: title.sourcePkg ?? '',
@@ -461,32 +496,107 @@ function mapDiscoveryItem(title: {
 	};
 }
 
-function mapLibraryTitleAsDiscoveryItem(title: {
+function mapLibraryTitleAsSimilarCandidate(title: {
+	canonicalKey: string;
 	sourceId: string;
 	sourcePkg: string;
 	sourceLang: string;
 	titleUrl: string;
 	title: string;
-	description?: string;
-	coverUrl?: string;
-	author?: string;
-	genre?: string;
-	status?: number;
-	lastSeenAt?: number;
-}) {
+	author?: string | null;
+	artist?: string | null;
+	description?: string | null;
+	coverUrl?: string | null;
+	genre?: string | null;
+	status?: number | null;
+	updatedAt: number;
+}): SimilarCandidateDoc {
 	return {
-		origin: 'library' as SimilarTitleItemOrigin,
-		canonicalKey: buildDiscoveryCanonicalKey(title.sourceId, title.titleUrl),
+		canonicalKey: title.canonicalKey,
 		sourceId: title.sourceId,
 		sourcePkg: title.sourcePkg,
 		sourceLang: title.sourceLang,
-		sourceName: undefined,
+		sourceName: null,
 		titleUrl: title.titleUrl,
 		title: title.title,
+		author: title.author ?? null,
+		artist: null,
 		description: title.description ?? null,
 		coverUrl: title.coverUrl ?? null,
-		lastSeenAt: title.lastSeenAt ?? 0
+		genre: title.genre ?? null,
+		status: title.status ?? null,
+		lastSeenAt: title.updatedAt
 	};
+}
+
+function mapDiscoveryTitleAsSimilarCandidate(title: DiscoveryTitleDoc): SimilarCandidateDoc {
+	return {
+		canonicalKey: title.canonicalKey,
+		sourceId: title.sourceId,
+		sourcePkg: title.sourcePkg ?? '',
+		sourceLang: title.sourceLang ?? '',
+		sourceName: title.sourceName ?? null,
+		titleUrl: title.titleUrl,
+		title: title.title,
+		author: title.author ?? null,
+		artist: null,
+		description: title.description ?? null,
+		coverUrl: title.coverUrl ?? null,
+		genre: title.genre ?? null,
+		status: title.status ?? null,
+		lastSeenAt: title.lastSeenAt
+	};
+}
+
+function mergeDiscoveryEdgeWeights(
+	current: typeof EMPTY_DISCOVERY_EDGE,
+	next: Partial<typeof EMPTY_DISCOVERY_EDGE>
+): typeof EMPTY_DISCOVERY_EDGE {
+	return {
+		popularCount: current.popularCount + (next.popularCount ?? 0),
+		latestCount: current.latestCount + (next.latestCount ?? 0),
+		lastObservedAt: Math.max(current.lastObservedAt ?? 0, next.lastObservedAt ?? 0) || null
+	};
+}
+
+function addSimilarCandidateEntry(
+	entries: Map<string, SimilarCandidateEntry>,
+	candidate: SimilarCandidateDoc,
+	edge: Partial<typeof EMPTY_DISCOVERY_EDGE> = EMPTY_DISCOVERY_EDGE
+) {
+	const existing = entries.get(candidate.canonicalKey);
+	if (existing) {
+		existing.edge = mergeDiscoveryEdgeWeights(existing.edge, edge);
+		if (candidate.lastSeenAt > existing.title.lastSeenAt) {
+			existing.title = candidate;
+		}
+		return;
+	}
+	entries.set(candidate.canonicalKey, {
+		title: candidate,
+		edge: mergeDiscoveryEdgeWeights(EMPTY_DISCOVERY_EDGE, edge)
+	});
+}
+
+function pickDiverseSourceItems<T extends { sourceId: string }>(items: T[], limit: number) {
+	const remaining = [...items];
+	const picked: T[] = [];
+	const seenSources = new Set<string>();
+
+	for (let index = 0; index < remaining.length && picked.length < limit; index += 1) {
+		const item = remaining[index];
+		if (seenSources.has(item.sourceId)) continue;
+		picked.push(item);
+		seenSources.add(item.sourceId);
+		remaining[index] = null as never;
+	}
+
+	for (const item of remaining) {
+		if (!item || picked.length >= limit) continue;
+		picked.push(item);
+	}
+
+	return picked;
 }
 
 function buildSimilarAnchors(
@@ -496,6 +606,7 @@ function buildSimilarAnchors(
 		artist?: string | null;
 		description?: string | null;
 		genre?: string | null;
+		sourceId: string;
 		sourcePkg: string;
 		sourceLang: string;
 		titleUrl: string;
@@ -506,6 +617,7 @@ function buildSimilarAnchors(
 		artist?: string | null;
 		description?: string | null;
 		genre?: string | null;
+		sourceId: string;
 		sourcePkg: string;
 		sourceLang: string;
 		titleUrl: string;
@@ -535,6 +647,7 @@ function buildSimilarAnchors(
 		artist: title.artist ?? null,
 		description: title.description ?? null,
 		genre: title.genre ?? null,
+		sourceId: title.sourceId,
 		sourcePkg: title.sourcePkg,
 		sourceLang: title.sourceLang,
 		titleUrl: title.titleUrl
@@ -546,6 +659,7 @@ function buildSimilarAnchors(
 			artist: variant.artist ?? title.artist ?? null,
 			description: variant.description ?? title.description ?? null,
 			genre: variant.genre ?? title.genre ?? null,
+			sourceId: variant.sourceId,
 			sourcePkg: variant.sourcePkg,
 			sourceLang: variant.sourceLang,
 			titleUrl: variant.titleUrl
@@ -553,6 +667,133 @@ function buildSimilarAnchors(
 	}
 
 	return anchors.slice(0, 8);
+}
+
+async function resolveDiscoveryAnchorTitles(ctx: QueryCtx, anchors: DiscoverySnapshot[]) {
+	const resolved = new Map<string, DiscoveryTitleDoc>();
+
+	for (const anchor of anchors) {
+		const sourceId = anchor.sourceId?.trim();
+		const titleUrl = anchor.titleUrl?.trim();
+		if (!sourceId || !titleUrl) continue;
+		const match = (await ctx.db
+			.query('discoveryTitles')
+			.withIndex('by_source_id_title_url', (q) =>
+				q.eq('sourceId', sourceId).eq('titleUrl', titleUrl)
+			)
+			.unique()) as DiscoveryTitleDoc | null;
+		if (match) {
+			resolved.set(match._id, match);
+		}
+	}
+
+	const normalizedTitles = [
+		...new Set(anchors.map((anchor) => buildDiscoveryNormalizedTitle(anchor.title)).filter(Boolean))
+	];
+	for (const normalizedTitle of normalizedTitles) {
+		const matches = (await ctx.db
+			.query('discoveryTitles')
+			.withIndex('by_normalized_title', (q) => q.eq('normalizedTitle', normalizedTitle))
+			.take(DISCOVERY_SIMILAR_TITLE_FALLBACK_LIMIT)) as DiscoveryTitleDoc[];
+		for (const match of matches) {
+			if (
+				anchors.some((anchor) =>
+					isDiscoverySameWork(anchor, {
+						title: match.title,
+						author: match.author,
+						sourcePkg: match.sourcePkg,
+						sourceLang: match.sourceLang,
+						titleUrl: match.titleUrl
+					})
+				)
+			) {
+				resolved.set(match._id, match);
+			}
+		}
+	}
+
+	return [...resolved.values()];
+}
+
+async function loadGraphSimilarCandidates(ctx: QueryCtx, anchorTitles: DiscoveryTitleDoc[]) {
+	const edgeByCandidateId = new Map<string, typeof EMPTY_DISCOVERY_EDGE>();
+	const anchorIds = new Set(anchorTitles.map((anchor) => anchor._id));
+
+	for (const anchor of anchorTitles) {
+		const [leftEdges, rightEdges] = await Promise.all([
+			ctx.db
+				.query('discoveryEdges')
+				.withIndex('by_left_discovery_title_id', (q) => q.eq('leftDiscoveryTitleId', anchor._id))
+				.collect() as Promise<DiscoveryEdgeDoc[]>,
+			ctx.db
+				.query('discoveryEdges')
+				.withIndex('by_right_discovery_title_id', (q) => q.eq('rightDiscoveryTitleId', anchor._id))
+				.collect() as Promise<DiscoveryEdgeDoc[]>
+		]);
+		for (const edge of [...leftEdges, ...rightEdges]) {
+			const candidateId =
+				edge.leftDiscoveryTitleId === anchor._id
+					? edge.rightDiscoveryTitleId
+					: edge.leftDiscoveryTitleId;
+			if (anchorIds.has(candidateId)) continue;
+			edgeByCandidateId.set(
+				candidateId,
+				mergeDiscoveryEdgeWeights(edgeByCandidateId.get(candidateId) ?? EMPTY_DISCOVERY_EDGE, {
+					popularCount: edge.popularCount,
+					latestCount: edge.latestCount,
+					lastObservedAt: edge.lastObservedAt
+				})
+			);
+		}
+	}
+
+	const candidateIds = [...edgeByCandidateId.entries()]
+		.sort((left, right) => {
+			const leftWeight = left[1].popularCount * 2 + left[1].latestCount;
+			const rightWeight = right[1].popularCount * 2 + right[1].latestCount;
+			if (leftWeight !== rightWeight) return rightWeight - leftWeight;
+			return (right[1].lastObservedAt ?? 0) - (left[1].lastObservedAt ?? 0);
+		})
+		.slice(0, DISCOVERY_SIMILAR_GRAPH_EDGE_LIMIT)
+		.map(([candidateId]) => candidateId as GenericId<'discoveryTitles'>);
+
+	const candidateDocs = await Promise.all(
+		candidateIds.map((candidateId) => ctx.db.get(candidateId))
+	);
+	const entries = new Map<string, SimilarCandidateEntry>();
+	for (const candidate of candidateDocs as Array<DiscoveryTitleDoc | null>) {
+		if (!candidate) continue;
+		addSimilarCandidateEntry(
+			entries,
+			mapDiscoveryTitleAsSimilarCandidate(candidate),
+			edgeByCandidateId.get(candidate._id) ?? EMPTY_DISCOVERY_EDGE
+		);
+	}
+	return entries;
+}
+
+async function loadSameAuthorDiscoveryCandidates(ctx: QueryCtx, anchors: DiscoverySnapshot[]) {
+	const entries = new Map<string, SimilarCandidateEntry>();
+	const normalizedAuthors = [
+		...new Set(
+			anchors.map((anchor) => buildDiscoveryNormalizedAuthor(anchor.author)).filter(Boolean)
+		)
+	];
+
+	for (const normalizedAuthor of normalizedAuthors) {
+		const matches = (await ctx.db
+			.query('discoveryTitles')
+			.withIndex('by_normalized_author_last_seen_at', (q) =>
+				q.eq('normalizedAuthor', normalizedAuthor)
+			)
+			.order('desc')
+			.take(DISCOVERY_SIMILAR_AUTHOR_CANDIDATE_LIMIT)) as DiscoveryTitleDoc[];
+		for (const match of matches) {
+			addSimilarCandidateEntry(entries, mapDiscoveryTitleAsSimilarCandidate(match));
+		}
+	}
+
+	return entries;
 }
 
 async function listFallbackRecentTitles(
@@ -911,53 +1152,65 @@ export const listSimilarForLibraryTitle = query({
 		const title = await requireOwnedTitle(ctx, args.titleId);
 		const limit = Math.max(1, Math.min(Math.floor(args.limit ?? DISCOVERY_SIMILAR_LIMIT), 24));
 		const preferredLanguages = await getPreferredContentLanguages(ctx);
-		const [imported, titleVariants] = await Promise.all([
-			loadImportedLookup(ctx, title.ownerUserId),
-			ctx.db
-				.query('titleVariants')
-				.withIndex('by_owner_user_id_library_title_id', (q) =>
-					q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
-				)
-				.collect()
-		]);
-		const importedSets = buildImportedDiscoverySets(imported);
+		const titleVariants = await ctx.db
+			.query('titleVariants')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+			)
+			.collect();
 		const anchors = buildSimilarAnchors(title, titleVariants);
-		const candidateEntries = new Map<
-			string,
-			{ title: DiscoveryTitleDoc; edge: typeof EMPTY_DISCOVERY_EDGE }
-		>();
-
-		const recentCandidates = (await ctx.db
-			.query('discoveryTitles')
-			.withIndex('by_last_seen_at', (q) => q.gt('lastSeenAt', 0))
-			.order('desc')
-			.take(DISCOVERY_SIMILAR_CANDIDATE_SCAN_LIMIT)) as DiscoveryTitleDoc[];
-		for (const candidate of recentCandidates) {
-			if (!candidateEntries.has(candidate.canonicalKey)) {
-				candidateEntries.set(candidate.canonicalKey, {
-					title: candidate,
-					edge: EMPTY_DISCOVERY_EDGE
-				});
+		const candidateEntries = new Map<string, SimilarCandidateEntry>();
+		const anchorDiscoveryTitles = await resolveDiscoveryAnchorTitles(ctx, anchors);
+		for (const entry of (await loadGraphSimilarCandidates(ctx, anchorDiscoveryTitles)).values()) {
+			addSimilarCandidateEntry(candidateEntries, entry.title, entry.edge);
+		}
+		for (const entry of (await loadSameAuthorDiscoveryCandidates(ctx, anchors)).values()) {
+			addSimilarCandidateEntry(candidateEntries, entry.title, entry.edge);
+		}
+		const libraryCandidates = await ctx.db
+			.query('libraryTitles')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', title.ownerUserId))
+			.collect();
+		for (const candidate of libraryCandidates) {
+			if (candidate._id === title._id) continue;
+			addSimilarCandidateEntry(candidateEntries, mapLibraryTitleAsSimilarCandidate(candidate));
+		}
+		if (candidateEntries.size < limit * 6) {
+			const recentCandidates = (await ctx.db
+				.query('discoveryTitles')
+				.withIndex('by_last_seen_at', (q) => q.gt('lastSeenAt', 0))
+				.order('desc')
+				.take(DISCOVERY_SIMILAR_CANDIDATE_SCAN_LIMIT)) as DiscoveryTitleDoc[];
+			for (const candidate of recentCandidates) {
+				addSimilarCandidateEntry(candidateEntries, mapDiscoveryTitleAsSimilarCandidate(candidate));
 			}
 		}
 
-		const ranked: Array<{
-			title:
-				| (DiscoveryTitleDoc & { origin: SimilarTitleItemOrigin })
-				| ReturnType<typeof mapLibraryTitleAsDiscoveryItem>;
+		const primaryRanked: Array<{
+			title: SimilarCandidateDoc;
+			sourceId: string;
 			score: number;
+			similarityPercent: number;
 			lastSeenAt: number;
 		}> = [];
-		const softFallback: Array<{
-			title: ReturnType<typeof mapLibraryTitleAsDiscoveryItem>;
+		const secondaryRanked: Array<{
+			title: SimilarCandidateDoc;
+			sourceId: string;
 			score: number;
+			similarityPercent: number;
+			lastSeenAt: number;
+		}> = [];
+		const tertiaryRanked: Array<{
+			title: SimilarCandidateDoc;
+			sourceId: string;
+			score: number;
+			similarityPercent: number;
 			lastSeenAt: number;
 		}> = [];
 		for (const entry of candidateEntries.values()) {
 			const candidate = entry.title;
 			const edge = entry.edge;
 			if (candidate.sourceId === title.sourceId && candidate.titleUrl === title.titleUrl) continue;
-			if (isImportedDiscoveryCandidate(candidate, importedSets)) continue;
 			if (
 				anchors.some((anchor) =>
 					isDiscoverySameWork(anchor, {
@@ -984,117 +1237,79 @@ export const listSimilarForLibraryTitle = query({
 							candidate,
 							preferredLanguages
 						});
+			const breakdown = rankSimilarBreakdownAcrossAnchors({
+				anchors,
+				candidate,
+				edge,
+				preferredLanguages
+			});
 			if (!strong) {
-				continue;
+				if (
+					shouldKeepSecondarySimilarCandidate({
+						similarity: breakdown.similarity,
+						total: breakdown.total,
+						authorBonus: breakdown.authorBonus,
+						genreScore: breakdown.genreScore
+					})
+				) {
+					// keep as secondary
+				} else if (
+					shouldKeepTertiarySimilarCandidate({
+						similarity: breakdown.similarity,
+						total: breakdown.total,
+						authorBonus: breakdown.authorBonus,
+						genreScore: breakdown.genreScore
+					})
+				) {
+					// keep as tertiary
+				} else {
+					continue;
+				}
 			}
-			ranked.push({
-				title: { ...candidate, origin: 'discovery' },
+			const rankedEntry = {
+				title: candidate,
+				sourceId: candidate.sourceId,
 				lastSeenAt: candidate.lastSeenAt,
 				score: rankSimilarCandidateAcrossAnchors({
 					anchors,
 					candidate,
 					edge,
 					preferredLanguages
+				}),
+				similarityPercent: Math.max(1, Math.min(100, Math.round(breakdown.similarity / 1.35)))
+			};
+			if (strong) {
+				primaryRanked.push(rankedEntry);
+			} else if (
+				shouldKeepSecondarySimilarCandidate({
+					similarity: breakdown.similarity,
+					total: breakdown.total,
+					authorBonus: breakdown.authorBonus,
+					genreScore: breakdown.genreScore
 				})
-			});
-		}
-
-		if (ranked.length < limit) {
-			const libraryCandidates = await ctx.db
-				.query('libraryTitles')
-				.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', title.ownerUserId))
-				.order('desc')
-				.take(DISCOVERY_SIMILAR_LIBRARY_FALLBACK_LIMIT);
-			for (const candidate of libraryCandidates) {
-				if (candidate._id === title._id) continue;
-				if (
-					anchors.some((anchor) =>
-						isDiscoverySameWork(anchor, {
-							title: candidate.title,
-							author: candidate.author,
-							sourcePkg: candidate.sourcePkg,
-							sourceLang: candidate.sourceLang,
-							titleUrl: candidate.titleUrl
-						})
-					)
-				) {
-					continue;
-				}
-				if (
-					!isDiscoveryMetadataRecommendationStrongAcrossAnchors({
-						anchors,
-						candidate,
-						preferredLanguages
-					})
-				) {
-					const breakdown = anchors.reduce(
-						(best, anchor) => {
-							const next = rankSimilarCandidateBreakdown({
-								anchor,
-								candidate,
-								edge: EMPTY_DISCOVERY_EDGE,
-								preferredLanguages
-							});
-							return next.total > best.total ? next : best;
-						},
-						rankSimilarCandidateBreakdown({
-							anchor: anchors[0] ?? {},
-							candidate,
-							edge: EMPTY_DISCOVERY_EDGE,
-							preferredLanguages
-						})
-					);
-					if (
-						(breakdown.authorBonus > 0 ||
-							breakdown.genreScore > 0 ||
-							breakdown.descriptionScore > 0) &&
-						breakdown.total >= DISCOVERY_SIMILAR_SOFT_LIBRARY_MIN_SCORE
-					) {
-						softFallback.push({
-							title: mapLibraryTitleAsDiscoveryItem(candidate),
-							score: breakdown.total,
-							lastSeenAt: candidate.updatedAt
-						});
-					}
-					continue;
-				}
-				ranked.push({
-					title: mapLibraryTitleAsDiscoveryItem(candidate),
-					lastSeenAt: candidate.updatedAt,
-					score: rankSimilarCandidateAcrossAnchors({
-						anchors,
-						candidate,
-						edge: EMPTY_DISCOVERY_EDGE,
-						preferredLanguages
-					})
-				});
+			) {
+				secondaryRanked.push(rankedEntry);
+			} else {
+				tertiaryRanked.push(rankedEntry);
 			}
 		}
 
-		const dedupedSoftFallback = softFallback.filter(
-			(entry, index, all) =>
-				all.findIndex((candidate) => candidate.title.canonicalKey === entry.title.canonicalKey) ===
-				index
+		const sortRanked = <T extends { score: number; lastSeenAt: number }>(items: T[]) =>
+			items.sort((left, right) => {
+				if (left.score !== right.score) return right.score - left.score;
+				return right.lastSeenAt - left.lastSeenAt;
+			});
+		const selected = pickDiverseSourceItems(
+			[...sortRanked(primaryRanked), ...sortRanked(secondaryRanked), ...sortRanked(tertiaryRanked)],
+			limit
 		);
-		const sortedRanked = ranked.sort((left, right) => {
-			if (left.score !== right.score) return right.score - left.score;
-			return right.lastSeenAt - left.lastSeenAt;
-		});
-		const discoveryRanked = sortedRanked.filter((entry) => entry.title.origin === 'discovery');
-		const libraryRanked = sortedRanked.filter((entry) => entry.title.origin === 'library');
-		const libraryFallbackLimit = discoveryRanked.length > 0 ? Math.min(2, limit) : limit;
-		const finalRanked =
-			discoveryRanked.length > 0
-				? [...discoveryRanked, ...libraryRanked.slice(0, libraryFallbackLimit)]
-				: libraryRanked.length > 0
-					? libraryRanked
-					: dedupedSoftFallback;
-
 		return {
-			items: finalRanked
-				.slice(0, limit)
-				.map((entry) => ({ ...mapDiscoveryItem(entry.title), score: entry.score })),
-			warming: discoveryRanked.length < DISCOVERY_WARM_MIN_ITEMS
+			items: selected.map((entry) => ({
+				...mapDiscoveryItem(entry.title),
+				score: entry.score,
+				similarityPercent: entry.similarityPercent
+			})),
+			warming: selected.length === 0
 		};
 	}
 });

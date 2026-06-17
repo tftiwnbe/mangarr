@@ -226,6 +226,97 @@ describe('discovery shared helpers', () => {
 		).toBe(true);
 	});
 
+	it('keeps sequel and side-story title variants as similar candidates', () => {
+		const now = Date.now();
+		expect(
+			isDiscoveryMetadataRecommendationStrong({
+				anchor: {
+					title: 'Omniscient Reader Viewpoint',
+					author: 'Sing N Song',
+					description:
+						'A survival story where a reader knows the world of the novel before everyone else.',
+					genre: 'Action, Fantasy, Apocalypse',
+					sourcePkg: 'source.a',
+					sourceLang: 'en',
+					titleUrl: '/title/omniscient-reader-viewpoint'
+				},
+				candidate: {
+					title: 'Omniscient Reader Viewpoint Side Story',
+					author: 'Sing N Song',
+					description:
+						'A side story set in the same survival world after the reader changes the story.',
+					genre: 'Action, Fantasy, Apocalypse',
+					sourcePkg: 'source.b',
+					sourceLang: 'en',
+					titleUrl: '/title/omniscient-reader-viewpoint-side-story',
+					lastSeenAt: now - 2 * 24 * 60 * 60 * 1000
+				},
+				preferredLanguages: ['en'],
+				now
+			})
+		).toBe(true);
+	});
+
+	it('accepts metadata-similar titles without relying on the same author', () => {
+		const now = Date.now();
+		expect(
+			isDiscoveryMetadataRecommendationStrong({
+				anchor: {
+					title: 'Solo Leveling',
+					author: 'Chugong',
+					description:
+						'A weak hunter gains a system, clears dungeons, and grows stronger in a monster-filled world.',
+					genre: 'Action, Fantasy, Adventure',
+					sourcePkg: 'source.a',
+					sourceLang: 'en',
+					titleUrl: '/title/solo-leveling'
+				},
+				candidate: {
+					title: 'The S-Classes That I Raised',
+					author: 'Geunseo',
+					description:
+						'A dungeon fantasy where a weak hunter uses a special system, fights monsters in raids, and grows stronger in a dangerous world.',
+					genre: 'Action, Fantasy, Adventure',
+					sourcePkg: 'source.b',
+					sourceLang: 'en',
+					titleUrl: '/title/the-s-classes-that-i-raised',
+					lastSeenAt: now - 4 * 24 * 60 * 60 * 1000
+				},
+				preferredLanguages: ['en'],
+				now
+			})
+		).toBe(true);
+	});
+
+	it('still rejects same-author titles with weak title and metadata overlap', () => {
+		const now = Date.now();
+		expect(
+			isDiscoveryMetadataRecommendationStrong({
+				anchor: {
+					title: 'Chainsaw Man',
+					author: 'Fujimoto Tatsuki',
+					description: 'A brutal supernatural action story about devils and hunters.',
+					genre: 'Action, Supernatural, Shounen',
+					sourcePkg: 'source.a',
+					sourceLang: 'en',
+					titleUrl: '/title/chainsaw-man'
+				},
+				candidate: {
+					title: 'Look Back',
+					author: 'Fujimoto Tatsuki',
+					description: 'A one-shot drama about two girls drawing manga and dealing with loss.',
+					genre: 'Drama, Slice of Life',
+					sourcePkg: 'source.b',
+					sourceLang: 'en',
+					titleUrl: '/title/look-back',
+					lastSeenAt: now - 2 * 24 * 60 * 60 * 1000
+				},
+				preferredLanguages: ['en'],
+				now
+			})
+		).toBe(false);
+	});
+
 	it('uses alternate anchors when ranking similar candidates', () => {
 		const now = Date.now();
 		const score = rankSimilarCandidateAcrossAnchors({

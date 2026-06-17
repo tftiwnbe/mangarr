@@ -17,10 +17,8 @@
 		lastReadAt: number | null;
 		lastUpdatedAt: number | null;
 		similarTitles: Array<{
-			origin: 'discovery' | 'library';
 			title: string;
-			sourceName?: string | null;
-			sourceLang?: string | null;
+			similarityPercent?: number | null;
 			coverUrl?: string | null;
 			href: string;
 		}>;
@@ -175,7 +173,7 @@
 							title={item.title}
 						>
 							<div
-								class="aspect-[2/3] overflow-hidden bg-[var(--void-2)] ring-1 ring-[var(--void-4)] transition-all duration-300 group-hover:scale-[1.02] group-hover:ring-[var(--void-6)]"
+								class="relative aspect-[2/3] overflow-hidden bg-[var(--void-2)] ring-1 ring-[var(--void-4)] transition-all duration-300 group-hover:scale-[1.02] group-hover:ring-[var(--void-6)]"
 							>
 								{#if item.coverUrl}
 									<LazyImage
@@ -191,21 +189,17 @@
 										{$_('common.empty')}
 									</div>
 								{/if}
+								{#if typeof item.similarityPercent === 'number'}
+									<span
+										class="absolute top-1.5 right-1.5 inline-flex min-w-7 items-center justify-center bg-[color-mix(in_oklab,var(--void-1)_88%,transparent)] px-1.5 py-0.75 text-[8px] leading-none font-medium text-[var(--text)] backdrop-blur-sm"
+									>
+										{item.similarityPercent}
+									</span>
+								{/if}
 							</div>
 							<div class="flex flex-col gap-1">
 								<p class="line-clamp-2 text-[10px] leading-snug text-[var(--text)]">
 									{item.title}
-								</p>
-								<p class="text-[9px] uppercase tracking-[0.16em] text-[var(--text-dim)]">
-									{#if item.origin === 'library'}
-										{$_('title.similarFromLibrary')}
-									{:else if item.sourceName}
-										{item.sourceName}{item.sourceLang ? ` [${item.sourceLang}]` : ''}
-									{:else if item.sourceLang}
-										{$_('title.similarFromDiscovery')} [{item.sourceLang}]
-									{:else}
-										{$_('title.similarFromDiscovery')}
-									{/if}
 								</p>
 							</div>
 						</a>
