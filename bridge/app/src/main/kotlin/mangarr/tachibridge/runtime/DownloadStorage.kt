@@ -131,6 +131,9 @@ class DownloadStorage(
             cleanupChapterWorkspace(workspace)
             return existing
         }
+        if (shouldReplaceIncompleteStoredChapterDirectory(workspace.finalDir)) {
+            workspace.finalDir.toFile().deleteRecursively()
+        }
         Files.createDirectories(workspace.finalDir.parent)
         try {
             Files.move(
@@ -145,7 +148,17 @@ class DownloadStorage(
                 cleanupChapterWorkspace(workspace)
                 return racedExisting
             }
-            throw error
+            if (shouldReplaceIncompleteStoredChapterDirectory(workspace.finalDir)) {
+                workspace.finalDir.toFile().deleteRecursively()
+                Files.move(
+                    workspace.tempDir,
+                    workspace.finalDir,
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE,
+                )
+            } else {
+                throw error
+            }
         }
         deleteEmptyTempRoot(workspace.tempRootDir)
 
@@ -902,6 +915,18 @@ class DownloadStorage(
         Files.list(path).use { stream ->
             stream.filter { candidate -> Files.isRegularFile(candidate) && isImage(candidate.name) }.count().toInt()
         }
+
+    private fun shouldReplaceIncompleteStoredChapterDirectory(path: Path): Boolean {
+        if (!path.exists() || !path.isDirectory()) {
+            return false
+        }
+        if (countStoredPages(path) > 0) {
+            return false
+        }
+        return Files.list(path).use { stream ->
+            stream.anyMatch { candidate -> Files.isRegularFile(candidate) || Files.isDirectory(candidate) }
+        }
+    }
 
     private fun totalStoredSize(root: Path): Long =
         if (!root.exists()) {

@@ -876,9 +876,13 @@
 					<WarningCircleIcon size={14} class="text-[rgba(248,113,113,0.82)]" />
 					<Dialog.Title class="text-sm text-[var(--text)]">Recent failures</Dialog.Title>
 				</div>
-				<span class="text-[10px] text-[var(--text-ghost)] tabular-nums">
-					{failedRecentTasks.length}
-				</span>
+				<button
+					type="button"
+					class="text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
+					onclick={() => (failuresDialogOpen = false)}
+				>
+					Close
+				</button>
 			</div>
 			<div class="overflow-y-auto px-4 py-3">
 				{#if failedRecentTasks.length === 0}
@@ -926,15 +930,6 @@
 						{/each}
 					</ul>
 				{/if}
-			</div>
-			<div class="flex items-center justify-end border-t border-[var(--line)] px-4 py-3">
-				<button
-					type="button"
-					class="text-xs text-[var(--text-ghost)] transition-colors hover:text-[var(--text)]"
-					onclick={() => (failuresDialogOpen = false)}
-				>
-					Close
-				</button>
 			</div>
 		</Dialog.Content>
 	</Dialog.Portal>

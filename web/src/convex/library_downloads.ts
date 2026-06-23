@@ -155,6 +155,11 @@ export const requestChapterDownload = mutation({
 		const userId = chapter.ownerUserId;
 		const now = Date.now();
 		await markTitleListedInLibrary(ctx, title, now);
+		await recoverActiveDownloadsInternal(ctx, {
+			now,
+			forceRunningCommands: false,
+			ownerUserId: userId
+		});
 		const queued = await queueDownloadAttempt(ctx, {
 			chapter,
 			title,
@@ -333,6 +338,11 @@ export const requestMissingDownloads = mutation({
 		const userId = await requireViewerUserId(ctx);
 		const now = Date.now();
 		await markTitleListedInLibrary(ctx, title, now);
+		await recoverActiveDownloadsInternal(ctx, {
+			now,
+			forceRunningCommands: false,
+			ownerUserId: userId
+		});
 
 		const [titleChapters, queuedTaskRows] = await Promise.all([
 			loadActiveTitleChapterReleases(ctx, title),
@@ -855,9 +865,14 @@ async function recoverActiveDownloadsInternal(
 	args: {
 		now: number;
 		forceRunningCommands: boolean;
+		ownerUserId?: GenericId<'users'>;
 	}
 ) {
-	const activeTasks = await loadActiveDownloadTasks(ctx, ACTIVE_DOWNLOAD_RECOVERY_SCAN_LIMIT);
+	const activeTasks = await loadActiveDownloadTasks(
+		ctx,
+		ACTIVE_DOWNLOAD_RECOVERY_SCAN_LIMIT,
+		args.ownerUserId
+	);
 	let requeuedTasks = 0;
 	let failedTasks = 0;
 	const dirtyTitles = new Map<string, GenericId<'users'>>();
@@ -983,6 +998,11 @@ async function runDownloadCycleForUser(
 		now: number;
 	}
 ) {
+	await recoverActiveDownloadsInternal(ctx, {
+		now: args.now,
+		forceRunningCommands: false,
+		ownerUserId: args.userId
+	});
 	const cyclePlan = await selectDownloadCycleCandidatesForUser(ctx, args);
 	if (cyclePlan.hasInFlightDownloads) {
 		return { checked: cyclePlan.checkedProfiles, enqueued: 0, blocked: 'in_flight' as const };
@@ -1051,13 +1071,9 @@ async function remainingDownloadCapacityForUser(
 	ctx: QueryCtx | MutationCtx,
 	ownerUserId: GenericId<'users'>
 ) {
-	const [queuedTasks, downloadingTasks] = await Promise.all([
-		loadDownloadTasksForUserStatus(
-			ctx,
-			ownerUserId,
-			DOWNLOAD_TASK_STATUS.QUEUED,
-			MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER + 1
-		),
+	const now = Date.now();
+	const [readyQueuedTaskCount, downloadingTasks] = await Promise.all([
+		countReadyQueuedDownloadTasksForUser(ctx, ownerUserId, now),
 		loadDownloadTasksForUserStatus(
 			ctx,
 			ownerUserId,
@@ -1066,8 +1082,46 @@ async function remainingDownloadCapacityForUser(
 		)
 	]);
 	const reservedSlots =
-		queuedTasks.length + Math.min(RESERVED_RUNNING_DOWNLOAD_SLOTS, downloadingTasks.length);
+		readyQueuedTaskCount + Math.min(RESERVED_RUNNING_DOWNLOAD_SLOTS, downloadingTasks.length);
 	return Math.max(0, MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER - reservedSlots);
+}
+
+async function countReadyQueuedDownloadTasksForUser(
+	ctx: QueryCtx | MutationCtx,
+	ownerUserId: GenericId<'users'>,
+	now: number
+) {
+	const queuedTasks = await loadDownloadTasksForUserStatus(
+		ctx,
+		ownerUserId,
+		DOWNLOAD_TASK_STATUS.QUEUED,
+		MAX_ACTIVE_DOWNLOAD_TASKS_PER_USER + 1
+	);
+	let readyCount = 0;
+
+	for (const task of queuedTasks) {
+		const command = task.commandId ? await ctx.db.get(task.commandId) : null;
+		if (!command) {
+			readyCount += 1;
+			continue;
+		}
+		if (command.commandType !== 'downloads.chapter') {
+			readyCount += 1;
+			continue;
+		}
+		if (command.status === 'leased' || command.status === 'running') {
+			readyCount += 1;
+			continue;
+		}
+		if (command.status !== 'queued') {
+			continue;
+		}
+		if ((command.runAfter ?? 0) <= now) {
+			readyCount += 1;
+		}
+	}
+
+	return readyCount;
 }
 
 async function findActiveDownloadTaskForChapter(
@@ -1194,19 +1248,40 @@ async function loadDownloadTasksForUserStatus(
 		.take(limit);
 }
 
-async function loadActiveDownloadTasks(ctx: QueryCtx | MutationCtx, limit: number) {
-	const [queued, downloading] = await Promise.all([
-		ctx.db
-			.query('downloadTasks')
-			.withIndex('by_status_updated_at', (q) => q.eq('status', DOWNLOAD_TASK_STATUS.QUEUED))
-			.order('desc')
-			.take(limit),
-		ctx.db
-			.query('downloadTasks')
-			.withIndex('by_status_updated_at', (q) => q.eq('status', DOWNLOAD_TASK_STATUS.DOWNLOADING))
-			.order('desc')
-			.take(limit)
-	]);
+async function loadActiveDownloadTasks(
+	ctx: QueryCtx | MutationCtx,
+	limit: number,
+	ownerUserId?: GenericId<'users'>
+) {
+	const [queued, downloading] = ownerUserId
+		? await Promise.all([
+				ctx.db
+					.query('downloadTasks')
+					.withIndex('by_owner_user_id_status_updated_at', (q) =>
+						q.eq('ownerUserId', ownerUserId).eq('status', DOWNLOAD_TASK_STATUS.QUEUED)
+					)
+					.order('desc')
+					.take(limit),
+				ctx.db
+					.query('downloadTasks')
+					.withIndex('by_owner_user_id_status_updated_at', (q) =>
+						q.eq('ownerUserId', ownerUserId).eq('status', DOWNLOAD_TASK_STATUS.DOWNLOADING)
+					)
+					.order('desc')
+					.take(limit)
+			])
+		: await Promise.all([
+				ctx.db
+					.query('downloadTasks')
+					.withIndex('by_status_updated_at', (q) => q.eq('status', DOWNLOAD_TASK_STATUS.QUEUED))
+					.order('desc')
+					.take(limit),
+				ctx.db
+					.query('downloadTasks')
+					.withIndex('by_status_updated_at', (q) => q.eq('status', DOWNLOAD_TASK_STATUS.DOWNLOADING))
+					.order('desc')
+					.take(limit)
+			]);
 	return [...queued, ...downloading].sort((left, right) => right.updatedAt - left.updatedAt);
 }
 
