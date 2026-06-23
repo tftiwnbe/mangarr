@@ -610,16 +610,12 @@ export async function refreshTitleChapterStats(
 		if (!title) {
 			return;
 		}
-		const preferredVariant = await getPreferredVariantForTitle(ctx, title);
 		const chapters = await ctx.db
 			.query('libraryChapters')
 			.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', libraryTitleId))
 			.collect();
 
-		const activeChapterSource = preferredVariant ?? title;
-		const stats = summarizeGroupedChapterStatuses(
-			chapters.filter((chapter) => chapterBelongsToVariant(chapter, activeChapterSource))
-		);
+		const stats = summarizeGroupedChapterStatuses(chapters);
 		const queued = stats.queued;
 		const downloading = stats.downloading;
 		const downloaded = stats.downloaded;

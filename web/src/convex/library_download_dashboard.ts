@@ -142,7 +142,12 @@ export const getDownloadDashboard = query({
 				const titleId = String(title._id);
 				const profile = profileByTitleId.get(titleId) ?? null;
 				const downloadedCount = title.downloadedChapterCount ?? 0;
-				if (!profile && downloadedCount === 0) {
+				const hasDownloadSignal =
+					(title.queuedChapterCount ?? 0) > 0 ||
+					(title.downloadingChapterCount ?? 0) > 0 ||
+					downloadedCount > 0 ||
+					(title.failedChapterCount ?? 0) > 0;
+				if (!profile && !hasDownloadSignal) {
 					return null;
 				}
 

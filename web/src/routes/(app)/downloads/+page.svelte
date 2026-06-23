@@ -240,11 +240,27 @@
 				if (right.updatedAt !== left.updatedAt) return right.updatedAt - left.updatedAt;
 				break;
 			case 'progress-desc': {
+				const leftComplete =
+					left.totalChapters > 0 && left.downloadedChapters >= left.totalChapters ? 1 : 0;
+				const rightComplete =
+					right.totalChapters > 0 && right.downloadedChapters >= right.totalChapters ? 1 : 0;
+				if (leftComplete !== rightComplete) return leftComplete - rightComplete;
+
 				const leftProgress =
-					left.totalChapters > 0 ? left.downloadedChapters / left.totalChapters : 0;
+					left.totalChapters > 0
+						? left.downloadedChapters / left.totalChapters
+						: Number.POSITIVE_INFINITY;
 				const rightProgress =
-					right.totalChapters > 0 ? right.downloadedChapters / right.totalChapters : 0;
-				if (rightProgress !== leftProgress) return rightProgress - leftProgress;
+					right.totalChapters > 0
+						? right.downloadedChapters / right.totalChapters
+						: Number.POSITIVE_INFINITY;
+				if (leftProgress !== rightProgress) return leftProgress - rightProgress;
+
+				const leftRemaining = Math.max(0, left.totalChapters - left.downloadedChapters);
+				const rightRemaining = Math.max(0, right.totalChapters - right.downloadedChapters);
+				if (rightRemaining !== leftRemaining) return rightRemaining - leftRemaining;
+
+				if (right.queuedTasks !== left.queuedTasks) return right.queuedTasks - left.queuedTasks;
 				break;
 			}
 			case 'size-desc':

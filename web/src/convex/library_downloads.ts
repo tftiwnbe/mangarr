@@ -9,7 +9,8 @@ import {
 	chapterBelongsToVariant,
 	getPreferredVariantForTitle,
 	markTitleListedInLibrary,
-	resolveStorageTitleBaseForTitle
+	resolveStorageTitleBaseForTitle,
+	scheduleTitleStatsRefresh
 } from './library_shared';
 import { insertCommand } from './command_payloads';
 import {
@@ -46,6 +47,18 @@ type DownloadTaskStatus = (typeof DOWNLOAD_TASK_STATUS)[keyof typeof DOWNLOAD_TA
 
 function isActiveDownloadTaskStatus(status: DownloadTaskStatus) {
 	return status === DOWNLOAD_TASK_STATUS.QUEUED || status === DOWNLOAD_TASK_STATUS.DOWNLOADING;
+}
+
+async function scheduleChapterTitleStatsRefresh(
+	ctx: MutationCtx,
+	chapter: Pick<Doc<'libraryChapters'>, 'libraryTitleId' | 'ownerUserId'>,
+	now: number
+) {
+	await scheduleTitleStatsRefresh(ctx, {
+		libraryTitleId: chapter.libraryTitleId,
+		ownerUserId: chapter.ownerUserId,
+		now
+	});
 }
 
 async function loadActiveTitleChapterReleases(
@@ -136,6 +149,7 @@ export const cancelQueuedChapterDownload = mutation({
 			oldFileSizeBytes: chapter.fileSizeBytes,
 			newFileSizeBytes: undefined
 		});
+		await scheduleChapterTitleStatsRefresh(ctx, chapter, now);
 
 		return { ok: true, taskId: activeTask._id };
 	}
@@ -534,6 +548,7 @@ export const setChapterDownloadState = mutation({
 				oldFileSizeBytes,
 				newFileSizeBytes
 			});
+			await scheduleChapterTitleStatsRefresh(ctx, chapter, args.now);
 		}
 
 		const task =
@@ -671,6 +686,7 @@ export const syncChapterStorageStateFromBridge = mutation({
 				oldFileSizeBytes,
 				newFileSizeBytes
 			});
+			await scheduleChapterTitleStatsRefresh(ctx, chapter, args.now);
 		}
 
 		return { ok: true };
@@ -802,6 +818,7 @@ async function queueDownloadAttempt(
 		oldFileSizeBytes: args.chapter.fileSizeBytes,
 		newFileSizeBytes: undefined
 	});
+	await scheduleChapterTitleStatsRefresh(ctx, args.chapter, args.now);
 
 	const attemptNumber = await nextDownloadAttemptNumber(ctx, args.chapter._id);
 
@@ -1375,6 +1392,7 @@ async function requeueRecoveredTask(
 		oldFileSizeBytes: chapter.fileSizeBytes,
 		newFileSizeBytes: chapter.fileSizeBytes
 	});
+	await scheduleChapterTitleStatsRefresh(ctx, chapter, now);
 }
 
 function buildDownloadCommandPayload(
@@ -1439,6 +1457,7 @@ async function failRecoveredTask(
 		oldFileSizeBytes: chapter.fileSizeBytes,
 		newFileSizeBytes: chapter.fileSizeBytes
 	});
+	await scheduleChapterTitleStatsRefresh(ctx, chapter, now);
 }
 
 export const runScheduledChapterSync = internalMutation({

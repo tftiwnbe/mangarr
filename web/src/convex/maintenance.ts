@@ -1,6 +1,7 @@
 import { v } from 'convex/values';
 
 import { internalMutation } from './_generated/server';
+import { summarizeGroupedChapterStatuses } from './chapter_groups';
 import { STATUS } from './commands';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -121,36 +122,15 @@ export const recomputeChapterCounts = internalMutation({
 				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
 				.collect();
 
-			let downloaded = 0;
-			let downloadedBytes = 0;
-			let queued = 0;
-			let downloading = 0;
-			let failed = 0;
-			for (const ch of chapters) {
-				switch (ch.downloadStatus) {
-					case 'queued':
-						queued++;
-						break;
-					case 'downloading':
-						downloading++;
-						break;
-					case 'downloaded':
-						downloaded++;
-						downloadedBytes += ch.fileSizeBytes ?? 0;
-						break;
-					case 'failed':
-						failed++;
-						break;
-				}
-			}
+			const stats = summarizeGroupedChapterStatuses(chapters);
 
 			await ctx.db.patch(title._id, {
-				chapterCount: chapters.length,
-				downloadedChapterCount: downloaded,
-				downloadedChapterBytes: downloadedBytes,
-				queuedChapterCount: queued,
-				downloadingChapterCount: downloading,
-				failedChapterCount: failed,
+				chapterCount: stats.total,
+				downloadedChapterCount: stats.downloaded,
+				downloadedChapterBytes: stats.downloadedBytes,
+				queuedChapterCount: stats.queued,
+				downloadingChapterCount: stats.downloading,
+				failedChapterCount: stats.failed,
 				updatedAt: now
 			});
 			fixed++;
