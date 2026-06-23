@@ -17,6 +17,8 @@
 	import { Alert } from '$lib/elements/alert';
 	import { EmptyState } from '$lib/elements/empty-state';
 	import { LazyImage } from '$lib/elements/lazy-image';
+	import { SearchInput } from '$lib/elements/search-input';
+	import { Select } from '$lib/elements/select';
 	import { Switch } from '$lib/elements/switch';
 	import { toast } from '$lib/elements/toast';
 	import { _ } from '$lib/i18n';
@@ -119,6 +121,13 @@
 		blocked?: 'capacity' | 'no_candidates' | null;
 	};
 
+	type WatchedSortValue =
+		| 'name-asc'
+		| 'updated-desc'
+		| 'progress-desc'
+		| 'size-desc'
+		| 'chapters-desc';
+
 	const client = useConvexClient();
 	let watchedVisibleCount = $state(10);
 	const dashboardQuery = useQuery(convexApi.library.getDownloadDashboard, () => ({
@@ -143,6 +152,8 @@
 	let actionError = $state<string | null>(null);
 	let watchedSentinel = $state<HTMLDivElement | null>(null);
 	let watchedIntersectionObserver: IntersectionObserver | null = null;
+	let watchedSearchQuery = $state('');
+	let watchedSort = $state<WatchedSortValue>('name-asc');
 
 	const dashboard = $derived(
 		(dashboardQuery.data as DashboardData | null) ?? {
@@ -170,18 +181,41 @@
 	const failedRecentTasks = $derived(
 		dashboard.recentTasks.filter((task) => task.status === 'failed')
 	);
+	const watchedSearchValue = $derived(watchedSearchQuery.trim().toLowerCase());
+	const watchedSortOptions = $derived([
+		{ value: 'name-asc', label: 'Name' },
+		{ value: 'updated-desc', label: 'Updated' },
+		{ value: 'progress-desc', label: 'Progress' },
+		{ value: 'size-desc', label: 'Size' },
+		{ value: 'chapters-desc', label: 'Chapters' }
+	]);
 
 	const chapterProgress = $derived(
 		dashboard.overview.totalChapters > 0
 			? (dashboard.overview.downloadedChapters / dashboard.overview.totalChapters) * 100
 			: 0
 	);
-	const canLoadMoreWatched = $derived(
-		watchedVisibleCount < dashboard.watchedTitles.length
-	);
-	const visibleWatchedTitles = $derived(
-		dashboard.watchedTitles.slice(0, watchedVisibleCount)
-	);
+	const filteredWatchedTitles = $derived.by(() => {
+		const query = watchedSearchValue;
+		const filtered =
+			query.length === 0
+				? dashboard.watchedTitles.slice()
+				: dashboard.watchedTitles.filter((item) => {
+						const haystack = [
+							item.title,
+							item.variantSources.join(' '),
+							item.lastError ?? ''
+						]
+							.join(' ')
+							.toLowerCase();
+						return haystack.includes(query);
+					});
+
+		filtered.sort((left, right) => compareWatchedTitles(left, right, watchedSort));
+		return filtered;
+	});
+	const canLoadMoreWatched = $derived(watchedVisibleCount < filteredWatchedTitles.length);
+	const visibleWatchedTitles = $derived(filteredWatchedTitles.slice(0, watchedVisibleCount));
 
 	onMount(() => {
 		void loadStorage();
@@ -194,6 +228,41 @@
 	function resetWatchedObserver() {
 		watchedIntersectionObserver?.disconnect();
 		watchedIntersectionObserver = null;
+	}
+
+	function compareWatchedTitles(
+		left: WatchedTitle,
+		right: WatchedTitle,
+		sortValue: WatchedSortValue
+	) {
+		switch (sortValue) {
+			case 'updated-desc':
+				if (right.updatedAt !== left.updatedAt) return right.updatedAt - left.updatedAt;
+				break;
+			case 'progress-desc': {
+				const leftProgress =
+					left.totalChapters > 0 ? left.downloadedChapters / left.totalChapters : 0;
+				const rightProgress =
+					right.totalChapters > 0 ? right.downloadedChapters / right.totalChapters : 0;
+				if (rightProgress !== leftProgress) return rightProgress - leftProgress;
+				break;
+			}
+			case 'size-desc':
+				if (right.downloadedBytes !== left.downloadedBytes) {
+					return right.downloadedBytes - left.downloadedBytes;
+				}
+				break;
+			case 'chapters-desc':
+				if (right.totalChapters !== left.totalChapters) {
+					return right.totalChapters - left.totalChapters;
+				}
+				break;
+			case 'name-asc':
+			default:
+				break;
+		}
+
+		return left.title.localeCompare(right.title, undefined, { sensitivity: 'base' });
 	}
 
 	async function maybeLoadMoreWatched() {
@@ -471,6 +540,12 @@
 	}
 
 	$effect(() => {
+		const resetKey = `${watchedSearchValue}:${watchedSort}`;
+		void resetKey;
+		watchedVisibleCount = 10;
+	});
+
+	$effect(() => {
 		if (typeof window === 'undefined' || !watchedSentinel || !canLoadMoreWatched) {
 			resetWatchedObserver();
 			return;
@@ -716,9 +791,12 @@
 			<h2 class="text-[10px] tracking-[0.24em] text-[var(--text-ghost)] uppercase">
 				{$_('downloads.watched')}
 			</h2>
-			{#if dashboard.watchedTitles.length > 0}
+			{#if filteredWatchedTitles.length > 0}
 				<span class="text-[10px] text-[var(--text-ghost)] tabular-nums">
-					{dashboard.watchedTitles.length}
+					{filteredWatchedTitles.length}
+					{#if watchedSearchValue && filteredWatchedTitles.length !== dashboard.watchedTitles.length}
+						/{dashboard.watchedTitles.length}
+					{/if}
 				</span>
 			{/if}
 		</header>
@@ -734,6 +812,20 @@
 				description={$_('downloads.noWatchedDescription')}
 			/>
 		{:else}
+			<div class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_8.5rem]">
+				<SearchInput
+					bind:value={watchedSearchQuery}
+					placeholder="search downloads..."
+					inputSize="sm"
+				/>
+				<Select bind:value={watchedSort} options={watchedSortOptions} size="sm" />
+			</div>
+
+			{#if filteredWatchedTitles.length === 0}
+				<div class="px-0.5 py-6 text-[11px] text-[var(--text-muted)]">
+					No watched downloads match this search.
+				</div>
+			{:else}
 			<ul class="flex flex-col">
 				{#each visibleWatchedTitles as item (item.titleId)}
 					{@const progress =
@@ -858,6 +950,7 @@
 						</span>
 					{/if}
 				</div>
+			{/if}
 			{/if}
 		{/if}
 	</section>

@@ -8,6 +8,7 @@
 		options: SelectOption[];
 		placeholder?: string;
 		disabled?: boolean;
+		size?: 'sm' | 'md';
 		class?: string;
 		onValueChange?: (value: string) => void;
 	}
@@ -17,16 +18,18 @@
 		options,
 		placeholder = '',
 		disabled = false,
+		size = 'md',
 		class: className = '',
 		onValueChange
 	}: Props = $props();
 
 	const selectedLabel = $derived(options.find((o) => o.value === value)?.label ?? '');
+	const triggerHeightClass = $derived(size === 'sm' ? 'h-9' : 'h-11');
 </script>
 
 <Select.Root type="single" bind:value {disabled} {onValueChange}>
 	<Select.Trigger
-		class="relative flex h-11 w-full items-center border border-[var(--void-4)]
+		class="relative flex {triggerHeightClass} w-full items-center border border-[var(--void-4)]
 			bg-[var(--void-2)] pr-8 pl-3
 			text-left text-sm transition-colors
 			hover:border-[var(--void-5)] focus:border-[var(--void-6)] focus:outline-none
@@ -46,7 +49,7 @@
 	</Select.Trigger>
 
 	<Select.Content
-		class="z-50 w-[var(--bits-select-anchor-width)] border border-[var(--line)] bg-[var(--void-1)] shadow-xl outline-none"
+		class="z-50 min-w-[var(--bits-select-anchor-width)] border border-[var(--line)] bg-[var(--void-1)] shadow-xl outline-none"
 		sideOffset={2}
 	>
 		<Select.Viewport class="no-scrollbar max-h-56 overflow-y-auto">
@@ -54,7 +57,7 @@
 				<Select.Item
 					value={option.value}
 					label={option.label}
-					class="flex h-9 cursor-pointer items-center px-3 text-sm text-[var(--text-soft)] transition-colors
+					class="flex h-8 cursor-pointer items-center px-3 whitespace-nowrap text-sm text-[var(--text-soft)] transition-colors
 						outline-none
 						data-[highlighted]:bg-[var(--void-3)] data-[highlighted]:text-[var(--text)]
 						data-[selected]:bg-[var(--void-3)] data-[selected]:text-[var(--text)]"
