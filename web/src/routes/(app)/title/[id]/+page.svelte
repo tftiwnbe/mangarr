@@ -393,6 +393,9 @@
 			.filter(Boolean)
 	);
 	const readingProgressCount = $derived(title?.readingProgress.startedChapters ?? 0);
+	const displayedChapterCount = $derived(
+		Math.max(title?.chapterStats.total ?? 0, titleChapters.length)
+	);
 	const preferredVariantId = $derived.by(
 		() =>
 			title?.preferredVariantId ??
@@ -1304,7 +1307,7 @@
 			{coverSrc}
 			{author}
 			{artist}
-			chapterStatsTotal={title.chapterStats.total}
+			chapterStatsTotal={displayedChapterCount}
 			{readingProgressCount}
 			hasReadingProgress={Boolean(title.readingProgress.latest)}
 			{isChapterHydrating}
@@ -1353,7 +1356,7 @@
 							? 'text-[var(--text-muted)]'
 							: 'text-[var(--void-6)]'}"
 					>
-						{title.chapterStats.total}
+						{displayedChapterCount}
 					</span>
 				</button>
 				<button
