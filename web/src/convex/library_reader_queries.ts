@@ -1193,26 +1193,54 @@ export const listContinueReading = query({
 				]);
 
 				const activeChapterSource = preferredVariant ?? title;
-				const activeChapters = chapters.filter((chapter) =>
+				const activeReleases = chapters.filter((chapter) =>
 					chapterBelongsToVariant(chapter, activeChapterSource)
 				);
-				const orderedChapters = sortLibraryChaptersInReadingOrder(activeChapters);
-				const chapterRouteSegments = buildChapterRouteSegments(activeChapters);
+				const releaseById = new Map(activeReleases.map((chapter) => [String(chapter._id), chapter] as const));
+				const progressByGroupKey = new Map<
+					string,
+					{ chapterId: GenericId<'libraryChapters'>; pageIndex: number; updatedAt: number }
+				>();
+				for (const row of allProgress) {
+					const release = releaseById.get(String(row.chapterId));
+					if (!release) continue;
+					const groupKey = chapterGroupKeyForRow(release);
+					const current = progressByGroupKey.get(groupKey);
+					if (!current || row.updatedAt > current.updatedAt) {
+						progressByGroupKey.set(groupKey, {
+							chapterId: row.chapterId,
+							pageIndex: row.pageIndex,
+							updatedAt: row.updatedAt
+						});
+					}
+				}
 
-				const activeChapterIds = new Set(activeChapters.map((c) => String(c._id)));
-				const activeProgress = allProgress.filter((row) =>
-					activeChapterIds.has(String(row.chapterId))
-				);
+				const activeChapters = collapseChapterReleases(activeReleases).filter((chapter) => {
+					if (chapter.releases.some((release) => release.isAvailableFromSource !== false)) {
+						return true;
+					}
+					if (chapter.downloadStatus !== DOWNLOAD_STATUS.MISSING) {
+						return true;
+					}
+					return progressByGroupKey.has(chapter.chapterGroupKey);
+				});
+				const chapterRouteSegments = buildChapterRouteSegments(activeChapters);
 				const latestProgress =
-					[...activeProgress].sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null;
+					[...progressByGroupKey.entries()]
+						.sort(([, left], [, right]) => right.updatedAt - left.updatedAt)[0] ?? null;
+
+				if (!latestProgress) return null;
 
 				const progressChapter = latestProgress
-					? (activeChapters.find((c) => String(c._id) === String(latestProgress.chapterId)) ?? null)
+					? (activeChapters.find((chapter) => chapter.chapterGroupKey === latestProgress[0]) ?? null)
 					: null;
-				const targetChapter = progressChapter ?? orderedChapters[0] ?? null;
+				const targetChapter = progressChapter ?? null;
 				if (!targetChapter) return null;
 
-				const chaptersRead = activeProgress.length;
+				const latestChapterProgress = latestProgress?.[1] ?? null;
+				const chaptersRead = activeChapters.filter((chapter) =>
+					progressByGroupKey.has(chapter.chapterGroupKey)
+				).length;
 
 				if (activeChapters.length > 0 && chaptersRead >= activeChapters.length) {
 					return null;
@@ -1237,8 +1265,8 @@ export const listContinueReading = query({
 							chapterRouteSegments.get(String(targetChapter._id)) ??
 							buildChapterRouteBase(targetChapter.chapterName, targetChapter.chapterNumber ?? null),
 						totalPages: targetChapter.totalPages ?? null,
-						pageIndex: latestProgress?.pageIndex ?? 0,
-						hasProgress: latestProgress !== null
+						pageIndex: latestChapterProgress?.pageIndex ?? 0,
+						hasProgress: latestChapterProgress !== null
 					}
 				};
 			})
