@@ -82,13 +82,16 @@
 		freeSpaceBytes?: number;
 	};
 
-	type ReconcileResult = {
-		ok?: boolean;
-		fixed?: number;
-		downloaded?: number;
-		missing?: number;
-		message?: string;
-	};
+type ReconcileResult = {
+	ok?: boolean;
+	fixed?: number;
+	downloaded?: number;
+	missing?: number;
+	message?: string;
+	nextCursor?: number | null;
+	totalTitles?: number;
+	processedTitles?: number;
+};
 
 	type NormalizeResult = {
 		ok?: boolean;
@@ -343,16 +346,43 @@
 		reconcileLoading = true;
 		reconcileError = null;
 		try {
-			reconcileResult = await fetchJson<ReconcileResult>(
-				'/api/internal/bridge/downloads/reconcile',
-				{
+			let cursor = 0;
+			let aggregated: ReconcileResult = {
+				ok: true,
+				fixed: 0,
+				downloaded: 0,
+				missing: 0,
+				totalTitles: 0,
+				processedTitles: 0,
+				nextCursor: null
+			};
+			while (true) {
+				const batch = await fetchJson<ReconcileResult>('/api/internal/bridge/downloads/reconcile', {
 					method: 'POST',
 					headers: {
 						'content-type': 'application/json'
 					},
-					body: JSON.stringify({})
+					body: JSON.stringify({
+						cursor,
+						maxTitles: 8,
+						repairMissing: true
+					})
+				});
+				aggregated = {
+					...aggregated,
+					fixed: (aggregated.fixed ?? 0) + (batch.fixed ?? 0),
+					downloaded: (aggregated.downloaded ?? 0) + (batch.downloaded ?? 0),
+					missing: (aggregated.missing ?? 0) + (batch.missing ?? 0),
+					totalTitles: batch.totalTitles ?? aggregated.totalTitles ?? 0,
+					processedTitles: (aggregated.processedTitles ?? 0) + (batch.processedTitles ?? 0),
+					nextCursor: batch.nextCursor ?? null
+				};
+				reconcileResult = aggregated;
+				if (batch.nextCursor == null) {
+					break;
 				}
-			);
+				cursor = batch.nextCursor;
+			}
 			await loadStorage();
 		} catch (cause) {
 			reconcileError = cause instanceof Error ? cause.message : 'Failed to reconcile downloads';
@@ -365,6 +395,25 @@
 		normalizeLoading = true;
 		normalizeError = null;
 		try {
+			let reconcileCursor = 0;
+			while (true) {
+				const batch = await fetchJson<ReconcileResult>('/api/internal/bridge/downloads/reconcile', {
+					method: 'POST',
+					headers: {
+						'content-type': 'application/json'
+					},
+					body: JSON.stringify({
+						cursor: reconcileCursor,
+						maxTitles: 8,
+						repairMissing: false
+					})
+				});
+				if (batch.nextCursor == null) {
+					break;
+				}
+				reconcileCursor = batch.nextCursor;
+			}
+
 			let cursor = 0;
 			let aggregated: NormalizeResult = {
 				ok: true,

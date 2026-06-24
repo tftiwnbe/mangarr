@@ -660,6 +660,7 @@ class BridgeHttpServer(
             val client = requireBridgeClient(exchange) ?: return@createContext
             val payload = readJsonBody(exchange)
             val chapters = payload["chapters"]?.jsonArray?.map(::parseReconcileChapter).orEmpty()
+            val repairMissing = payload.optionalBoolean("repairMissing") ?: true
 
             var fixed = 0
             var downloaded = 0
@@ -678,7 +679,7 @@ class BridgeHttpServer(
                         chapterNumber = chapter.chapterNumber,
                     )
                 if (stored == null) {
-                    if (chapter.currentStatus == "downloaded" || !chapter.localRelativePath.isNullOrBlank()) {
+                    if (repairMissing && (chapter.currentStatus == "downloaded" || !chapter.localRelativePath.isNullOrBlank())) {
                         updateChapterState(
                             client = client,
                             chapterId = chapter.chapterId,
@@ -696,17 +697,19 @@ class BridgeHttpServer(
                 }
 
                 if (isStoredChapterDamaged(chapter, stored)) {
-                    updateChapterState(
-                        client = client,
-                        chapterId = chapter.chapterId,
-                        status = "missing",
-                        downloadedPages = 0,
-                        totalPages = null,
-                        localRelativePath = null,
-                        storageKind = null,
-                        fileSizeBytes = null,
-                    )
-                    fixed += 1
+                    if (repairMissing) {
+                        updateChapterState(
+                            client = client,
+                            chapterId = chapter.chapterId,
+                            status = "missing",
+                            downloadedPages = 0,
+                            totalPages = null,
+                            localRelativePath = null,
+                            storageKind = null,
+                            fileSizeBytes = null,
+                        )
+                        fixed += 1
+                    }
                     missing += 1
                     continue
                 }

@@ -16,6 +16,14 @@ fun classifySourceFailure(
 ): SourceFailureClassification {
     val httpError = error.findHttpException()
     val normalizedMessage = normalizeSourceFailureMessage(error)
+    if (isExtensionRuntimeAbiMismatch(error)) {
+        return SourceFailureClassification(
+            retryable = false,
+            expected = true,
+            message = "Extension runtime ABI mismatch: $normalizedMessage",
+            httpCode = httpError?.code,
+        )
+    }
     if (isPermanentSourceRequestFailure(error)) {
         return SourceFailureClassification(
             retryable = false,
@@ -87,6 +95,24 @@ internal fun isPermanentSourceRequestFailure(error: Throwable): Boolean {
         val message = current.message?.trim()
         if (!message.isNullOrBlank() && TOO_MANY_FOLLOW_UP_REQUESTS_PATTERN.containsMatchIn(message)) {
             return true
+        }
+        current = current.cause
+    }
+    return false
+}
+
+internal fun isExtensionRuntimeAbiMismatch(error: Throwable): Boolean {
+    var current: Throwable? = error
+    while (current != null) {
+        if (current is NoSuchMethodError || current is NoClassDefFoundError) {
+            val message = current.message?.trim().orEmpty()
+            if (
+                message.contains("okhttp3.OkHttpClient\$Builder") ||
+                message.contains("okhttp3.") ||
+                message.contains("okio.")
+            ) {
+                return true
+            }
         }
         current = current.cause
     }

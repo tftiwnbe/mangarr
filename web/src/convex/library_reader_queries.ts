@@ -940,6 +940,37 @@ export const listAllMineChapters = query({
 	}
 });
 
+export const listAllMineChaptersForTitle = query({
+	args: {
+		titleId: v.id('libraryTitles')
+	},
+	handler: async (ctx, args) => {
+		const title = await requireOwnedTitle(ctx, args.titleId);
+		const [chapters, preferredVariant] = await Promise.all([
+			ctx.db
+				.query('libraryChapters')
+				.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', title._id))
+				.collect(),
+			getPreferredVariantForTitle(ctx, title)
+		]);
+		const activeChapterSource = preferredVariant ?? title;
+		const activeChapters = chapters.filter((chapter) =>
+			chapterBelongsToVariant(chapter, activeChapterSource)
+		);
+
+		return activeChapters
+			.sort((left, right) => right.updatedAt - left.updatedAt)
+			.map((chapter) => ({
+				...chapter,
+				title: title.title,
+				sourcePkg: chapter.sourcePkg,
+				sourceLang: chapter.sourceLang,
+				titleCoverUrl: title.coverUrl ?? null,
+				localCoverPath: title.localCoverPath ?? null
+			}));
+	}
+});
+
 export const listDownloadedMineChapters = query({
 	args: {
 		titleId: v.optional(v.id('libraryTitles')),
@@ -955,20 +986,27 @@ export const listDownloadedMineChapters = query({
 
 		const chapters =
 			args.titleId != null
-				? (
-						await ctx.db
-							.query('libraryChapters')
-							.withIndex('by_library_title_id_download_status', (q) =>
-								q.eq('libraryTitleId', args.titleId!).eq('downloadStatus', DOWNLOAD_STATUS.DOWNLOADED)
-							)
-							.order('desc')
-							.take(limit)
-					).filter(
-						(chapter) =>
-							chapter.ownerUserId === userId &&
-							typeof chapter.localRelativePath === 'string' &&
-							chapter.localRelativePath.length > 0
-					)
+				? await (async () => {
+						const title = await requireOwnedTitle(ctx, args.titleId!);
+						const [downloadedRows, preferredVariant] = await Promise.all([
+							ctx.db
+								.query('libraryChapters')
+								.withIndex('by_library_title_id_download_status', (q) =>
+									q.eq('libraryTitleId', args.titleId!).eq('downloadStatus', DOWNLOAD_STATUS.DOWNLOADED)
+								)
+								.order('desc')
+								.take(limit),
+							getPreferredVariantForTitle(ctx, title)
+						]);
+						const activeChapterSource = preferredVariant ?? title;
+						return downloadedRows.filter(
+							(chapter) =>
+								chapter.ownerUserId === userId &&
+								typeof chapter.localRelativePath === 'string' &&
+								chapter.localRelativePath.length > 0 &&
+								chapterBelongsToVariant(chapter, activeChapterSource)
+						);
+					})()
 				: await ctx.db
 						.query('libraryChapters')
 						.withIndex('by_owner_user_id_download_status', (q) =>
@@ -985,6 +1023,46 @@ export const listDownloadedMineChapters = query({
 	}
 });
 
+export const listReconcileDownloadTitles = query({
+	args: {
+		titleId: v.optional(v.id('libraryTitles'))
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return [];
+		}
+		const userId = identity.subject as GenericId<'users'>;
+
+		const profileRows = await ctx.db
+				.query('downloadProfiles')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+				.collect();
+		const watchedTitleIds = [...new Set(profileRows.map((profile) => String(profile.libraryTitleId)))];
+		if (args.titleId != null) {
+			if (!watchedTitleIds.includes(String(args.titleId))) {
+				return [];
+			}
+			const title = await ctx.db.get(args.titleId);
+			return title && title.ownerUserId === userId
+				? [{ titleId: title._id, title: title.title, updatedAt: title.updatedAt }]
+				: [];
+		}
+
+		const titles = await Promise.all(
+			watchedTitleIds.map((titleId) => ctx.db.get(titleId as GenericId<'libraryTitles'>))
+		);
+		return titles
+			.filter((title): title is NonNullable<typeof title> => title !== null && title.ownerUserId === userId)
+			.sort((left, right) => right.updatedAt - left.updatedAt)
+			.map((title) => ({
+				titleId: title._id,
+				title: title.title,
+				updatedAt: title.updatedAt
+			}));
+	}
+});
+
 export const listNormalizeDownloadTitles = query({
 	args: {
 		titleId: v.optional(v.id('libraryTitles'))
@@ -996,17 +1074,29 @@ export const listNormalizeDownloadTitles = query({
 		}
 		const userId = identity.subject as GenericId<'users'>;
 
+		const profileRows = await ctx.db
+			.query('downloadProfiles')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+			.collect();
+		const watchedTitleIds = [...new Set(profileRows.map((profile) => String(profile.libraryTitleId)))];
 		const titles =
 			args.titleId != null
-				? [await ctx.db.get(args.titleId)].filter(
-						(title): title is NonNullable<typeof title> =>
-							title !== null && title.ownerUserId === userId
+				? watchedTitleIds.includes(String(args.titleId))
+					? [await ctx.db.get(args.titleId)].filter(
+							(title): title is NonNullable<typeof title> =>
+								title !== null && title.ownerUserId === userId
+						)
+					: []
+				: (
+						await Promise.all(
+							watchedTitleIds.map((titleId) => ctx.db.get(titleId as GenericId<'libraryTitles'>))
+						)
 					)
-				: await ctx.db
-						.query('libraryTitles')
-						.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', userId))
-						.order('desc')
-						.take(2000);
+						.filter(
+							(title): title is NonNullable<typeof title> =>
+								title !== null && title.ownerUserId === userId
+						)
+						.sort((left, right) => right.updatedAt - left.updatedAt);
 
 		const variants = await ctx.db
 			.query('titleVariants')

@@ -657,46 +657,55 @@ export async function scheduleTitleStatsRefresh(
 		priority?: number;
 	}
 ) {
-	const idempotencyKey = `library.title.stats.refresh:${String(args.libraryTitleId)}`;
-	const existing = (
-		await ctx.db
-			.query('commands')
-			.withIndex('by_idempotency_key', (q) => q.eq('idempotencyKey', idempotencyKey))
-			.collect()
-	)
-		.filter(
-			(command) =>
-				command.commandType === 'library.title.stats.refresh' &&
-				command.requestedByUserId === args.ownerUserId
+	try {
+		const idempotencyKey = `library.title.stats.refresh:${String(args.libraryTitleId)}`;
+		const existing = (
+			await ctx.db
+				.query('commands')
+				.withIndex('by_idempotency_key', (q) => q.eq('idempotencyKey', idempotencyKey))
+				.collect()
 		)
-		.sort((left, right) => right.createdAt - left.createdAt)[0];
+			.filter(
+				(command) =>
+					command.commandType === 'library.title.stats.refresh' &&
+					command.requestedByUserId === args.ownerUserId
+			)
+			.sort((left, right) => right.createdAt - left.createdAt)[0];
 
-	if (existing && ACTIVE_COMMAND_STATUSES.has(existing.status)) {
-		if (existing.status === 'queued') {
-			await ctx.db.patch(existing._id, {
-				runAfter: Math.min(existing.runAfter, args.now),
-				priority: Math.min(existing.priority, args.priority ?? 150),
-				lastErrorMessage: undefined,
-				updatedAt: args.now
-			});
+		if (existing && ACTIVE_COMMAND_STATUSES.has(existing.status)) {
+			if (existing.status === 'queued') {
+				await ctx.db.patch(existing._id, {
+					runAfter: Math.min(existing.runAfter, args.now),
+					priority: Math.min(existing.priority, args.priority ?? 150),
+					lastErrorMessage: undefined,
+					updatedAt: args.now
+				});
+			}
+			return existing._id;
 		}
-		return existing._id;
+
+		const commandId = await insertCommand(ctx, {
+			commandType: 'library.title.stats.refresh',
+			requestedByUserId: args.ownerUserId,
+			payload: {
+				titleId: args.libraryTitleId
+			},
+			idempotencyKey,
+			priority: args.priority ?? 150,
+			maxAttempts: 3,
+			runAfter: args.now,
+			now: args.now
+		});
+
+		return commandId;
+	} catch (error) {
+		// Best effort only. Concurrent download-state updates may race on the same
+		// idempotent command row; the next successful mutation will re-schedule it.
+		if (error instanceof Error && error.message?.includes('changed while this mutation')) {
+			return null;
+		}
+		throw error;
 	}
-
-	const commandId = await insertCommand(ctx, {
-		commandType: 'library.title.stats.refresh',
-		requestedByUserId: args.ownerUserId,
-		payload: {
-			titleId: args.libraryTitleId
-		},
-		idempotencyKey,
-		priority: args.priority ?? 150,
-		maxAttempts: 3,
-		runAfter: args.now,
-		now: args.now
-	});
-
-	return commandId;
 }
 
 /**
