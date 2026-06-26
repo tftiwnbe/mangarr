@@ -121,7 +121,10 @@
 		},
 		"searchGenres": "Поиск жанров…",
 		"clearFilters": "Сбросить фильтры",
+		"continueReadingUpdates": "обновления",
+		"updates": "обновления",
 		"filterByStatus": "Фильтр по статусу",
+		"noRecentUpdates": "Сейчас нет недавно обновлённых тайтлов, которые можно продолжить.",
 		"sortBy": "Сортировать по",
 		"sortModes": {
 			"updated": "обновлено",

@@ -113,6 +113,7 @@
 	>[number];
 
 	type SortMode = 'updated' | 'added' | 'reading' | 'alpha' | 'status';
+	type ReadingRailMode = 'continue' | 'updates';
 	const INITIAL_LIBRARY_RENDER_LIMIT = 60;
 	const LIBRARY_RENDER_PAGE_SIZE = 48;
 
@@ -120,6 +121,9 @@
 	const library = useQuery(convexApi.library.listMine, () => ({}));
 	const CONTINUE_READING_LIMIT = 6;
 	const continueReading = useQuery(convexApi.library.listContinueReading, () => ({
+		limit: CONTINUE_READING_LIMIT
+	}));
+	const continueReadingUpdates = useQuery(convexApi.library.listContinueReadingUpdates, () => ({
 		limit: CONTINUE_READING_LIMIT
 	}));
 	const hiddenLibraryTitles = useQuery(convexApi.library.listHiddenMine, () => ({}));
@@ -135,6 +139,7 @@
 	let hiddenPanelOpen = $state(false);
 	let sortMode = $state<SortMode>('added');
 	let sortDesc = $state(true);
+	let readingRailMode = $state<ReadingRailMode>('continue');
 	let activeReadingStatusIds = $state<string[]>([]);
 	let excludedReadingStatusIds = $state<string[]>([]);
 	let activeUpdateStateKeys = $state<string[]>([]);
@@ -218,7 +223,30 @@
 			coverSrc: continueCoverSrc(item)
 		}))
 	);
+	const continueReadingUpdateItems = $derived(
+		(continueReadingUpdates.data?.items ?? []).map((item) => ({
+			...item,
+			coverSrc: continueCoverSrc(item)
+		}))
+	);
 	const continueReadingLoading = $derived(continueReading.isLoading);
+	const continueReadingUpdatesLoading = $derived(continueReadingUpdates.isLoading);
+	const activeReadingRailItems = $derived(
+		readingRailMode === 'updates' ? continueReadingUpdateItems : continueReadingItems
+	);
+	const activeReadingRailLoading = $derived(
+		readingRailMode === 'updates' ? continueReadingUpdatesLoading : continueReadingLoading
+	);
+	const activeReadingRailLabel = $derived(
+		readingRailMode === 'updates'
+			? $_('library.continueReadingUpdates')
+			: $_('library.continueReading')
+	);
+	const inactiveReadingRailLabel = $derived(
+		readingRailMode === 'updates'
+			? $_('library.continueReading')
+			: $_('library.updates')
+	);
 	const hiddenImportsCount = $derived(hiddenTitles.length);
 	const renderContextKey = $derived(
 		JSON.stringify({
@@ -626,6 +654,10 @@
 			return Math.max(0, Math.min(100, Math.round((chaptersRead / chaptersTotal) * 100)));
 		}
 		return 0;
+	}
+
+	function toggleReadingRailMode() {
+		readingRailMode = readingRailMode === 'updates' ? 'continue' : 'updates';
 	}
 
 	function coverSrc(title: Pick<TitleItem, '_id' | 'localCoverPath' | 'coverUrl'>) {
@@ -1182,14 +1214,24 @@
 		{/if}
 	</div>
 
-	{#if continueReadingLoading && continueReadingItems.length === 0}
+	{#if activeReadingRailLoading && activeReadingRailItems.length === 0}
 		<div class="flex flex-col gap-3">
-			<div class="flex items-center gap-1.5">
-				<BookOpenIcon size={11} class="text-[var(--text-ghost)]" />
-				<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
-					{$_('library.continueReading').toLowerCase()}
-				</span>
+			<div class="flex items-center gap-2">
+				<div class="flex min-w-0 items-center gap-1.5">
+					<BookOpenIcon size={11} class="text-[var(--text-ghost)]" />
+					<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
+						{activeReadingRailLabel.toLowerCase()}
+					</span>
+				</div>
 				<span class="ml-1 h-px flex-1 bg-[var(--void-3)]"></span>
+				<button
+					type="button"
+					class="shrink-0 text-[10px] tracking-[0.22em] text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text)]"
+					aria-label={`Switch to ${inactiveReadingRailLabel}`}
+					onclick={toggleReadingRailMode}
+				>
+					{inactiveReadingRailLabel}
+				</button>
 			</div>
 			<div
 				class="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
@@ -1199,19 +1241,30 @@
 				{/each}
 			</div>
 		</div>
-	{:else if continueReadingItems.length > 0}
-		<section class="flex flex-col gap-3" aria-label={$_('library.continueReading')}>
-			<div class="flex items-center gap-1.5">
-				<BookOpenIcon size={11} class="text-[var(--text-ghost)]" />
-				<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
-					{$_('library.continueReading').toLowerCase()}
-				</span>
+	{:else if activeReadingRailItems.length > 0 || readingRailMode === 'updates'}
+		<section class="flex flex-col gap-3" aria-label={activeReadingRailLabel}>
+			<div class="flex items-center gap-2">
+				<div class="flex min-w-0 items-center gap-1.5">
+					<BookOpenIcon size={11} class="text-[var(--text-ghost)]" />
+					<span class="text-[10px] tracking-widest text-[var(--text-ghost)] uppercase">
+						{activeReadingRailLabel.toLowerCase()}
+					</span>
+				</div>
 				<span class="ml-1 h-px flex-1 bg-[var(--void-3)]"></span>
+				<button
+					type="button"
+					class="shrink-0 text-[10px] tracking-[0.22em] text-[var(--text-ghost)] uppercase transition-colors hover:text-[var(--text)]"
+					aria-label={`Switch to ${inactiveReadingRailLabel}`}
+					onclick={toggleReadingRailMode}
+				>
+					{inactiveReadingRailLabel}
+				</button>
 			</div>
-			<div
-				class="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
-			>
-				{#each continueReadingItems as item (item.titleId)}
+			{#if activeReadingRailItems.length > 0}
+				<div
+					class="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
+				>
+					{#each activeReadingRailItems as item (item.titleId)}
 					{@const tPct = continueProgressPercent(item)}
 					<a
 						href={buildReaderPath({
@@ -1264,8 +1317,13 @@
 							class="pointer-events-none absolute right-0 bottom-0 h-3 w-3 border-r border-b border-[var(--cosmic)] opacity-0 transition-opacity duration-300 group-hover:opacity-100"
 						></div>
 					</a>
-				{/each}
-			</div>
+					{/each}
+				</div>
+			{:else}
+				<div class="border border-[var(--line)] bg-[var(--void-3)] px-3 py-4 text-sm text-[var(--text-ghost)]">
+					{$_('library.noRecentUpdates')}
+				</div>
+			{/if}
 		</section>
 	{/if}
 

@@ -121,7 +121,10 @@
 		},
 		"searchGenres": "Search genres…",
 		"clearFilters": "Clear filters",
+		"continueReadingUpdates": "updates",
+		"updates": "updates",
 		"filterByStatus": "Filter by status",
+		"noRecentUpdates": "No recently updated titles to continue right now.",
 		"sortBy": "Sort by",
 		"sortModes": {
 			"updated": "updated",

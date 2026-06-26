@@ -41,6 +41,7 @@ export {
 	listAllMineChapters,
 	listChapterComments,
 	listContinueReading,
+	listContinueReadingUpdates,
 	listMine,
 	listTitleChapters,
 	markChaptersReadThrough,
