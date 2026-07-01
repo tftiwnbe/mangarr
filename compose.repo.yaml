@@ -1,4 +1,8 @@
 services:
+  postgres:
+    volumes:
+      - ${MANGARR_HOST_POSTGRES_DIR:-./postgres}:/var/lib/postgresql/data
+
   mangarr:
     platform: linux/amd64
     build:

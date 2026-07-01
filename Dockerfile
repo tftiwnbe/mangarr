@@ -136,7 +136,7 @@ CONVEX_INTERNAL_URL="${CONVEX_URL:-${CONVEX_SELF_HOSTED_URL:-http://127.0.0.1:32
 CONVEX_ROOT="${CONVEX_ROOT:-/app/config/convex}"
 CONVEX_STORAGE_DIR="${CONVEX_STORAGE_DIR:-${CONVEX_ROOT}/storage}"
 CONVEX_TMP_DIR="${CONVEX_TMP_DIR:-${CONVEX_ROOT}/tmp}"
-CONVEX_SQLITE_PATH="${CONVEX_SQLITE_PATH:-${CONVEX_ROOT}/db.sqlite3}"
+CONVEX_POSTGRES_URL="${CONVEX_POSTGRES_URL:-}"
 INSTANCE_NAME="${INSTANCE_NAME:-mangarr}"
 MANGARR_BRIDGE_HOST="${MANGARR_BRIDGE_HOST:-127.0.0.1}"
 MANGARR_BRIDGE_PORT="${MANGARR_BRIDGE_PORT:-3212}"
@@ -153,9 +153,17 @@ MANGARR_CONVEX_AUTH_TOKEN_TTL_SECONDS="${MANGARR_CONVEX_AUTH_TOKEN_TTL_SECONDS:-
 MANGARR_CONVEX_AUTH_KEY_ID="${MANGARR_CONVEX_AUTH_KEY_ID:-mangarr-20260310}"
 MANGARR_KCEF_ENABLED="${MANGARR_KCEF_ENABLED:-true}"
 MANGARR_XVFB_DISPLAY="${MANGARR_XVFB_DISPLAY:-:99}"
+MANGARR_LOG_RETENTION_DAYS="${MANGARR_LOG_RETENTION_DAYS:-14}"
+MANGARR_LOG_MAX_ROTATED_FILES="${MANGARR_LOG_MAX_ROTATED_FILES:-200}"
+MANGARR_WEB_EVENTS_MAX_BYTES="${MANGARR_WEB_EVENTS_MAX_BYTES:-52428800}"
 RUST_LOG="${RUST_LOG:-error,database::search_index_workers::retriable_worker=off}"
 
-mkdir -p "${CONVEX_ROOT}" "${CONVEX_STORAGE_DIR}" "${CONVEX_TMP_DIR}" "$(dirname "${CONVEX_SQLITE_PATH}")" "${MANGARR_SYSTEM_LOG_DIR}" "${MANGARR_BRIDGE_LOG_DIR}"
+if [ -z "${CONVEX_POSTGRES_URL}" ]; then
+  echo "CONVEX_POSTGRES_URL must be set for the Postgres-backed Convex runtime." >&2
+  exit 1
+fi
+
+mkdir -p "${CONVEX_ROOT}" "${CONVEX_STORAGE_DIR}" "${CONVEX_TMP_DIR}" "${MANGARR_SYSTEM_LOG_DIR}" "${MANGARR_BRIDGE_LOG_DIR}"
 STARTUP_LOG_STAMP="$(date -u +%Y%m%d-%H%M%S)"
 CONVEX_LOG_FILE="${MANGARR_SYSTEM_LOG_DIR}/convex-${STARTUP_LOG_STAMP}.log"
 CONVEX_NOISE_LOG_FILE="${MANGARR_SYSTEM_LOG_DIR}/convex-noise-${STARTUP_LOG_STAMP}.log"
@@ -164,6 +172,43 @@ WEB_LOG_FILE="${MANGARR_SYSTEM_LOG_DIR}/web-${STARTUP_LOG_STAMP}.log"
 WEB_EVENTS_LOG_FILE="${MANGARR_SYSTEM_LOG_DIR}/web-events.jsonl"
 BRIDGE_CONSOLE_LOG_FILE="${MANGARR_SYSTEM_LOG_DIR}/bridge-console-${STARTUP_LOG_STAMP}.log"
 BRIDGE_NOISE_LOG_FILE="${MANGARR_SYSTEM_LOG_DIR}/bridge-native-noise-${STARTUP_LOG_STAMP}.log"
+
+rotate_web_events_log() {
+  local max_bytes="$1"
+  [ -f "${WEB_EVENTS_LOG_FILE}" ] || return 0
+
+  local current_size=0
+  current_size="$(stat -c%s "${WEB_EVENTS_LOG_FILE}" 2>/dev/null || printf '0')"
+  if [ "${current_size}" -lt "${max_bytes}" ]; then
+    return 0
+  fi
+
+  mv "${WEB_EVENTS_LOG_FILE}" "${MANGARR_SYSTEM_LOG_DIR}/web-events-${STARTUP_LOG_STAMP}.jsonl"
+}
+
+prune_system_logs() {
+  local dir="$1"
+  local retention_days="$2"
+  local max_rotated_files="$3"
+
+  [ -d "${dir}" ] || return 0
+
+  find "${dir}" -maxdepth 1 -type f \
+    \( -name 'convex-*.log' -o -name 'convex-noise-*.log' -o -name 'setup-*.log' -o -name 'web-*.log' -o -name 'bridge-console-*.log' -o -name 'bridge-native-noise-*.log' -o -name 'web-events-*.jsonl' \) \
+    -mtime "+${retention_days}" -delete
+
+  mapfile -t old_rotated_logs < <(
+    find "${dir}" -maxdepth 1 -type f \
+      \( -name 'convex-*.log' -o -name 'convex-noise-*.log' -o -name 'setup-*.log' -o -name 'web-*.log' -o -name 'bridge-console-*.log' -o -name 'bridge-native-noise-*.log' -o -name 'web-events-*.jsonl' \) \
+      -printf '%T@ %p\n' | sort -nr | awk 'NR > '"${max_rotated_files}"' { sub(/^[^ ]+ /, ""); print }'
+  )
+
+  if [ "${#old_rotated_logs[@]}" -gt 0 ]; then
+    printf '%s\0' "${old_rotated_logs[@]}" | xargs -0r rm -f --
+  fi
+}
+
+rotate_web_events_log "${MANGARR_WEB_EVENTS_MAX_BYTES}"
 touch "${CONVEX_LOG_FILE}" "${CONVEX_NOISE_LOG_FILE}" "${SETUP_LOG_FILE}" "${WEB_LOG_FILE}" "${WEB_EVENTS_LOG_FILE}" "${BRIDGE_CONSOLE_LOG_FILE}" "${BRIDGE_NOISE_LOG_FILE}"
 ln -sfn "$(basename "${CONVEX_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/convex.log"
 ln -sfn "$(basename "${CONVEX_NOISE_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/convex-noise.log"
@@ -172,6 +217,7 @@ ln -sfn "$(basename "${WEB_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/web.log"
 ln -sfn "$(basename "${WEB_EVENTS_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/web-events.log"
 ln -sfn "$(basename "${BRIDGE_CONSOLE_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/bridge-console.log"
 ln -sfn "$(basename "${BRIDGE_NOISE_LOG_FILE}")" "${MANGARR_SYSTEM_LOG_DIR}/bridge-native-noise.log"
+prune_system_logs "${MANGARR_SYSTEM_LOG_DIR}" "${MANGARR_LOG_RETENTION_DAYS}" "${MANGARR_LOG_MAX_ROTATED_FILES}"
 
 mkdir -p "${MANGARR_DOWNLOADS_DIR}"
 
@@ -350,7 +396,8 @@ filter_bridge_stdout() {
   done
 }
 
-/app/convex/convex-local-backend --instance-name "${INSTANCE_NAME}" --instance-secret "${INSTANCE_SECRET}" --port "${CONVEX_PORT:-3210}" --site-proxy-port "${CONVEX_SITE_PROXY_PORT:-3211}" --convex-origin "${PUBLIC_CONVEX_URL}" --convex-site "${CONVEX_SITE_ORIGIN:-http://127.0.0.1:3211}" --beacon-tag mangarr --disable-beacon --local-storage "${CONVEX_STORAGE_DIR}" "${CONVEX_SQLITE_PATH}" \
+startup_note "Starting Convex backend with postgres-v5 storage=${CONVEX_STORAGE_DIR}"
+/app/convex/convex-local-backend --db postgres-v5 --instance-name "${INSTANCE_NAME}" --instance-secret "${INSTANCE_SECRET}" --port "${CONVEX_PORT:-3210}" --site-proxy-port "${CONVEX_SITE_PROXY_PORT:-3211}" --convex-origin "${PUBLIC_CONVEX_URL}" --convex-site "${CONVEX_SITE_ORIGIN:-http://127.0.0.1:3211}" --beacon-tag mangarr --disable-beacon --do-not-require-ssl --local-storage "${CONVEX_STORAGE_DIR}" "${CONVEX_POSTGRES_URL}" \
   > >(pipe_component_output "convex" "${CONVEX_LOG_FILE}" "" "stdout") \
   2> >(filter_convex_stderr "${CONVEX_LOG_FILE}" "${CONVEX_NOISE_LOG_FILE}") &
 CONVEX_PID=$!
@@ -378,6 +425,8 @@ seed_convex_env_var() {
 
 compute_convex_sync_fingerprint() {
   (
+    printf 'CONVEX_BACKEND_DRIVER=%s\n' 'postgres-v5'
+    printf 'CONVEX_STORAGE_DIR=%s\n' "${CONVEX_STORAGE_DIR}"
     printf 'MANGARR_CONVEX_AUTH_ISSUER=%s\n' "${MANGARR_CONVEX_AUTH_ISSUER}"
     printf 'MANGARR_CONVEX_AUTH_APPLICATION_ID=%s\n' "${MANGARR_CONVEX_AUTH_APPLICATION_ID}"
     printf 'MANGARR_CONVEX_AUTH_KEY_ID=%s\n' "${MANGARR_CONVEX_AUTH_KEY_ID}"
