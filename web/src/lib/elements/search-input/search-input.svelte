@@ -29,7 +29,7 @@
 	</div>
 
 	<input
-		type="search"
+		type="text"
 		bind:value
 		class="{heights[inputSize]} w-full border border-[var(--void-4)] bg-[var(--void-2)]
 			pr-9 pl-9 text-sm text-[var(--text)] transition-colors
@@ -37,6 +37,9 @@
 			hover:border-[var(--void-5)]
 			focus:border-[var(--void-6)] focus:outline-none
 			disabled:pointer-events-none disabled:opacity-40"
+		inputmode="search"
+		enterkeyhint="search"
+		role="searchbox"
 		{...restProps}
 	/>
 
