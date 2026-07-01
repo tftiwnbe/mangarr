@@ -20,7 +20,7 @@
 	import TitleSkeleton from '$lib/components/title-skeleton.svelte';
 	import { _ } from '$lib/i18n';
 	import { navigateBack, navHistoryRevision, resolveNavBackTarget } from '$lib/stores/nav-history';
-	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
+	import { buildLibraryPath, buildReaderPath, buildTitlePath } from '$lib/utils/routes';
 	import {
 		directSourceTitleUrlCandidates,
 		sourceTitleUrlSearchQueries
@@ -714,6 +714,12 @@
 		void navigateBack('/library', { skipPrefixes: titleBackSkipPrefixes });
 	}
 
+	function openLibraryPerson(name: string) {
+		const normalized = name.trim();
+		if (!normalized) return;
+		void goto(buildLibraryPath({ person: normalized }));
+	}
+
 	function openReadingStart() {
 		if (!title || !startReadingChapter) {
 			activeTab = 'chapters';
@@ -1320,6 +1326,7 @@
 			{updatingDownloadProfile}
 			{prefsSaving}
 			{selectedRating}
+			onOpenPerson={openLibraryPerson}
 			onBack={handleBack}
 			onOpenReadingStart={openReadingStart}
 			onOpenManagement={() => (showManagementPanel = true)}
@@ -1397,6 +1404,7 @@
 						{genres}
 						{author}
 						{artist}
+						onOpenPerson={openLibraryPerson}
 						{displayStatus}
 						{sourceName}
 						sourceLang={title.sourceLang}

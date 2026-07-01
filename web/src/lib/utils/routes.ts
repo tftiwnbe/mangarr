@@ -30,3 +30,12 @@ export function buildReaderPath(params: {
 export function parseReaderChapterParam(value: string | null | undefined): string | null {
 	return decodeRouteSegment(value);
 }
+
+export function buildLibraryPath(params?: {
+	person?: string | null;
+}): string {
+	const person = params?.person?.trim();
+	if (!person) return '/library';
+	const query = new URLSearchParams({ person });
+	return `/library?${query.toString()}`;
+}

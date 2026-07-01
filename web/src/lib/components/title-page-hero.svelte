@@ -46,6 +46,7 @@
 		updatingDownloadProfile: boolean;
 		prefsSaving: boolean;
 		selectedRating: number;
+		onOpenPerson: (name: string) => void;
 		onBack: () => void;
 		onOpenReadingStart: () => void;
 		onOpenManagement: () => void;
@@ -75,6 +76,7 @@
 		updatingDownloadProfile,
 		prefsSaving,
 		selectedRating,
+		onOpenPerson,
 		onBack,
 		onOpenReadingStart,
 		onOpenManagement,
@@ -91,6 +93,12 @@
 	const readingProgressPercent = $derived(
 		Math.round((readingProgressCount / Math.max(chapterStatsTotal, 1)) * 100)
 	);
+
+	function openPerson(name: string) {
+		const normalized = name.trim();
+		if (!normalized) return;
+		onOpenPerson(normalized);
+	}
 </script>
 
 {#snippet chipRow()}
@@ -301,13 +309,27 @@
 			</div>
 
 			{#if author || artist}
-				<p class="text-sm text-[var(--text-ghost)]">
-					{#if author}{author}{/if}
+				<p class="flex flex-wrap items-center gap-x-1 gap-y-1 text-sm text-[var(--text-ghost)]">
+					{#if author}
+						<button
+							type="button"
+							class="transition-colors hover:text-[var(--text)]"
+							onclick={() => openPerson(author)}
+						>
+							{author}
+						</button>
+					{/if}
 					{#if artist && artist !== author}
 						{#if author}
-							·
+							<span aria-hidden="true">·</span>
 						{/if}
-						{artist}
+						<button
+							type="button"
+							class="transition-colors hover:text-[var(--text)]"
+							onclick={() => openPerson(artist)}
+						>
+							{artist}
+						</button>
 					{/if}
 				</p>
 			{/if}

@@ -10,6 +10,7 @@
 		genres: string[];
 		author: string;
 		artist: string;
+		onOpenPerson: (name: string) => void;
 		displayStatus: string;
 		sourceName: string;
 		sourceLang: string;
@@ -33,6 +34,7 @@
 		genres,
 		author,
 		artist,
+		onOpenPerson,
 		displayStatus,
 		sourceName,
 		sourceLang,
@@ -55,6 +57,12 @@
 			month: 'short',
 			day: 'numeric'
 		});
+	}
+
+	function openPerson(name: string) {
+		const normalized = name.trim();
+		if (!normalized) return;
+		onOpenPerson(normalized);
 	}
 </script>
 
@@ -99,7 +107,13 @@
 					<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
 						{$_('title.author')}
 					</span>
-					<span class="text-xs text-[var(--text-muted)]">{author}</span>
+					<button
+						type="button"
+						class="text-right text-xs text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
+						onclick={() => openPerson(author)}
+					>
+						{author}
+					</button>
 				</div>
 			{/if}
 			{#if artist && artist !== author}
@@ -107,7 +121,13 @@
 					<span class="text-[10px] tracking-widest text-[var(--void-6)] uppercase">
 						{$_('title.artist')}
 					</span>
-					<span class="text-xs text-[var(--text-muted)]">{artist}</span>
+					<button
+						type="button"
+						class="text-right text-xs text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
+						onclick={() => openPerson(artist)}
+					>
+						{artist}
+					</button>
 				</div>
 			{/if}
 		</div>

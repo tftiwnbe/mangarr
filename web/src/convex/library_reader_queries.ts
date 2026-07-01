@@ -109,6 +109,8 @@ export const listMine = query({
 					_id: title._id,
 					routeSegment: null,
 					title: title.title,
+					author: title.author ?? null,
+					artist: title.artist ?? null,
 					coverUrl: title.coverUrl ?? null,
 					localCoverPath: title.localCoverPath ?? null,
 					status: title.status ?? null,

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
@@ -89,6 +90,8 @@
 		id: string;
 		route_segment?: string | null;
 		title: string;
+		author: string | null;
+		artist: string | null;
 		thumbnail_url: string | null;
 		chapters_count: number;
 		updated_at: number;
@@ -169,8 +172,16 @@
 	let pendingDelete = $state<{ kind: 'manual' | 'dynamic'; id: string; name: string } | null>(null);
 	let deletingCollectionId = $state<string | null>(null);
 	let defaultCollectionBootstrapped = $state(false);
+	let initializedFromUrl = $state(false);
 
 	onMount(() => {
+		if (!initializedFromUrl) {
+			const person = page.url.searchParams.get('person')?.trim() ?? '';
+			if (person) {
+				searchQuery = person;
+			}
+			initializedFromUrl = true;
+		}
 		if (typeof navigator !== 'undefined') {
 			browserOnline = navigator.onLine;
 		}
@@ -436,7 +447,14 @@
 				if (!inCollection) return false;
 			}
 
-			if (query && !title.title.toLowerCase().includes(query)) return false;
+			if (query) {
+				const people = [title.author ?? '', title.artist ?? '']
+					.map((value) => value.trim().toLowerCase())
+					.filter(Boolean);
+				const matchesQuery =
+					title.title.toLowerCase().includes(query) || people.some((value) => value.includes(query));
+				if (!matchesQuery) return false;
+			}
 
 			if (
 				activeReadingStatusIds.length > 0 &&
@@ -601,6 +619,8 @@
 			id: title._id,
 			route_segment: title.routeSegment ?? null,
 			title: title.title,
+			author: title.author ?? null,
+			artist: title.artist ?? null,
 			thumbnail_url: coverSrc(title),
 			chapters_count: title.chapterStats.total,
 			updated_at: title.updatedAt,
