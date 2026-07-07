@@ -2,7 +2,7 @@ import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
 
 import { mutation, type MutationCtx } from './_generated/server';
-import { buildTitleRouteBaseFromUrl } from '../lib/utils/route-segments';
+import { buildTitleRouteBaseFromUrl, normalizeSourceUrlPath } from '../lib/utils/route-segments';
 import { requireBridgeIdentity } from './bridge_auth';
 import { buildChapterGroupKey } from './chapter_groups';
 import {
@@ -224,6 +224,13 @@ export const upsertChaptersForTitle = mutation({
 		if (!variant) {
 			throw new Error('Title variant not found for chapter sync');
 		}
+		const normalizedRouteBase = buildTitleRouteBaseFromUrl(title.titleUrl, title.title);
+		if (title.routeBase !== normalizedRouteBase) {
+			await ctx.db.patch(title._id, {
+				routeBase: normalizedRouteBase,
+				updatedAt: args.now
+			});
+		}
 
 		const existing = await ctx.db
 			.query('libraryChapters')
@@ -232,7 +239,7 @@ export const upsertChaptersForTitle = mutation({
 		const byUrl = new Map(
 			existing
 				.filter((chapter) => chapter.titleVariantId === variant._id)
-				.map((chapter) => [chapter.chapterUrl, chapter])
+				.map((chapter) => [normalizeSourceUrlPath(chapter.chapterUrl), chapter])
 		);
 		const seenChapterUrls = new Set<string>();
 		const insertedChapterIds: GenericId<'libraryChapters'>[] = [];
@@ -240,12 +247,13 @@ export const upsertChaptersForTitle = mutation({
 		let chapterRowsChanged = false;
 
 		for (const [index, chapter] of args.chapters.entries()) {
+			const normalizedChapterUrl = normalizeSourceUrlPath(chapter.url);
 			const chapterGroupKey = buildChapterGroupKey({
 				chapterName: chapter.name,
 				chapterNumber: chapter.chapterNumber
 			});
-			seenChapterUrls.add(chapter.url);
-			const current = byUrl.get(chapter.url);
+			seenChapterUrls.add(normalizedChapterUrl);
+			const current = byUrl.get(normalizedChapterUrl);
 			if (current) {
 				const needsPatch =
 					current.titleVariantId !== variant._id ||
@@ -253,6 +261,7 @@ export const upsertChaptersForTitle = mutation({
 					current.sourcePkg !== variant.sourcePkg ||
 					current.sourceLang !== variant.sourceLang ||
 					current.titleUrl !== variant.titleUrl ||
+					current.chapterUrl !== normalizedChapterUrl ||
 					current.chapterGroupKey !== chapterGroupKey ||
 					current.chapterName !== chapter.name ||
 					current.chapterNumber !== chapter.chapterNumber ||
@@ -264,13 +273,14 @@ export const upsertChaptersForTitle = mutation({
 					await ctx.db.patch(current._id, {
 						titleVariantId: variant._id,
 						sourceId: variant.sourceId,
-							sourcePkg: variant.sourcePkg,
-							sourceLang: variant.sourceLang,
-							titleUrl: variant.titleUrl,
-							chapterGroupKey,
-							chapterName: chapter.name,
-							chapterNumber: chapter.chapterNumber,
-							scanlator: chapter.scanlator,
+						sourcePkg: variant.sourcePkg,
+						sourceLang: variant.sourceLang,
+						titleUrl: variant.titleUrl,
+						chapterUrl: normalizedChapterUrl,
+						chapterGroupKey,
+						chapterName: chapter.name,
+						chapterNumber: chapter.chapterNumber,
+						scanlator: chapter.scanlator,
 						dateUpload: chapter.dateUpload,
 						isAvailableFromSource: true,
 						sequence: index,
@@ -286,14 +296,14 @@ export const upsertChaptersForTitle = mutation({
 				libraryTitleId: title._id,
 				titleVariantId: variant._id,
 				sourceId: variant.sourceId,
-					sourcePkg: variant.sourcePkg,
-					sourceLang: variant.sourceLang,
-					titleUrl: variant.titleUrl,
-					chapterUrl: chapter.url,
-					chapterGroupKey,
-					chapterName: chapter.name,
-					chapterNumber: chapter.chapterNumber,
-					scanlator: chapter.scanlator,
+				sourcePkg: variant.sourcePkg,
+				sourceLang: variant.sourceLang,
+				titleUrl: variant.titleUrl,
+				chapterUrl: normalizedChapterUrl,
+				chapterGroupKey,
+				chapterName: chapter.name,
+				chapterNumber: chapter.chapterNumber,
+				scanlator: chapter.scanlator,
 				dateUpload: chapter.dateUpload,
 				sequence: index,
 				isAvailableFromSource: true,
@@ -310,7 +320,7 @@ export const upsertChaptersForTitle = mutation({
 		const staleChapters = existing.filter(
 			(chapter) =>
 				chapter.titleVariantId === variant._id &&
-				!seenChapterUrls.has(chapter.chapterUrl) &&
+				!seenChapterUrls.has(normalizeSourceUrlPath(chapter.chapterUrl)) &&
 				chapter.isAvailableFromSource !== false
 		);
 		for (const staleChapter of staleChapters) {

@@ -443,7 +443,7 @@ class ExtensionManager(
                     Page
                         .newBuilder()
                         .setIndex(index)
-                        .setUrl(pageUrl)
+                        .setUrl(normalizeSourceUrlPath(pageUrl))
                         .setImageUrl(pageImageUrl)
                         .build()
             }
@@ -800,7 +800,7 @@ class ExtensionManager(
         source: Source,
         rawUrl: String,
     ): String {
-        val trimmed = rawUrl.trim()
+        val trimmed = normalizeSourceUrlPath(rawUrl)
         if (trimmed.isBlank() || source !is eu.kanade.tachiyomi.source.online.HttpSource) {
             return trimmed
         }
@@ -818,7 +818,8 @@ class ExtensionManager(
             return trimmed
         }
 
-        return buildString {
+        return normalizeSourceUrlPath(
+            buildString {
             append(candidate.rawPath.orEmpty().ifBlank { "/" })
             candidate.rawQuery?.takeIf { it.isNotBlank() }?.let {
                 append('?')
@@ -828,7 +829,8 @@ class ExtensionManager(
                 append('#')
                 append(it)
             }
-        }
+        },
+        )
     }
 
     private suspend fun buildDownloadUrl(
@@ -894,7 +896,7 @@ class ExtensionManager(
     private suspend fun convertChapter(chapter: SChapter) =
         Chapter
             .newBuilder()
-            .setUrl(safeString { chapter.url })
+            .setUrl(normalizeSourceUrlPath(safeString { chapter.url }))
             .setName(safeString { chapter.name })
             .setDateUpload(safeLong { chapter.date_upload })
             .setChapterNumber(safeFloat { chapter.chapter_number })
@@ -902,7 +904,7 @@ class ExtensionManager(
             .build()
 
     private fun safeMangaUrl(manga: SManga, fallbackUrl: String): String =
-        safeString { manga.url }.ifBlank { fallbackUrl }
+        normalizeSourceUrlPath(safeString { manga.url }.ifBlank { fallbackUrl })
 
     private fun safeMangaTitle(manga: SManga, fallbackUrl: String): String =
         safeString { manga.title }.ifBlank {

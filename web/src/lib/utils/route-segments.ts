@@ -6,6 +6,26 @@ import {
 
 const NON_ALNUM_RE = /[^a-z0-9]+/g;
 const ROUTE_COLLISION_DELIMITER = '~';
+const OPAQUE_ROUTE_SEGMENT_RE = /^[a-z0-9_-]{20,}$/i;
+const UUID_ROUTE_SEGMENT_RE =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const GENERIC_ROUTE_WORDS = new Set([
+	'chapter',
+	'chapters',
+	'comic',
+	'content',
+	'gist',
+	'index',
+	'json',
+	'manga',
+	'manhua',
+	'manhwa',
+	'raw',
+	'read',
+	'series',
+	'title',
+	'viewer'
+]);
 const CYRILLIC_ASCII: Record<string, string> = {
 	а: 'a',
 	б: 'b',
@@ -51,6 +71,32 @@ function normalizeWhitespace(value: string): string {
 	return value.trim().replace(/\s+/g, ' ');
 }
 
+function splitUrlSuffix(value: string) {
+	const hashIndex = value.indexOf('#');
+	const queryIndex = value.indexOf('?');
+	const suffixIndex =
+		hashIndex === -1
+			? queryIndex
+			: queryIndex === -1
+				? hashIndex
+				: Math.min(hashIndex, queryIndex);
+	return suffixIndex === -1
+		? { path: value, suffix: '' }
+		: { path: value.slice(0, suffixIndex), suffix: value.slice(suffixIndex) };
+}
+
+function collapsePathSlashes(path: string) {
+	if (!path) return path;
+	const protocolRelative = path.startsWith('//') && !path.startsWith('///');
+	if (protocolRelative) {
+		return `//${path.slice(2).replace(/\/{2,}/g, '/')}`;
+	}
+	if (path.startsWith('/')) {
+		return `/${path.slice(1).replace(/\/{2,}/g, '/')}`;
+	}
+	return path.replace(/\/{2,}/g, '/');
+}
+
 function toRouteAscii(value: string): string {
 	return [...value.normalize('NFKD')]
 		.map((char) => {
@@ -68,6 +114,65 @@ export function slugifySegment(value: string, fallback = 'item'): string {
 	const ascii = toRouteAscii(normalizeWhitespace(value)).toLowerCase();
 	const slug = ascii.replace(NON_ALNUM_RE, '-').replace(/^-+|-+$/g, '');
 	return slug || fallback;
+}
+
+function splitSlugWords(slug: string) {
+	return slug.split('-').filter(Boolean);
+}
+
+function isLowQualityRouteSlug(rawSegment: string, slug: string, fallbackSlug = '') {
+	if (!slug) return true;
+	if (UUID_ROUTE_SEGMENT_RE.test(rawSegment)) {
+		return Boolean(fallbackSlug);
+	}
+	if (OPAQUE_ROUTE_SEGMENT_RE.test(rawSegment) && !rawSegment.includes('-') && !rawSegment.includes('_')) {
+		return true;
+	}
+
+	const words = splitSlugWords(slug);
+	if (words.length === 0) return true;
+	if (words.every((word) => GENERIC_ROUTE_WORDS.has(word))) {
+		return true;
+	}
+	if (words.length === 1 && words[0].length >= 16) {
+		return true;
+	}
+
+	if (fallbackSlug) {
+		const fallbackWords = splitSlugWords(fallbackSlug);
+		const overlappingWords = words.filter((word) => fallbackWords.includes(word));
+		if (
+			words.length < fallbackWords.length &&
+			overlappingWords.length === words.length &&
+			(fallbackWords.length - words.length >= 2 || words.every((word) => GENERIC_ROUTE_WORDS.has(word)))
+		) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function decodeUrlCandidate(value: string) {
+	try {
+		return decodeURIComponent(value);
+	} catch {
+		return value;
+	}
+}
+
+export function normalizeSourceUrlPath(rawUrl: string) {
+	const trimmed = rawUrl.trim();
+	if (!trimmed) return trimmed;
+
+	try {
+		const parsed = new URL(trimmed);
+		parsed.pathname = collapsePathSlashes(parsed.pathname || '/');
+		return parsed.toString();
+	} catch {
+		const { path, suffix } = splitUrlSuffix(trimmed);
+		return `${collapsePathSlashes(path)}${suffix}`;
+	}
 }
 
 export function decodeRouteSegment(value: string | null | undefined): string | null {
@@ -88,35 +193,50 @@ export function buildTitleRouteBaseFromUrl(
 	fallbackTitle?: string | null
 ): string {
 	const trimmed = titleUrl?.trim();
+	const fallbackSlug = fallbackTitle?.trim() ? buildTitleRouteBase(fallbackTitle) : '';
 	if (!trimmed) {
-		return buildTitleRouteBase(fallbackTitle);
+		return fallbackSlug || buildTitleRouteBase(fallbackTitle);
 	}
 
-	let routeSource = trimmed;
+	const normalizedUrl = normalizeSourceUrlPath(trimmed);
+	let fallbackRouteSource = normalizedUrl;
 	try {
-		const parsed = new URL(trimmed, 'https://mangarr.local');
-		const pathSegment = parsed.pathname
+		const parsed = new URL(normalizedUrl, 'https://mangarr.local');
+		const pathSegments = parsed.pathname
 			.split('/')
 			.map((segment) => segment.trim())
-			.filter(Boolean)
-			.at(-1);
-		routeSource = pathSegment || parsed.hostname || trimmed;
+			.filter(Boolean);
+		for (const pathSegment of [...pathSegments].reverse()) {
+			const decodedSegment = decodeUrlCandidate(pathSegment);
+			const candidateSlug = slugifySegment(decodedSegment, '');
+			if (!candidateSlug) continue;
+			fallbackRouteSource ||= decodedSegment;
+			if (!isLowQualityRouteSlug(decodedSegment, candidateSlug, fallbackSlug)) {
+				return candidateSlug.slice(0, 96);
+			}
+		}
+		fallbackRouteSource = parsed.hostname || normalizedUrl;
 	} catch {
-		const pathSegment = trimmed
+		const pathSegments = normalizedUrl
 			.split(/[/?#]/)
 			.map((segment) => segment.trim())
-			.filter(Boolean)
-			.at(-1);
-		routeSource = pathSegment || trimmed;
+			.filter(Boolean);
+		for (const pathSegment of [...pathSegments].reverse()) {
+			const decodedSegment = decodeUrlCandidate(pathSegment);
+			const candidateSlug = slugifySegment(decodedSegment, '');
+			if (!candidateSlug) continue;
+			fallbackRouteSource ||= decodedSegment;
+			if (!isLowQualityRouteSlug(decodedSegment, candidateSlug, fallbackSlug)) {
+				return candidateSlug.slice(0, 96);
+			}
+		}
 	}
 
-	try {
-		routeSource = decodeURIComponent(routeSource);
-	} catch {
-		// Keep the raw source when a source extension returns a malformed escape.
+	if (fallbackSlug) {
+		return fallbackSlug;
 	}
 
-	return slugifySegment(routeSource, slugifySegment(fallbackTitle ?? '', 'title')).slice(0, 96);
+	return slugifySegment(decodeUrlCandidate(fallbackRouteSource), 'title').slice(0, 96);
 }
 
 export function buildChapterRouteBase(

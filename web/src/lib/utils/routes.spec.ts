@@ -6,7 +6,7 @@ import {
 	parseReaderChapterParam,
 	parseTitleRouteParam
 } from './routes';
-import { buildTitleRouteBaseFromUrl, slugifySegment } from './route-segments';
+import { buildTitleRouteBaseFromUrl, normalizeSourceUrlPath, slugifySegment } from './route-segments';
 
 describe('routes', () => {
 	it('slugifies readable title segments', () => {
@@ -15,10 +15,35 @@ describe('routes', () => {
 	});
 
 	it('builds title route bases from bridge title urls', () => {
-		expect(buildTitleRouteBaseFromUrl('/manga/77bee52c-d2d6-44ad-a33a-1734c1fe696a')).toBe(
-			'77bee52c-d2d6-44ad-a33a-1734c1fe696a'
-		);
+		expect(
+			buildTitleRouteBaseFromUrl(
+				'/manga/77bee52c-d2d6-44ad-a33a-1734c1fe696a',
+				'Placeholder title'
+			)
+		).toBe('placeholder-title');
 		expect(buildTitleRouteBaseFromUrl('https://site.test/title/chainsaw-man')).toBe('chainsaw-man');
+	});
+
+	it('prefers readable fallback title slugs when source urls are opaque', () => {
+		expect(
+			buildTitleRouteBaseFromUrl(
+				'https://cubari.moe/read/gist/cmF3L3RvdHN1bG92ZXJ5dXJpL01vbmFUTHMvcmVmcy9oZWFkcy9tYWluL2NyaW1lLXl1cmkvbWFuZ2EuanNvbg/',
+				'Tsumi ni Oboreru Crime Yuri Anthology'
+			)
+		).toBe('tsumi-ni-oboreru-crime-yuri-anthology');
+		expect(
+			buildTitleRouteBaseFromUrl(
+				'https://reader.example/content/manga.json',
+				'Tsumi ni Oboreru Crime Yuri Anthology'
+			)
+		).toBe('tsumi-ni-oboreru-crime-yuri-anthology');
+	});
+
+	it('normalizes malformed source url paths before routing or storage', () => {
+		expect(normalizeSourceUrlPath('/read/gist/token//4/0')).toBe('/read/gist/token/4/0');
+		expect(normalizeSourceUrlPath('https://cubari.moe/read/gist/token//4/0?quality=high')).toBe(
+			'https://cubari.moe/read/gist/token/4/0?quality=high'
+		);
 	});
 
 	it('builds and parses title routes with route segments', () => {
