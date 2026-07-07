@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { detectWebProbeRequest, shouldLogRequestEvent } from './logging.js';
+import { detectWebProbeRequest, emitWebEvent, shouldLogRequestEvent } from './logging.js';
+
+afterEach(() => {
+	vi.restoreAllMocks();
+});
 
 describe('web logging policy', () => {
 	it('detects loopback health probes to the login page', () => {
@@ -79,5 +83,42 @@ describe('web logging policy', () => {
 				pathname: '/api/internal/bridge/reader/page'
 			})
 		).toBe(true);
+	});
+
+	it('emits one canonical JSON line to stdout for info events', () => {
+		const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+		const errorWrite = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+
+		const payload = emitWebEvent('info', {
+			event: 'http_request_completed',
+			request_id: 'req-123',
+			status: 200
+		});
+
+		expect(payload).toMatchObject({
+			service: 'web',
+			component: 'web',
+			event: 'http_request_completed',
+			request_id: 'req-123',
+			status: 200
+		});
+		expect(write).toHaveBeenCalledTimes(1);
+		expect(errorWrite).not.toHaveBeenCalled();
+		expect(() => JSON.parse(String(write.mock.calls[0][0]).trim())).not.toThrow();
+	});
+
+	it('emits warn events to stderr without duplicating them to stdout', () => {
+		const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+		const errorWrite = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+
+		emitWebEvent('warn', {
+			event: 'http_request_completed',
+			request_id: 'req-456',
+			status: 404
+		});
+
+		expect(write).not.toHaveBeenCalled();
+		expect(errorWrite).toHaveBeenCalledTimes(1);
+		expect(() => JSON.parse(String(errorWrite.mock.calls[0][0]).trim())).not.toThrow();
 	});
 });

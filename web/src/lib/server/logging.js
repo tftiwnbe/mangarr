@@ -1,9 +1,5 @@
 // @ts-check
 
-import fs from 'node:fs';
-import path from 'node:path';
-
-const GLOBAL_WEB_LOG_STATE_KEY = '__mangarrWebStructuredLogState';
 const DEFAULT_REQUEST_LOG_SLOW_MS = 1_000;
 const REQUEST_LOG_SLOW_MS_BY_PATH = new Map([
 	['/api/covers/proxy', 10_000],
@@ -44,34 +40,11 @@ const KNOWN_BROWSER_PROBE_404_PATHS = new Set([
  */
 
 /**
- * @typedef {{
- *   filePath: string | null,
- *   stream: fs.WriteStream | null,
- *   writeErrorReported: boolean
- * }} WebStructuredLogState
- */
-
-function getState() {
-	const globals =
-		/** @type {typeof globalThis & { [GLOBAL_WEB_LOG_STATE_KEY]?: WebStructuredLogState }} */ (
-			globalThis
-		);
-	if (!globals[GLOBAL_WEB_LOG_STATE_KEY]) {
-		globals[GLOBAL_WEB_LOG_STATE_KEY] = {
-			filePath: null,
-			stream: null,
-			writeErrorReported: false
-		};
-	}
-	return globals[GLOBAL_WEB_LOG_STATE_KEY];
-}
-
-/**
  * @param {string} pathname
  * @param {string | null | undefined} clientAddress
  */
 export function detectWebProbeRequest(pathname, clientAddress) {
-	return isLoopbackAddress(clientAddress) && (pathname === '/login' || pathname === '/metrics');
+	return isLoopbackAddress(clientAddress) && pathname === '/login';
 }
 
 /**
@@ -125,12 +98,11 @@ export function emitWebEvent(level, fields, consoleMessage = null) {
 		timestamp: new Date().toISOString(),
 		level,
 		service: 'web',
+		component: 'web',
 		...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined))
 	};
+	void consoleMessage;
 	writeStructuredEvent(payload);
-	if (consoleMessage) {
-		writeConsoleLine(level, consoleMessage);
-	}
 	return payload;
 }
 
@@ -151,71 +123,18 @@ export function formatHttpRequestSummary({
 }
 
 /**
- * @param {Record<string, unknown>} payload
+ * @param {{ level: ServerLogLevel } & Record<string, unknown>} payload
  */
 function writeStructuredEvent(payload) {
-	const state = getState();
-	try {
-		const stream = getStructuredLogStream(state);
-		stream.write(`${JSON.stringify(payload)}\n`);
-	} catch (error) {
-		if (!state.writeErrorReported) {
-			state.writeErrorReported = true;
-			writeConsoleLine(
-				'error',
-				`web structured logging unavailable: ${error instanceof Error ? error.message : String(error)}`
-			);
-		}
-	}
-}
-
-/**
- * @param {WebStructuredLogState} state
- */
-function getStructuredLogStream(state) {
-	const filePath = structuredLogPath();
-	if (state.stream && state.filePath === filePath) {
-		return state.stream;
-	}
-	if (state.stream) {
-		state.stream.end();
-	}
-	fs.mkdirSync(path.dirname(filePath), { recursive: true });
-	const stream = fs.createWriteStream(filePath, { flags: 'a' });
-	stream.on('error', () => {
-		state.stream = null;
-	});
-	state.filePath = filePath;
-	state.stream = stream;
-	return stream;
-}
-
-function structuredLogPath() {
-	const explicit = (process.env.MANGARR_WEB_EVENTS_LOG_FILE || '').trim();
-	if (explicit) {
-		return explicit;
-	}
-	const logDir =
-		(process.env.MANGARR_SYSTEM_LOG_DIR || '').trim() || path.join(process.cwd(), '.mangarr-logs');
-	return path.join(logDir, 'web-events.jsonl');
+	const stream = levelToStream(payload.level);
+	stream.write(`${JSON.stringify(payload)}\n`);
 }
 
 /**
  * @param {ServerLogLevel} level
- * @param {string} line
  */
-function writeConsoleLine(level, line) {
-	switch (level) {
-		case 'error':
-			console.error(line);
-			break;
-		case 'warn':
-			console.warn(line);
-			break;
-		default:
-			console.info(line);
-			break;
-	}
+function levelToStream(level) {
+	return level === 'error' || level === 'warn' ? process.stderr : process.stdout;
 }
 
 /**

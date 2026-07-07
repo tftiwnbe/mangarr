@@ -235,8 +235,6 @@ object ConfigManager {
         }
     }
 
-    fun metricsEnabled(): Boolean = false
-
     fun syncExtensions(validPackages: Set<String>) {
         update { config ->
             val cleaned = config.extensions.filter { it.packageName in validPackages }

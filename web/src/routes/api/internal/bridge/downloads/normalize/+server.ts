@@ -6,7 +6,6 @@ import { buildBridgeInternalHeaders, getBridgeBaseUrl } from '$lib/server/bridge
 import { requireUser } from '$lib/server/auth';
 import { convexApi } from '$lib/server/convex-api';
 import { getUserConvexClient } from '$lib/server/convex';
-import { recordBridgeRequest } from '$lib/utils/server-metrics.js';
 import { collapseChapterReleases } from '$convex/chapter_groups';
 
 type LibraryChapter = {
@@ -179,33 +178,11 @@ export const POST: RequestHandler = async (event) => {
 				}))
 			}),
 			signal: AbortSignal.timeout(120_000)
-		}).catch((cause) => {
-			recordBridgeRequest({
-				path: '/downloads/normalize',
-				method: 'POST',
-				outcome:
-					cause instanceof DOMException && cause.name === 'TimeoutError'
-						? 'timeout'
-						: 'network_error',
-				status:
-					cause instanceof DOMException && cause.name === 'TimeoutError'
-						? 'timeout'
-						: 'network_error',
-				durationMs: Date.now() - startedAt
-			});
-			return null;
-		});
+		}).catch(() => null);
 
 		if (!response) {
 			throw error(502, 'Bridge download normalize is unavailable');
 		}
-		recordBridgeRequest({
-			path: '/downloads/normalize',
-			method: 'POST',
-			outcome: 'response',
-			status: response.status,
-			durationMs: Date.now() - startedAt
-		});
 		if (!response.ok) {
 			return json(await response.json(), { status: response.status });
 		}

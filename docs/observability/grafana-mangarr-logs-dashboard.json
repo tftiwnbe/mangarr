@@ -1,0 +1,894 @@
+{
+  "annotations": [
+    {
+      "kind": "AnnotationQuery",
+      "spec": {
+        "builtIn": true,
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "query": {
+          "datasource": {
+            "name": "-- Grafana --"
+          },
+          "group": "grafana",
+          "kind": "DataQuery",
+          "spec": {},
+          "version": "v0"
+        }
+      }
+    }
+  ],
+  "cursorSync": "Off",
+  "description": "Mangarr application logs from Loki with service-specific views for runtime, web, bridge, convex, errors, and slow requests.",
+  "editable": true,
+  "elements": {
+    "panel-1": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "efquzgocpsnpcc"
+                    },
+                    "group": "loki",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "direction": "backward",
+                      "editorMode": "builder",
+                      "expr": "{compose_project=\"mangarr\"} | json | __error__=``",
+                      "queryType": "range"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Unified live view across runtime, web, bridge, and convex.",
+        "id": 1,
+        "links": [],
+        "title": "All Mangarr Logs",
+        "transparent": true,
+        "vizConfig": {
+          "group": "logs",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {},
+              "overrides": []
+            },
+            "options": {
+              "dedupStrategy": "none",
+              "displayedFields": [
+                "service",
+                "component",
+                "event",
+                "level",
+                "status",
+                "httpCode",
+                "path",
+                "logger",
+                "message",
+                "duration_ms",
+                "durationMs",
+                "throwable_message"
+              ],
+              "enableInfiniteScrolling": true,
+              "enableLogDetails": false,
+              "fontSize": "default",
+              "prettifyLogMessage": true,
+              "showControls": false,
+              "showFieldSelector": true,
+              "showLevel": true,
+              "showTime": true,
+              "sortOrder": "Descending",
+              "syntaxHighlighting": true,
+              "timestampResolution": "ms",
+              "unwrappedColumns": false,
+              "wrapLogMessage": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-2": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "efquzgocpsnpcc"
+                    },
+                    "group": "loki",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "direction": "backward",
+                      "editorMode": "builder",
+                      "expr": "{compose_project=\"mangarr\"} | json | __error__=`` | level=\"error\"",
+                      "queryType": "range"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Only error-level events across all services.",
+        "id": 2,
+        "links": [],
+        "title": "Errors Only",
+        "transparent": true,
+        "vizConfig": {
+          "group": "logs",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {},
+              "overrides": []
+            },
+            "options": {
+              "dedupStrategy": "signature",
+              "displayedFields": [
+                "service",
+                "component",
+                "event",
+                "logger",
+                "path",
+                "status",
+                "httpCode",
+                "throwable_class",
+                "throwable_message",
+                "message"
+              ],
+              "enableInfiniteScrolling": true,
+              "enableLogDetails": false,
+              "fontSize": "default",
+              "prettifyLogMessage": true,
+              "showControls": false,
+              "showFieldSelector": true,
+              "showLevel": true,
+              "showTime": true,
+              "sortOrder": "Descending",
+              "syntaxHighlighting": true,
+              "timestampResolution": "ms",
+              "unwrappedColumns": false,
+              "wrapLogMessage": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-3": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "efquzgocpsnpcc"
+                    },
+                    "group": "loki",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "direction": "backward",
+                      "editorMode": "builder",
+                      "expr": "{compose_project=\"mangarr\"} | json | __error__=`` | service=\"runtime\"",
+                      "queryType": "range"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Supervisor lifecycle, readiness, and process start or exit events.",
+        "id": 3,
+        "links": [],
+        "title": "Runtime / Supervisor",
+        "transparent": true,
+        "vizConfig": {
+          "group": "logs",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {},
+              "overrides": []
+            },
+            "options": {
+              "dedupStrategy": "none",
+              "displayedFields": [
+                "component_name",
+                "event",
+                "target_url",
+                "command",
+                "exit_code",
+                "signal",
+                "message"
+              ],
+              "enableInfiniteScrolling": true,
+              "enableLogDetails": false,
+              "fontSize": "default",
+              "prettifyLogMessage": true,
+              "showControls": false,
+              "showFieldSelector": true,
+              "showLevel": true,
+              "showTime": true,
+              "sortOrder": "Descending",
+              "syntaxHighlighting": true,
+              "timestampResolution": "ms",
+              "unwrappedColumns": false,
+              "wrapLogMessage": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-4": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "efquzgocpsnpcc"
+                    },
+                    "group": "loki",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "direction": "backward",
+                      "editorMode": "builder",
+                      "expr": "{compose_project=\"mangarr\"} | json | __error__=`` | service=\"web\" | event=~\"http_request_completed|http_request_failed|server_started\"",
+                      "queryType": "range"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Web request and startup events. Successful fast requests are intentionally suppressed by the app logger.",
+        "id": 4,
+        "links": [],
+        "title": "Web Requests",
+        "transparent": true,
+        "vizConfig": {
+          "group": "logs",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {},
+              "overrides": []
+            },
+            "options": {
+              "dedupStrategy": "none",
+              "displayedFields": [
+                "event",
+                "method",
+                "path",
+                "route_id",
+                "status",
+                "duration_ms",
+                "kind",
+                "request_id",
+                "error_name",
+                "error_message",
+                "message"
+              ],
+              "enableInfiniteScrolling": true,
+              "enableLogDetails": false,
+              "fontSize": "default",
+              "prettifyLogMessage": true,
+              "showControls": false,
+              "showFieldSelector": true,
+              "showLevel": true,
+              "showTime": true,
+              "sortOrder": "Descending",
+              "syntaxHighlighting": true,
+              "timestampResolution": "ms",
+              "unwrappedColumns": false,
+              "wrapLogMessage": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-5": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "efquzgocpsnpcc"
+                    },
+                    "group": "loki",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "direction": "backward",
+                      "editorMode": "builder",
+                      "expr": "{compose_project=\"mangarr\"} | json | __error__=`` | service=\"web\" | event=~\"http_request_completed|http_request_failed\" | duration_ms >= 1000",
+                      "queryType": "range"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Slow or failed web requests. The application already suppresses fast routine traffic.",
+        "id": 5,
+        "links": [],
+        "title": "Web Slow / Failed Requests",
+        "transparent": true,
+        "vizConfig": {
+          "group": "logs",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {},
+              "overrides": []
+            },
+            "options": {
+              "dedupStrategy": "none",
+              "displayedFields": [
+                "method",
+                "path",
+                "status",
+                "duration_ms",
+                "request_id",
+                "kind",
+                "client_address",
+                "error_name",
+                "error_message",
+                "message"
+              ],
+              "enableInfiniteScrolling": true,
+              "enableLogDetails": false,
+              "fontSize": "default",
+              "prettifyLogMessage": true,
+              "showControls": false,
+              "showFieldSelector": true,
+              "showLevel": true,
+              "showTime": true,
+              "sortOrder": "Descending",
+              "syntaxHighlighting": true,
+              "timestampResolution": "ms",
+              "unwrappedColumns": false,
+              "wrapLogMessage": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-6": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "efquzgocpsnpcc"
+                    },
+                    "group": "loki",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "direction": "backward",
+                      "editorMode": "builder",
+                      "expr": "{compose_project=\"mangarr\"} | json | __error__=`` | service=\"bridge\" | event=~\"http.request.completed|bridge.runtime.*|bridge.warmup.*|bridge.kcef.*|bridge.downloads.recovered\"",
+                      "queryType": "range"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Bridge lifecycle plus HTTP request completion logs.",
+        "id": 6,
+        "links": [],
+        "title": "Bridge Runtime / HTTP",
+        "transparent": true,
+        "vizConfig": {
+          "group": "logs",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {},
+              "overrides": []
+            },
+            "options": {
+              "dedupStrategy": "none",
+              "displayedFields": [
+                "component",
+                "event",
+                "method",
+                "path",
+                "route",
+                "status",
+                "duration_ms",
+                "bridgeId",
+                "subsystem",
+                "message"
+              ],
+              "enableInfiniteScrolling": true,
+              "enableLogDetails": false,
+              "fontSize": "default",
+              "prettifyLogMessage": true,
+              "showControls": false,
+              "showFieldSelector": true,
+              "showLevel": true,
+              "showTime": true,
+              "sortOrder": "Descending",
+              "syntaxHighlighting": true,
+              "timestampResolution": "ms",
+              "unwrappedColumns": false,
+              "wrapLogMessage": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-7": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "efquzgocpsnpcc"
+                    },
+                    "group": "loki",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "direction": "backward",
+                      "editorMode": "builder",
+                      "expr": "{compose_project=\"mangarr\"} | json | __error__=`` | service=\"bridge\" | event=\"http.request.completed\" | duration_ms >= 1000",
+                      "queryType": "range"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Bridge HTTP request outliers using the same slow-request logs emitted by the bridge server.",
+        "id": 7,
+        "links": [],
+        "title": "Bridge Slow HTTP Requests",
+        "transparent": true,
+        "vizConfig": {
+          "group": "logs",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {},
+              "overrides": []
+            },
+            "options": {
+              "dedupStrategy": "none",
+              "displayedFields": [
+                "component",
+                "event",
+                "path",
+                "route",
+                "status",
+                "duration_ms",
+                "request_id",
+                "remote_addr",
+                "message"
+              ],
+              "enableInfiniteScrolling": true,
+              "enableLogDetails": false,
+              "fontSize": "default",
+              "prettifyLogMessage": true,
+              "showControls": false,
+              "showFieldSelector": true,
+              "showLevel": true,
+              "showTime": true,
+              "sortOrder": "Descending",
+              "syntaxHighlighting": true,
+              "timestampResolution": "ms",
+              "unwrappedColumns": false,
+              "wrapLogMessage": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-9": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "efquzgocpsnpcc"
+                    },
+                    "group": "loki",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "direction": "backward",
+                      "editorMode": "builder",
+                      "expr": "{compose_project=\"mangarr\"} | json | __error__=`` | service=\"bridge\" | event=~\"bridge.command.failed|bridge.command.failed_permanent|bridge.command.stale_lease\"",
+                      "queryType": "range"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Bridge command execution failures, stale leases, and retry behavior.",
+        "id": 9,
+        "links": [],
+        "title": "Bridge Command Failures",
+        "transparent": true,
+        "vizConfig": {
+          "group": "logs",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {},
+              "overrides": []
+            },
+            "options": {
+              "dedupStrategy": "none",
+              "displayedFields": [
+                "component",
+                "event",
+                "commandType",
+                "durationMs",
+                "retryDelayMs",
+                "httpCode",
+                "throwable_class",
+                "throwable_message",
+                "message"
+              ],
+              "enableInfiniteScrolling": true,
+              "enableLogDetails": false,
+              "fontSize": "default",
+              "prettifyLogMessage": true,
+              "showControls": false,
+              "showFieldSelector": true,
+              "showLevel": true,
+              "showTime": true,
+              "sortOrder": "Descending",
+              "syntaxHighlighting": true,
+              "timestampResolution": "ms",
+              "unwrappedColumns": false,
+              "wrapLogMessage": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    },
+    "panel-8": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "efquzgocpsnpcc"
+                    },
+                    "group": "loki",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "direction": "backward",
+                      "editorMode": "builder",
+                      "expr": "{compose_project=\"mangarr\"} | json | __error__=`` | service=\"convex\"",
+                      "queryType": "range"
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "Convex backend logs, including structured parser output from the runtime supervisor.",
+        "id": 8,
+        "links": [],
+        "title": "Convex",
+        "transparent": true,
+        "vizConfig": {
+          "group": "logs",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {},
+              "overrides": []
+            },
+            "options": {
+              "dedupStrategy": "none",
+              "displayedFields": [
+                "event",
+                "logger",
+                "socket_path",
+                "tempdir",
+                "message"
+              ],
+              "enableInfiniteScrolling": true,
+              "enableLogDetails": false,
+              "fontSize": "default",
+              "prettifyLogMessage": true,
+              "showControls": false,
+              "showFieldSelector": true,
+              "showLevel": true,
+              "showTime": true,
+              "sortOrder": "Descending",
+              "syntaxHighlighting": true,
+              "timestampResolution": "ms",
+              "unwrappedColumns": false,
+              "wrapLogMessage": true
+            }
+          },
+          "version": "13.1.0"
+        }
+      }
+    }
+  },
+  "layout": {
+    "kind": "GridLayout",
+    "spec": {
+      "items": [
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-1"
+            },
+            "height": 12,
+            "width": 24,
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-2"
+            },
+            "height": 9,
+            "width": 12,
+            "x": 0,
+            "y": 12
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-3"
+            },
+            "height": 9,
+            "width": 12,
+            "x": 12,
+            "y": 12
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-4"
+            },
+            "height": 10,
+            "width": 12,
+            "x": 0,
+            "y": 21
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-5"
+            },
+            "height": 10,
+            "width": 12,
+            "x": 12,
+            "y": 21
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-6"
+            },
+            "height": 10,
+            "width": 12,
+            "x": 0,
+            "y": 31
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-7"
+            },
+            "height": 10,
+            "width": 12,
+            "x": 12,
+            "y": 31
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-9"
+            },
+            "height": 10,
+            "width": 12,
+            "x": 0,
+            "y": 41
+          }
+        },
+        {
+          "kind": "GridLayoutItem",
+          "spec": {
+            "element": {
+              "kind": "ElementReference",
+              "name": "panel-8"
+            },
+            "height": 10,
+            "width": 12,
+            "x": 12,
+            "y": 41
+          }
+        }
+      ]
+    }
+  },
+  "links": [],
+  "liveNow": false,
+  "preferences": {
+    "layout": {
+      "kind": "GridLayout",
+      "spec": {
+        "items": []
+      }
+    }
+  },
+  "preload": false,
+  "tags": [
+    "mangarr",
+    "logs",
+    "loki"
+  ],
+  "timeSettings": {
+    "autoRefresh": "",
+    "autoRefreshIntervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ],
+    "fiscalYearStartMonth": 0,
+    "from": "now-12h",
+    "hideTimepicker": false,
+    "timezone": "browser",
+    "to": "now"
+  },
+  "title": "Mangarr",
+  "variables": []
+}

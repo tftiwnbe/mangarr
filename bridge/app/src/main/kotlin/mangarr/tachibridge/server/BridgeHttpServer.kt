@@ -24,7 +24,6 @@ import mangarr.tachibridge.runtime.BridgeSnapshot
 import mangarr.tachibridge.runtime.BridgeCommandRunner
 import mangarr.tachibridge.runtime.CommandRunnerSnapshot
 import mangarr.tachibridge.runtime.BridgeHeartbeatReporter
-import mangarr.tachibridge.runtime.BridgeMetrics
 import mangarr.tachibridge.runtime.BridgeService
 import mangarr.tachibridge.runtime.HeartbeatSnapshot
 import mangarr.tachibridge.runtime.BridgeState
@@ -66,7 +65,7 @@ private const val DEFAULT_REQUEST_LOG_SLOW_MS = 1_000L
 private const val PAGE_ASSET_REQUEST_LOG_SLOW_MS = 5_000L
 private const val REMOTE_COVER_REQUEST_LOG_SLOW_MS = 10_000L
 private val REQUEST_ID_PATTERN = Regex("^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
-private val HTTP_PROBE_PATHS = setOf("/health", "/metrics")
+private val HTTP_PROBE_PATHS = setOf("/health")
 private typealias HostResolver = (String) -> List<InetAddress>
 
 internal data class PinnedRemoteCoverTarget(

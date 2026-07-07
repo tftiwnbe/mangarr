@@ -1,16 +1,27 @@
 package mangarr.tachibridge.logging
 
-import io.github.oshai.kotlinlogging.KLogger
-import io.github.oshai.kotlinlogging.KotlinLogging
+import java.nio.file.Path
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import net.logstash.logback.marker.Markers
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import org.slf4j.MDC
 
 class LogContext internal constructor(
-    private val fields: Map<String, String>,
+    private val fields: Map<String, Any?>,
 ) {
     companion object {
+        private val threadLocal = ThreadLocal.withInitial { emptyList<Map<String, Any?>>() }
+
         val Empty = LogContext(emptyMap())
 
         fun of(vararg entries: Pair<String, Any?>): LogContext = Empty.with(*entries)
+
+        fun current(): Map<String, Any?> =
+            threadLocal.get().fold(emptyMap()) { acc, fields -> acc + fields }
     }
 
     fun with(vararg entries: Pair<String, Any?>): LogContext {
@@ -28,7 +39,7 @@ class LogContext internal constructor(
             if (value == null) {
                 next.remove(normalizedKey)
             } else {
-                next[normalizedKey] = value.toString()
+                next[normalizedKey] = normalizeLogValue(value)
             }
         }
 
@@ -36,22 +47,30 @@ class LogContext internal constructor(
     }
 
     fun <T> use(block: () -> T): T {
-        val handles = fields.map { (key, value) -> MDC.putCloseable(key, value) }
+        val previous = threadLocal.get()
+        threadLocal.set(previous + listOf(fields))
+        val handles =
+            fields.mapNotNull { (key, value) ->
+                value?.let { MDC.putCloseable(key, stringifyMdcValue(it)) }
+            }
         try {
             return block()
         } finally {
             handles.asReversed().forEach { it.close() }
+            threadLocal.set(previous)
         }
     }
+
+    internal fun values(): Map<String, Any?> = fields
 }
 
 class EventLogger private constructor(
-    private val logger: KLogger,
+    private val logger: Logger,
     private val baseContext: LogContext,
 ) {
     companion object {
         fun named(name: String, vararg context: Pair<String, Any?>): EventLogger =
-            EventLogger(KotlinLogging.logger(name), LogContext.of(*context))
+            EventLogger(LoggerFactory.getLogger(name), LogContext.of(*context))
     }
 
     fun withContext(vararg context: Pair<String, Any?>): EventLogger =
@@ -88,39 +107,82 @@ class EventLogger private constructor(
         error: Throwable?,
         context: Array<out Pair<String, Any?>>,
     ) {
-        baseContext.with("event" to event, *context).use {
-            when (level) {
-                Level.DEBUG ->
-                    if (error == null) {
-                        logger.debug { message }
-                    } else {
-                        logger.debug(error) { message }
-                    }
+        val fields = LinkedHashMap(LogContext.current())
+        fields.putAll(baseContext.with("event" to event, *context).values())
+        val marker = Markers.appendEntries(fields)
+        when (level) {
+            Level.DEBUG ->
+                if (error == null) {
+                    logger.debug(marker, message)
+                } else {
+                    logger.debug(marker, message, error)
+                }
 
-                Level.INFO ->
-                    if (error == null) {
-                        logger.info { message }
-                    } else {
-                        logger.info(error) { message }
-                    }
+            Level.INFO ->
+                if (error == null) {
+                    logger.info(marker, message)
+                } else {
+                    logger.info(marker, message, error)
+                }
 
-                Level.WARN ->
-                    if (error == null) {
-                        logger.warn { message }
-                    } else {
-                        logger.warn(error) { message }
-                    }
+            Level.WARN ->
+                if (error == null) {
+                    logger.warn(marker, message)
+                } else {
+                    logger.warn(marker, message, error)
+                }
 
-                Level.ERROR ->
-                    if (error == null) {
-                        logger.error { message }
-                    } else {
-                        logger.error(error) { message }
-                    }
-            }
+            Level.ERROR ->
+                if (error == null) {
+                    logger.error(marker, message)
+                } else {
+                    logger.error(marker, message, error)
+                }
         }
     }
 }
+
+internal fun normalizeLogValue(value: Any?): Any? =
+    when (value) {
+        null -> null
+        is String, is Number, is Boolean -> value
+        is Path -> value.toString()
+        is Enum<*> -> value.name
+        is JsonObject ->
+            value.entries.associate { (key, item) ->
+                key to normalizeLogValue(item)
+            }
+        is JsonArray -> value.map(::normalizeLogValue)
+        is JsonPrimitive -> normalizeJsonPrimitive(value)
+        is JsonNull -> null
+        is Map<*, *> ->
+            value.entries.associate { (key, item) ->
+                key.toString() to normalizeLogValue(item)
+            }
+        is Iterable<*> -> value.map(::normalizeLogValue)
+        is Array<*> -> value.map(::normalizeLogValue)
+        else -> value.toString()
+    }
+
+private fun normalizeJsonPrimitive(value: JsonPrimitive): Any? {
+    if (value.isString) {
+        return value.content
+    }
+    val content = value.content
+    when {
+        content.equals("true", ignoreCase = true) -> return true
+        content.equals("false", ignoreCase = true) -> return false
+        content.toLongOrNull() != null -> return content.toLong()
+        content.toDoubleOrNull() != null -> return content.toDouble()
+        else -> return content
+    }
+}
+
+private fun stringifyMdcValue(value: Any): String =
+    when (value) {
+        is String -> value
+        else -> value.toString()
+    }
 
 private enum class Level {
     DEBUG,

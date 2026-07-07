@@ -3,7 +3,6 @@ import type { RequestEvent } from '@sveltejs/kit';
 
 import { requireUser } from './auth';
 import { buildBridgeInternalHeaders, getBridgeBaseUrl } from './bridge';
-import { recordBridgeRequest } from '$lib/utils/server-metrics.js';
 
 // content-length is intentionally omitted: Node's fetch transparently decodes
 // gzip/br response bodies, so upstream's content-length (the encoded size) no
@@ -54,31 +53,11 @@ export async function proxyBridgeRequest(
 			signal
 		});
 	} catch (cause) {
-		recordBridgeRequest({
-			path: bridgePath,
-			method: init.method ?? 'GET',
-			outcome:
-				cause instanceof DOMException && cause.name === 'TimeoutError'
-					? 'timeout'
-					: 'network_error',
-			status:
-				cause instanceof DOMException && cause.name === 'TimeoutError'
-					? 'timeout'
-					: 'network_error',
-			durationMs: Date.now() - startedAt
-		});
 		if (cause instanceof DOMException && cause.name === 'TimeoutError') {
 			throw error(504, 'Bridge request timed out');
 		}
 		throw error(502, 'Bridge internal API is unavailable');
 	}
-	recordBridgeRequest({
-		path: bridgePath,
-		method: init.method ?? 'GET',
-		outcome: 'response',
-		status: upstream.status,
-		durationMs: Date.now() - startedAt
-	});
 
 	const headers = new Headers();
 	for (const name of FORWARDED_HEADERS) {

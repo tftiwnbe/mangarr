@@ -68,7 +68,7 @@ Back up:
 - logs are written to `config/logs/system/` and `config/logs/bridge/`
 - the public web URL is configured with `MANGARR_PUBLIC_URL`
 - the public Convex URL is derived automatically as `${MANGARR_PUBLIC_URL}/convex`
-- the internal bridge port exposes `/health` and `/metrics` for runtime probing and scraping
+- the internal bridge port exposes `/health` for runtime probing
 
 ## Restore
 

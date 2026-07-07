@@ -196,30 +196,15 @@ class ConvexBridgeClient(
         call("/api/query", path, args)
 
     private inline fun <reified T> call(endpoint: String, path: String, args: JsonObject): T {
-        val startedAt = System.currentTimeMillis()
         var attempt = 0
         while (true) {
             try {
-                val value = callOnce<T>(endpoint, path, args)
-                BridgeMetrics.recordConvexCall(
-                    endpoint = endpoint,
-                    path = path,
-                    outcome = if (attempt == 0) "success" else "success_after_retry",
-                    durationMs = System.currentTimeMillis() - startedAt,
-                )
-                return value
+                return callOnce(endpoint, path, args)
             } catch (error: IllegalStateException) {
                 attempt += 1
                 if (!isRetryableConvexOcc(error.message) || attempt >= CONVEX_OCC_MAX_ATTEMPTS) {
-                    BridgeMetrics.recordConvexCall(
-                        endpoint = endpoint,
-                        path = path,
-                        outcome = "error",
-                        durationMs = System.currentTimeMillis() - startedAt,
-                    )
                     throw error
                 }
-                BridgeMetrics.recordConvexRetry(endpoint = endpoint, path = path)
                 Thread.sleep(convexOccBackoffMs(attempt))
             }
         }

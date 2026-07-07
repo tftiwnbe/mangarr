@@ -35,7 +35,6 @@ private const val MAX_LEASE_RECOVERY_INTERVAL_MS = 15_000L
 private const val MAX_COMMAND_LEASE_RENEW_INTERVAL_MS = 10_000L
 private const val IDLE_POLL_BACKOFF_STEP_POLLS = 3
 private const val MAX_IDLE_POLL_INTERVAL_MS = 15_000L
-private const val COMMAND_QUEUE_METRICS_REFRESH_INTERVAL_MS = 15_000L
 
 @Serializable
 data class CommandRunnerSnapshot(
@@ -82,7 +81,6 @@ class BridgeCommandRunner(
         (leaseDurationMs / 3).coerceAtLeast(5_000L).coerceAtMost(MAX_COMMAND_LEASE_RENEW_INTERVAL_MS)
     private var job: Job? = null
     private var lastLeaseRecoveryAt = 0L
-    private var lastQueueMetricsAt = 0L
     private var consecutiveIdlePolls = 0
     @Volatile
     private var snapshot =
@@ -100,7 +98,6 @@ class BridgeCommandRunner(
         requestedByUserId: String? = null,
     ): JsonObject {
         val client = bridgeClient ?: error("Convex URL is not configured")
-        val startedAt = System.currentTimeMillis()
         val syntheticCommand =
             LeaseCommand(
                 id = "workpool-${System.currentTimeMillis()}",
@@ -111,22 +108,7 @@ class BridgeCommandRunner(
                 attemptCount = 0.0,
                 maxAttempts = 1.0,
             )
-        return try {
-            executeCommand(client, syntheticCommand).also {
-                BridgeMetrics.recordCommandExecution(
-                    commandType = commandType,
-                    outcome = "direct_success",
-                    durationMs = System.currentTimeMillis() - startedAt,
-                )
-            }
-        } catch (error: Exception) {
-            BridgeMetrics.recordCommandExecution(
-                commandType = commandType,
-                outcome = "direct_failure",
-                durationMs = System.currentTimeMillis() - startedAt,
-            )
-            throw error
-        }
+        return executeCommand(client, syntheticCommand)
     }
 
     fun start() {
@@ -134,8 +116,6 @@ class BridgeCommandRunner(
             return
         }
         snapshot = snapshot.copy(running = true)
-        BridgeMetrics.setCommandPollState(pollIntervalMs, 0)
-        syncLaneMetrics()
         job =
             scope.launch {
                 recoverDownloadStateOnStartup()
@@ -148,7 +128,6 @@ class BridgeCommandRunner(
                             consecutiveIdlePolls + 1
                         }
                     val nextDelayMs = idlePollDelayMs(pollIntervalMs, consecutiveIdlePolls)
-                    BridgeMetrics.setCommandPollState(nextDelayMs, consecutiveIdlePolls)
                     delay(nextDelayMs)
                 }
             }
@@ -158,8 +137,6 @@ class BridgeCommandRunner(
         job?.cancel()
         job = null
         snapshot = snapshot.copy(running = false)
-        BridgeMetrics.setCommandPollState(pollIntervalMs, 0)
-        syncLaneMetrics()
     }
 
     private suspend fun poll(): CommandPollResult {
@@ -181,20 +158,14 @@ class BridgeCommandRunner(
                             null
                         }
                     }
-            maybeRefreshQueueMetrics(client, now)
             if (requests.isEmpty()) {
-                BridgeMetrics.recordLeasePoll(outcome = "skipped", durationMs = 0, requestStats = emptyList())
                 snapshot = snapshot.copy(lastSuccessAt = now, lastError = null)
                 return CommandPollResult(success = true, leasedCount = 0)
             }
             val leaseStartedAt = System.currentTimeMillis()
             val leaseResponse = leaseCommandsBatch(client, now, requests)
             val leased = leaseResponse.leasedCommands
-            BridgeMetrics.recordLeasePoll(
-                outcome = if (leased.isEmpty()) "empty" else "leased",
-                durationMs = System.currentTimeMillis() - leaseStartedAt,
-                requestStats = leaseResponse.requestStats,
-            )
+            val leaseDurationMs = System.currentTimeMillis() - leaseStartedAt
 
             if (leased.isNotEmpty()) {
                 events.debug(
@@ -202,6 +173,7 @@ class BridgeCommandRunner(
                     "Leased bridge commands",
                     "bridgeId" to bridgeId,
                     "count" to leased.size,
+                    "durationMs" to leaseDurationMs,
                 )
             }
 
@@ -216,7 +188,6 @@ class BridgeCommandRunner(
                 error,
                 "bridgeId" to bridgeId,
             )
-            BridgeMetrics.recordLeasePoll(outcome = "error", durationMs = 0, requestStats = emptyList())
             snapshot = snapshot.copy(lastError = error.message ?: "Unknown command error")
             return CommandPollResult(success = false, leasedCount = 0)
         }
@@ -288,52 +259,6 @@ class BridgeCommandRunner(
             )
     }
 
-    private fun maybeRefreshQueueMetrics(
-        client: ConvexBridgeClient,
-        now: Long,
-    ) {
-        if (lastQueueMetricsAt != 0L && now - lastQueueMetricsAt < COMMAND_QUEUE_METRICS_REFRESH_INTERVAL_MS) {
-            return
-        }
-        val snapshot =
-            client.commandQueueSnapshot(
-                client.payload(
-                    buildJsonObject {
-                        put("now", now)
-                        put(
-                            "requests",
-                            kotlinx.serialization.json.buildJsonArray {
-                                commandLaneTracker.lanes().forEach { lane ->
-                                    add(
-                                        buildJsonObject {
-                                            put("lane", lane.metricName())
-                                            put(
-                                                "capabilities",
-                                                kotlinx.serialization.json.buildJsonArray {
-                                                    lane.capabilities.forEach { capability -> add(JsonPrimitive(capability)) }
-                                                },
-                                            )
-                                            put("limit", lane.concurrency)
-                                        },
-                                    )
-                                }
-                            },
-                        )
-                    },
-                ),
-            )
-        BridgeMetrics.recordQueueSnapshot(
-            snapshot.lanes.map { lane ->
-                CommandQueueLaneSnapshot(
-                    lane = lane.lane,
-                    readyCount = lane.readyCount.toLong(),
-                    oldestReadyAgeMs = lane.oldestReadyAgeMs.toLong(),
-                )
-            },
-        )
-        lastQueueMetricsAt = now
-    }
-
     private suspend fun recoverDownloadStateOnStartup() {
         val client = bridgeClient ?: return
         runCatching {
@@ -376,25 +301,13 @@ class BridgeCommandRunner(
             val lane = BridgeCommandLane.fromCommandType(command.commandType)
             val counter = commandLaneTracker.increment(command.commandType)
             counter.incrementAndGet()
-            BridgeMetrics.setLaneState(lane.metricName(), counter.get().toLong(), lane.concurrency.toLong())
             scope.launch {
                 try {
                     handleCommand(client, command)
                 } finally {
                     counter.decrementAndGet()
-                    BridgeMetrics.setLaneState(lane.metricName(), counter.get().toLong(), lane.concurrency.toLong())
                 }
             }
-        }
-    }
-
-    private fun syncLaneMetrics() {
-        commandLaneTracker.lanes().forEach { lane ->
-            BridgeMetrics.setLaneState(
-                lane.metricName(),
-                commandLaneTracker.activeCount(lane).toLong(),
-                lane.concurrency.toLong(),
-            )
         }
     }
 
@@ -476,7 +389,6 @@ class BridgeCommandRunner(
                 }
                 check(completion.ok) { "Bridge command ${command.id} could not be completed" }
                 val durationMs = System.currentTimeMillis() - startedAt
-                BridgeMetrics.recordCommandExecution(command.commandType, outcome = "success", durationMs = durationMs)
                 events.debug(
                     "bridge.command.completed",
                     "Completed bridge command",
@@ -485,7 +397,6 @@ class BridgeCommandRunner(
             } catch (error: Exception) {
                 val durationMs = System.currentTimeMillis() - startedAt
                 if (error is StaleCommandLeaseException) {
-                    BridgeMetrics.recordCommandExecution(command.commandType, outcome = "stale", durationMs = durationMs)
                     events.warn(
                         "bridge.command.stale_lease",
                         "Bridge command lost lease ownership; abandoning stale worker",
@@ -543,11 +454,6 @@ class BridgeCommandRunner(
                             "httpCode" to failure.httpCode,
                         )
                     }
-                    BridgeMetrics.recordCommandExecution(
-                        command.commandType,
-                        outcome = if (retryable) "retryable_failure" else "permanent_failure",
-                        durationMs = durationMs,
-                    )
                     if (command.commandType == "discovery.feed.crawl") {
                         runCatching {
                             val payload = command.payload.jsonObject
