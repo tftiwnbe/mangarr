@@ -3,6 +3,7 @@
 const DEFAULT_REQUEST_LOG_SLOW_MS = 1_000;
 const REQUEST_LOG_SLOW_MS_BY_PATH = new Map([
 	['/api/covers/proxy', 10_000],
+	['/api/internal/bridge/library/page', 5_000],
 	['/api/internal/bridge/reader/page', 5_000]
 ]);
 const KNOWN_BROWSER_PROBE_404_PATHS = new Set([

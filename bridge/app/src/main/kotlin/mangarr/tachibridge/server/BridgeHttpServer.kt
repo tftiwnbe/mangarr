@@ -1017,6 +1017,7 @@ class BridgeHttpServer(
     private fun requestLogSlowThresholdMs(path: String): Long =
         when (path) {
             "/assets/page" -> PAGE_ASSET_REQUEST_LOG_SLOW_MS
+            "/assets/library/page" -> PAGE_ASSET_REQUEST_LOG_SLOW_MS
             "/assets/remote/cover" -> REMOTE_COVER_REQUEST_LOG_SLOW_MS
             else -> DEFAULT_REQUEST_LOG_SLOW_MS
         }

@@ -54,6 +54,41 @@ describe('chapter group identity', () => {
 		expect(chapters[0]?.downloadStatus).toBe('downloaded');
 	});
 
+	it('prefers a downloaded local release over a merely available remote release', () => {
+		const chapters = collapseChapterReleases([
+			{
+				_id: 'chapter_remote' as Id<'libraryChapters'>,
+				chapterGroupKey: 'chapter:94',
+				chapterName: 'Том 2 Глава 94',
+				chapterNumber: 94,
+				scanlator: 'Remote Release',
+				dateUpload: 2,
+				sequence: 94,
+				isAvailableFromSource: true,
+				downloadStatus: 'missing' as const,
+				downloadedPages: 0
+			},
+			{
+				_id: 'chapter_local' as Id<'libraryChapters'>,
+				chapterGroupKey: 'chapter:94',
+				chapterName: 'Том 2 Глава 94',
+				chapterNumber: 94,
+				scanlator: 'Local Release',
+				dateUpload: 1,
+				sequence: 94,
+				isAvailableFromSource: false,
+				downloadStatus: 'downloaded' as const,
+				downloadedPages: 52,
+				localRelativePath: 'title/source/ch-94'
+			}
+		]);
+
+		expect(chapters).toHaveLength(1);
+		expect(chapters[0]?._id).toBe('chapter_local');
+		expect(chapters[0]?.downloadStatus).toBe('downloaded');
+		expect(chapters[0]?.localRelativePath).toBe('title/source/ch-94');
+	});
+
 	it('counts grouped download stats once per logical chapter', () => {
 		const stats = summarizeGroupedChapterStatuses([
 			{

@@ -106,10 +106,6 @@ function compareReadingOrder<T extends Pick<ChapterReleaseBase, '_id' | 'chapter
 }
 
 function comparePreferredRelease<T extends ChapterReleaseBase>(left: T, right: T) {
-	const availableLeft = left.isAvailableFromSource !== false ? 1 : 0;
-	const availableRight = right.isAvailableFromSource !== false ? 1 : 0;
-	if (availableLeft !== availableRight) return availableRight - availableLeft;
-
 	const localLeft = typeof left.localRelativePath === 'string' && left.localRelativePath.trim() ? 1 : 0;
 	const localRight =
 		typeof right.localRelativePath === 'string' && right.localRelativePath.trim() ? 1 : 0;
@@ -136,6 +132,10 @@ function comparePreferredRelease<T extends ChapterReleaseBase>(left: T, right: T
 						? 1
 						: 0;
 	if (statusLeft !== statusRight) return statusRight - statusLeft;
+
+	const availableLeft = left.isAvailableFromSource !== false ? 1 : 0;
+	const availableRight = right.isAvailableFromSource !== false ? 1 : 0;
+	if (availableLeft !== availableRight) return availableRight - availableLeft;
 
 	const downloadTimeComparison = compareNullableNumbers(
 		finiteNumber(right.downloadedAt) ?? finiteNumber(right.updatedAt),

@@ -12,6 +12,8 @@ import java.nio.file.StandardCopyOption
 import java.nio.file.DirectoryNotEmptyException
 import java.security.MessageDigest
 import java.text.Normalizer
+import java.util.Collections
+import java.util.LinkedHashMap
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.io.path.deleteIfExists
@@ -61,6 +63,12 @@ class DownloadStorage(
 ) {
     private val dataRoot = dataPath
     private val coversRoot = dataPath.resolve("covers")
+    private val storedPageIndexCache =
+        Collections.synchronizedMap(
+            object : LinkedHashMap<String, List<Path>>(256, 0.75f, true) {
+                override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<Path>>): Boolean = size > 512
+            },
+        )
 
     init {
         Files.createDirectories(coversRoot)
@@ -430,13 +438,7 @@ class DownloadStorage(
         index: Int,
     ): PageImagePayload {
         require(directory.exists() && directory.isDirectory()) { "Downloaded chapter directory is unavailable" }
-        val imageFiles =
-            Files.list(directory).use { stream ->
-                stream
-                    .filter { path -> Files.isRegularFile(path) }
-                    .sorted(compareBy { it.fileName.toString() })
-                    .toList()
-            }
+        val imageFiles = cachedDirectoryPages(directory)
         val file = imageFiles.getOrNull(index) ?: error("Downloaded page index out of bounds")
         val bytes = file.readBytes()
         val contentType =
@@ -444,6 +446,26 @@ class DownloadStorage(
                 ?: ImageUtil.findImageType(file::inputStream)?.mime
                 ?: "application/octet-stream"
         return PageImagePayload(contentType = contentType, bytes = bytes)
+    }
+
+    private fun cachedDirectoryPages(directory: Path): List<Path> {
+        val cacheKey = directory.toAbsolutePath().normalize().pathString
+        storedPageIndexCache[cacheKey]?.let { cached ->
+            if (cached.all { Files.isRegularFile(it) }) {
+                return cached
+            }
+            storedPageIndexCache.remove(cacheKey)
+        }
+
+        val imageFiles =
+            Files.list(directory).use { stream ->
+                stream
+                    .filter { path -> Files.isRegularFile(path) }
+                    .sorted(compareBy { it.fileName.toString() })
+                    .toList()
+            }
+        storedPageIndexCache[cacheKey] = imageFiles
+        return imageFiles
     }
 
     private fun storedChapterPath(
