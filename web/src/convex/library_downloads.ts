@@ -10,7 +10,8 @@ import {
 	getPreferredVariantForTitle,
 	markTitleListedInLibrary,
 	resolveStorageTitleBaseForTitle,
-	scheduleTitleStatsRefresh
+	scheduleTitleStatsRefresh,
+	updateTitleChapterStatsIncremental
 } from './library_shared';
 import { insertCommand } from './command_payloads';
 import {
@@ -818,7 +819,15 @@ async function queueDownloadAttempt(
 		oldFileSizeBytes: args.chapter.fileSizeBytes,
 		newFileSizeBytes: undefined
 	});
-	await scheduleChapterTitleStatsRefresh(ctx, args.chapter, args.now);
+	await updateTitleChapterStatsIncremental(
+		ctx,
+		args.chapter.libraryTitleId,
+		args.chapter.downloadStatus,
+		DOWNLOAD_STATUS.QUEUED,
+		args.chapter.fileSizeBytes,
+		undefined,
+		args.now
+	);
 
 	const attemptNumber = await nextDownloadAttemptNumber(ctx, args.chapter._id);
 
@@ -1392,7 +1401,15 @@ async function requeueRecoveredTask(
 		oldFileSizeBytes: chapter.fileSizeBytes,
 		newFileSizeBytes: chapter.fileSizeBytes
 	});
-	await scheduleChapterTitleStatsRefresh(ctx, chapter, now);
+	await updateTitleChapterStatsIncremental(
+		ctx,
+		chapter.libraryTitleId,
+		chapter.downloadStatus,
+		DOWNLOAD_STATUS.QUEUED,
+		chapter.fileSizeBytes,
+		chapter.fileSizeBytes,
+		now
+	);
 }
 
 function buildDownloadCommandPayload(
