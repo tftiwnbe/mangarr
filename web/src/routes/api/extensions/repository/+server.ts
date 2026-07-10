@@ -37,9 +37,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 		});
 	}
 
-	let startedAt = Date.now();
 	try {
-		startedAt = Date.now();
 		const bridgeResponse = await fetch(`${getBridgeBaseUrl()}/extensions/repository`, {
 			headers: buildBridgeInternalHeaders(undefined, locals.requestId),
 			signal: AbortSignal.timeout(10_000)
@@ -74,7 +72,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 			languages: bridgeLanguages,
 			extensionCount: bridgeRepository.extensionCount
 		});
-	} catch (cause) {
+	} catch {
 		return json({
 			...repository,
 			languages: storedLanguages

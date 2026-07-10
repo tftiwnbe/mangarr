@@ -115,7 +115,7 @@ RUN --mount=type=cache,id=mangarr-runtime-apt-cache,target=/var/cache/apt,sharin
     rm -f /etc/apt/apt.conf.d/docker-clean && \
     printf 'Binary::apt::APT::Keep-Downloaded-Packages "true";\n' >/etc/apt/apt.conf.d/keep-cache && \
     corepack enable && \
-    corepack prepare pnpm@10.32.1 --activate && \
+    corepack prepare pnpm@10.33.4 --activate && \
     apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates tini dbus dbus-x11 \
       libasound2 libatk-bridge2.0-0 libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 \

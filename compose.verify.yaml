@@ -1,0 +1,33 @@
+services:
+  mangarr:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: mangarr-runtime
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MANGARR_PUBLIC_URL: http://127.0.0.1:${MANGARR_VERIFY_PORT:?set MANGARR_VERIFY_PORT}
+      CONVEX_POSTGRES_URL: postgresql://mangarr:mangarr-postgres@postgres:5432
+    ports:
+      - "${MANGARR_VERIFY_PORT:?set MANGARR_VERIFY_PORT}:3737"
+    volumes:
+      - ${MANGARR_VERIFY_CONFIG_DIR:?set MANGARR_VERIFY_CONFIG_DIR}:/app/config
+      - ${MANGARR_VERIFY_DOWNLOADS_DIR:?set MANGARR_VERIFY_DOWNLOADS_DIR}:/app/downloads
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: mangarr
+      POSTGRES_USER: mangarr
+      POSTGRES_PASSWORD: mangarr-postgres
+    volumes:
+      - ${MANGARR_VERIFY_POSTGRES_DIR:?set MANGARR_VERIFY_POSTGRES_DIR}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 10s

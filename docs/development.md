@@ -13,6 +13,7 @@ It starts:
 - web app on `http://localhost:3737`
 - Convex on `http://localhost:3210`
 - Convex dashboard on `http://localhost:6791`
+- a local PostgreSQL 17 service used by the Postgres-backed Convex runtime
 
 ## Common Commands
 
@@ -33,4 +34,5 @@ just verify-runtime
 - the dev container starts Convex locally, syncs schema/functions, then starts the bridge and web app
 - `config/` stores bridge state and Convex runtime state
 - `data/` stores downloaded chapters
+- `postgres-dev/` stores local development PostgreSQL data
 - `just convex-push` is the manual re-sync path once the stack is already running

@@ -63,7 +63,7 @@ function proxyHttp(req, res) {
 		const status = res.statusCode || 500;
 		const durationMs = Math.max(0, Date.now() - startedAt);
 		const pathname = req.url?.split('?')[0] || '/';
-		if (!shouldLogRequestEvent({ status, durationMs, pathname })) {
+		if (!shouldLogRequestEvent({ status, durationMs, pathname, requestId })) {
 			return;
 		}
 		emitWebEvent(

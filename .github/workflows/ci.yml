@@ -28,7 +28,7 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 10.33.4
           run_install: false
 
       - name: Set up Node.js
@@ -98,7 +98,7 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 10.33.4
           run_install: false
 
       - name: Set up Node.js
@@ -116,6 +116,9 @@ jobs:
 
       - name: Start development stack
         run: docker compose -f compose.dev.yaml up -d --build mangarr
+
+      - name: Verify development PostgreSQL is ready
+        run: docker compose -f compose.dev.yaml exec -T postgres pg_isready -U mangarr -d mangarr
 
       - name: Wait for web app
         run: |

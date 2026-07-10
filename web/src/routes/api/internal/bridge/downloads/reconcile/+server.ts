@@ -77,7 +77,6 @@ export const POST: RequestHandler = async (event) => {
 	);
 	const scoped = chapterSets.flat();
 
-	const startedAt = Date.now();
 	const response = await fetch(new URL('downloads/reconcile', `${getBridgeBaseUrl()}/`), {
 		method: 'POST',
 		headers: buildBridgeInternalHeaders(

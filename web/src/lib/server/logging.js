@@ -1,6 +1,7 @@
 // @ts-check
 
 const DEFAULT_REQUEST_LOG_SLOW_MS = 1_000;
+const SUCCESSFUL_REQUEST_SAMPLE_RATE = 100;
 const REQUEST_LOG_SLOW_MS_BY_PATH = new Map([
 	['/api/covers/proxy', 10_000],
 	['/api/internal/bridge/library/page', 5_000],
@@ -17,7 +18,8 @@ const KNOWN_BROWSER_PROBE_404_PATHS = new Set([
  *   status: number,
  *   durationMs: number,
  *   pathname: string,
- *   isProbe?: boolean
+ *   isProbe?: boolean,
+ *   requestId?: string | null
  * }} RequestLogDecision
  */
 
@@ -51,13 +53,22 @@ export function detectWebProbeRequest(pathname, clientAddress) {
 /**
  * @param {RequestLogDecision} input
  */
-export function shouldLogRequestEvent({ status, durationMs, pathname, isProbe = false }) {
+export function shouldLogRequestEvent({
+	status,
+	durationMs,
+	pathname,
+	isProbe = false,
+	requestId
+}) {
 	const slowRequestThresholdMs = requestLogSlowThresholdMs(pathname);
 	if (isProbe && status < 400 && durationMs < slowRequestThresholdMs) {
 		return false;
 	}
 	if (status >= 500 || durationMs >= slowRequestThresholdMs) {
 		return true;
+	}
+	if (status >= 200 && status < 300) {
+		return !isProbe && shouldSampleSuccessfulRequest(requestId);
 	}
 	if (status < 400) {
 		return false;
@@ -66,6 +77,25 @@ export function shouldLogRequestEvent({ status, durationMs, pathname, isProbe = 
 		return false;
 	}
 	return true;
+}
+
+/**
+ * Deterministically retain one in every 100 ordinary successful requests.
+ * The request ID makes repeated handling of the same request make the same decision.
+ *
+ * @param {string | null | undefined} requestId
+ */
+function shouldSampleSuccessfulRequest(requestId) {
+	if (!requestId) {
+		return false;
+	}
+
+	let hash = 2_166_136_261;
+	for (let index = 0; index < requestId.length; index += 1) {
+		hash ^= requestId.charCodeAt(index);
+		hash = Math.imul(hash, 16_777_619);
+	}
+	return (hash >>> 0) % SUCCESSFUL_REQUEST_SAMPLE_RATE === 0;
 }
 
 /**

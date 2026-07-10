@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
 	applyVariantMetadataToTitle,
 	hasPersistentLibraryListingSignal,
-	pickStablePreferredTitle
+	pickStablePreferredTitle,
+	updateTitleChapterStatsIncremental
 } from './library_shared_titles';
 
 describe('preferred title stability', () => {
@@ -58,5 +59,71 @@ describe('library listing signals', () => {
 
 	it('does not treat read history alone as library membership', () => {
 		expect(hasPersistentLibraryListingSignal({ lastReadAt: 123 } as never)).toBe(false);
+	});
+});
+
+describe('incremental title download stats', () => {
+	it('keeps denormalized status counts and downloaded bytes aligned through transitions', async () => {
+		const title = {
+			queuedChapterCount: 0,
+			downloadingChapterCount: 0,
+			downloadedChapterCount: 0,
+			failedChapterCount: 0,
+			downloadedChapterBytes: 0
+		};
+		const ctx = {
+			db: {
+				get: async () => title,
+				patch: async (_id: string, patch: Record<string, number>) => Object.assign(title, patch)
+			}
+		};
+
+		const update = (
+			oldStatus: string | undefined,
+			newStatus: string,
+			oldBytes?: number,
+			newBytes?: number
+		) =>
+			updateTitleChapterStatsIncremental(
+				ctx as never,
+				'title-id' as never,
+				oldStatus,
+				newStatus,
+				oldBytes,
+				newBytes,
+				123
+			);
+
+		await update('missing', 'queued');
+		expect(title).toMatchObject({ queuedChapterCount: 1, downloadedChapterBytes: 0 });
+
+		await update('queued', 'downloading');
+		expect(title).toMatchObject({ queuedChapterCount: 0, downloadingChapterCount: 1 });
+
+		await update('downloading', 'downloaded', undefined, 128);
+		expect(title).toMatchObject({
+			downloadingChapterCount: 0,
+			downloadedChapterCount: 1,
+			downloadedChapterBytes: 128
+		});
+
+		await update('downloaded', 'downloaded', 128, 256);
+		expect(title).toMatchObject({ downloadedChapterCount: 1, downloadedChapterBytes: 256 });
+
+		await update('downloaded', 'failed', 256, 256);
+		expect(title).toMatchObject({
+			downloadedChapterCount: 0,
+			failedChapterCount: 1,
+			downloadedChapterBytes: 0
+		});
+
+		await update('failed', 'missing');
+		expect(title).toMatchObject({
+			queuedChapterCount: 0,
+			downloadingChapterCount: 0,
+			downloadedChapterCount: 0,
+			failedChapterCount: 0,
+			downloadedChapterBytes: 0
+		});
 	});
 });

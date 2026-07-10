@@ -142,6 +142,7 @@ artifacts:
       cp -R web/build "$runtime_root/build"; \
       cp -R web/src/convex "$runtime_root/src/convex"; \
       cp -R web/src/lib/utils "$runtime_root/src/lib/utils"; \
+      cp web/src/lib/server/logging.js "$runtime_root/src/lib/server/logging.js"; \
       cp web/src/lib/server/convex-auth-config.ts "$runtime_root/src/lib/server/convex-auth-config.ts"; \
       (cd "$runtime_root" && pnpm install --frozen-lockfile --prod --prefer-offline); \
       tar -C "$tmpdir" -czf .artifacts/web-runtime.tgz app \
@@ -179,11 +180,13 @@ docker-fast image="mangarr-local-fast":
 format target="all":
     @case "{{ target }}" in \
       all) \
-        echo "Web formatter is not configured yet; skipping web format."; \
-        cd bridge && ./gradlew ktlintFormat; \
+        echo "Formatting web and bridge sources..."; \
+        (cd web && pnpm run format); \
+        (cd bridge && ./gradlew ktlintFormat); \
         ;; \
       web) \
-        echo "Web formatter is not configured yet; skipping."; \
+        echo "Formatting web sources..."; \
+        cd web && pnpm run format; \
         ;; \
       bridge) \
         echo "Formatting bridge sources..."; \
@@ -305,35 +308,33 @@ verify-runtime wait="15" specs="e2e/app-smoke.spec.ts":
 
 # Start a fresh production-like stack with temporary host directories and smoke it
 [group('quality')]
-verify-prod tmp_root="/tmp/mangarr-predeploy" port="3837":
-    @echo "Running production-like verification with fresh host volumes..."
-    rm -rf "{{ tmp_root }}"
-    mkdir -p "{{ tmp_root }}/config" "{{ tmp_root }}/downloads"
-    printf '%s\n' \
-      'services:' \
-      '  mangarr:' \
-      '    platform: linux/amd64' \
-      '    build:' \
-      '      context: /Users/wnbe/Lab/mangarr' \
-      '      dockerfile: Dockerfile' \
-      '      target: mangarr-runtime' \
-      '    environment:' \
-      '      - MANGARR_PUBLIC_URL=http://127.0.0.1:{{ port }}' \
-      '    ports:' \
-      '      - "{{ port }}:3737"' \
-      '    volumes:' \
-      '      - {{ tmp_root }}/config:/app/config' \
-      '      - {{ tmp_root }}/downloads:/app/downloads' \
-      > "{{ tmp_root }}/compose.verify.yaml"
-    docker compose -p mangarr-predeploy -f "{{ tmp_root }}/compose.verify.yaml" down --remove-orphans >/dev/null 2>&1 || true
-    docker compose -p mangarr-predeploy -f "{{ tmp_root }}/compose.verify.yaml" up -d --build
-    for i in $(seq 1 24); do \
-      if curl -fsS "http://127.0.0.1:{{ port }}/login" >/dev/null 2>/dev/null; then break; fi; \
-      sleep 5; \
-      if [ "$i" -eq 24 ]; then echo "Production-like smoke check timed out waiting for web startup" >&2; exit 1; fi; \
-    done
-    docker compose -p mangarr-predeploy -f "{{ tmp_root }}/compose.verify.yaml" ps
-    docker compose -p mangarr-predeploy -f "{{ tmp_root }}/compose.verify.yaml" down --remove-orphans
+verify-prod port="3837":
+    @bash -uec '\
+      repo_root="$(git rev-parse --show-toplevel)"; \
+      tmp_root="$(mktemp -d "${TMPDIR:-/tmp}/mangarr-predeploy.XXXXXX")"; \
+      project_name="mangarr-predeploy-$$"; \
+      cd "$repo_root"; \
+      cleanup() { \
+        status=$?; \
+        if [ "$status" -ne 0 ]; then docker compose -p "$project_name" -f compose.verify.yaml logs >&2 || true; fi; \
+        docker compose -p "$project_name" -f compose.verify.yaml down --remove-orphans --volumes >/dev/null 2>&1 || true; \
+        docker run --rm --entrypoint sh -v "$tmp_root:/target" postgres:17 -c "rm -rf /target/* /target/.[!.]* /target/..?*" >/dev/null 2>&1 || true; \
+        rm -rf "$tmp_root"; \
+        exit "$status"; \
+      }; \
+      trap cleanup EXIT; \
+      mkdir -p "$tmp_root/config" "$tmp_root/downloads" "$tmp_root/postgres"; \
+      export MANGARR_VERIFY_PORT="{{ port }}"; \
+      export MANGARR_VERIFY_CONFIG_DIR="$tmp_root/config"; \
+      export MANGARR_VERIFY_DOWNLOADS_DIR="$tmp_root/downloads"; \
+      export MANGARR_VERIFY_POSTGRES_DIR="$tmp_root/postgres"; \
+      echo "Running production verification from $repo_root with fresh host volumes..."; \
+      docker compose -p "$project_name" -f compose.verify.yaml up -d --build --wait; \
+      docker compose -p "$project_name" -f compose.verify.yaml exec -T postgres pg_isready -U mangarr -d mangarr; \
+      curl -fsS "http://127.0.0.1:{{ port }}/login" >/dev/null; \
+      docker compose -p "$project_name" -f compose.verify.yaml exec -T mangarr curl -fsS http://127.0.0.1:3212/health >/dev/null; \
+      docker compose -p "$project_name" -f compose.verify.yaml ps \
+    '
 
 # Tail current runtime logs from the dev container
 [group('runtime')]

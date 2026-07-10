@@ -80,7 +80,6 @@ export const POST: RequestHandler = async (event) => {
 	}>;
 
 	const batch = titleId !== null ? titles : titles.slice(cursor, cursor + maxTitles);
-	const startedAt = Date.now();
 	const processedTitleIds: Id<'libraryTitles'>[] = [];
 	for (const title of batch) {
 		processedTitleIds.push(title.titleId);

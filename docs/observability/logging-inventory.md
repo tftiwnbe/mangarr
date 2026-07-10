@@ -71,5 +71,6 @@ Verified against repository state on 2026-07-02.
 
 - One canonical structured JSON event per live line to stdout or stderr.
 - No live file sink for the same event from the web server, bridge logger, or runtime supervisor.
+- Container stdout and stderr are the source of truth for structured web events; durable retention is provided by the container platform's log driver or collector, not by an application-managed file.
 - Plain-text child-process output normalized into JSON before it reaches container stdout or stderr.
 - Runtime orchestration moved out of an embedded Dockerfile heredoc and into a checked-in supervisor with explicit process and logging ownership.

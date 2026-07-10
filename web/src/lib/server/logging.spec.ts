@@ -24,6 +24,36 @@ describe('web logging policy', () => {
 		).toBe(false);
 	});
 
+	it('deterministically samples ordinary successful requests by request ID', () => {
+		const sampledRequestId = 'sample-24';
+		const unsampledRequestId = 'sample-1';
+
+		expect(
+			shouldLogRequestEvent({
+				status: 200,
+				durationMs: 12,
+				pathname: '/library',
+				requestId: sampledRequestId
+			})
+		).toBe(true);
+		expect(
+			shouldLogRequestEvent({
+				status: 200,
+				durationMs: 12,
+				pathname: '/library',
+				requestId: sampledRequestId
+			})
+		).toBe(true);
+		expect(
+			shouldLogRequestEvent({
+				status: 204,
+				durationMs: 12,
+				pathname: '/library',
+				requestId: unsampledRequestId
+			})
+		).toBe(false);
+	});
+
 	it('suppresses known browser probe 404s', () => {
 		expect(
 			shouldLogRequestEvent({

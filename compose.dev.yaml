@@ -17,6 +17,12 @@ services:
       context: .
       dockerfile: Dockerfile
       target: mangarr-dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - MANGARR_PUBLIC_URL=${MANGARR_PUBLIC_URL:-http://127.0.0.1:3737}
+      - CONVEX_POSTGRES_URL=postgresql://${MANGARR_POSTGRES_USER:-mangarr}:${MANGARR_POSTGRES_PASSWORD:-mangarr-postgres}@postgres:5432
     ports:
       - "3737:3737"
       - "3210:3210"
@@ -25,6 +31,21 @@ services:
       - ./data:/app/downloads
       - ./web:/app/web
       - web_node_modules:/app/web/node_modules
+
+  postgres:
+    image: postgres:17
+    environment:
+      - POSTGRES_DB=${MANGARR_POSTGRES_DB:-mangarr}
+      - POSTGRES_USER=${MANGARR_POSTGRES_USER:-mangarr}
+      - POSTGRES_PASSWORD=${MANGARR_POSTGRES_PASSWORD:-mangarr-postgres}
+    volumes:
+      - ./postgres-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
 
 volumes:
   web_node_modules:

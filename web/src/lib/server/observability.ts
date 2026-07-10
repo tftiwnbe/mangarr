@@ -43,7 +43,8 @@ export function logRequestCompletion(event: RequestEvent, response: Response, st
 			status,
 			durationMs,
 			pathname: event.url.pathname,
-			isProbe: context.isProbe
+			isProbe: context.isProbe,
+			requestId: event.locals.requestId
 		})
 	) {
 		return;
@@ -99,7 +100,8 @@ export function logRequestFailure(event: RequestEvent, startedAt: number, cause:
 			status,
 			durationMs,
 			pathname: event.url.pathname,
-			isProbe: context.isProbe
+			isProbe: context.isProbe,
+			requestId: event.locals.requestId
 		})
 	) {
 		return;
@@ -129,12 +131,6 @@ export function logRequestFailure(event: RequestEvent, startedAt: number, cause:
 			kind: context.kind
 		})
 	);
-}
-
-export function startRequestMetrics(
-	event: Pick<RequestEvent, 'route' | 'url' | 'request' | 'getClientAddress'>
-) {
-	void event;
 }
 
 function classifyRequestKind(pathname: string) {

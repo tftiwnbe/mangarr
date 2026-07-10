@@ -37,14 +37,12 @@ export async function proxyBridgeRequest(
 	}
 
 	const upstreamUrl = new URL(path, `${getBridgeBaseUrl()}/`).toString();
-	const bridgePath = new URL(upstreamUrl).pathname;
 	const timeoutSignal = AbortSignal.timeout(init.timeoutMs ?? 15_000);
 	const signal =
 		typeof AbortSignal.any === 'function'
 			? AbortSignal.any([event.request.signal, timeoutSignal])
 			: timeoutSignal;
 	let upstream: Response;
-	const startedAt = Date.now();
 	try {
 		upstream = await fetch(upstreamUrl, {
 			method: init.method ?? 'GET',

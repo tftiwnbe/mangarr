@@ -36,7 +36,6 @@ export const POST: RequestHandler = async (event) => {
 		throw error(404, 'Chapter not found');
 	}
 
-	const startedAt = Date.now();
 	const response = await fetch(new URL('downloads/delete', `${getBridgeBaseUrl()}/`), {
 		method: 'POST',
 		headers: buildBridgeInternalHeaders(
