@@ -93,8 +93,12 @@ internal fun isPermanentSourceRequestFailure(error: Throwable): Boolean {
     var current: Throwable? = error
     while (current != null) {
         val message = current.message?.trim()
-        if (!message.isNullOrBlank() && TOO_MANY_FOLLOW_UP_REQUESTS_PATTERN.containsMatchIn(message)) {
-            return true
+        if (!message.isNullOrBlank()) {
+            if (TOO_MANY_FOLLOW_UP_REQUESTS_PATTERN.containsMatchIn(message) ||
+                MISSING_SOURCE_PATTERN.containsMatchIn(message)
+            ) {
+                return true
+            }
         }
         current = current.cause
     }
@@ -146,6 +150,8 @@ private inline fun <reified T : Throwable> Throwable.causedBy(): Boolean {
 
 private val HTTP_ERROR_PATTERN = Regex("HTTP error\\s+(\\d{3})")
 private val TOO_MANY_FOLLOW_UP_REQUESTS_PATTERN = Regex("too many follow-up requests", RegexOption.IGNORE_CASE)
+private val MISSING_SOURCE_PATTERN =
+    Regex("^Source(?: \\d+)? not found(?::.*| or wrong type)?$", RegexOption.IGNORE_CASE)
 
 private fun parseHttpStatusCode(message: String?): Int? {
     if (message.isNullOrBlank()) {

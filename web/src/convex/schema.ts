@@ -425,6 +425,7 @@ export default defineSchema({
 		enabled: v.boolean(),
 		paused: v.boolean(),
 		autoDownload: v.boolean(),
+		nextChapterSyncAt: v.optional(v.float64()),
 		lastChapterSyncRequestedAt: v.optional(v.float64()),
 		lastChapterSyncAt: v.optional(v.float64()),
 		lastCheckedAt: v.optional(v.float64()),
@@ -436,6 +437,7 @@ export default defineSchema({
 		.index('by_owner_user_id', ['ownerUserId'])
 		.index('by_owner_user_id_library_title_id', ['ownerUserId', 'libraryTitleId'])
 		.index('by_owner_user_id_enabled_updated_at', ['ownerUserId', 'enabled', 'updatedAt'])
+		.index('by_enabled_next_chapter_sync_at', ['enabled', 'nextChapterSyncAt'])
 		.index('by_enabled_updated_at', ['enabled', 'updatedAt']),
 
 	downloadTasks: defineTable({

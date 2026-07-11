@@ -150,6 +150,10 @@ export async function mergeOwnedTitles(
 				targetProfile.lastChapterSyncRequestedAt,
 				sourceProfile.lastChapterSyncRequestedAt
 			),
+			nextChapterSyncAt: maxNumber(
+				targetProfile.nextChapterSyncAt,
+				sourceProfile.nextChapterSyncAt
+			),
 			lastChapterSyncAt: maxNumber(
 				targetProfile.lastChapterSyncAt,
 				sourceProfile.lastChapterSyncAt

@@ -190,6 +190,7 @@ export const requestChapterSync = mutation({
 		if (profile) {
 			await ctx.db.patch(profile._id, {
 				lastChapterSyncRequestedAt: now,
+				nextChapterSyncAt: now + 30 * 60 * 1000,
 				updatedAt: now
 			});
 		}
@@ -366,8 +367,7 @@ export const upsertChaptersForTitle = mutation({
 				ownerUserId: title.ownerUserId,
 				libraryTitleId: title._id,
 				newChapterIds: insertedChapterIds,
-				latestChapterName:
-					latestInsertedChapterName || args.chapters.at(-1)?.name || title.title,
+				latestChapterName: latestInsertedChapterName || args.chapters.at(-1)?.name || title.title,
 				now: args.now
 			});
 		}
@@ -422,7 +422,9 @@ export const refreshMyTitleStats = mutation({
 		const userId = identity.subject as GenericId<'users'>;
 		const now = Date.now();
 		let refreshed = 0;
-		for (const titleId of [...new Set(args.titleIds.map(String))].map((id) => id as GenericId<'libraryTitles'>)) {
+		for (const titleId of [...new Set(args.titleIds.map(String))].map(
+			(id) => id as GenericId<'libraryTitles'>
+		)) {
 			const title = await ctx.db.get(titleId);
 			if (!title || title.ownerUserId !== userId) {
 				continue;

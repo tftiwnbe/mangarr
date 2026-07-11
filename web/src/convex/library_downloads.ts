@@ -43,11 +43,32 @@ const DOWNLOAD_COMMAND_PRIORITY_BASE = 250;
 const MANUAL_DOWNLOAD_COMMAND_PRIORITY_BASE = 100;
 const CHAPTER_SYNC_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
 const ACTIVE_CHAPTER_SYNC_COMMAND_STATUSES = new Set(['queued', 'leased', 'running']);
+const SCHEDULED_CHAPTER_SYNC_CANDIDATE_MULTIPLIER = 3;
 
 type DownloadTaskStatus = (typeof DOWNLOAD_TASK_STATUS)[keyof typeof DOWNLOAD_TASK_STATUS];
 
 function isActiveDownloadTaskStatus(status: DownloadTaskStatus) {
 	return status === DOWNLOAD_TASK_STATUS.QUEUED || status === DOWNLOAD_TASK_STATUS.DOWNLOADING;
+}
+
+export function selectScheduledChapterSyncProfiles<
+	T extends { libraryTitleId: unknown; paused: boolean; nextChapterSyncAt?: number }
+>(profiles: readonly T[], now: number, maxTitles: number) {
+	const seenTitleIds = new Set<string>();
+	return profiles
+		.filter(
+			(profile) =>
+				!profile.paused &&
+				(profile.nextChapterSyncAt === undefined || profile.nextChapterSyncAt <= now)
+		)
+		.sort((left, right) => (left.nextChapterSyncAt ?? 0) - (right.nextChapterSyncAt ?? 0))
+		.filter((profile) => {
+			const titleKey = String(profile.libraryTitleId);
+			if (seenTitleIds.has(titleKey)) return false;
+			seenTitleIds.add(titleKey);
+			return true;
+		})
+		.slice(0, maxTitles);
 }
 
 async function scheduleChapterTitleStatsRefresh(
@@ -405,12 +426,11 @@ export const requestMissingDownloads = mutation({
 			}
 		}
 
-		const eligible = selectDownloadableGroupedChapters(titleChapters)
-			.filter(
-				(chapter) =>
-					chapter.downloadStatus === DOWNLOAD_STATUS.MISSING ||
-					chapter.downloadStatus === DOWNLOAD_STATUS.FAILED
-			);
+		const eligible = selectDownloadableGroupedChapters(titleChapters).filter(
+			(chapter) =>
+				chapter.downloadStatus === DOWNLOAD_STATUS.MISSING ||
+				chapter.downloadStatus === DOWNLOAD_STATUS.FAILED
+		);
 		const orderedEligible = prioritizeMissingBeforeFailed(eligible);
 		const remainingSlots = await remainingDownloadCapacityForUser(ctx, userId);
 		if (remainingSlots <= 0) {
@@ -461,8 +481,7 @@ export const requestMissingDownloads = mutation({
 			taskIds,
 			deferred: Math.max(0, orderedEligible.length - chaptersToQueue.length),
 			retriedQueued,
-			blocked:
-				commandIds.length > 0 || retriedQueued > 0 ? null : ('no_candidates' as const)
+			blocked: commandIds.length > 0 || retriedQueued > 0 ? null : ('no_candidates' as const)
 		};
 	}
 });
@@ -662,8 +681,7 @@ export const syncChapterStorageStateFromBridge = mutation({
 					args.lastErrorMessage === undefined
 						? chapter.lastErrorMessage
 						: normalizeOptionalString(args.lastErrorMessage),
-				downloadedAt:
-					args.status === DOWNLOAD_STATUS.DOWNLOADED ? args.now : chapter.downloadedAt,
+				downloadedAt: args.status === DOWNLOAD_STATUS.DOWNLOADED ? args.now : chapter.downloadedAt,
 				updatedAt: args.now
 			});
 		} catch (error) {
@@ -1218,9 +1236,14 @@ async function selectDownloadCycleCandidatesForUser(
 	const validTitles = titles.filter((t): t is NonNullable<typeof t> => t !== null);
 
 	const titleById = new Map(validTitles.map((title) => [String(title._id), title] as const));
-	const eligibleChaptersByTitleId = new Map<string, ReturnType<typeof selectDownloadableGroupedChapters>>();
+	const eligibleChaptersByTitleId = new Map<
+		string,
+		ReturnType<typeof selectDownloadableGroupedChapters>
+	>();
 	for (const title of validTitles) {
-		const chapters = selectDownloadableGroupedChapters(await loadActiveTitleChapterReleases(ctx, title));
+		const chapters = selectDownloadableGroupedChapters(
+			await loadActiveTitleChapterReleases(ctx, title)
+		);
 		const next = [];
 		for (const chapter of chapters) {
 			if (chapter.downloadStatus === DOWNLOAD_STATUS.MISSING) {
@@ -1304,7 +1327,9 @@ async function loadActiveDownloadTasks(
 					.take(limit),
 				ctx.db
 					.query('downloadTasks')
-					.withIndex('by_status_updated_at', (q) => q.eq('status', DOWNLOAD_TASK_STATUS.DOWNLOADING))
+					.withIndex('by_status_updated_at', (q) =>
+						q.eq('status', DOWNLOAD_TASK_STATUS.DOWNLOADING)
+					)
 					.order('desc')
 					.take(limit)
 			]);
@@ -1485,41 +1510,32 @@ export const runScheduledChapterSync = internalMutation({
 		const maxTitles = Math.max(1, Math.min(Math.floor(args.maxTitles ?? 10), 50));
 		const now = Date.now();
 
-		// Find all enabled download profiles
-		const enabledProfiles = await ctx.db
+		// Keep this read narrow: this mutation runs alongside download-cycle and bridge
+		// completion mutations that update profiles. Reading every enabled profile makes
+		// an unrelated profile update invalidate the entire scheduler transaction.
+		const candidateLimit = maxTitles * SCHEDULED_CHAPTER_SYNC_CANDIDATE_MULTIPLIER;
+		const dueProfiles = await ctx.db
+			.query('downloadProfiles')
+			.withIndex('by_enabled_next_chapter_sync_at', (q) =>
+				q.eq('enabled', true).lte('nextChapterSyncAt', now)
+			)
+			.take(candidateLimit);
+		// Profiles created before nextChapterSyncAt was introduced are claimed once
+		// through the legacy index, then use the bounded due-time index thereafter.
+		const legacyProfiles = await ctx.db
 			.query('downloadProfiles')
 			.withIndex('by_enabled_updated_at', (q) => q.eq('enabled', true))
-			.collect();
+			.take(candidateLimit);
 
-		// Deduplicate by title, then pick the titles whose sync cursor is oldest.
-		const seenTitleIds = new Set<string>();
-		const candidates: Array<{
-			profile: (typeof enabledProfiles)[number];
-			titleId: GenericId<'libraryTitles'>;
-			eligibleAt: number;
-		}> = [];
-		for (const profile of enabledProfiles) {
-			if (profile.paused) continue;
-			const titleKey = String(profile.libraryTitleId);
-			if (seenTitleIds.has(titleKey)) continue;
-			seenTitleIds.add(titleKey);
-
-			const lastSyncCursor = Math.max(
-				profile.lastChapterSyncRequestedAt ?? 0,
-				profile.lastChapterSyncAt ?? 0
-			);
-			if (now - lastSyncCursor < CHAPTER_SYNC_COOLDOWN_MS) continue;
-
-			candidates.push({
-				profile,
-				titleId: profile.libraryTitleId,
-				eligibleAt: lastSyncCursor
-			});
-		}
-		candidates.sort((left, right) => left.eligibleAt - right.eligibleAt);
+		const candidates = selectScheduledChapterSyncProfiles(
+			[...dueProfiles, ...legacyProfiles],
+			now,
+			maxTitles
+		);
 
 		let synced = 0;
-		for (const { titleId } of candidates.slice(0, maxTitles)) {
+		for (const profile of candidates) {
+			const titleId = profile.libraryTitleId;
 			const title = await ctx.db.get(titleId);
 			if (!title) continue;
 
@@ -1541,6 +1557,10 @@ export const runScheduledChapterSync = internalMutation({
 				.sort((left, right) => right.createdAt - left.createdAt)
 				.find((command) => ACTIVE_CHAPTER_SYNC_COMMAND_STATUSES.has(command.status));
 			if (existingCommand) {
+				await ctx.db.patch(profile._id, {
+					nextChapterSyncAt: now + CHAPTER_SYNC_COOLDOWN_MS,
+					updatedAt: now
+				});
 				continue;
 			}
 			await insertCommand(ctx, {
@@ -1553,6 +1573,11 @@ export const runScheduledChapterSync = internalMutation({
 				runAfter: now,
 				now,
 				targetCapability: 'library.chapters.sync'
+			});
+			await ctx.db.patch(profile._id, {
+				nextChapterSyncAt: now + CHAPTER_SYNC_COOLDOWN_MS,
+				lastChapterSyncRequestedAt: now,
+				updatedAt: now
 			});
 			synced += 1;
 		}

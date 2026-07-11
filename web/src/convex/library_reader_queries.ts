@@ -51,8 +51,7 @@ export const listMine = query({
 			downloadProfiles,
 			variants,
 			installedExtensions
-		] =
-			await Promise.all([
+		] = await Promise.all([
 			ctx.db
 				.query('libraryTitles')
 				.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', userId))
@@ -65,7 +64,10 @@ export const listMine = query({
 				.query('downloadProfiles')
 				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
 				.collect(),
-			ctx.db.query('titleVariants').collect(),
+			ctx.db
+				.query('titleVariants')
+				.withIndex('by_owner_user_id_library_title_id', (q) => q.eq('ownerUserId', userId))
+				.collect(),
 			ctx.db.query('installedExtensions').collect()
 		]);
 		const downloadProfileByTitleId = new Map(
@@ -73,7 +75,7 @@ export const listMine = query({
 		);
 		const preferredVariantByTitleId = new Map(
 			variants
-				.filter((variant) => variant.ownerUserId === userId && variant.isPreferred)
+				.filter((variant) => variant.isPreferred)
 				.map((variant) => [String(variant.libraryTitleId), variant] as const)
 		);
 		const sourceNamesById = new Map<string, string>();
@@ -422,7 +424,9 @@ export const listTitleChapters = query({
 		);
 		const progressByGroupKey = new Map<string, { pageIndex: number; updatedAt: number }>();
 		for (const row of progressRows) {
-			const release = activeReleases.find((chapter) => String(chapter._id) === String(row.chapterId));
+			const release = activeReleases.find(
+				(chapter) => String(chapter._id) === String(row.chapterId)
+			);
 			if (!release) continue;
 			const groupKey = chapterGroupKeyForRow(release);
 			const current = progressByGroupKey.get(groupKey);
@@ -446,13 +450,16 @@ export const listTitleChapters = query({
 		const progressByChapterId = new Map(
 			activeChapters
 				.filter((chapter) => progressByGroupKey.has(chapter.chapterGroupKey))
-				.map((chapter) => [
-					String(chapter._id),
-					{
-						pageIndex: progressByGroupKey.get(chapter.chapterGroupKey)!.pageIndex,
-						updatedAt: progressByGroupKey.get(chapter.chapterGroupKey)!.updatedAt
-					}
-				] as const)
+				.map(
+					(chapter) =>
+						[
+							String(chapter._id),
+							{
+								pageIndex: progressByGroupKey.get(chapter.chapterGroupKey)!.pageIndex,
+								updatedAt: progressByGroupKey.get(chapter.chapterGroupKey)!.updatedAt
+							}
+						] as const
+				)
 		);
 
 		return sortLibraryChaptersInReadingOrder(activeChapters).map((chapter) => {
@@ -713,16 +720,19 @@ export const getReaderByChapterId = query({
 						chapterName: chapter.chapterName,
 						chapterNumber: chapter.chapterNumber
 					})
-			) ?? activeChapters.find((item) => item.releaseIds.some((releaseId) => releaseId === chapter._id));
+			) ??
+			activeChapters.find((item) => item.releaseIds.some((releaseId) => releaseId === chapter._id));
 		if (!currentChapter) {
 			throw new Error('Library chapter group not found');
 		}
 		const chapterRouteSegments = buildChapterRouteSegments(activeChapters);
 
 		const progress =
-			(await Promise.all(
-				currentChapter.releaseIds.map((releaseId) => getOwnedChapterProgressRow(ctx, releaseId))
-			))
+			(
+				await Promise.all(
+					currentChapter.releaseIds.map((releaseId) => getOwnedChapterProgressRow(ctx, releaseId))
+				)
+			)
 				.filter((row): row is NonNullable<typeof row> => row !== null)
 				.sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
 
@@ -802,7 +812,11 @@ export const getReaderByRouteSegments = query({
 		}
 
 		const progress =
-			(await Promise.all(chapter.releaseIds.map((releaseId) => getOwnedChapterProgressRow(ctx, releaseId))))
+			(
+				await Promise.all(
+					chapter.releaseIds.map((releaseId) => getOwnedChapterProgressRow(ctx, releaseId))
+				)
+			)
 				.filter((row): row is NonNullable<typeof row> => row !== null)
 				.sort((left, right) => right.updatedAt - left.updatedAt)[0] ?? null;
 
@@ -995,7 +1009,9 @@ export const listDownloadedMineChapters = query({
 							ctx.db
 								.query('libraryChapters')
 								.withIndex('by_library_title_id_download_status', (q) =>
-									q.eq('libraryTitleId', args.titleId!).eq('downloadStatus', DOWNLOAD_STATUS.DOWNLOADED)
+									q
+										.eq('libraryTitleId', args.titleId!)
+										.eq('downloadStatus', DOWNLOAD_STATUS.DOWNLOADED)
 								)
 								.order('desc')
 								.take(limit),
@@ -1038,10 +1054,12 @@ export const listReconcileDownloadTitles = query({
 		const userId = identity.subject as GenericId<'users'>;
 
 		const profileRows = await ctx.db
-				.query('downloadProfiles')
-				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
-				.collect();
-		const watchedTitleIds = [...new Set(profileRows.map((profile) => String(profile.libraryTitleId)))];
+			.query('downloadProfiles')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+			.collect();
+		const watchedTitleIds = [
+			...new Set(profileRows.map((profile) => String(profile.libraryTitleId)))
+		];
 		if (args.titleId != null) {
 			if (!watchedTitleIds.includes(String(args.titleId))) {
 				return [];
@@ -1056,7 +1074,10 @@ export const listReconcileDownloadTitles = query({
 			watchedTitleIds.map((titleId) => ctx.db.get(titleId as GenericId<'libraryTitles'>))
 		);
 		return titles
-			.filter((title): title is NonNullable<typeof title> => title !== null && title.ownerUserId === userId)
+			.filter(
+				(title): title is NonNullable<typeof title> =>
+					title !== null && title.ownerUserId === userId
+			)
 			.sort((left, right) => right.updatedAt - left.updatedAt)
 			.map((title) => ({
 				titleId: title._id,
@@ -1081,7 +1102,9 @@ export const listNormalizeDownloadTitles = query({
 			.query('downloadProfiles')
 			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
 			.collect();
-		const watchedTitleIds = [...new Set(profileRows.map((profile) => String(profile.libraryTitleId)))];
+		const watchedTitleIds = [
+			...new Set(profileRows.map((profile) => String(profile.libraryTitleId)))
+		];
 		const titles =
 			args.titleId != null
 				? watchedTitleIds.includes(String(args.titleId))
@@ -1138,14 +1161,23 @@ export const getStorageTitleBases = query({
 			return {};
 		}
 		const userId = identity.subject as GenericId<'users'>;
-		const uniqueTitleIds = [...new Set(args.titleIds.map((titleId) => String(titleId)))].slice(0, 1000);
+		const uniqueTitleIds = [...new Set(args.titleIds.map((titleId) => String(titleId)))].slice(
+			0,
+			1000
+		);
 		const titles = await Promise.all(
 			uniqueTitleIds.map((titleId) => ctx.db.get(titleId as GenericId<'libraryTitles'>))
 		);
 		const entries = await Promise.all(
 			titles
-				.filter((title): title is NonNullable<typeof title> => title !== null && title.ownerUserId === userId)
-				.map(async (title) => [String(title._id), await resolveStorageTitleBaseForTitle(ctx, title)] as const)
+				.filter(
+					(title): title is NonNullable<typeof title> =>
+						title !== null && title.ownerUserId === userId
+				)
+				.map(
+					async (title) =>
+						[String(title._id), await resolveStorageTitleBaseForTitle(ctx, title)] as const
+				)
 		);
 		return Object.fromEntries(entries);
 	}
@@ -1207,8 +1239,9 @@ async function buildContinueReadingEntry(
 	});
 	const chapterRouteSegments = buildChapterRouteSegments(activeChapters);
 	const latestProgress =
-		[...progressByGroupKey.entries()].sort(([, left], [, right]) => right.updatedAt - left.updatedAt)[0] ??
-		null;
+		[...progressByGroupKey.entries()].sort(
+			([, left], [, right]) => right.updatedAt - left.updatedAt
+		)[0] ?? null;
 
 	if (!latestProgress) return null;
 
@@ -1217,14 +1250,18 @@ async function buildContinueReadingEntry(
 	if (!progressChapter) return null;
 
 	const latestChapterProgress = latestProgress[1] ?? null;
-	const chaptersRead = activeChapters.filter((chapter) => progressByGroupKey.has(chapter.chapterGroupKey)).length;
+	const chaptersRead = activeChapters.filter((chapter) =>
+		progressByGroupKey.has(chapter.chapterGroupKey)
+	).length;
 
 	if (activeChapters.length > 0 && chaptersRead >= activeChapters.length) {
 		return null;
 	}
 
 	const lastReadAt = title.lastReadAt ?? 0;
-	const unreadChapters = activeChapters.filter((chapter) => !progressByGroupKey.has(chapter.chapterGroupKey));
+	const unreadChapters = activeChapters.filter(
+		(chapter) => !progressByGroupKey.has(chapter.chapterGroupKey)
+	);
 	const latestUnreadUpdateAt = unreadChapters
 		.filter((chapter) => !progressByGroupKey.has(chapter.chapterGroupKey))
 		.flatMap((chapter) => chapter.releases)
