@@ -1,4 +1,4 @@
-"use node";
+'use node';
 
 import webpush from 'web-push';
 import type { GenericId } from 'convex/values';

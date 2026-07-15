@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { env as privateEnv } from '$env/dynamic/private';
@@ -7,11 +7,13 @@ import { error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
 import { requireUser } from '$lib/server/auth';
+import { readResponseBodyWithinLimit } from '$lib/server/bounded-response';
 import { convexApi } from '$lib/server/convex-api';
 import { getConvexClient } from '$lib/server/convex';
 
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
 const CACHE_CONTROL = 'private, max-age=86400, stale-while-revalidate=604800';
+const MAX_ICON_BYTES = 2 * 1024 * 1024;
 const FALLBACK_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none">
 <rect width="96" height="96" rx="20" fill="#161b22"/>
 <path d="M48 22c4.418 0 8 3.582 8 8v6h6c4.418 0 8 3.582 8 8s-3.582 8-8 8h-6v6c0 4.418-3.582 8-8 8s-8-3.582-8-8v-6h-6c-4.418 0-8-3.582-8-8s3.582-8 8-8h6v-6c0-4.418 3.582-8 8-8Z" fill="#6b7280"/>
@@ -52,10 +54,18 @@ export const GET: RequestHandler = async (event) => {
 		throw error(404, 'Extension repository is not configured');
 	}
 
-	const separatorIndex = repoUrl.lastIndexOf('/');
-	const repositoryBase = separatorIndex >= 0 ? repoUrl.slice(0, separatorIndex) : repoUrl;
-	const repositoryIconBase = `${repositoryBase}/icon/`;
-	if (!target.startsWith(repositoryIconBase)) {
+	let repositoryIconBase: URL;
+	try {
+		repositoryIconBase = new URL('icon/', repoUrl);
+	} catch {
+		throw error(500, 'Extension repository URL is invalid');
+	}
+	if (
+		parsed.origin !== repositoryIconBase.origin ||
+		!parsed.pathname.startsWith(repositoryIconBase.pathname) ||
+		parsed.username ||
+		parsed.password
+	) {
 		throw error(400, 'Unsupported icon url');
 	}
 
@@ -72,6 +82,7 @@ export const GET: RequestHandler = async (event) => {
 	let upstream: Response;
 	try {
 		upstream = await fetch(parsed, {
+			redirect: 'error',
 			headers: {
 				accept: 'image/png,image/*;q=0.8,*/*;q=0.5',
 				'user-agent': 'Mozilla/5.0 (compatible; MangarrExtensionIconProxy/1.0)'
@@ -86,20 +97,26 @@ export const GET: RequestHandler = async (event) => {
 		return buildFallbackIconResponse();
 	}
 
-	const body = Buffer.from(await upstream.arrayBuffer());
-	const contentType = upstream.headers.get('content-type') ?? 'image/png';
+	const contentType = upstream.headers.get('content-type')?.split(';', 1)[0]?.trim() ?? '';
+	if (!isImageContentType(contentType)) {
+		return buildFallbackIconResponse();
+	}
 
-	await mkdir(cacheDir, { recursive: true });
-	await Promise.all([
-		writeFile(dataPath, body),
-		writeFile(
-			metaPath,
-			JSON.stringify({
-				contentType,
-				fetchedAt: Date.now()
-			} satisfies CachedIconMeta)
-		)
-	]);
+	let payload: Uint8Array | null;
+	try {
+		payload = await readResponseBodyWithinLimit(upstream, MAX_ICON_BYTES);
+	} catch {
+		return buildFallbackIconResponse();
+	}
+	if (!payload || payload.byteLength === 0) {
+		return buildFallbackIconResponse();
+	}
+	const body = Buffer.from(payload);
+
+	await writeCachedIcon(dataPath, metaPath, body, {
+		contentType,
+		fetchedAt: Date.now()
+	});
 
 	return buildIconResponse(body, contentType);
 };
@@ -113,7 +130,9 @@ function buildIconResponse(body: Buffer, contentType: string) {
 		status: 200,
 		headers: {
 			'cache-control': CACHE_CONTROL,
-			'content-type': contentType
+			'content-security-policy': "default-src 'none'; sandbox",
+			'content-type': contentType,
+			'x-content-type-options': 'nosniff'
 		}
 	});
 }
@@ -123,7 +142,9 @@ function buildFallbackIconResponse() {
 		status: 200,
 		headers: {
 			'cache-control': CACHE_CONTROL,
-			'content-type': 'image/svg+xml; charset=utf-8'
+			'content-security-policy': "default-src 'none'; sandbox",
+			'content-type': 'image/svg+xml; charset=utf-8',
+			'x-content-type-options': 'nosniff'
 		}
 	});
 }
@@ -141,12 +162,51 @@ function getIconCacheDir() {
 
 async function readCachedIcon(dataPath: string, metaPath: string) {
 	try {
+		const file = await stat(dataPath);
+		if (file.size === 0 || file.size > MAX_ICON_BYTES) {
+			return null;
+		}
+
 		const [body, metaRaw] = await Promise.all([readFile(dataPath), readFile(metaPath, 'utf8')]);
 		const meta = JSON.parse(metaRaw) as CachedIconMeta;
+		if (!isImageContentType(meta.contentType)) {
+			return null;
+		}
 		return { body, meta };
 	} catch {
 		return null;
 	}
+}
+
+async function writeCachedIcon(
+	dataPath: string,
+	metaPath: string,
+	body: Buffer,
+	meta: CachedIconMeta
+) {
+	const cacheDir = path.dirname(dataPath);
+	await mkdir(cacheDir, { recursive: true });
+	const suffix = `${process.pid}-${randomUUID()}.tmp`;
+	const temporaryDataPath = `${dataPath}.${suffix}`;
+	const temporaryMetaPath = `${metaPath}.${suffix}`;
+
+	try {
+		await Promise.all([
+			writeFile(temporaryDataPath, body),
+			writeFile(temporaryMetaPath, JSON.stringify(meta))
+		]);
+		await rename(temporaryDataPath, dataPath);
+		await rename(temporaryMetaPath, metaPath);
+	} finally {
+		await Promise.all([
+			rm(temporaryDataPath, { force: true }),
+			rm(temporaryMetaPath, { force: true })
+		]);
+	}
+}
+
+function isImageContentType(contentType: string) {
+	return /^image\/[a-z0-9.+-]+$/i.test(contentType);
 }
 
 function sanitizePkg(pkg: string) {

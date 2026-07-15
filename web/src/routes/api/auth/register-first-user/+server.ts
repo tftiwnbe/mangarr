@@ -1,8 +1,8 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-import { convexApi } from '$lib/server/convex-api';
-import { getConvexClient } from '$lib/server/convex';
+import { convexInternal } from '$lib/server/convex-api';
+import { getConvexAdminClient } from '$lib/server/convex';
 import { registerFirstUserWithCredentials, serializeUserProfile } from '$lib/server/auth';
 import { normalizeUsername } from '$lib/server/security';
 
@@ -39,8 +39,8 @@ export const POST: RequestHandler = async (event) => {
 		throw error(400, normalized.message);
 	}
 
-	const client = getConvexClient();
-	const user = await client.query(convexApi.auth.getUserByUsername, {
+	const client = getConvexAdminClient();
+	const user = await client.query(convexInternal.auth.getUserByUsername, {
 		username: normalized.value
 	});
 	if (!user) {

@@ -1169,7 +1169,7 @@
 							{#if sortedCollections.length === 0}
 								<p class="py-2 text-xs text-[var(--text-ghost)]">{$_('settings.noCollections')}</p>
 							{:else}
-							{#each sortedCollections as collection (collection.id)}
+								{#each sortedCollections as collection (collection.id)}
 									<div
 										class="flex items-center gap-2 border-b border-[var(--void-3)]/30 py-2.5 last:border-b-0"
 									>
@@ -1185,7 +1185,9 @@
 													)}
 											/>
 											<div class="flex items-center justify-between gap-3">
-												<span class="text-[11px] uppercase tracking-[0.18em] text-[var(--text-ghost)]">
+												<span
+													class="text-[11px] tracking-[0.18em] text-[var(--text-ghost)] uppercase"
+												>
 													notify on new chapters
 												</span>
 												<Switch

@@ -2,8 +2,8 @@ import { error, json } from '@sveltejs/kit';
 import type { GenericId } from 'convex/values';
 import type { RequestHandler } from './$types';
 
-import { convexApi } from '$lib/server/convex-api';
-import { getConvexClient } from '$lib/server/convex';
+import { convexInternal } from '$lib/server/convex-api';
+import { getConvexAdminClient } from '$lib/server/convex';
 import { generateOpaqueToken, hashToken } from '$lib/server/security';
 
 const MAX_KEY_NAME_LENGTH = 120;
@@ -17,8 +17,8 @@ export const GET: RequestHandler = async ({ locals }) => {
 		throw error(401, 'Not signed in');
 	}
 
-	const client = getConvexClient();
-	const keys = await client.query(convexApi.auth.listIntegrationApiKeys, {
+	const client = getConvexAdminClient();
+	const keys = await client.query(convexInternal.auth.listIntegrationApiKeys, {
 		userId: user.id as GenericId<'users'>
 	});
 
@@ -50,8 +50,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	const keyPrefix = rawKey.slice(0, 12);
 	const now = Date.now();
 
-	const client = getConvexClient();
-	const created = await client.mutation(convexApi.auth.createIntegrationApiKey, {
+	const client = getConvexAdminClient();
+	const created = await client.mutation(convexInternal.auth.createIntegrationApiKey, {
 		userId: user.id as GenericId<'users'>,
 		name,
 		keyHash: hashToken(rawKey),

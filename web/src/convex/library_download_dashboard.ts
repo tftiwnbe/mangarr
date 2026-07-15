@@ -91,8 +91,7 @@ export const getDownloadDashboard = query({
 				.query('libraryTitles')
 				.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', ownerUserId))
 				.collect()
-		)
-			.sort((left, right) => right.updatedAt - left.updatedAt);
+		).sort((left, right) => right.updatedAt - left.updatedAt);
 
 		const sourceNamesById = new Map<string, string>();
 		const sourceNamesByPkg = new Map<string, string>();

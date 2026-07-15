@@ -1,4 +1,5 @@
 import { ConvexHttpClient } from 'convex/browser';
+import type { FunctionArgs, FunctionReference, FunctionReturnType } from 'convex/server';
 
 import { env as privateEnv } from '$env/dynamic/private';
 import { env as publicEnv } from '$env/dynamic/public';
@@ -6,6 +7,17 @@ import { env as publicEnv } from '$env/dynamic/public';
 import { mintConvexAccessToken } from './convex-auth';
 
 const LOCAL_CONVEX_URL = 'http://127.0.0.1:3210';
+
+type ConvexAdminClient = Omit<ConvexHttpClient, 'query' | 'mutation'> & {
+	query<Query extends FunctionReference<'query', 'public' | 'internal'>>(
+		query: Query,
+		args: FunctionArgs<Query>
+	): Promise<FunctionReturnType<Query>>;
+	mutation<Mutation extends FunctionReference<'mutation', 'public' | 'internal'>>(
+		mutation: Mutation,
+		args: FunctionArgs<Mutation>
+	): Promise<FunctionReturnType<Mutation>>;
+};
 
 export function getConvexUrl() {
 	return normalizeConvexUrl(
@@ -37,6 +49,24 @@ export function getConvexClient() {
 	}
 
 	return client;
+}
+
+export function getConvexAdminClient(): ConvexAdminClient {
+	const adminKey = privateEnv.CONVEX_ADMIN_KEY || privateEnv.CONVEX_SELF_HOSTED_ADMIN_KEY;
+	if (!adminKey) {
+		throw new Error('Convex admin key is not configured');
+	}
+
+	const client = new ConvexHttpClient(getConvexUrl(), {
+		skipConvexDeploymentUrlCheck: true,
+		logger: false
+	});
+	(
+		client as ConvexHttpClient & {
+			setAdminAuth(token: string): void;
+		}
+	).setAdminAuth(adminKey);
+	return client as ConvexAdminClient;
 }
 
 function normalizeConvexUrl(url: string) {

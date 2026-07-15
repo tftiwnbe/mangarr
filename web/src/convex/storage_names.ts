@@ -1,7 +1,6 @@
 import anyAscii from 'any-ascii';
 
-const OPAQUE_UUID_RE =
-	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const OPAQUE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const OPAQUE_HEX_RE = /^[0-9a-f]{12,}$/i;
 const OPAQUE_NUMERIC_RE = /^\d{4,}$/;
 const GENERIC_SEGMENTS = new Set(['title', 'titles', 'manga', 'comic', 'series', 'book', 'work']);
@@ -18,7 +17,10 @@ function normalizeWhitespace(value: string) {
 function normalizeComparableText(value: string | null | undefined) {
 	const normalized = normalizeWhitespace(value ?? '');
 	if (!normalized) return '';
-	return anyAscii(normalized).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+	return anyAscii(normalized)
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, ' ')
+		.trim();
 }
 
 function normalizeOpaqueSegment(value: string) {
@@ -71,10 +73,7 @@ function humanizeUrlSegment(segment: string | null) {
 		return null;
 	}
 
-	const words = trimmed
-		.replace(/[_-]+/g, ' ')
-		.replace(/\s+/g, ' ')
-		.trim();
+	const words = trimmed.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
 	return words || null;
 }
 

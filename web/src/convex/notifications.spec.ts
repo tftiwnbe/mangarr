@@ -24,7 +24,13 @@ function createCtx(args: {
 	};
 	collectionLinks?: Array<{ collectionId: string; ownerUserId: string; libraryTitleId: string }>;
 	collections?: Record<string, { _id: string; ownerUserId: string; notifyOnNewChapters?: boolean }>;
-	title?: { _id: string; ownerUserId: string; title: string; routeBase?: string; coverUrl?: string };
+	title?: {
+		_id: string;
+		ownerUserId: string;
+		title: string;
+		routeBase?: string;
+		coverUrl?: string;
+	};
 	existingEvent?: { _id: string };
 }) {
 	const inserted: Array<{ table: string; value: Record<string, unknown> }> = [];
@@ -148,7 +154,9 @@ describe('createNotificationEventForNewChapters', () => {
 				ownerUserId: 'user-1',
 				libraryTitleId: 'title-1'
 			},
-			collectionLinks: [{ collectionId: 'collection-1', ownerUserId: 'user-1', libraryTitleId: 'title-1' }],
+			collectionLinks: [
+				{ collectionId: 'collection-1', ownerUserId: 'user-1', libraryTitleId: 'title-1' }
+			],
 			collections: {
 				'collection-1': {
 					_id: 'collection-1',
@@ -178,7 +186,9 @@ describe('createNotificationEventForNewChapters', () => {
 				ownerUserId: 'user-1',
 				libraryTitleId: 'title-1'
 			},
-			collectionLinks: [{ collectionId: 'collection-1', ownerUserId: 'user-1', libraryTitleId: 'title-1' }],
+			collectionLinks: [
+				{ collectionId: 'collection-1', ownerUserId: 'user-1', libraryTitleId: 'title-1' }
+			],
 			collections: {
 				'collection-1': {
 					_id: 'collection-1',

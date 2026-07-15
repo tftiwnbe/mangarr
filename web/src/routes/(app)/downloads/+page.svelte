@@ -82,16 +82,16 @@
 		freeSpaceBytes?: number;
 	};
 
-type ReconcileResult = {
-	ok?: boolean;
-	fixed?: number;
-	downloaded?: number;
-	missing?: number;
-	message?: string;
-	nextCursor?: number | null;
-	totalTitles?: number;
-	processedTitles?: number;
-};
+	type ReconcileResult = {
+		ok?: boolean;
+		fixed?: number;
+		downloaded?: number;
+		missing?: number;
+		message?: string;
+		nextCursor?: number | null;
+		totalTitles?: number;
+		processedTitles?: number;
+	};
 
 	type NormalizeResult = {
 		ok?: boolean;
@@ -204,11 +204,7 @@ type ReconcileResult = {
 			query.length === 0
 				? dashboard.watchedTitles.slice()
 				: dashboard.watchedTitles.filter((item) => {
-						const haystack = [
-							item.title,
-							item.variantSources.join(' '),
-							item.lastError ?? ''
-						]
+						const haystack = [item.title, item.variantSources.join(' '), item.lastError ?? '']
 							.join(' ')
 							.toLowerCase();
 						return haystack.includes(query);
@@ -453,8 +449,7 @@ type ReconcileResult = {
 						(aggregated.normalizeCandidates ?? 0) + (batch.normalizeCandidates ?? 0),
 					pruneCandidates: (aggregated.pruneCandidates ?? 0) + (batch.pruneCandidates ?? 0),
 					totalTitles: batch.totalTitles ?? aggregated.totalTitles ?? 0,
-					processedTitles:
-						(aggregated.processedTitles ?? 0) + (batch.processedTitles ?? 0),
+					processedTitles: (aggregated.processedTitles ?? 0) + (batch.processedTitles ?? 0),
 					nextCursor: batch.nextCursor ?? null
 				};
 				normalizeResult = aggregated;
@@ -547,9 +542,12 @@ type ReconcileResult = {
 			return;
 		}
 		if (result.blocked === 'capacity') {
-			toast.info('Download slots are full right now. Retry again after active tasks move forward.', {
-				title: 'No free slots'
-			});
+			toast.info(
+				'Download slots are full right now. Retry again after active tasks move forward.',
+				{
+					title: 'No free slots'
+				}
+			);
 			return;
 		}
 		toast.info('No missing or failed chapters were found for this title.', {
@@ -756,9 +754,10 @@ type ReconcileResult = {
 		<div class="flex flex-col gap-1 border-l border-[var(--line)] pl-3">
 			{#if normalizeResult}
 				<p class="text-[11px] text-[var(--text-muted)]">
-					Processed {normalizeResult.scanned ?? 0} chapters across {normalizeResult.processedTitles ?? 0}/{normalizeResult.totalTitles ??
-						0} titles · repaired {normalizeResult.fixed ?? 0} · relocated {normalizeResult.normalized ?? 0} · pruned {normalizeResult.pruned ??
-						0} · missing or damaged {normalizeResult.missing ?? 0}
+					Processed {normalizeResult.scanned ?? 0} chapters across {normalizeResult.processedTitles ??
+						0}/{normalizeResult.totalTitles ?? 0} titles · repaired {normalizeResult.fixed ?? 0} · relocated
+					{normalizeResult.normalized ?? 0} · pruned {normalizeResult.pruned ?? 0} · missing or damaged
+					{normalizeResult.missing ?? 0}
 				</p>
 			{/if}
 			{#if normalizeError}
@@ -891,131 +890,131 @@ type ReconcileResult = {
 					No watched downloads match this search.
 				</div>
 			{:else}
-			<ul class="flex flex-col">
-				{#each visibleWatchedTitles as item (item.titleId)}
-					{@const progress =
-						item.totalChapters > 0
-							? Math.round((item.downloadedChapters / item.totalChapters) * 100)
-							: 0}
-					{@const isDownloading = item.queuedTasks > 0}
-					{@const retryActive = taskActionLoading('retry-title', item.titleId)}
-					<li class="group flex gap-3 py-3 transition-opacity {item.enabled ? '' : 'opacity-35'}">
-						<a href={buildTitlePath(item.titleId, item.title)} class="shrink-0 self-start">
-							<div
-								class="relative h-20 w-14 overflow-hidden bg-[var(--void-3)] ring-1 ring-[var(--void-4)] transition-all group-hover:ring-[var(--void-6)]"
-							>
-								<LazyImage
-									src={coverSrc(item)}
-									alt={item.title}
-									class="absolute inset-0 h-full w-full"
-								/>
-							</div>
-						</a>
-						<div class="flex min-w-0 flex-1 flex-col gap-1.5">
-							<a
-								href={buildTitlePath(item.titleId, item.title)}
-								class="flex min-w-0 flex-col gap-0.5"
-							>
-								<div class="flex items-baseline justify-between gap-2">
-									<p class="line-clamp-1 text-sm text-[var(--text)]">{item.title}</p>
-									<span
-										class="shrink-0 text-[11px] leading-none text-[var(--text-soft)] tabular-nums"
-									>
-										{item.downloadedChapters}<span class="text-[var(--text-ghost)]"
-											>/{item.totalChapters || '—'}</span
-										>
-									</span>
-								</div>
-								{#if item.variantSources.length > 0 || item.downloadedBytes > 0}
-									<div class="flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
-										{#if item.variantSources.length > 0}
-											<span class="truncate tracking-wide uppercase">
-												{item.variantSources.join(' · ')}
-											</span>
-										{/if}
-										{#if item.downloadedBytes > 0}
-											<span class="shrink-0 tabular-nums">
-												{formatBytes(item.downloadedBytes)}
-											</span>
-										{/if}
-										{#if item.paused}
-											<span class="text-[var(--text-muted)]">
-												{$_('downloads.paused').toLowerCase()}
-											</span>
-										{/if}
-									</div>
-								{/if}
-								{#if item.lastError}
-									<div
-										class="flex min-w-0 items-start gap-1 text-[10px] leading-tight text-[rgba(248,113,113,0.7)]"
-									>
-										<WarningCircleIcon size={10} class="mt-px shrink-0 opacity-70" />
-										<span class="line-clamp-2 min-w-0">{item.lastError}</span>
-									</div>
-								{/if}
-							</a>
-
-							<div class="flex items-center justify-end gap-2">
-								{#if item.queuedTasks > 0 && !(item.nextRetryAt != null && item.nextRetryAt > Date.now())}
-									<span class="mr-auto text-[10px] text-[var(--cosmic-dim)] tabular-nums">
-										+{item.queuedTasks}
-										{$_('downloads.queued').toLowerCase()}
-									</span>
-								{/if}
-								{#if item.nextRetryAt != null && item.nextRetryAt > Date.now()}
-									<span
-										class="flex items-center gap-1 text-[10px] text-[var(--text-ghost)] tabular-nums"
-									>
-										<ClockCountdownIcon size={10} class="shrink-0" />
-										{formatRetryIn(item.nextRetryAt)}
-									</span>
-								{/if}
-								<button
-									type="button"
-									class="flex h-6 w-6 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)] disabled:opacity-40"
-									onclick={() => void retryMissingForTitle(item.titleId)}
-									disabled={retryActive}
-									title={$_('downloads.retry')}
-									aria-label={$_('downloads.retry')}
-								>
-									{#if retryActive}
-										<SpinnerIcon size={12} class="animate-spin" />
-									{:else}
-										<ArrowClockwiseIcon size={12} />
-									{/if}
-								</button>
-								<Switch
-									checked={item.enabled}
-									disabled={profileActionTitleId === item.titleId}
-									loading={profileActionTitleId === item.titleId}
-									variant="default"
-									onCheckedChange={(enabled) => void toggleWatch(item.titleId, enabled)}
-								/>
-							</div>
-
-							<div class="relative h-[2px] w-full overflow-hidden bg-[var(--void-4)]">
+				<ul class="flex flex-col">
+					{#each visibleWatchedTitles as item (item.titleId)}
+						{@const progress =
+							item.totalChapters > 0
+								? Math.round((item.downloadedChapters / item.totalChapters) * 100)
+								: 0}
+						{@const isDownloading = item.queuedTasks > 0}
+						{@const retryActive = taskActionLoading('retry-title', item.titleId)}
+						<li class="group flex gap-3 py-3 transition-opacity {item.enabled ? '' : 'opacity-35'}">
+							<a href={buildTitlePath(item.titleId, item.title)} class="shrink-0 self-start">
 								<div
-									class="absolute inset-y-0 left-0 transition-[width] {isDownloading
-										? 'animate-pulse bg-[var(--cosmic)] shadow-[0_0_10px_var(--cosmic-glow)]'
-										: 'bg-[var(--void-7)]'}"
-									style="width: {progress}%"
-								></div>
+									class="relative h-20 w-14 overflow-hidden bg-[var(--void-3)] ring-1 ring-[var(--void-4)] transition-all group-hover:ring-[var(--void-6)]"
+								>
+									<LazyImage
+										src={coverSrc(item)}
+										alt={item.title}
+										class="absolute inset-0 h-full w-full"
+									/>
+								</div>
+							</a>
+							<div class="flex min-w-0 flex-1 flex-col gap-1.5">
+								<a
+									href={buildTitlePath(item.titleId, item.title)}
+									class="flex min-w-0 flex-col gap-0.5"
+								>
+									<div class="flex items-baseline justify-between gap-2">
+										<p class="line-clamp-1 text-sm text-[var(--text)]">{item.title}</p>
+										<span
+											class="shrink-0 text-[11px] leading-none text-[var(--text-soft)] tabular-nums"
+										>
+											{item.downloadedChapters}<span class="text-[var(--text-ghost)]"
+												>/{item.totalChapters || '—'}</span
+											>
+										</span>
+									</div>
+									{#if item.variantSources.length > 0 || item.downloadedBytes > 0}
+										<div class="flex items-center gap-2 text-[10px] text-[var(--text-ghost)]">
+											{#if item.variantSources.length > 0}
+												<span class="truncate tracking-wide uppercase">
+													{item.variantSources.join(' · ')}
+												</span>
+											{/if}
+											{#if item.downloadedBytes > 0}
+												<span class="shrink-0 tabular-nums">
+													{formatBytes(item.downloadedBytes)}
+												</span>
+											{/if}
+											{#if item.paused}
+												<span class="text-[var(--text-muted)]">
+													{$_('downloads.paused').toLowerCase()}
+												</span>
+											{/if}
+										</div>
+									{/if}
+									{#if item.lastError}
+										<div
+											class="flex min-w-0 items-start gap-1 text-[10px] leading-tight text-[rgba(248,113,113,0.7)]"
+										>
+											<WarningCircleIcon size={10} class="mt-px shrink-0 opacity-70" />
+											<span class="line-clamp-2 min-w-0">{item.lastError}</span>
+										</div>
+									{/if}
+								</a>
+
+								<div class="flex items-center justify-end gap-2">
+									{#if item.queuedTasks > 0 && !(item.nextRetryAt != null && item.nextRetryAt > Date.now())}
+										<span class="mr-auto text-[10px] text-[var(--cosmic-dim)] tabular-nums">
+											+{item.queuedTasks}
+											{$_('downloads.queued').toLowerCase()}
+										</span>
+									{/if}
+									{#if item.nextRetryAt != null && item.nextRetryAt > Date.now()}
+										<span
+											class="flex items-center gap-1 text-[10px] text-[var(--text-ghost)] tabular-nums"
+										>
+											<ClockCountdownIcon size={10} class="shrink-0" />
+											{formatRetryIn(item.nextRetryAt)}
+										</span>
+									{/if}
+									<button
+										type="button"
+										class="flex h-6 w-6 items-center justify-center text-[var(--text-ghost)] transition-colors hover:text-[var(--text-muted)] disabled:opacity-40"
+										onclick={() => void retryMissingForTitle(item.titleId)}
+										disabled={retryActive}
+										title={$_('downloads.retry')}
+										aria-label={$_('downloads.retry')}
+									>
+										{#if retryActive}
+											<SpinnerIcon size={12} class="animate-spin" />
+										{:else}
+											<ArrowClockwiseIcon size={12} />
+										{/if}
+									</button>
+									<Switch
+										checked={item.enabled}
+										disabled={profileActionTitleId === item.titleId}
+										loading={profileActionTitleId === item.titleId}
+										variant="default"
+										onCheckedChange={(enabled) => void toggleWatch(item.titleId, enabled)}
+									/>
+								</div>
+
+								<div class="relative h-[2px] w-full overflow-hidden bg-[var(--void-4)]">
+									<div
+										class="absolute inset-y-0 left-0 transition-[width] {isDownloading
+											? 'animate-pulse bg-[var(--cosmic)] shadow-[0_0_10px_var(--cosmic-glow)]'
+											: 'bg-[var(--void-7)]'}"
+										style="width: {progress}%"
+									></div>
+								</div>
 							</div>
-						</div>
-					</li>
-				{/each}
-			</ul>
-			{#if canLoadMoreWatched}
-				<div bind:this={watchedSentinel} class="flex items-center justify-center py-5">
-					{#if dashboardQuery.isLoading}
-						<SpinnerIcon size={14} class="animate-spin text-[var(--text-ghost)]" />
-					{:else}
-						<span class="text-[10px] tracking-[0.16em] text-[var(--text-ghost)] uppercase">
-							Loading more
-						</span>
-					{/if}
-				</div>
-			{/if}
+						</li>
+					{/each}
+				</ul>
+				{#if canLoadMoreWatched}
+					<div bind:this={watchedSentinel} class="flex items-center justify-center py-5">
+						{#if dashboardQuery.isLoading}
+							<SpinnerIcon size={14} class="animate-spin text-[var(--text-ghost)]" />
+						{:else}
+							<span class="text-[10px] tracking-[0.16em] text-[var(--text-ghost)] uppercase">
+								Loading more
+							</span>
+						{/if}
+					</div>
+				{/if}
 			{/if}
 		{/if}
 	</section>
@@ -1044,9 +1043,7 @@ type ReconcileResult = {
 			</div>
 			<div class="overflow-y-auto px-4 py-3">
 				{#if failedRecentTasks.length === 0}
-					<p class="py-6 text-center text-[11px] text-[var(--text-muted)]">
-						No recent failures.
-					</p>
+					<p class="py-6 text-center text-[11px] text-[var(--text-muted)]">No recent failures.</p>
 				{:else}
 					<ul class="flex flex-col">
 						{#each failedRecentTasks as task (task.taskId)}

@@ -716,8 +716,7 @@
 			visibleSources.some((source) => {
 				const page = nextLoaded[source.id] ?? 0;
 				return page > 0 && nextExhausted[source.id] !== true;
-			}) ||
-			visibleSources.some((source) => !activeFeedSourceIds.includes(source.id));
+			}) || visibleSources.some((source) => !activeFeedSourceIds.includes(source.id));
 	}
 
 	async function loadFeedInitial(generation: number) {
@@ -1018,7 +1017,7 @@
 				query,
 				limit: 42,
 				page: nextPage,
-			...(Object.keys(searchFilters).length > 0 ? { searchFilters } : {})
+				...(Object.keys(searchFilters).length > 0 ? { searchFilters } : {})
 			});
 			const command = await waitForCommand(client, commandId, {
 				timeoutMs: SEARCH_COMMAND_TIMEOUT_MS

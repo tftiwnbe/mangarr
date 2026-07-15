@@ -56,8 +56,7 @@ export function getNotificationCapability(): NotificationCapability {
 			? 'showNotification' in ServiceWorkerRegistration.prototype
 			: false);
 	const badgingSupported =
-		'navigator' in window &&
-		('setAppBadge' in navigator || 'clearAppBadge' in navigator);
+		'navigator' in window && ('setAppBadge' in navigator || 'clearAppBadge' in navigator);
 
 	return {
 		supported,
@@ -134,7 +133,9 @@ export async function subscribeToWebPush(args: {
 
 	const permission = await Notification.requestPermission();
 	if (permission !== 'granted') {
-		throw new Error(permission === 'denied' ? 'Notification permission was denied' : 'Permission was dismissed');
+		throw new Error(
+			permission === 'denied' ? 'Notification permission was denied' : 'Permission was dismissed'
+		);
 	}
 
 	const subscription =
@@ -160,9 +161,7 @@ export async function subscribeToWebPush(args: {
 	return subscription;
 }
 
-export async function unsubscribeFromWebPush(args: {
-	client: Pick<ConvexClient, 'mutation'>;
-}) {
+export async function unsubscribeFromWebPush(args: { client: Pick<ConvexClient, 'mutation'> }) {
 	const registration = await registerMangarrServiceWorker();
 	if (!registration) return;
 	const subscription = await registration.pushManager.getSubscription();

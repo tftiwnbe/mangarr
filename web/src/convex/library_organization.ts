@@ -54,7 +54,9 @@ function normalizeDynamicCollectionFilters(
 			...new Set(filters.readingStatusIds.map((value) => value.trim()).filter(Boolean))
 		],
 		excludedReadingStatusIds: [
-			...new Set((filters.excludedReadingStatusIds ?? []).map((value) => value.trim()).filter(Boolean))
+			...new Set(
+				(filters.excludedReadingStatusIds ?? []).map((value) => value.trim()).filter(Boolean)
+			)
 		],
 		updateStateKeys: [
 			...new Set((filters.updateStateKeys ?? []).map((value) => value.trim()).filter(Boolean))
@@ -67,7 +69,9 @@ function normalizeDynamicCollectionFilters(
 			...new Set(filters.sourceStatusKeys.map((value) => value.trim()).filter(Boolean))
 		],
 		excludedSourceStatusKeys: [
-			...new Set((filters.excludedSourceStatusKeys ?? []).map((value) => value.trim()).filter(Boolean))
+			...new Set(
+				(filters.excludedSourceStatusKeys ?? []).map((value) => value.trim()).filter(Boolean)
+			)
 		],
 		genres: [...new Set(filters.genres.map((value) => value.trim()).filter(Boolean))],
 		excludedGenres: [

@@ -560,7 +560,10 @@ export const markEventSending = internalMutation({
 	},
 	handler: async (ctx, args) => {
 		const event = await ctx.db.get(args.eventId);
-		if (!event || !EVENT_RETRY_STATUSES.includes(event.status as (typeof EVENT_RETRY_STATUSES)[number])) {
+		if (
+			!event ||
+			!EVENT_RETRY_STATUSES.includes(event.status as (typeof EVENT_RETRY_STATUSES)[number])
+		) {
 			return { queued: false };
 		}
 		await ctx.db.patch(event._id, {

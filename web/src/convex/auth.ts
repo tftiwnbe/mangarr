@@ -1,7 +1,7 @@
 import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
 
-import { mutation, query } from './_generated/server';
+import { internalMutation, internalQuery, query } from './_generated/server';
 
 const SESSION_TOUCH_DEBOUNCE_MS = 5 * 60 * 1000;
 const INTEGRATION_KEY_TOUCH_DEBOUNCE_MS = 60 * 1000;
@@ -25,7 +25,7 @@ const publicIntegrationApiKey = v.object({
 	revokedAt: v.optional(v.float64())
 });
 
-export const getSetupState = query({
+export const getSetupState = internalQuery({
 	args: {},
 	handler: async (ctx) => {
 		const users = await ctx.db.query('users').take(1);
@@ -33,7 +33,7 @@ export const getSetupState = query({
 	}
 });
 
-export const getUserByUsername = query({
+export const getUserByUsername = internalQuery({
 	args: { username: v.string() },
 	handler: async (ctx, args) => {
 		const user = await ctx.db
@@ -58,7 +58,7 @@ export const getUserByUsername = query({
 	}
 });
 
-export const getSessionByTokenHash = query({
+export const getSessionByTokenHash = internalQuery({
 	args: {
 		sessionTokenHash: v.string(),
 		now: v.float64()
@@ -100,7 +100,7 @@ export const getSessionByTokenHash = query({
 	}
 });
 
-export const getIntegrationApiKeyByHash = query({
+export const getIntegrationApiKeyByHash = internalQuery({
 	args: {
 		keyHash: v.string(),
 		now: v.float64()
@@ -142,7 +142,7 @@ export const getIntegrationApiKeyByHash = query({
 	}
 });
 
-export const registerFirstUser = mutation({
+export const registerFirstUser = internalMutation({
 	args: {
 		username: v.string(),
 		passwordHash: v.string(),
@@ -215,7 +215,7 @@ export const registerFirstUser = mutation({
 	}
 });
 
-export const createBrowserSession = mutation({
+export const createBrowserSession = internalMutation({
 	args: {
 		userId: v.id('users'),
 		sessionTokenHash: v.string(),
@@ -255,7 +255,7 @@ export const createBrowserSession = mutation({
 	}
 });
 
-export const revokeBrowserSessionByTokenHash = mutation({
+export const revokeBrowserSessionByTokenHash = internalMutation({
 	args: {
 		sessionTokenHash: v.string(),
 		revokedAt: v.float64()
@@ -278,7 +278,7 @@ export const revokeBrowserSessionByTokenHash = mutation({
 	}
 });
 
-export const revokeBrowserSession = mutation({
+export const revokeBrowserSession = internalMutation({
 	args: {
 		sessionId: v.id('browserSessions'),
 		revokedAt: v.float64()
@@ -298,7 +298,7 @@ export const revokeBrowserSession = mutation({
 	}
 });
 
-export const touchBrowserSession = mutation({
+export const touchBrowserSession = internalMutation({
 	args: {
 		sessionId: v.id('browserSessions'),
 		lastUsedAt: v.float64()
@@ -325,7 +325,7 @@ export const touchBrowserSession = mutation({
 	}
 });
 
-export const touchIntegrationApiKey = mutation({
+export const touchIntegrationApiKey = internalMutation({
 	args: {
 		keyHash: v.string(),
 		lastUsedAt: v.float64()
@@ -356,7 +356,7 @@ export const touchIntegrationApiKey = mutation({
 	}
 });
 
-export const revokeUserSessions = mutation({
+export const revokeUserSessions = internalMutation({
 	args: {
 		userId: v.id('users'),
 		revokedAt: v.float64()
@@ -383,7 +383,7 @@ export const revokeUserSessions = mutation({
 	}
 });
 
-export const getUserProfile = query({
+export const getUserProfile = internalQuery({
 	args: { userId: v.id('users') },
 	returns: publicUser,
 	handler: async (ctx, args) => {
@@ -430,7 +430,7 @@ export const getViewer = query({
 	}
 });
 
-export const listIntegrationApiKeys = query({
+export const listIntegrationApiKeys = internalQuery({
 	args: { userId: v.id('users') },
 	returns: v.array(publicIntegrationApiKey),
 	handler: async (ctx, args) => {
@@ -453,7 +453,7 @@ export const listIntegrationApiKeys = query({
 	}
 });
 
-export const createIntegrationApiKey = mutation({
+export const createIntegrationApiKey = internalMutation({
 	args: {
 		userId: v.id('users'),
 		name: v.string(),
@@ -487,7 +487,7 @@ export const createIntegrationApiKey = mutation({
 	}
 });
 
-export const revokeIntegrationApiKey = mutation({
+export const revokeIntegrationApiKey = internalMutation({
 	args: {
 		userId: v.id('users'),
 		publicId: v.float64(),
@@ -512,7 +512,7 @@ export const revokeIntegrationApiKey = mutation({
 	}
 });
 
-export const updateUserPassword = mutation({
+export const updateUserPassword = internalMutation({
 	args: {
 		userId: v.id('users'),
 		passwordHash: v.string(),
@@ -540,7 +540,7 @@ export const updateUserPassword = mutation({
 
 const RATE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
-export const checkLoginRateLimit = query({
+export const checkLoginRateLimit = internalQuery({
 	args: {
 		key: v.string(),
 		maxFails: v.float64(),
@@ -565,7 +565,7 @@ export const checkLoginRateLimit = query({
 	}
 });
 
-export const recordLoginFailure = mutation({
+export const recordLoginFailure = internalMutation({
 	args: {
 		key: v.string(),
 		now: v.float64()
@@ -595,7 +595,7 @@ export const recordLoginFailure = mutation({
 	}
 });
 
-export const clearLoginFailures = mutation({
+export const clearLoginFailures = internalMutation({
 	args: {
 		key: v.string(),
 		now: v.float64()

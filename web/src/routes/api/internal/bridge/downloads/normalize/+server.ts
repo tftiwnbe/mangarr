@@ -217,7 +217,8 @@ export const POST: RequestHandler = async (event) => {
 		scanned,
 		normalizeCandidates,
 		pruneCandidates,
-		nextCursor: titleId !== null || cursor + batch.length >= titles.length ? null : cursor + batch.length,
+		nextCursor:
+			titleId !== null || cursor + batch.length >= titles.length ? null : cursor + batch.length,
 		totalTitles: titles.length,
 		processedTitles: batch.length
 	});

@@ -41,7 +41,9 @@ function finiteNumber(value: number | null | undefined) {
 function normalizeNumber(value: number | null | undefined) {
 	const normalized = finiteNumber(value);
 	if (normalized === null) return '';
-	return Number.isInteger(normalized) ? String(normalized) : normalized.toFixed(3).replace(/\.?0+$/, '');
+	return Number.isInteger(normalized)
+		? String(normalized)
+		: normalized.toFixed(3).replace(/\.?0+$/, '');
 }
 
 function normalizeString(value: string | null | undefined) {
@@ -58,10 +60,7 @@ export function normalizeScanlatorName(scanlator: string | null | undefined) {
 	return normalizeString(scanlator);
 }
 
-export function buildChapterGroupKey(args: {
-	chapterName: string;
-	chapterNumber?: number | null;
-}) {
+export function buildChapterGroupKey(args: { chapterName: string; chapterNumber?: number | null }) {
 	const chapterNumberToken = normalizeNumber(args.chapterNumber);
 	const normalizedName = normalizeString(args.chapterName);
 
@@ -72,9 +71,9 @@ export function buildChapterGroupKey(args: {
 	return normalizedName ? `name:${normalizedName}` : 'name:chapter';
 }
 
-export function chapterGroupKeyForRow<T extends Pick<ChapterReleaseBase, 'chapterGroupKey' | 'chapterName' | 'chapterNumber'>>(
-	chapter: T
-) {
+export function chapterGroupKeyForRow<
+	T extends Pick<ChapterReleaseBase, 'chapterGroupKey' | 'chapterName' | 'chapterNumber'>
+>(chapter: T) {
 	return chapter.chapterGroupKey?.trim() || buildChapterGroupKey(chapter);
 }
 
@@ -85,10 +84,12 @@ function compareNullableNumbers(left: number | null, right: number | null) {
 	return left - right;
 }
 
-function compareReadingOrder<T extends Pick<ChapterReleaseBase, '_id' | 'chapterName' | 'chapterNumber' | 'dateUpload' | 'sequence'>>(
-	left: T,
-	right: T
-) {
+function compareReadingOrder<
+	T extends Pick<
+		ChapterReleaseBase,
+		'_id' | 'chapterName' | 'chapterNumber' | 'dateUpload' | 'sequence'
+	>
+>(left: T, right: T) {
 	const chapterNumberComparison = compareNullableNumbers(
 		finiteNumber(left.chapterNumber),
 		finiteNumber(right.chapterNumber)
@@ -106,7 +107,8 @@ function compareReadingOrder<T extends Pick<ChapterReleaseBase, '_id' | 'chapter
 }
 
 function comparePreferredRelease<T extends ChapterReleaseBase>(left: T, right: T) {
-	const localLeft = typeof left.localRelativePath === 'string' && left.localRelativePath.trim() ? 1 : 0;
+	const localLeft =
+		typeof left.localRelativePath === 'string' && left.localRelativePath.trim() ? 1 : 0;
 	const localRight =
 		typeof right.localRelativePath === 'string' && right.localRelativePath.trim() ? 1 : 0;
 	if (localLeft !== localRight) return localRight - localLeft;
@@ -157,7 +159,9 @@ function comparePreferredRelease<T extends ChapterReleaseBase>(left: T, right: T
 	return compareReadingOrder(left, right);
 }
 
-export function selectPreferredChapterRelease<T extends ChapterReleaseBase>(releases: readonly T[]) {
+export function selectPreferredChapterRelease<T extends ChapterReleaseBase>(
+	releases: readonly T[]
+) {
 	if (releases.length === 0) return null;
 	return [...releases].sort(comparePreferredRelease)[0] ?? null;
 }
@@ -188,8 +192,9 @@ export function collapseChapterReleases<T extends ChapterReleaseBase>(releases: 
 				...preferred,
 				chapterGroupKey: groupKey,
 				releaseCount: groupReleases.length,
-				activeReleaseCount: groupReleases.filter((release) => release.isAvailableFromSource !== false)
-					.length,
+				activeReleaseCount: groupReleases.filter(
+					(release) => release.isAvailableFromSource !== false
+				).length,
 				hasAlternateReleases: groupReleases.length > 1,
 				scanlators,
 				releaseIds: groupReleases.map((release) => release._id),
@@ -203,8 +208,8 @@ export function collapseChapterReleases<T extends ChapterReleaseBase>(releases: 
 export function summarizeGroupedChapterStatuses<T extends ChapterReleaseBase>(
 	releases: readonly T[]
 ) {
-	const groups = collapseChapterReleases(releases).filter(
-		(group) => group.releases.some((release) => release.isAvailableFromSource !== false)
+	const groups = collapseChapterReleases(releases).filter((group) =>
+		group.releases.some((release) => release.isAvailableFromSource !== false)
 	);
 
 	let queued = 0;

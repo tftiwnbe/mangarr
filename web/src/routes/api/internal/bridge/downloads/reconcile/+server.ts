@@ -45,7 +45,9 @@ export const POST: RequestHandler = async (event) => {
 	}
 	const titleId = typeof requestJson.titleId === 'string' ? requestJson.titleId : null;
 	const cursor =
-		typeof requestJson.cursor === 'number' && Number.isFinite(requestJson.cursor) && requestJson.cursor >= 0
+		typeof requestJson.cursor === 'number' &&
+		Number.isFinite(requestJson.cursor) &&
+		requestJson.cursor >= 0
 			? Math.floor(requestJson.cursor)
 			: 0;
 	const maxTitles =
@@ -69,10 +71,11 @@ export const POST: RequestHandler = async (event) => {
 	const batch = titleId !== null ? titles : titles.slice(cursor, cursor + maxTitles);
 
 	const chapterSets = await Promise.all(
-		batch.map((entry) =>
-			client.query(convexApi.library.listAllMineChaptersForTitle, {
-				titleId: entry.titleId
-			}) as Promise<LibraryChapter[]>
+		batch.map(
+			(entry) =>
+				client.query(convexApi.library.listAllMineChaptersForTitle, {
+					titleId: entry.titleId
+				}) as Promise<LibraryChapter[]>
 		)
 	);
 	const scoped = chapterSets.flat();
@@ -116,7 +119,8 @@ export const POST: RequestHandler = async (event) => {
 	return json(
 		{
 			...payload,
-			nextCursor: titleId !== null || cursor + batch.length >= titles.length ? null : cursor + batch.length,
+			nextCursor:
+				titleId !== null || cursor + batch.length >= titles.length ? null : cursor + batch.length,
 			totalTitles: titles.length,
 			processedTitles: batch.length
 		},

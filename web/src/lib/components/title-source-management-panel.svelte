@@ -316,7 +316,9 @@
 				</div>
 
 				{#if sourceMatchesLoading}
-					<div class="flex items-center gap-2 border border-[var(--void-3)] bg-[var(--void-2)] px-3 py-3 text-xs text-[var(--text-ghost)]">
+					<div
+						class="flex items-center gap-2 border border-[var(--void-3)] bg-[var(--void-2)] px-3 py-3 text-xs text-[var(--text-ghost)]"
+					>
 						<SpinnerIcon size={12} class="animate-spin" />
 						<span>{$_('common.loading')}</span>
 					</div>

@@ -214,9 +214,30 @@ jobs:
       - name: Smoke release candidate image
         run: |
           mkdir -p "$RUNNER_TEMP/mangarr-config" "$RUNNER_TEMP/mangarr-downloads"
-          docker rm -f mangarr-release >/dev/null 2>&1 || true
-          docker run -d --name mangarr-release \
+          docker rm -f mangarr-release mangarr-release-postgres >/dev/null 2>&1 || true
+          docker network create mangarr-release-network >/dev/null 2>&1 || true
+          docker run -d --name mangarr-release-postgres --network mangarr-release-network \
+            -e POSTGRES_DB=mangarr \
+            -e POSTGRES_USER=mangarr \
+            -e POSTGRES_PASSWORD=mangarr-postgres \
+            --health-cmd='pg_isready -U mangarr -d mangarr' \
+            --health-interval=5s \
+            --health-timeout=5s \
+            --health-retries=24 \
+            postgres:17
+          for i in $(seq 1 24); do
+            if [ "$(docker inspect -f '{{.State.Health.Status}}' mangarr-release-postgres)" = healthy ]; then
+              break
+            fi
+            sleep 5
+            if [ "$i" -eq 24 ]; then
+              docker logs mangarr-release-postgres >&2 || true
+              exit 1
+            fi
+          done
+          docker run -d --name mangarr-release --network mangarr-release-network \
             -e MANGARR_PUBLIC_URL=http://127.0.0.1:3837 \
+            -e CONVEX_POSTGRES_URL=postgresql://mangarr:mangarr-postgres@mangarr-release-postgres:5432 \
             -p 3837:3737 \
             -v "$RUNNER_TEMP/mangarr-config:/app/config" \
             -v "$RUNNER_TEMP/mangarr-downloads:/app/downloads" \
@@ -231,7 +252,18 @@ jobs:
               exit 1
             fi
           done
-          docker rm -f mangarr-release >/dev/null 2>&1 || true
+
+      - name: Dump release candidate logs on failure
+        if: failure()
+        run: |
+          docker logs mangarr-release >&2 || true
+          docker logs mangarr-release-postgres >&2 || true
+
+      - name: Stop release candidate containers
+        if: always()
+        run: |
+          docker rm -f mangarr-release mangarr-release-postgres >/dev/null 2>&1 || true
+          docker network rm mangarr-release-network >/dev/null 2>&1 || true
 
       - name: Build and push release image
         uses: docker/build-push-action@v6

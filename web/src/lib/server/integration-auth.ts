@@ -1,8 +1,8 @@
 import { error } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
 
-import { convexApi } from '$lib/server/convex-api';
-import { getConvexClient, getUserConvexClient } from '$lib/server/convex';
+import { convexInternal } from '$lib/server/convex-api';
+import { getConvexAdminClient, getUserConvexClient } from '$lib/server/convex';
 import type { SessionUser } from '$lib/server/auth';
 import { hashToken } from '$lib/server/security';
 
@@ -45,8 +45,8 @@ export async function requireIntegrationApiUser(
 	}
 
 	const keyHash = hashToken(rawKey);
-	const client = getConvexClient();
-	const lookup = (await client.query(convexApi.auth.getIntegrationApiKeyByHash, {
+	const client = getConvexAdminClient();
+	const lookup = (await client.query(convexInternal.auth.getIntegrationApiKeyByHash, {
 		keyHash,
 		now: Date.now()
 	})) as IntegrationApiKeyLookup;
@@ -63,7 +63,7 @@ export async function requireIntegrationApiUser(
 	if (now - previousTouchAt >= INTEGRATION_KEY_TOUCH_DEBOUNCE_MS) {
 		recentIntegrationKeyTouches.set(keyHash, now);
 		try {
-			await client.mutation(convexApi.auth.touchIntegrationApiKey, {
+			await client.mutation(convexInternal.auth.touchIntegrationApiKey, {
 				keyHash,
 				lastUsedAt: now
 			});

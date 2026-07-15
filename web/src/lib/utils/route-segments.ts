@@ -75,11 +75,7 @@ function splitUrlSuffix(value: string) {
 	const hashIndex = value.indexOf('#');
 	const queryIndex = value.indexOf('?');
 	const suffixIndex =
-		hashIndex === -1
-			? queryIndex
-			: queryIndex === -1
-				? hashIndex
-				: Math.min(hashIndex, queryIndex);
+		hashIndex === -1 ? queryIndex : queryIndex === -1 ? hashIndex : Math.min(hashIndex, queryIndex);
 	return suffixIndex === -1
 		? { path: value, suffix: '' }
 		: { path: value.slice(0, suffixIndex), suffix: value.slice(suffixIndex) };
@@ -125,7 +121,11 @@ function isLowQualityRouteSlug(rawSegment: string, slug: string, fallbackSlug = 
 	if (UUID_ROUTE_SEGMENT_RE.test(rawSegment)) {
 		return Boolean(fallbackSlug);
 	}
-	if (OPAQUE_ROUTE_SEGMENT_RE.test(rawSegment) && !rawSegment.includes('-') && !rawSegment.includes('_')) {
+	if (
+		OPAQUE_ROUTE_SEGMENT_RE.test(rawSegment) &&
+		!rawSegment.includes('-') &&
+		!rawSegment.includes('_')
+	) {
 		return true;
 	}
 
@@ -144,7 +144,8 @@ function isLowQualityRouteSlug(rawSegment: string, slug: string, fallbackSlug = 
 		if (
 			words.length < fallbackWords.length &&
 			overlappingWords.length === words.length &&
-			(fallbackWords.length - words.length >= 2 || words.every((word) => GENERIC_ROUTE_WORDS.has(word)))
+			(fallbackWords.length - words.length >= 2 ||
+				words.every((word) => GENERIC_ROUTE_WORDS.has(word)))
 		) {
 			return true;
 		}

@@ -4,8 +4,8 @@ import type { GenericId } from 'convex/values';
 
 import { env as privateEnv } from '$env/dynamic/private';
 
-import { convexApi } from './convex-api';
-import { getConvexClient, getConvexUrl } from './convex';
+import { convexInternal } from './convex-api';
+import { getConvexAdminClient, getConvexUrl } from './convex';
 import {
 	generateOpaqueToken,
 	hashPassword,
@@ -115,8 +115,8 @@ export async function getSetupState() {
 		return cached;
 	}
 
-	const client = getConvexClient();
-	const result = await client.query(convexApi.auth.getSetupState, {});
+	const client = getConvexAdminClient();
+	const result = await client.query(convexInternal.auth.getSetupState, {});
 	writeCachedSetupState(result.needsSetup);
 	return result.needsSetup;
 }
@@ -144,9 +144,9 @@ export async function resolveAuthState(event: RequestEvent): Promise<AuthState> 
 		now - lastUsedAt >= SESSION_REFRESH_WINDOW_MS &&
 		shouldAttemptSessionTouch(lookup.session._id, now)
 	) {
-		const client = getConvexClient();
+		const client = getConvexAdminClient();
 		try {
-			await client.mutation(convexApi.auth.touchBrowserSession, {
+			await client.mutation(convexInternal.auth.touchBrowserSession, {
 				sessionId: lookup.session._id as GenericId<'browserSessions'>,
 				lastUsedAt: now
 			});
@@ -189,18 +189,18 @@ export async function login(event: RequestEvent, formData: FormData) {
 export async function logout(event: RequestEvent) {
 	const sessionToken = event.cookies.get(getSessionCookieName());
 	if (sessionToken && isConvexConfigured()) {
-		const client = getConvexClient();
+		const client = getConvexAdminClient();
 		const lookup = await fetchSessionByToken(sessionToken);
 		const revokedAt = Date.now();
 
 		if (lookup) {
 			recentSessionTouches.delete(lookup.session._id);
-			await client.mutation(convexApi.auth.revokeBrowserSession, {
+			await client.mutation(convexInternal.auth.revokeBrowserSession, {
 				sessionId: lookup.session._id as GenericId<'browserSessions'>,
 				revokedAt
 			});
 		} else {
-			await client.mutation(convexApi.auth.revokeBrowserSessionByTokenHash, {
+			await client.mutation(convexInternal.auth.revokeBrowserSessionByTokenHash, {
 				sessionTokenHash: hashToken(sessionToken),
 				revokedAt
 			});
@@ -247,10 +247,10 @@ export async function registerFirstUserWithCredentials(
 	const sessionToken = generateOpaqueToken();
 	const now = Date.now();
 	const expiresAt = now + REMEMBERED_SESSION_TTL_MS;
-	const client = getConvexClient();
+	const client = getConvexAdminClient();
 
 	try {
-		await client.mutation(convexApi.auth.registerFirstUser, {
+		await client.mutation(convexInternal.auth.registerFirstUser, {
 			username: usernameResult.value,
 			passwordHash: hashPassword(input.password),
 			sessionTokenHash: hashToken(sessionToken),
@@ -280,9 +280,9 @@ export async function loginWithCredentials(
 
 	const ip = event.getClientAddress();
 	const now = Date.now();
-	const client = getConvexClient();
+	const client = getConvexAdminClient();
 
-	const rateCheck = await client.query(convexApi.auth.checkLoginRateLimit, {
+	const rateCheck = await client.query(convexInternal.auth.checkLoginRateLimit, {
 		key: ip,
 		maxFails: RATE_MAX_FAILS,
 		now
@@ -297,30 +297,30 @@ export async function loginWithCredentials(
 
 	const usernameResult = normalizeUsername(input.username);
 	if (!usernameResult.ok) {
-		await client.mutation(convexApi.auth.recordLoginFailure, { key: ip, now });
+		await client.mutation(convexInternal.auth.recordLoginFailure, { key: ip, now });
 		return { ok: false as const, field: 'username', message: usernameResult.message };
 	}
 
-	const user = await client.query(convexApi.auth.getUserByUsername, {
+	const user = await client.query(convexInternal.auth.getUserByUsername, {
 		username: usernameResult.value
 	});
 
 	if (!user || user.status !== 'active' || !verifyPassword(input.password, user.passwordHash)) {
-		await client.mutation(convexApi.auth.recordLoginFailure, { key: ip, now });
+		await client.mutation(convexInternal.auth.recordLoginFailure, { key: ip, now });
 		return { ok: false as const, field: 'form', message: 'Invalid username or password' };
 	}
 
 	const sessionToken = generateOpaqueToken();
 	const expiresAt = now + (input.rememberMe ? REMEMBERED_SESSION_TTL_MS : EPHEMERAL_SESSION_TTL_MS);
 
-	await client.mutation(convexApi.auth.createBrowserSession, {
+	await client.mutation(convexInternal.auth.createBrowserSession, {
 		userId: user._id,
 		sessionTokenHash: hashToken(sessionToken),
 		expiresAt,
 		now
 	});
 
-	await client.mutation(convexApi.auth.clearLoginFailures, { key: ip, now });
+	await client.mutation(convexInternal.auth.clearLoginFailures, { key: ip, now });
 	setSessionCookie(event.cookies, event, sessionToken, expiresAt);
 	markSetupConfigured();
 	return { ok: true as const };
@@ -340,8 +340,8 @@ export async function changePasswordWithCredentials(
 		return { ok: false as const, field: 'newPassword', message: passwordResult.message };
 	}
 
-	const client = getConvexClient();
-	const user = await client.query(convexApi.auth.getUserByUsername, {
+	const client = getConvexAdminClient();
+	const user = await client.query(convexInternal.auth.getUserByUsername, {
 		username: currentUser.username
 	});
 	if (!user || !verifyPassword(input.currentPassword, user.passwordHash)) {
@@ -363,19 +363,19 @@ export async function changePasswordWithCredentials(
 			? previousSession.session.expiresAt
 			: now + EPHEMERAL_SESSION_TTL_MS;
 
-	await client.mutation(convexApi.auth.updateUserPassword, {
+	await client.mutation(convexInternal.auth.updateUserPassword, {
 		userId: currentUser.id as GenericId<'users'>,
 		passwordHash: hashPassword(passwordResult.value),
 		now
 	});
 
-	await client.mutation(convexApi.auth.revokeUserSessions, {
+	await client.mutation(convexInternal.auth.revokeUserSessions, {
 		userId: currentUser.id as GenericId<'users'>,
 		revokedAt: now
 	});
 
 	const newSessionToken = generateOpaqueToken();
-	await client.mutation(convexApi.auth.createBrowserSession, {
+	await client.mutation(convexInternal.auth.createBrowserSession, {
 		userId: currentUser.id as GenericId<'users'>,
 		sessionTokenHash: hashToken(newSessionToken),
 		expiresAt,
@@ -422,8 +422,8 @@ function clearSessionCookie(cookies: Cookies, event: Pick<RequestEvent, 'url' | 
 }
 
 async function fetchSessionByToken(sessionToken: string): Promise<SessionLookup> {
-	const client = getConvexClient();
-	return client.query(convexApi.auth.getSessionByTokenHash, {
+	const client = getConvexAdminClient();
+	return client.query(convexInternal.auth.getSessionByTokenHash, {
 		sessionTokenHash: hashToken(sessionToken),
 		now: Date.now()
 	}) as Promise<SessionLookup>;

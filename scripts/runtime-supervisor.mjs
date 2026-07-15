@@ -7,7 +7,6 @@ import { createRequire } from 'node:module';
 import { spawn, spawnSync } from 'node:child_process';
 
 const requireFromWeb = createRequire(new URL('../web/package.json', import.meta.url));
-const webpush = requireFromWeb('web-push');
 
 const state = {
 	children: new Map(),
@@ -28,6 +27,7 @@ async function main() {
 
 	const env = buildRuntimeEnv(process.env);
 
+	ensureDevelopmentWebDependencies(env);
 	await prepareRuntime(env);
 	await prepareKcefRuntime(env);
 
@@ -197,16 +197,6 @@ async function prepareRuntime(env) {
 }
 
 async function synchronizeConvexRuntime(env) {
-	if (env.appMode === 'dev') {
-		const missingPnPmStore =
-			!existsSync('/app/web/node_modules/.pnpm') ||
-			!existsSync('/app/web/node_modules/.bin/convex') ||
-			!existsSync('/app/web/node_modules/.bin/vite');
-		if (missingPnPmStore) {
-			runCommand({ cmd: 'pnpm', args: ['install', '--frozen-lockfile', '--force'], cwd: '/app/web', env: env.childEnv, routeAs: 'runtime' });
-		}
-	}
-
 	const fingerprintPath = join(env.convexRoot, 'convex_sync_fingerprint');
 	const fingerprint = computeConvexSyncFingerprint(env);
 	let syncRequired = env.forceConvexSync || !existsSync(fingerprintPath);
@@ -605,6 +595,28 @@ function runCommand({ cmd, args, cwd, env = process.env, allowFailure = false, q
 	return child;
 }
 
+function ensureDevelopmentWebDependencies(env) {
+	if (env.appMode !== 'dev') {
+		return;
+	}
+
+	const dependenciesReady =
+		existsSync('/app/web/node_modules/.pnpm') &&
+		existsSync('/app/web/node_modules/.bin/convex') &&
+		existsSync('/app/web/node_modules/.bin/vite') &&
+		existsSync('/app/web/node_modules/web-push');
+	if (dependenciesReady) {
+		return;
+	}
+
+	runCommand({
+		cmd: 'pnpm',
+		args: ['install', '--frozen-lockfile', '--force'],
+		cwd: '/app/web',
+		routeAs: 'runtime'
+	});
+}
+
 function generateAdminKey(instanceName, instanceSecret) {
 	const child = spawnSync('/app/convex/generate_key', [instanceName, instanceSecret], {
 		encoding: 'utf8'
@@ -681,6 +693,7 @@ function ensureVapid(path, defaultSubject) {
 		payload = JSON.parse(readFileSync(path, 'utf8'));
 	}
 	if (!payload.publicKey || !payload.privateKey) {
+		const webpush = requireFromWeb('web-push');
 		const keys = webpush.generateVAPIDKeys();
 		payload.publicKey = payload.publicKey || keys.publicKey;
 		payload.privateKey = payload.privateKey || keys.privateKey;

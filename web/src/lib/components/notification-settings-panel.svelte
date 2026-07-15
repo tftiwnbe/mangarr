@@ -40,19 +40,20 @@
 		serverPushConfig?.vapidPublicKey ?? status?.vapidPublicKey ?? null
 	);
 	const backgroundStatusLabel = $derived.by(() => {
-		if (!capability?.supported || !capability.pushSupported) return 'Notifications are not supported here.';
+		if (!capability?.supported || !capability.pushSupported)
+			return 'Notifications are not supported here.';
 		if (!effectiveBackgroundPushConfigured)
 			return 'Background push is not configured on the server.';
 		if (capability.iosLike && !capability.installed) {
 			return 'Install Mangarr to the Home Screen, then enable notifications from the installed app.';
 		}
-		if (capability.permission === 'denied') return 'Notification permission is denied for this app.';
+		if (capability.permission === 'denied')
+			return 'Notification permission is denied for this app.';
 		return null;
 	});
 
 	onMount(() => {
-		installationKey =
-			getNotificationInstallationKey() || getOrCreateNotificationInstallationKey();
+		installationKey = getNotificationInstallationKey() || getOrCreateNotificationInstallationKey();
 		void loadServerPushConfig();
 	});
 

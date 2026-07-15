@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Id } from './_generated/dataModel';
-import { buildChapterGroupKey, collapseChapterReleases, summarizeGroupedChapterStatuses } from './chapter_groups';
+import {
+	buildChapterGroupKey,
+	collapseChapterReleases,
+	summarizeGroupedChapterStatuses
+} from './chapter_groups';
 
 describe('chapter group identity', () => {
 	it('keeps url variants of the same numbered chapter in one group', () => {

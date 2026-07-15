@@ -254,9 +254,7 @@
 			: $_('library.continueReading')
 	);
 	const inactiveReadingRailLabel = $derived(
-		readingRailMode === 'updates'
-			? $_('library.continueReading')
-			: $_('library.updates')
+		readingRailMode === 'updates' ? $_('library.continueReading') : $_('library.updates')
 	);
 	const hiddenImportsCount = $derived(hiddenTitles.length);
 	const renderContextKey = $derived(
@@ -339,16 +337,18 @@
 		return [...manual, ...dynamic].sort((a, b) => a.position - b.position);
 	});
 	const manualCollections = $derived.by(
-		() => combinedCollections.filter((collection) => collection.kind === 'manual') as Extract<
-			CollectionListItem,
-			{ kind: 'manual' }
-		>[]
+		() =>
+			combinedCollections.filter((collection) => collection.kind === 'manual') as Extract<
+				CollectionListItem,
+				{ kind: 'manual' }
+			>[]
 	);
 	const dynamicCollectionsList = $derived.by(
-		() => combinedCollections.filter((collection) => collection.kind === 'dynamic') as Extract<
-			CollectionListItem,
-			{ kind: 'dynamic' }
-		>[]
+		() =>
+			combinedCollections.filter((collection) => collection.kind === 'dynamic') as Extract<
+				CollectionListItem,
+				{ kind: 'dynamic' }
+			>[]
 	);
 	const defaultManualCollection = $derived.by(
 		() => manualCollections.find((collection) => collection.isDefault) ?? null
@@ -452,7 +452,8 @@
 					.map((value) => value.trim().toLowerCase())
 					.filter(Boolean);
 				const matchesQuery =
-					title.title.toLowerCase().includes(query) || people.some((value) => value.includes(query));
+					title.title.toLowerCase().includes(query) ||
+					people.some((value) => value.includes(query));
 				if (!matchesQuery) return false;
 			}
 
@@ -819,7 +820,10 @@
 			return false;
 		}
 
-		if ((filters.sourceIds ?? []).length > 0 && !(filters.sourceIds ?? []).includes(title.current_source_id)) {
+		if (
+			(filters.sourceIds ?? []).length > 0 &&
+			!(filters.sourceIds ?? []).includes(title.current_source_id)
+		) {
 			return false;
 		}
 
@@ -1285,62 +1289,66 @@
 					class="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
 				>
 					{#each activeReadingRailItems as item (item.titleId)}
-					{@const tPct = continueProgressPercent(item)}
-					<a
-						href={buildReaderPath({
-							titleId: String(item.titleId),
-							titleRouteSegment: item.routeSegment,
-							chapterId: String(item.chapter.id),
-							chapterName: item.chapter.name,
-							chapterNumber: item.chapter.number,
-							chapterRouteSegment: item.chapter.routeSegment
-						})}
-						class="group relative block aspect-[2/3] overflow-hidden bg-[var(--void-3)] ring-1 ring-[var(--void-1)] transition-all duration-300 hover:shadow-[0_0_28px_-6px_var(--cosmic-glow)] hover:ring-[var(--cosmic-halo)]"
-						aria-label={item.title}
-					>
-						{#if item.coverSrc}
-							<LazyImage
-								src={item.coverSrc}
-								alt={item.title}
-								class="h-full w-full"
-								imgClass="transition-transform duration-500 group-hover:scale-[1.05]"
-							/>
-						{:else}
-							<div class="flex h-full w-full items-center justify-center bg-[var(--void-4)]">
-								<ImageIcon size={28} class="text-[var(--text-ghost)]" />
-							</div>
-						{/if}
+						{@const tPct = continueProgressPercent(item)}
+						<a
+							href={buildReaderPath({
+								titleId: String(item.titleId),
+								titleRouteSegment: item.routeSegment,
+								chapterId: String(item.chapter.id),
+								chapterName: item.chapter.name,
+								chapterNumber: item.chapter.number,
+								chapterRouteSegment: item.chapter.routeSegment
+							})}
+							class="group relative block aspect-[2/3] overflow-hidden bg-[var(--void-3)] ring-1 ring-[var(--void-1)] transition-all duration-300 hover:shadow-[0_0_28px_-6px_var(--cosmic-glow)] hover:ring-[var(--cosmic-halo)]"
+							aria-label={item.title}
+						>
+							{#if item.coverSrc}
+								<LazyImage
+									src={item.coverSrc}
+									alt={item.title}
+									class="h-full w-full"
+									imgClass="transition-transform duration-500 group-hover:scale-[1.05]"
+								/>
+							{:else}
+								<div class="flex h-full w-full items-center justify-center bg-[var(--void-4)]">
+									<ImageIcon size={28} class="text-[var(--text-ghost)]" />
+								</div>
+							{/if}
 
-						<div
-							class="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/95 via-black/65 to-transparent"
-						></div>
+							<div
+								class="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/95 via-black/65 to-transparent"
+							></div>
 
-						<div class="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-2 p-2.5">
-							<p
-								class="line-clamp-2 text-[13px] leading-tight font-medium text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.85)]"
+							<div
+								class="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-2 p-2.5"
 							>
-								{item.title}
-							</p>
+								<p
+									class="line-clamp-2 text-[13px] leading-tight font-medium text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.85)]"
+								>
+									{item.title}
+								</p>
 
-							<div class="relative h-[3px] w-full overflow-hidden bg-white/15">
-								<div
-									class="h-full bg-[var(--cosmic)] shadow-[0_0_8px_var(--cosmic-glow)]"
-									style:width="{tPct}%"
-								></div>
+								<div class="relative h-[3px] w-full overflow-hidden bg-white/15">
+									<div
+										class="h-full bg-[var(--cosmic)] shadow-[0_0_8px_var(--cosmic-glow)]"
+										style:width="{tPct}%"
+									></div>
+								</div>
 							</div>
-						</div>
 
-						<div
-							class="pointer-events-none absolute top-0 left-0 h-3 w-3 border-t border-l border-[var(--cosmic)] opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-						></div>
-						<div
-							class="pointer-events-none absolute right-0 bottom-0 h-3 w-3 border-r border-b border-[var(--cosmic)] opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-						></div>
-					</a>
+							<div
+								class="pointer-events-none absolute top-0 left-0 h-3 w-3 border-t border-l border-[var(--cosmic)] opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+							></div>
+							<div
+								class="pointer-events-none absolute right-0 bottom-0 h-3 w-3 border-r border-b border-[var(--cosmic)] opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+							></div>
+						</a>
 					{/each}
 				</div>
 			{:else}
-				<div class="border border-[var(--line)] bg-[var(--void-3)] px-3 py-4 text-sm text-[var(--text-ghost)]">
+				<div
+					class="border border-[var(--line)] bg-[var(--void-3)] px-3 py-4 text-sm text-[var(--text-ghost)]"
+				>
 					{$_('library.noRecentUpdates')}
 				</div>
 			{/if}
@@ -1510,12 +1518,14 @@
 					<div class="flex items-center gap-2">
 						<p class="text-sm text-[var(--text)]">{$_('library.allTitles')}</p>
 						{#if defaultManualCollection === null}
-							<span class="shrink-0 text-[10px] uppercase tracking-[0.18em] text-[var(--text-ghost)]">
+							<span
+								class="shrink-0 text-[10px] tracking-[0.18em] text-[var(--text-ghost)] uppercase"
+							>
 								default
 							</span>
 						{/if}
 					</div>
-					<p class="mt-0.5 text-xs tabular-nums text-[var(--text-ghost)]">{listedTitlesCount}</p>
+					<p class="mt-0.5 text-xs text-[var(--text-ghost)] tabular-nums">{listedTitlesCount}</p>
 				</div>
 			</button>
 
@@ -1537,12 +1547,14 @@
 								>
 									<div class="min-w-0">
 										<p class="truncate text-sm text-[var(--text)]">{collection.name}</p>
-										<p class="mt-0.5 text-xs tabular-nums text-[var(--text-ghost)]">
+										<p class="mt-0.5 text-xs text-[var(--text-ghost)] tabular-nums">
 											{collection.titlesCount}
 										</p>
 									</div>
 									{#if collection.isDefault}
-										<span class="shrink-0 text-[10px] uppercase tracking-[0.18em] text-[var(--text-ghost)]">
+										<span
+											class="shrink-0 text-[10px] tracking-[0.18em] text-[var(--text-ghost)] uppercase"
+										>
 											default
 										</span>
 									{/if}
@@ -1591,7 +1603,7 @@
 
 				{#if dynamicCollectionsList.length > 0}
 					<div class="mt-3 border-t border-[var(--void-3)]/30 pt-3">
-						<p class="mb-1 text-[11px] uppercase tracking-[0.18em] text-[var(--text-ghost)]">
+						<p class="mb-1 text-[11px] tracking-[0.18em] text-[var(--text-ghost)] uppercase">
 							Dynamic collections
 						</p>
 						<div class="flex flex-col gap-1">

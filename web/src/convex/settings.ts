@@ -1,8 +1,8 @@
 import { v } from 'convex/values';
 
-import { mutation, query } from './_generated/server';
+import { internalMutation, internalQuery } from './_generated/server';
 
-export const getContentLanguages = query({
+export const getContentLanguages = internalQuery({
 	args: {},
 	handler: async (ctx) => {
 		const installation = await ctx.db
@@ -16,7 +16,7 @@ export const getContentLanguages = query({
 	}
 });
 
-export const setContentLanguages = mutation({
+export const setContentLanguages = internalMutation({
 	args: {
 		preferred: v.array(v.string()),
 		now: v.float64()

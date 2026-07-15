@@ -1,8 +1,8 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-import { convexApi } from '$lib/server/convex-api';
-import { getConvexClient } from '$lib/server/convex';
+import { convexInternal } from '$lib/server/convex-api';
+import { getConvexAdminClient } from '$lib/server/convex';
 
 function requireSignedInUser(locals: App.Locals) {
 	if (!locals.auth.user) {
@@ -13,8 +13,8 @@ function requireSignedInUser(locals: App.Locals) {
 export const GET: RequestHandler = async ({ locals }) => {
 	requireSignedInUser(locals);
 
-	const client = getConvexClient();
-	return json(await client.query(convexApi.settings.getContentLanguages, {}));
+	const client = getConvexAdminClient();
+	return json(await client.query(convexInternal.settings.getContentLanguages, {}));
 };
 
 export const PUT: RequestHandler = async ({ locals, request }) => {
@@ -31,9 +31,9 @@ export const PUT: RequestHandler = async ({ locals, request }) => {
 		? payload.preferred.filter((value): value is string => typeof value === 'string')
 		: [];
 
-	const client = getConvexClient();
+	const client = getConvexAdminClient();
 	return json(
-		await client.mutation(convexApi.settings.setContentLanguages, {
+		await client.mutation(convexInternal.settings.setContentLanguages, {
 			preferred,
 			now: Date.now()
 		})

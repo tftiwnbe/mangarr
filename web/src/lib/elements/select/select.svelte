@@ -57,7 +57,7 @@
 				<Select.Item
 					value={option.value}
 					label={option.label}
-					class="flex h-8 cursor-pointer items-center px-3 whitespace-nowrap text-sm text-[var(--text-soft)] transition-colors
+					class="flex h-8 cursor-pointer items-center px-3 text-sm whitespace-nowrap text-[var(--text-soft)] transition-colors
 						outline-none
 						data-[highlighted]:bg-[var(--void-3)] data-[highlighted]:text-[var(--text)]
 						data-[selected]:bg-[var(--void-3)] data-[selected]:text-[var(--text)]"

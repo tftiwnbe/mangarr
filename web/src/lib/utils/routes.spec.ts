@@ -6,7 +6,11 @@ import {
 	parseReaderChapterParam,
 	parseTitleRouteParam
 } from './routes';
-import { buildTitleRouteBaseFromUrl, normalizeSourceUrlPath, slugifySegment } from './route-segments';
+import {
+	buildTitleRouteBaseFromUrl,
+	normalizeSourceUrlPath,
+	slugifySegment
+} from './route-segments';
 
 describe('routes', () => {
 	it('slugifies readable title segments', () => {
@@ -16,10 +20,7 @@ describe('routes', () => {
 
 	it('builds title route bases from bridge title urls', () => {
 		expect(
-			buildTitleRouteBaseFromUrl(
-				'/manga/77bee52c-d2d6-44ad-a33a-1734c1fe696a',
-				'Placeholder title'
-			)
+			buildTitleRouteBaseFromUrl('/manga/77bee52c-d2d6-44ad-a33a-1734c1fe696a', 'Placeholder title')
 		).toBe('placeholder-title');
 		expect(buildTitleRouteBaseFromUrl('https://site.test/title/chainsaw-man')).toBe('chainsaw-man');
 	});

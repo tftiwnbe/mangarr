@@ -16,7 +16,11 @@ import {
 	resolveOwnedTitleUserStatus
 } from './library_shared_titles';
 import { DOWNLOAD_STATUS } from './library_shared_access';
-import { chapterGroupKeyForRow, collapseChapterReleases, summarizeGroupedChapterStatuses } from './chapter_groups';
+import {
+	chapterGroupKeyForRow,
+	collapseChapterReleases,
+	summarizeGroupedChapterStatuses
+} from './chapter_groups';
 
 const ROUTE_COLLISION_DELIMITER = '~';
 
@@ -368,14 +372,19 @@ export async function loadTitleOverviewContext(ctx: QueryCtx, title: Doc<'librar
 		chapterBelongsToVariant(chapter, activeChapterSource)
 	);
 	const groupedChapters = collapseChapterReleases(activeChapters);
-	const releaseById = new Map(activeChapters.map((chapter) => [String(chapter._id), chapter] as const));
+	const releaseById = new Map(
+		activeChapters.map((chapter) => [String(chapter._id), chapter] as const)
+	);
 	const groupedChapterByKey = new Map(
 		groupedChapters.map((chapter) => [chapter.chapterGroupKey, chapter] as const)
 	);
-	const visibleGroupedChapters = groupedChapters.filter((chapter) =>
-		chapter.releases.some((release) => release.isAvailableFromSource !== false) ||
-		chapter.downloadStatus !== DOWNLOAD_STATUS.MISSING ||
-		progressRows.some((row) => chapter.releaseIds.some((releaseId) => String(releaseId) === String(row.chapterId)))
+	const visibleGroupedChapters = groupedChapters.filter(
+		(chapter) =>
+			chapter.releases.some((release) => release.isAvailableFromSource !== false) ||
+			chapter.downloadStatus !== DOWNLOAD_STATUS.MISSING ||
+			progressRows.some((row) =>
+				chapter.releaseIds.some((releaseId) => String(releaseId) === String(row.chapterId))
+			)
 	);
 	const activeProgressRows = progressRows
 		.map((row) => {

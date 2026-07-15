@@ -31,9 +31,7 @@ export function parseReaderChapterParam(value: string | null | undefined): strin
 	return decodeRouteSegment(value);
 }
 
-export function buildLibraryPath(params?: {
-	person?: string | null;
-}): string {
+export function buildLibraryPath(params?: { person?: string | null }): string {
 	const person = params?.person?.trim();
 	if (!person) return '/library';
 	const query = new URLSearchParams({ person });
