@@ -1,10 +1,16 @@
 import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
+import { paginationOptsValidator } from 'convex/server';
 
 import type { Doc } from './_generated/dataModel';
 import { query, type QueryCtx } from './_generated/server';
 import { buildChapterRouteBase, buildTitleRouteBaseFromUrl } from '../lib/utils/route-segments';
 import { chapterGroupKeyForRow, collapseChapterReleases } from './chapter_groups';
+import {
+	LIBRARY_PAGE_SIZE_MAX,
+	normalizeLegacyLibraryWindow,
+	normalizeLibraryPageSize
+} from './library_pagination';
 import { DOWNLOAD_STATUS } from './library_shared_access';
 import { cleanExtensionLabel, humanizeSourcePkg } from './library_shared_values';
 import { pickStorageTitleBase } from './storage_names';
@@ -12,7 +18,6 @@ import {
 	chapterBelongsToVariant,
 	getPreferredVariantForTitle,
 	getOwnedChapterProgressRow,
-	loadOwnerCollectionIdsByTitleId,
 	loadOwnerCollectionMap,
 	loadOwnerUserStatusMap,
 	resolveStorageTitleBaseForTitle,
@@ -29,6 +34,143 @@ import {
 	summarizeOfflineReadiness
 } from './library_reader_support';
 
+type LibraryBrowseLookups = {
+	statusById: Awaited<ReturnType<typeof loadOwnerUserStatusMap>>;
+	collectionById: Awaited<ReturnType<typeof loadOwnerCollectionMap>>;
+	sourceNamesById: Map<string, string>;
+	sourceNamesByPkg: Map<string, string>;
+};
+
+async function loadLibraryBrowseLookups(
+	ctx: QueryCtx,
+	ownerUserId: GenericId<'users'>
+): Promise<LibraryBrowseLookups> {
+	const [statusById, collectionById, installedExtensions] = await Promise.all([
+		loadOwnerUserStatusMap(ctx, ownerUserId),
+		loadOwnerCollectionMap(ctx, ownerUserId),
+		ctx.db.query('installedExtensions').collect()
+	]);
+	const sourceNamesById = new Map<string, string>();
+	const sourceNamesByPkg = new Map<string, string>();
+	for (const extension of installedExtensions) {
+		const extensionName = cleanExtensionLabel(extension.name);
+		sourceNamesByPkg.set(extension.pkg, extensionName);
+		for (const source of extension.sources ?? []) {
+			sourceNamesById.set(source.id, source.name);
+		}
+	}
+
+	return { statusById, collectionById, sourceNamesById, sourceNamesByPkg };
+}
+
+async function hydrateLibraryTitleCard(
+	ctx: QueryCtx,
+	title: Doc<'libraryTitles'>,
+	lookups: LibraryBrowseLookups
+) {
+	const [activeVariant, collectionRows, downloadProfile] = await Promise.all([
+		getPreferredVariantForTitle(ctx, title),
+		ctx.db
+			.query('libraryCollectionTitles')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+			)
+			.collect(),
+		ctx.db
+			.query('downloadProfiles')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+			)
+			.unique()
+	]);
+	const activeSource = activeVariant ?? title;
+	const currentSourceName =
+		lookups.sourceNamesById.get(activeSource.sourceId) ??
+		lookups.sourceNamesByPkg.get(activeSource.sourcePkg) ??
+		humanizeSourcePkg(activeSource.sourcePkg);
+	const chapterStats = {
+		total: title.chapterCount ?? 0,
+		queued: title.queuedChapterCount ?? 0,
+		downloading: title.downloadingChapterCount ?? 0,
+		downloaded: title.downloadedChapterCount ?? 0,
+		failed: title.failedChapterCount ?? 0
+	};
+	const collections = collectionRows
+		.map((row) => lookups.collectionById.get(String(row.collectionId)) ?? null)
+		.filter((collection): collection is NonNullable<typeof collection> => collection !== null)
+		.sort((left, right) => left.position - right.position);
+
+	return {
+		_id: title._id,
+		routeSegment: null,
+		title: title.title,
+		author: title.author ?? null,
+		artist: title.artist ?? null,
+		coverUrl: title.coverUrl ?? null,
+		localCoverPath: title.localCoverPath ?? null,
+		status: title.status ?? null,
+		genre: title.genre ?? null,
+		lastReadAt: title.lastReadAt ?? null,
+		createdAt: title.createdAt,
+		updatedAt: title.updatedAt,
+		currentSourceId: activeSource.sourceId,
+		currentSourceLabel: `${currentSourceName}${activeSource.sourceLang ? ` [${activeSource.sourceLang}]` : ''}`,
+		userStatus: title.userStatusId
+			? (lookups.statusById.get(String(title.userStatusId)) ?? null)
+			: null,
+		userRating: title.userRating ?? null,
+		collections,
+		downloadProfile: downloadProfile
+			? {
+					enabled: downloadProfile.enabled,
+					paused: downloadProfile.paused
+				}
+			: null,
+		chapterStats,
+		offlineReadiness: summarizeOfflineReadiness(title, {
+			total: chapterStats.total,
+			downloaded: chapterStats.downloaded
+		})
+	};
+}
+
+export const listMinePage = query({
+	args: {
+		paginationOpts: paginationOptsValidator
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) {
+			return {
+				page: [],
+				continueCursor: '',
+				isDone: true
+			};
+		}
+
+		const ownerUserId = identity.subject as GenericId<'users'>;
+		const titlePage = await ctx.db
+			.query('libraryTitles')
+			.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', ownerUserId))
+			.order('desc')
+			.paginate({
+				...args.paginationOpts,
+				numItems: normalizeLibraryPageSize(args.paginationOpts.numItems),
+				maximumRowsRead: LIBRARY_PAGE_SIZE_MAX
+			});
+		const visibleTitles = titlePage.page.filter((title) => title.listedInLibrary !== false);
+		const lookups = await loadLibraryBrowseLookups(ctx, ownerUserId);
+		const page = await Promise.all(
+			visibleTitles.map((title) => hydrateLibraryTitleCard(ctx, title, lookups))
+		);
+
+		return {
+			...titlePage,
+			page
+		};
+	}
+});
+
 export const listMine = query({
 	args: {
 		limit: v.optional(v.float64()),
@@ -40,111 +182,15 @@ export const listMine = query({
 			return [];
 		}
 		const userId = identity.subject as GenericId<'users'>;
-		const limit = Math.min(Math.max(1, Math.floor(args.limit ?? 5000)), 10000);
-		const offset = Math.max(0, Math.floor(args.offset ?? 0));
-
-		const [
-			allTitles,
-			statusById,
-			collectionById,
-			collectionIdsByTitleId,
-			downloadProfiles,
-			variants,
-			installedExtensions
-		] = await Promise.all([
-			ctx.db
-				.query('libraryTitles')
-				.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', userId))
-				.order('desc')
-				.take(limit + offset),
-			loadOwnerUserStatusMap(ctx, userId),
-			loadOwnerCollectionMap(ctx, userId),
-			loadOwnerCollectionIdsByTitleId(ctx, userId),
-			ctx.db
-				.query('downloadProfiles')
-				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
-				.collect(),
-			ctx.db
-				.query('titleVariants')
-				.withIndex('by_owner_user_id_library_title_id', (q) => q.eq('ownerUserId', userId))
-				.collect(),
-			ctx.db.query('installedExtensions').collect()
-		]);
-		const downloadProfileByTitleId = new Map(
-			downloadProfiles.map((profile) => [String(profile.libraryTitleId), profile] as const)
-		);
-		const preferredVariantByTitleId = new Map(
-			variants
-				.filter((variant) => variant.isPreferred)
-				.map((variant) => [String(variant.libraryTitleId), variant] as const)
-		);
-		const sourceNamesById = new Map<string, string>();
-		const sourceNamesByPkg = new Map<string, string>();
-		for (const extension of installedExtensions) {
-			const extensionName = cleanExtensionLabel(extension.name);
-			sourceNamesByPkg.set(extension.pkg, extensionName);
-			for (const source of extension.sources ?? []) {
-				sourceNamesById.set(source.id, source.name);
-			}
-		}
-
-		const titles = allTitles.slice(offset);
-
-		return titles
-			.filter((title) => title.listedInLibrary !== false)
-			.map((title) => {
-				const activeSource = preferredVariantByTitleId.get(String(title._id)) ?? title;
-				const collectionIds = collectionIdsByTitleId.get(String(title._id)) ?? [];
-				const downloadProfile = downloadProfileByTitleId.get(String(title._id)) ?? null;
-				const currentSourceName =
-					sourceNamesById.get(activeSource.sourceId) ??
-					sourceNamesByPkg.get(activeSource.sourcePkg) ??
-					humanizeSourcePkg(activeSource.sourcePkg);
-				const chapterStats = {
-					total: title.chapterCount ?? 0,
-					queued: title.queuedChapterCount ?? 0,
-					downloading: title.downloadingChapterCount ?? 0,
-					downloaded: title.downloadedChapterCount ?? 0,
-					failed: title.failedChapterCount ?? 0
-				};
-				return {
-					_id: title._id,
-					routeSegment: null,
-					title: title.title,
-					author: title.author ?? null,
-					artist: title.artist ?? null,
-					coverUrl: title.coverUrl ?? null,
-					localCoverPath: title.localCoverPath ?? null,
-					status: title.status ?? null,
-					genre: title.genre ?? null,
-					lastReadAt: title.lastReadAt ?? null,
-					createdAt: title.createdAt,
-					updatedAt: title.updatedAt,
-					currentSourceId: activeSource.sourceId,
-					currentSourceLabel: `${currentSourceName}${activeSource.sourceLang ? ` [${activeSource.sourceLang}]` : ''}`,
-					userStatus: title.userStatusId
-						? (statusById.get(String(title.userStatusId)) ?? null)
-						: null,
-					userRating: title.userRating ?? null,
-					collections: collectionIds
-						.map((collectionId) => collectionById.get(String(collectionId)) ?? null)
-						.filter(
-							(collection): collection is NonNullable<typeof collection> => collection !== null
-						)
-						.sort((left, right) => left.position - right.position),
-					downloadProfile: downloadProfile
-						? {
-								enabled: downloadProfile.enabled,
-								paused: downloadProfile.paused
-							}
-						: null,
-					chapterStats,
-					offlineReadiness: summarizeOfflineReadiness(title, {
-						total: chapterStats.total,
-						downloaded: chapterStats.downloaded
-					})
-				};
-			});
+		const { limit, offset } = normalizeLegacyLibraryWindow(args.limit, args.offset);
+		const titles = await ctx.db
+			.query('libraryTitles')
+			.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', userId))
+			.order('desc')
+			.take(limit + offset);
+		const visibleTitles = titles.slice(offset).filter((title) => title.listedInLibrary !== false);
+		const lookups = await loadLibraryBrowseLookups(ctx, userId);
+		return Promise.all(visibleTitles.map((title) => hydrateLibraryTitleCard(ctx, title, lookups)));
 	}
 });
 
@@ -202,13 +248,12 @@ export const getMineTotalCount = query({
 		}
 
 		const ownerUserId = identity.subject as GenericId<'users'>;
-		const titles = await ctx.db
-			.query('libraryTitles')
-			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
-			.collect();
-
 		let listedCount = 0;
-		for (const title of titles) {
+		let totalCount = 0;
+		for await (const title of ctx.db
+			.query('libraryTitles')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))) {
+			totalCount += 1;
 			if (title.listedInLibrary !== false) {
 				listedCount += 1;
 			}
@@ -216,7 +261,7 @@ export const getMineTotalCount = query({
 
 		return {
 			listedCount,
-			totalCount: titles.length
+			totalCount
 		};
 	}
 });

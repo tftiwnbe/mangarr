@@ -43,6 +43,7 @@ export {
 	listContinueReading,
 	listContinueReadingUpdates,
 	listMine,
+	listMinePage,
 	listTitleChapters,
 	markChaptersReadThrough,
 	resetChapterProgress,

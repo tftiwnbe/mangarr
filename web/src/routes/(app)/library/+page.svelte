@@ -33,6 +33,7 @@
 	import { DebouncedValue } from '$lib/hooks/use-debounced-value.svelte';
 	import { _ } from '$lib/i18n';
 	import { buildReaderPath, buildTitlePath } from '$lib/utils/routes';
+	import { usePaginatedQuery } from '$lib/hooks/use-paginated-query.svelte';
 	import { TITLE_STATUS } from '$lib/utils/title-status';
 
 	type RawUserStatus = {
@@ -40,7 +41,7 @@
 		label: string;
 	};
 
-	type TitleItem = Awaited<(typeof convexApi.library.listMine)['_returnType']>[number];
+	type TitleItem = Awaited<(typeof convexApi.library.listMinePage)['_returnType']>['page'][number];
 
 	type LibraryCollectionResource = {
 		id: string;
@@ -119,9 +120,12 @@
 	type ReadingRailMode = 'continue' | 'updates';
 	const INITIAL_LIBRARY_RENDER_LIMIT = 60;
 	const LIBRARY_RENDER_PAGE_SIZE = 48;
+	const LIBRARY_DATA_PAGE_SIZE = 96;
 
 	const client = useConvexClient();
-	const library = useQuery(convexApi.library.listMine, () => ({}));
+	const library = usePaginatedQuery(convexApi.library.listMinePage, () => ({}), {
+		initialNumItems: LIBRARY_DATA_PAGE_SIZE
+	});
 	const CONTINUE_READING_LIMIT = 6;
 	const continueReading = useQuery(convexApi.library.listContinueReading, () => ({
 		limit: CONTINUE_READING_LIMIT
@@ -130,9 +134,10 @@
 		limit: CONTINUE_READING_LIMIT
 	}));
 	const hiddenLibraryTitles = useQuery(convexApi.library.listHiddenMine, () => ({}));
-	const collectionsQuery = useQuery(convexApi.library.listCollections, () => ({}));
+	const collectionsQuery = useQuery(convexApi.library.listCollections, () => ({
+		includeTitleCounts: false
+	}));
 	const dynamicCollectionsQuery = useQuery(convexApi.library.listDynamicCollections, () => ({}));
-	const totalCountQuery = useQuery(convexApi.library.getMineTotalCount, () => ({}));
 
 	let searchQuery = $state('');
 	let selectedCollectionId = $state<string | null>(null);
@@ -224,7 +229,13 @@
 		{ key: 'hiatus', labelKey: 'status.hiatus', values: [TITLE_STATUS.HIATUS] }
 	];
 
-	const titles = $derived((library.data ?? []).map((title) => mapTitleToSummary(title)));
+	$effect(() => {
+		if (library.status === 'CanLoadMore') {
+			library.loadMore(LIBRARY_DATA_PAGE_SIZE);
+		}
+	});
+
+	const titles = $derived(library.data.map((title) => mapTitleToSummary(title)));
 	const loading = $derived(library.isLoading);
 	const error = $derived(library.error instanceof Error ? library.error.message : null);
 	const hiddenTitles = $derived((hiddenLibraryTitles.data ?? []).slice());
@@ -292,6 +303,16 @@
 			dynamicCollections.find((collection) => collection.id === selectedDynamicCollectionId) ?? null
 	);
 
+	const collectionTitleCounts = $derived.by(() => {
+		const counts = new SvelteMap<string, number>();
+		for (const title of titles) {
+			for (const collection of title.collections) {
+				counts.set(collection.id, (counts.get(collection.id) ?? 0) + 1);
+			}
+		}
+		return counts;
+	});
+
 	const collections = $derived.by(() =>
 		(
 			(collectionsQuery.data ?? []) as Array<{
@@ -308,7 +329,7 @@
 			position: collection.position,
 			isDefault: collection.isDefault,
 			notifyOnNewChapters: collection.notifyOnNewChapters,
-			titlesCount: collection.titlesCount
+			titlesCount: collectionTitleCounts.get(String(collection.id)) ?? 0
 		}))
 	);
 
@@ -354,7 +375,7 @@
 		() => manualCollections.find((collection) => collection.isDefault) ?? null
 	);
 
-	const listedTitlesCount = $derived(totalCountQuery.data?.listedCount ?? titles.length);
+	const listedTitlesCount = $derived(titles.length);
 
 	const allUserStatuses = $derived.by(() => {
 		const seen = new SvelteMap<string, RawUserStatus>();

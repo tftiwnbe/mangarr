@@ -277,27 +277,27 @@ export const deleteUserStatus = mutation({
 });
 
 export const listCollections = query({
-	args: {},
-	handler: async (ctx) => {
+	args: {
+		includeTitleCounts: v.optional(v.boolean())
+	},
+	handler: async (ctx, args) => {
 		const identity = await ctx.auth.getUserIdentity();
 		if (!identity) {
 			return [];
 		}
 		const userId = identity.subject as GenericId<'users'>;
-		const [rows, collectionTitleRows] = await Promise.all([
-			ctx.db
-				.query('libraryCollections')
-				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
-				.collect(),
-			ctx.db
-				.query('libraryCollectionTitles')
-				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
-				.collect()
-		]);
+		const rows = await ctx.db
+			.query('libraryCollections')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))
+			.collect();
 		const titlesCountByCollectionId = new Map<string, number>();
-		for (const row of collectionTitleRows) {
-			const key = String(row.collectionId);
-			titlesCountByCollectionId.set(key, (titlesCountByCollectionId.get(key) ?? 0) + 1);
+		if (args.includeTitleCounts !== false) {
+			for await (const row of ctx.db
+				.query('libraryCollectionTitles')
+				.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', userId))) {
+				const key = String(row.collectionId);
+				titlesCountByCollectionId.set(key, (titlesCountByCollectionId.get(key) ?? 0) + 1);
+			}
 		}
 
 		return rows
