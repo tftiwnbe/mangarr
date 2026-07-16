@@ -30,6 +30,8 @@ import mangarr.tachibridge.runtime.BridgeState
 import mangarr.tachibridge.runtime.ConvexBridgeClient
 import mangarr.tachibridge.runtime.DownloadReconcileChapter
 import mangarr.tachibridge.util.ImageUtil
+import mangarr.tachibridge.webview.WebViewSessionManager
+import mangarr.tachibridge.webview.WebViewUnavailableException
 import java.io.ByteArrayInputStream
 import java.net.Inet4Address
 import java.net.Inet6Address
@@ -86,6 +88,7 @@ class BridgeHttpServer(
     private val bridgeClient: ConvexBridgeClient?,
     private val bridgeId: String,
     private val kcefSnapshotProvider: () -> JsonObject,
+    private val webViewSessionManager: WebViewSessionManager,
 ) {
     private val json = Json { prettyPrint = false }
     private val pageAssetFailureLogCache = ConcurrentHashMap<String, Long>()
@@ -644,6 +647,85 @@ class BridgeHttpServer(
                 }
                 logger.warn(error) { "Failed to toggle source $sourceId for $pkg" }
                 sendJson(exchange, 502, buildJsonObject { put("message", "Unable to update source state") })
+            }
+        }
+
+        createContext("/extensions/webview/session") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+            if (exchange.requestMethod.uppercase() != "POST") {
+                sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+                return@createContext
+            }
+            val payload = readJsonBody(exchange)
+            val packageName = payload.optionalString("packageName")
+            if (packageName.isNullOrBlank()) {
+                sendJson(exchange, 400, buildJsonObject { put("message", "Missing packageName") })
+                return@createContext
+            }
+            try {
+                val ticket =
+                    kotlinx.coroutines.runBlocking {
+                        webViewSessionManager.create(
+                            packageName = packageName,
+                            preferredSourceId = payload.optionalLong("preferredSourceId"),
+                            preferredUrl = payload.optionalString("preferredUrl"),
+                        )
+                    }
+                sendJson(
+                    exchange,
+                    201,
+                    buildJsonObject {
+                        put("sessionId", ticket.sessionId)
+                        put("ticket", ticket.ticket)
+                        put("packageName", ticket.packageName)
+                        put("extensionName", ticket.extensionName)
+                        put("sourceId", ticket.sourceId.toString())
+                        put("sourceName", ticket.sourceName)
+                        put("initialUrl", ticket.initialUrl)
+                        put("expiresAt", ticket.expiresAt)
+                    },
+                )
+            } catch (error: WebViewUnavailableException) {
+                sendJson(exchange, 503, buildJsonObject { put("message", error.message ?: "WebView is unavailable") })
+            } catch (error: IllegalArgumentException) {
+                sendJson(exchange, 400, buildJsonObject { put("message", error.message ?: "Unable to create WebView session") })
+            } catch (error: Exception) {
+                logger.warn(error) { "Failed to create extension WebView session package=$packageName" }
+                sendJson(exchange, 503, buildJsonObject { put("message", "Unable to create WebView session") })
+            }
+        }
+
+        createContext("/extensions/webview/cookies") { exchange ->
+            if (!authorize(exchange)) {
+                return@createContext
+            }
+            if (exchange.requestMethod.uppercase() != "DELETE") {
+                sendJson(exchange, 405, buildJsonObject { put("message", "Method not allowed") })
+                return@createContext
+            }
+            val payload = readJsonBody(exchange)
+            val packageName = payload.optionalString("packageName")
+            if (packageName.isNullOrBlank()) {
+                sendJson(exchange, 400, buildJsonObject { put("message", "Missing packageName") })
+                return@createContext
+            }
+            try {
+                val domains = kotlinx.coroutines.runBlocking { webViewSessionManager.clearExtension(packageName) }
+                sendJson(
+                    exchange,
+                    200,
+                    buildJsonObject {
+                        put("ok", true)
+                        put("clearedDomains", JsonArray(domains.sorted().map(::JsonPrimitive)))
+                    },
+                )
+            } catch (error: IllegalArgumentException) {
+                sendJson(exchange, 400, buildJsonObject { put("message", error.message ?: "Unable to clear extension cookies") })
+            } catch (error: Exception) {
+                logger.warn(error) { "Failed to clear extension WebView cookies package=$packageName" }
+                sendJson(exchange, 503, buildJsonObject { put("message", "Unable to clear extension cookies") })
             }
         }
 

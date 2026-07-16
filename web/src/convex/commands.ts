@@ -444,6 +444,7 @@ export const listMine = query({
 			progress: row.progress ?? null,
 			result: row.result ?? null,
 			lastErrorMessage: row.lastErrorMessage ?? null,
+			failureCode: row.failureCode ?? null,
 			createdAt: row.createdAt,
 			updatedAt: row.updatedAt
 		}));
@@ -473,6 +474,7 @@ export const getMineById = query({
 			progress: row.progress ?? null,
 			result: row.result ?? null,
 			lastErrorMessage: row.lastErrorMessage ?? null,
+			failureCode: row.failureCode ?? null,
 			createdAt: row.createdAt,
 			updatedAt: row.updatedAt
 		};
@@ -568,6 +570,8 @@ export const handleWorkpoolComplete = internalMutation({
 				status: STATUS.SUCCEEDED,
 				progress: undefined,
 				result: args.result.returnValue,
+				lastErrorMessage: undefined,
+				failureCode: undefined,
 				completedAt: now,
 				updatedAt: now
 			});
@@ -630,7 +634,8 @@ export const cancelCommand = mutation({
 			leaseExpiresAt: undefined,
 			completedAt: now,
 			updatedAt: now,
-			lastErrorMessage: 'Cancelled by user'
+			lastErrorMessage: 'Cancelled by user',
+			failureCode: undefined
 		});
 		return { ok: true };
 	}

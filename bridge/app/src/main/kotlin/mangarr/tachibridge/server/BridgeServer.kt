@@ -1,6 +1,7 @@
 package mangarr.tachibridge.server
 
 import android.os.Looper
+import com.jetbrains.cef.JCefAppConfig
 import dev.datlag.kcef.KCEF
 import dev.datlag.kcef.KCEFBuilder.Settings.LogSeverity
 import eu.kanade.tachiyomi.App
@@ -38,7 +39,14 @@ import mangarr.tachibridge.runtime.ConvexBridgeClient
 import mangarr.tachibridge.runtime.ConvexBridgeClientConfig
 import mangarr.tachibridge.runtime.DownloadStorage
 import mangarr.tachibridge.util.toCefCookie
+import mangarr.tachibridge.webview.KcefCookieSync
+import mangarr.tachibridge.webview.KcefProxyConfig
+import mangarr.tachibridge.webview.KcefProxyRelay
+import mangarr.tachibridge.webview.WebViewSessionManager
+import mangarr.tachibridge.webview.WebViewSocketServer
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import org.cef.CefApp
+import org.cef.CefSettings
 import org.cef.network.CefCookieManager
 import org.koin.core.context.startKoin
 import org.koin.core.logger.Level
@@ -52,9 +60,10 @@ import xyz.nulldev.androidcompat.webkit.KcefWebViewProvider
 import java.io.File
 import java.nio.file.Files
 import java.security.Security
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
 import kotlin.math.roundToInt
@@ -89,9 +98,13 @@ class BridgeServer(
     private lateinit var heartbeatReporter: BridgeHeartbeatReporter
     private lateinit var commandRunner: BridgeCommandRunner
     private lateinit var httpServer: BridgeHttpServer
+    private lateinit var webViewSessionManager: WebViewSessionManager
+    private lateinit var webViewSocketServer: WebViewSocketServer
+    private var kcefProxyConfig: KcefProxyConfig? = null
+    private var kcefProxyRelay: KcefProxyRelay? = null
     private val bridgeScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val shutdownLatch = CountDownLatch(1)
-    private var kcefInitialized = false
+    @Volatile private var kcefInitialized = false
     @Volatile
     private var kcefSnapshot: JsonObject =
         buildJsonObject {
@@ -168,6 +181,22 @@ class BridgeServer(
                     repoService = repoService,
                     networkHelper = networkHelper,
                 )
+            val cookieSync = KcefCookieSync(networkHelper.cookieStore)
+            kcefProxyConfig = KcefProxyConfig.from(ConfigManager.config.proxy)
+            webViewSessionManager =
+                WebViewSessionManager(
+                    extensionManager = extensionManager,
+                    cookieSync = cookieSync,
+                    proxyConfig = kcefProxyConfig,
+                    browserReady = { kcefInitialized },
+                )
+            val webViewPort =
+                System.getenv("MANGARR_WEBVIEW_PORT")
+                    ?.trim()
+                    ?.toIntOrNull()
+                    ?.takeIf { it in 1..65535 }
+                    ?: (config.runtime.port + 1)
+            webViewSocketServer = WebViewSocketServer(webViewPort, webViewSessionManager)
 
             val convexClient =
                 if (config.runtime.convexUrl.isNotBlank()) {
@@ -219,9 +248,11 @@ class BridgeServer(
                     bridgeClient = convexClient,
                     bridgeId = config.runtime.bridgeId,
                     kcefSnapshotProvider = { kcefSnapshot },
+                    webViewSessionManager = webViewSessionManager,
                 )
             bridgeState.setRunning()
             heartbeatReporter.start()
+            webViewSocketServer.start()
             httpServer.start()
             events.info(
                 "bridge.runtime.started",
@@ -347,6 +378,7 @@ class BridgeServer(
             commandRunner.stop()
             heartbeatReporter.stop()
             bridgeScope.cancel()
+            webViewSocketServer.shutdown()
             extensionManager.cleanup()
             httpServer.stop()
 
@@ -365,6 +397,8 @@ class BridgeServer(
                     "phase" to "shutdown",
                 )
             }
+            kcefProxyRelay?.close()
+            kcefProxyRelay = null
             shutdownLatch.countDown()
         }
 
@@ -435,6 +469,9 @@ class BridgeServer(
         setKcefSnapshot(status = "initializing", initialized = false)
         kcefEvents.info("bridge.kcef.initializing", "Initializing KCEF")
         Security.addProvider(BouncyCastleProvider())
+        if (System.getProperty("os.name")?.contains("linux", ignoreCase = true) == true) {
+            System.setProperty("jcef_app_preinit_any", System.getProperty("jcef_app_preinit_any") ?: "true")
+        }
 
         val kcefInstallOverride =
             System.getenv("KCEF_INSTALL_DIR")
@@ -445,8 +482,34 @@ class BridgeServer(
                 .toAbsolutePath()
                 .normalize()
         val kcefCacheDir = dataPath.resolve("cache/kcef").toAbsolutePath().normalize()
+        val disableSandbox =
+            System.getenv("MANGARR_KCEF_NO_SANDBOX")
+                ?.trim()
+                ?.lowercase()
+                ?.let { it == "1" || it == "true" || it == "yes" || it == "on" }
+                ?: false
+        val upstreamProxyConfig = kcefProxyConfig
+        kcefProxyRelay = upstreamProxyConfig?.let(KcefProxyRelay::start)
+        val proxyConfig = kcefProxyRelay?.localConfig ?: upstreamProxyConfig
         kcefBinDir.createDirectories()
         kcefCacheDir.createDirectories()
+
+        if (disableSandbox) {
+            kcefEvents.warn(
+                "bridge.kcef.sandbox_disabled",
+                "KCEF sandbox is disabled for the current runtime user",
+                "user" to System.getProperty("user.name"),
+            )
+        }
+        if (proxyConfig != null) {
+            kcefEvents.info(
+                "bridge.kcef.proxy_configured",
+                "KCEF will use the shared HTTP proxy",
+                "hostname" to proxyConfig.hostname,
+                "port" to proxyConfig.port,
+                "authenticated" to (proxyConfig.username != null),
+            )
+        }
 
         fun logMissingNativeDeps(installDir: java.nio.file.Path) {
             val osName = System.getProperty("os.name")?.lowercase() ?: ""
@@ -499,9 +562,32 @@ class BridgeServer(
             }
         }
 
-        val initSignal = CountDownLatch(1)
-        val initialized = AtomicBoolean(false)
-        var initFailure: Throwable? = null
+        val initFailure = AtomicReference<Throwable?>()
+        val cefSettings =
+            JCefAppConfig.getInstance().cefSettings.clone().apply {
+                windowless_rendering_enabled = true
+                cache_path = kcefCacheDir.toString()
+                persist_session_cookies = true
+                no_sandbox = disableSandbox
+                log_severity = CefSettings.LogSeverity.LOGSEVERITY_DEFAULT
+            }
+        val kcefCommandLineArgs =
+            buildList {
+                add("--disable-gpu")
+                // #1486 needed to be able to render without a window
+                add("--off-screen-rendering-enabled")
+                // #1489 since /dev/shm is restricted in docker (OOM)
+                add("--disable-dev-shm-usage")
+                // #1723 support Widevine (incomplete)
+                add("--enable-widevine-cdm")
+                // #1736 JCEF does implement stack guards properly
+                add("--change-stack-guard-on-fork=disable")
+                if (proxyConfig != null) {
+                    add(proxyConfig.serverArgument)
+                    proxyConfig.bypassArgument?.let(::add)
+                }
+                if (disableSandbox) add("--no-sandbox")
+            }.toTypedArray()
 
         try {
             KCEF.initBlocking(
@@ -520,39 +606,23 @@ class BridgeServer(
                             }
                         }
                         onInitialized {
-                            initialized.set(true)
-                            kcefEvents.info("bridge.kcef.initialized", "KCEF initialized successfully")
-                            logMissingNativeDeps(kcefBinDir)
-                            initSignal.countDown()
+                            kcefEvents.info("bridge.kcef.context_initialized", "KCEF context initialized")
                         }
                     }
                     download { github() }
                     settings {
                         windowlessRenderingEnabled = true
                         cachePath = kcefCacheDir.toString()
+                        persistSessionCookies = true
+                        noSandbox = disableSandbox
                         logSeverity = LogSeverity.Default
                     }
-                    appHandler(
-                        KCEF.AppHandler(
-                            arrayOf(
-                                "--disable-gpu",
-                                // #1486 needed to be able to render without a window
-                                "--off-screen-rendering-enabled",
-                                // #1489 since /dev/shm is restricted in docker (OOM)
-                                "--disable-dev-shm-usage",
-                                // #1723 support Widevine (incomplete)
-                                "--enable-widevine-cdm",
-                                // #1736 JCEF does implement stack guards properly
-                                "--change-stack-guard-on-fork=disable",
-                            ),
-                        ),
-                    )
+                    appHandler(KCEF.AppHandler(kcefCommandLineArgs))
                     installDir(kcefBinDir.toFile())
                 },
                 onError = { error ->
-                    initFailure = error
+                    initFailure.set(error)
                     kcefEvents.error("bridge.kcef.init_error", "KCEF initialization error", error)
-                    initSignal.countDown()
                 },
                 onRestartRequired = {
                     kcefEvents.warn("bridge.kcef.restart_required", "KCEF restart required")
@@ -564,19 +634,56 @@ class BridgeServer(
             throw e
         }
 
-        if (!initSignal.await(60, TimeUnit.SECONDS)) {
-            val failure = initFailure ?: IllegalStateException("KCEF did not finish initialization within 60 seconds")
+        initFailure.get()?.let { failure ->
+            setKcefSnapshot(status = "error", initialized = false, lastError = failure.message)
+            throw IllegalStateException("KCEF initialization failed", failure)
+        }
+
+        // KCEF's runtime fast path can fall back to CefApp.getInstance() without carrying the
+        // configured settings or app handler. Repair the still-new instance before JCEF's async
+        // initialization consumes either. Both calls are also safe when KCEF supplied them.
+        CefApp.getInstanceIfAny()
+            ?.takeIf { CefApp.getState() == CefApp.CefAppState.NEW }
+            ?.let { cefApp ->
+                CefApp.addAppHandler(KCEF.AppHandler(kcefCommandLineArgs))
+                cefApp.setSettings(cefSettings)
+            }
+
+        fun cefStartupFailure(): Throwable? {
+            val startup =
+                runCatching {
+                    CefApp::class.java.getDeclaredField("ourStartupFeature").apply { isAccessible = true }.get(null)
+                        as CompletableFuture<*>
+                }.getOrNull() ?: return null
+            if (!startup.isCompletedExceptionally) return null
+            return runCatching { startup.join() }.exceptionOrNull()?.cause
+        }
+
+        val initializationDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60)
+        var startupFailure = cefStartupFailure()
+        while (
+            CefApp.getState() in setOf(CefApp.CefAppState.NEW, CefApp.CefAppState.INITIALIZING) &&
+            startupFailure == null &&
+            System.nanoTime() < initializationDeadline
+        ) {
+            Thread.sleep(50)
+            startupFailure = cefStartupFailure()
+        }
+        startupFailure?.let { failure ->
+            setKcefSnapshot(status = "error", initialized = false, lastError = failure.message)
+            kcefEvents.error("bridge.kcef.startup_failed", "JCEF startup failed", failure)
+            throw IllegalStateException("KCEF initialization failed", failure)
+        }
+        val cefState = CefApp.getState()
+        if (cefState != CefApp.CefAppState.INITIALIZED) {
+            val failure = IllegalStateException("JCEF stopped in state $cefState")
             setKcefSnapshot(status = "error", initialized = false, lastError = failure.message)
             kcefEvents.error("bridge.kcef.init_incomplete", "KCEF initialization did not complete", failure)
             throw IllegalStateException("KCEF initialization did not complete", failure)
         }
 
-        if (!initialized.get()) {
-            val failure = initFailure ?: IllegalStateException("KCEF did not finish initialization")
-            setKcefSnapshot(status = "error", initialized = false, lastError = failure.message)
-            kcefEvents.error("bridge.kcef.init_incomplete", "KCEF initialization did not complete", failure)
-            throw IllegalStateException("KCEF initialization did not complete", failure)
-        }
+        kcefEvents.info("bridge.kcef.initialized", "KCEF initialized successfully")
+        logMissingNativeDeps(kcefBinDir)
 
         Runtime.getRuntime().addShutdownHook(
             Thread {
@@ -610,7 +717,18 @@ class BridgeServer(
         val app = App()
         startKoin {
             logger(KoinSlf4jLogger(Level.WARNING))
-            modules(androidCompatModule())
+            modules(
+                androidCompatModule(),
+                module {
+                    single<KcefWebViewProvider.InitBrowserHandler> {
+                        object : KcefWebViewProvider.InitBrowserHandler {
+                            override fun init(provider: KcefWebViewProvider) {
+                                KcefCookieSync(Injekt.get<NetworkHelper>().cookieStore).loadIntoBrowser()
+                            }
+                        }
+                    }
+                },
+            )
         }.apply {
             AndroidCompatInitializer().init()
             val androidCompat by lazy { AndroidCompat() }

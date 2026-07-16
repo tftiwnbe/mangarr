@@ -333,6 +333,8 @@ export const complete = mutation({
 			status: STATUS.SUCCEEDED,
 			progress: undefined,
 			result: args.result,
+			lastErrorMessage: undefined,
+			failureCode: undefined,
 			leaseOwnerBridgeId: undefined,
 			leaseToken: undefined,
 			leaseExpiresAt: undefined,
@@ -352,7 +354,8 @@ export const fail = mutation({
 		now: v.float64(),
 		message: v.string(),
 		retryDelayMs: v.optional(v.float64()),
-		retryable: v.optional(v.boolean())
+		retryable: v.optional(v.boolean()),
+		failureCode: v.optional(v.string())
 	},
 	handler: async (ctx, args) => {
 		await requireBridgeIdentity(ctx);
@@ -370,6 +373,7 @@ export const fail = mutation({
 			status: nextStatus,
 			runAfter: nextRunAfter,
 			lastErrorMessage: args.message,
+			failureCode: args.failureCode,
 			progress: undefined,
 			leaseOwnerBridgeId: undefined,
 			leaseToken: undefined,

@@ -24,9 +24,7 @@ class PersistentCookieStore(
     init {
         lock.withLock {
             val domains =
-                prefs.all.keys
-                    .map { it.substringBeforeLast(".") }
-                    .toSet()
+                prefs.all.keys.toSet()
             val domainsToSave = mutableSetOf<String>()
             domains.forEach { domain ->
                 val cookies = prefs.getStringSet(domain, emptySet())
@@ -38,7 +36,7 @@ class PersistentCookieStore(
                                 .mapNotNull { Cookie.parse(url, it) }
                                 .filter { !it.hasExpired() }
                                 .groupBy { it.domain }
-                                .mapValues { it -> it.value.distinctBy { it.name } }
+                                .mapValues { entry -> entry.value.distinctBy { it.cookieIdentity() } }
                         nonExpiredCookies.forEach { (domain, cookies) ->
                             cookieMap[domain] = cookies
                             domainsToSave.add(domain)
@@ -63,7 +61,7 @@ class PersistentCookieStore(
             for (cookie in cookies) {
                 val cookiesForDomain = cookieMap[cookie.domain].orEmpty().toMutableList()
                 // Find a cookie with the same name. Replace it if found, otherwise add a new one.
-                val pos = cookiesForDomain.indexOfFirst { it.name == cookie.name }
+                val pos = cookiesForDomain.indexOfFirst { it.cookieIdentity() == cookie.cookieIdentity() }
                 if (pos == -1) {
                     cookiesForDomain.add(cookie)
                 } else {
@@ -79,11 +77,30 @@ class PersistentCookieStore(
 
     override fun removeAll(): Boolean =
         lock.withLock {
-            val wasNotEmpty = cookieMap.isEmpty()
+            val wasNotEmpty = cookieMap.isNotEmpty()
             prefs.edit().clear().apply()
             cookieMap.clear()
             wasNotEmpty
         }
+
+    fun replaceDomains(
+        domains: Set<String>,
+        cookies: List<Cookie>,
+    ) {
+        val normalizedDomains = domains.map { it.removePrefix(".").lowercase() }.toSet()
+        lock.withLock {
+            normalizedDomains.forEach(cookieMap::remove)
+            cookies
+                .asSequence()
+                .filter { !it.hasExpired() }
+                .filter { it.domain.lowercase() in normalizedDomains }
+                .groupBy { it.domain.lowercase() }
+                .forEach { (domain, domainCookies) ->
+                    cookieMap[domain] = domainCookies.distinctBy { it.cookieIdentity() }
+                }
+            saveToDisk(normalizedDomains)
+        }
+    }
 
     fun remove(uri: URI) {
         val url = uri.toURL()
@@ -102,10 +119,9 @@ class PersistentCookieStore(
 
     operator fun get(url: HttpUrl): List<Cookie> =
         lock.withLock {
-            cookieMap.entries
-                .filter {
-                    url.host.endsWith(it.key)
-                }.flatMap { it.value }
+            cookieMap.values
+                .flatten()
+                .filter { !it.hasExpired() && it.matches(url) }
         }
 
     override fun add(
@@ -157,8 +173,7 @@ class PersistentCookieStore(
             val cookies = cookieMap[cookie.domain].orEmpty()
             val index =
                 cookies.indexOfFirst {
-                    it.name == cookie.name &&
-                        it.path == cookie.path
+                    it.cookieIdentity() == cookie.cookieIdentity()
                 }
             if (index >= 0) {
                 val newList = cookies.toMutableList()
@@ -181,7 +196,9 @@ class PersistentCookieStore(
                         cookieMap[domain]
                             .orEmpty()
                             .asSequence()
-                            .filter { it.persistent && !it.hasExpired() }
+                            // WebView login cookies are frequently session-scoped but still need to
+                            // survive a bridge restart, just like Android WebView's flushed store.
+                            .filter { !it.hasExpired() }
                             .map(Cookie::toString)
                             .toSet()
                     if (newValues.isNotEmpty()) {
@@ -195,6 +212,8 @@ class PersistentCookieStore(
     }
 
     private fun Cookie.hasExpired() = System.currentTimeMillis() >= expiresAt
+
+    private fun Cookie.cookieIdentity() = Triple(name, domain.lowercase(), path)
 
     private fun HttpCookie.toCookie(urlDomain: String?): Cookie? {
         return Cookie
@@ -234,9 +253,9 @@ class PersistentCookieStore(
             secure = it.secure
             maxAge =
                 if (it.persistent) {
-                    -1
-                } else {
                     (it.expiresAt.milliseconds - System.currentTimeMillis().milliseconds).inWholeSeconds
+                } else {
+                    -1
                 }
 
             isHttpOnly = it.httpOnly

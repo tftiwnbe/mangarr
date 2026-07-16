@@ -21,6 +21,11 @@ export default defineConfig({
 	plugins: [tailwindcss(), sveltekit()],
 	server: {
 		proxy: {
+			'/api/internal/bridge/webview/socket': {
+				target: process.env.MANGARR_WEBVIEW_SOCKET_URL || 'ws://127.0.0.1:3213',
+				ws: true,
+				rewrite: () => '/webview'
+			},
 			'/convex': {
 				target: process.env.CONVEX_URL || 'http://127.0.0.1:3210',
 				changeOrigin: true,

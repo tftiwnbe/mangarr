@@ -8,6 +8,7 @@ data class SourceFailureClassification(
     val expected: Boolean,
     val message: String,
     val httpCode: Int? = null,
+    val code: String? = null,
 )
 
 fun classifySourceFailure(
@@ -16,6 +17,15 @@ fun classifySourceFailure(
 ): SourceFailureClassification {
     val httpError = error.findHttpException()
     val normalizedMessage = normalizeSourceFailureMessage(error)
+    if (isWebViewAuthenticationRequired(error)) {
+        return SourceFailureClassification(
+            retryable = false,
+            expected = true,
+            message = normalizedMessage,
+            httpCode = httpError?.code,
+            code = "source_auth_required",
+        )
+    }
     if (isExtensionRuntimeAbiMismatch(error)) {
         return SourceFailureClassification(
             retryable = false,
@@ -122,6 +132,34 @@ internal fun isExtensionRuntimeAbiMismatch(error: Throwable): Boolean {
     }
     return false
 }
+
+internal fun isWebViewAuthenticationRequired(error: Throwable): Boolean {
+    var current: Throwable? = error
+    while (current != null) {
+        val message = current.message?.lowercase().orEmpty()
+        if (message.contains("webview") &&
+            WEBVIEW_ACTION_TERMS.any(message::contains)
+        ) {
+            return true
+        }
+        current = current.cause
+    }
+    return false
+}
+
+private val WEBVIEW_ACTION_TERMS =
+    listOf(
+        "authoriz",
+        "authenticat",
+        "login",
+        "log in",
+        "sign in",
+        "challenge",
+        "captcha",
+        "авторизац",
+        "войд",
+        "капч",
+    )
 
 private fun isPermanentChapterAccessFailure(message: String): Boolean {
     val normalized = message.lowercase()

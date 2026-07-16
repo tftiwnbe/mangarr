@@ -488,7 +488,17 @@
 		"updatesSearchPlaceholder": "Search repository changes...",
 		"noRecentUpdates": "No recent repository changes",
 		"noRecentUpdatesDescription": "Recent extension additions and updates will appear here",
-		"updatesWindow": "{count} recent changes"
+		"updatesWindow": "{count} recent changes",
+		"authenticate": "Authenticate extension",
+		"authDone": "Done",
+		"clearAuth": "Clear authentication",
+		"clearAuthConfirm": "Clear saved web authentication for this extension?",
+		"clearAuthFailed": "Failed to clear extension authentication",
+		"webviewStarting": "Starting secure WebView…",
+		"webviewHint": "Sign in on the source website, then select Done to save the session.",
+		"webviewConnectionFailed": "Unable to connect to the extension WebView",
+		"webviewDisconnected": "The extension WebView disconnected",
+		"webviewLoadFailed": "The source website failed to load"
 	},
 
 	"settings": {

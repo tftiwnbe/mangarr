@@ -488,7 +488,17 @@
 		"updatesSearchPlaceholder": "Поиск изменений репозитория...",
 		"noRecentUpdates": "Недавних изменений репозитория нет",
 		"noRecentUpdatesDescription": "Здесь будут показываться новые и обновлённые расширения",
-		"updatesWindow": "{count} недавних изменений"
+		"updatesWindow": "{count} недавних изменений",
+		"authenticate": "Авторизовать расширение",
+		"authDone": "Готово",
+		"clearAuth": "Очистить авторизацию",
+		"clearAuthConfirm": "Удалить сохранённую веб-авторизацию для этого расширения?",
+		"clearAuthFailed": "Не удалось очистить авторизацию расширения",
+		"webviewStarting": "Запуск защищённого WebView…",
+		"webviewHint": "Войдите на сайте источника, затем нажмите «Готово», чтобы сохранить сессию.",
+		"webviewConnectionFailed": "Не удалось подключиться к WebView расширения",
+		"webviewDisconnected": "WebView расширения отключён",
+		"webviewLoadFailed": "Не удалось загрузить сайт источника"
 	},
 
 	"settings": {

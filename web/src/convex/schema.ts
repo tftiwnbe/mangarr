@@ -566,6 +566,7 @@ export default defineSchema({
 		attemptCount: v.float64(),
 		maxAttempts: v.float64(),
 		lastErrorMessage: v.optional(v.string()),
+		failureCode: v.optional(v.string()),
 		progress: v.optional(v.any()),
 		result: v.optional(v.any()),
 		createdAt: v.float64(),

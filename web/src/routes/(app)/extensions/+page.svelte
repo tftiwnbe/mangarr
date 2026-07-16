@@ -11,6 +11,7 @@
 		CaretRightIcon,
 		CheckIcon,
 		GearIcon,
+		GlobeIcon,
 		PlusIcon,
 		PuzzlePieceIcon,
 		SpinnerIcon
@@ -19,6 +20,7 @@
 	import type { Id } from '$convex/_generated/dataModel';
 	import { type AcceptedCommandResponse, waitForCommand } from '$lib/client/commands';
 	import { Alert } from '$lib/elements/alert';
+	import WebViewAuthDialog from '$lib/components/webview-auth-dialog.svelte';
 	import { Button } from '$lib/elements/button';
 	import { EmptyState } from '$lib/elements/empty-state';
 	import { Input } from '$lib/elements/input';
@@ -104,6 +106,9 @@
 	let uninstallingPkg = $state<string | null>(null);
 	let togglingProxyPkg = $state<string | null>(null);
 	let togglingSourceId = $state<string | null>(null);
+	let webViewPackage = $state<string | null>(null);
+	let webViewExtensionName = $state<string | null>(null);
+	let clearingAuthPkg = $state<string | null>(null);
 	let renderLimit = $state(60);
 	let renderMoreRaf = 0;
 	let availableAutoloadDone = $state(false);
@@ -495,6 +500,33 @@
 		}
 	}
 
+	function openExtensionAuthentication(extension: InstalledExtension) {
+		webViewPackage = extension.pkg;
+		webViewExtensionName = displayExtensionName(extension.name);
+	}
+
+	function closeExtensionAuthentication() {
+		webViewPackage = null;
+		webViewExtensionName = null;
+	}
+
+	async function clearExtensionAuthentication(extension: InstalledExtension) {
+		if (!window.confirm($_('extensions.clearAuthConfirm'))) return;
+		clearingAuthPkg = extension.pkg;
+		error = null;
+		try {
+			await fetchJson<{ ok: boolean }>('/api/internal/bridge/extensions/webview/cookies', {
+				method: 'DELETE',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ packageName: extension.pkg })
+			});
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : $_('extensions.clearAuthFailed');
+		} finally {
+			clearingAuthPkg = null;
+		}
+	}
+
 	async function openSourceSettings(sourceId: string) {
 		sourceId = String(sourceId);
 		sourceSettingsOpen = true;
@@ -803,29 +835,57 @@
 									</div>
 
 									<!-- Extension controls -->
-									<div class="flex items-center gap-4 border-t border-[var(--line-soft)] pt-3">
-										<div class="flex flex-1 items-center gap-3">
-											<span class="text-[11px] text-[var(--text-ghost)]"
-												>{$_('extensions.proxy').toLowerCase()}</span
+									<div
+										class="grid gap-3 border-t border-[var(--line-soft)] pt-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-4"
+									>
+										<div class="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 md:flex md:flex-wrap">
+											<Button
+												variant="outline"
+												size="sm"
+												class="w-full whitespace-nowrap md:w-auto"
+												onclick={() => openExtensionAuthentication(ext)}
 											>
-											<Switch
-												checked={ext.use_proxy}
-												disabled={isTogglingProxy}
-												loading={isTogglingProxy}
-												onCheckedChange={(enabled) => void handleToggleProxy(ext.pkg, enabled)}
-											/>
+												<GlobeIcon size={13} />
+												{$_('extensions.authenticate')}
+											</Button>
+											<Button
+												variant="ghost"
+												size="sm"
+												class="w-full whitespace-nowrap md:w-auto"
+												onclick={() => void clearExtensionAuthentication(ext)}
+												loading={clearingAuthPkg === ext.pkg}
+												disabled={clearingAuthPkg === ext.pkg}
+											>
+												{$_('extensions.clearAuth')}
+											</Button>
 										</div>
-										<button
-											type="button"
-											class="flex items-center gap-1.5 text-[11px] text-[var(--text-ghost)] transition-colors hover:text-[var(--error)] disabled:pointer-events-none disabled:opacity-40"
-											onclick={() => void handleUninstall(ext.pkg)}
-											disabled={isUninstalling}
+										<div
+											class="flex items-center justify-between border-t border-[var(--line-soft)] pt-3 md:ml-auto md:justify-start md:gap-4 md:border-t-0 md:pt-0"
 										>
-											{#if isUninstalling}
-												<SpinnerIcon size={11} class="animate-spin" />
-											{/if}
-											{$_('extensions.uninstall').toLowerCase()}
-										</button>
+											<div class="flex items-center gap-3">
+												<span class="text-[11px] text-[var(--text-ghost)]"
+													>{$_('extensions.proxy').toLowerCase()}</span
+												>
+												<Switch
+													checked={ext.use_proxy}
+													disabled={isTogglingProxy}
+													loading={isTogglingProxy}
+													onCheckedChange={(enabled) => void handleToggleProxy(ext.pkg, enabled)}
+												/>
+											</div>
+											<div class="h-4 w-px bg-[var(--line-soft)]"></div>
+											<button
+												type="button"
+												class="flex items-center gap-1.5 text-[11px] text-[var(--text-ghost)] transition-colors hover:text-[var(--error)] disabled:pointer-events-none disabled:opacity-40"
+												onclick={() => void handleUninstall(ext.pkg)}
+												disabled={isUninstalling}
+											>
+												{#if isUninstalling}
+													<SpinnerIcon size={11} class="animate-spin" />
+												{/if}
+												{$_('extensions.uninstall').toLowerCase()}
+											</button>
+										</div>
 									</div>
 								</div>
 							</div>
@@ -926,6 +986,13 @@
 		{/if}
 	{/if}
 </div>
+
+<WebViewAuthDialog
+	open={webViewPackage !== null}
+	packageName={webViewPackage}
+	extensionName={webViewExtensionName}
+	onclose={closeExtensionAuthentication}
+/>
 
 <SlidePanel
 	open={sourceSettingsOpen}

@@ -92,6 +92,8 @@ function buildRuntimeEnv(input) {
 	root.systemLogDir ??= `${root.logRoot}/system`;
 	root.bridgeLogDir ??= `${root.logRoot}/bridge`;
 	root.bridgeInternalUrl = readVar(input, ['MANGARR_BRIDGE_INTERNAL_URL'], `http://127.0.0.1:${root.bridgePort}`);
+	root.webViewPort = Number.parseInt(readVar(input, ['MANGARR_WEBVIEW_PORT'], String(root.bridgePort + 1)), 10);
+	root.webViewSocketUrl = readVar(input, ['MANGARR_WEBVIEW_SOCKET_URL'], `http://127.0.0.1:${root.webViewPort}`);
 
 	if (!root.convexPostgresUrl.trim()) {
 		emitEvent('error', 'runtime.configuration_error', 'CONVEX_POSTGRES_URL must be set for the Postgres-backed Convex runtime.');
@@ -141,6 +143,8 @@ async function prepareRuntime(env) {
 		MANGARR_SERVICE_SECRET: serviceSecret,
 		MANGARR_BRIDGE_HOST: env.bridgeHost,
 		MANGARR_BRIDGE_PORT: String(env.bridgePort),
+		MANGARR_WEBVIEW_PORT: String(env.webViewPort),
+		MANGARR_WEBVIEW_SOCKET_URL: env.webViewSocketUrl,
 		MANGARR_BRIDGE_INTERNAL_URL: env.bridgeInternalUrl,
 		MANGARR_BRIDGE_DATA_DIR: env.bridgeDataDir,
 		MANGARR_BRIDGE_ID: env.bridgeId,
@@ -308,8 +312,8 @@ function routeBridgeLine(component, stream, line) {
 		line.includes('viz_main_impl.cc') ||
 		line.includes('ssl_client_socket_impl.cc') ||
 		line.includes('ui/gfx/x/connection.cc') ||
-		line.startsWith('JCEF_') ||
-		line.startsWith('JCEF(') ||
+		(line.startsWith('JCEF_') || line.startsWith('JCEF(')) &&
+			!/(?:error|failed|exception|can't)/i.test(line) ||
 		line.startsWith('CEF Version =') ||
 		line.startsWith('Chromium Version =')
 	) {

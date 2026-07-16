@@ -3,11 +3,38 @@ package mangarr.tachibridge.runtime
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.assertEquals
 import java.io.IOException
 import java.lang.IllegalArgumentException
 import java.net.ProtocolException
 
 class SourceFailureClassifierTest {
+    @Test
+    fun `webview authentication requirements are terminal and actionable`() {
+        val failure =
+            classifySourceFailure(
+                commandType = "library.sync.title",
+                error = IllegalStateException("Для просмотра контента требуется авторизация через WebView"),
+            )
+
+        assertFalse(failure.retryable)
+        assertTrue(failure.expected)
+        assertEquals("source_auth_required", failure.code)
+    }
+
+    @Test
+    fun `webview challenge failures are terminal and actionable`() {
+        val failure =
+            classifySourceFailure(
+                commandType = "explore.popular",
+                error = IllegalStateException("Complete the Cloudflare challenge in WebView"),
+            )
+
+        assertFalse(failure.retryable)
+        assertTrue(failure.expected)
+        assertEquals("source_auth_required", failure.code)
+    }
+
     @Test
     fun `redirect loops are treated as permanent source failures`() {
         val error =

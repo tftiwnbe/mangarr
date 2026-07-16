@@ -495,6 +495,7 @@ class BridgeCommandRunner(
                                     put("message", failure.message)
                                     put("retryDelayMs", retryDelayMs)
                                     put("retryable", retryable)
+                                    failure.code?.let { put("failureCode", it) }
                                 },
                             ),
                         )

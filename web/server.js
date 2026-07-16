@@ -22,6 +22,10 @@ const convexAgent = new http.Agent({
 	maxSockets: 16
 });
 const convexPrefix = normalizePrefix(process.env.PUBLIC_CONVEX_PROXY_PREFIX ?? '/convex');
+const webviewSocketTarget = new URL(
+	process.env.MANGARR_WEBVIEW_SOCKET_URL ?? 'http://127.0.0.1:3213'
+);
+const webviewSocketPrefix = '/api/internal/bridge/webview/socket';
 
 function normalizePrefix(value) {
 	const trimmed = value.trim();
@@ -36,10 +40,25 @@ function matchProxyPath(url = '/') {
 	return path === convexPrefix || path.startsWith(`${convexPrefix}/`);
 }
 
-function stripProxyPrefix(url = '/') {
+function stripProxyPrefix(url = '/', prefix = convexPrefix) {
 	const [path = '/', query = ''] = url.split('?', 2);
-	const strippedPath = path === convexPrefix ? '/' : path.slice(convexPrefix.length) || '/';
+	const strippedPath = path === prefix ? '/' : path.slice(prefix.length) || '/';
 	return query ? `${strippedPath}?${query}` : strippedPath;
+}
+
+function matchWebviewSocketPath(url = '/') {
+	return (url.split('?')[0] || '/') === webviewSocketPrefix;
+}
+
+function isSameOriginUpgrade(req) {
+	const host = req.headers.host;
+	const origin = req.headers.origin;
+	if (typeof host !== 'string' || typeof origin !== 'string') return false;
+	try {
+		return new URL(origin).host === host;
+	} catch {
+		return false;
+	}
 }
 
 function readIncomingRequestId(value) {
@@ -119,17 +138,25 @@ function proxyHttp(req, res) {
 	req.pipe(upstream);
 }
 
-function proxyUpgrade(req, socket, head) {
+function proxyUpgrade(
+	req,
+	socket,
+	head,
+	{ target = convexTarget, prefix = convexPrefix, upstreamPath, kind = 'convex' } = {}
+) {
 	const requestId = getOrCreateRequestId(req.headers[REQUEST_ID_HEADER]);
 	const pathname = req.url?.split('?')[0] || '/';
 	let failureLogged = false;
-	const upstream = net.connect(Number(convexTarget.port || 80), convexTarget.hostname, () => {
-		const lines = [`${req.method} ${stripProxyPrefix(req.url)} HTTP/${req.httpVersion}`];
+	const upstream = net.connect(Number(target.port || 80), target.hostname, () => {
+		const lines = [
+			`${req.method} ${upstreamPath ?? stripProxyPrefix(req.url, prefix)} HTTP/${req.httpVersion}`
+		];
 		for (const [name, rawValue] of Object.entries(req.headers)) {
 			if (rawValue == null) continue;
 			if (name.toLowerCase() === REQUEST_ID_HEADER) continue;
+			if (kind === 'webview' && ['cookie', 'authorization'].includes(name.toLowerCase())) continue;
 			const value = Array.isArray(rawValue) ? rawValue.join(', ') : rawValue;
-			lines.push(`${name}: ${name.toLowerCase() === 'host' ? convexTarget.host : value}`);
+			lines.push(`${name}: ${name.toLowerCase() === 'host' ? target.host : value}`);
 		}
 		lines.push(`${REQUEST_ID_HEADER}: ${requestId}`);
 		lines.push('', '');
@@ -148,14 +175,14 @@ function proxyUpgrade(req, socket, head) {
 		emitWebEvent(
 			'warn',
 			{
-				event: 'convex_proxy_upgrade_failed',
+				event: `${kind}_proxy_upgrade_failed`,
 				request_id: requestId,
 				method: req.method,
 				path: pathname,
 				source,
 				error_message: error instanceof Error ? error.message : String(error)
 			},
-			`convex upgrade failed ${req.method || 'GET'} ${pathname} req=${requestId}`
+			`${kind} upgrade failed ${req.method || 'GET'} ${pathname} req=${requestId}`
 		);
 	};
 
@@ -183,11 +210,20 @@ const server = http.createServer((req, res) => {
 });
 
 server.on('upgrade', (req, socket, head) => {
-	if (!matchProxyPath(req.url)) {
-		socket.destroy();
+	if (matchProxyPath(req.url)) {
+		proxyUpgrade(req, socket, head);
 		return;
 	}
-	proxyUpgrade(req, socket, head);
+	if (matchWebviewSocketPath(req.url) && isSameOriginUpgrade(req)) {
+		proxyUpgrade(req, socket, head, {
+			target: webviewSocketTarget,
+			prefix: webviewSocketPrefix,
+			upstreamPath: '/webview',
+			kind: 'webview'
+		});
+		return;
+	}
+	socket.destroy();
 });
 
 server.listen(port, host, () => {

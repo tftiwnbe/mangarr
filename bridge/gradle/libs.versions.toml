@@ -12,6 +12,7 @@ dex2jar_version = "2.4.32"
 serialization_version = "1.9.0"
 xml_serialization_version = "0.91.3"
 nimbus_version = "10.6"
+java_websocket_version = "1.6.0"
 
 
 [libraries]
@@ -53,6 +54,7 @@ serialization-protobuf = { module = "org.jetbrains.kotlinx:kotlinx-serialization
 serialization-xml-core = { module = "io.github.pdvrieze.xmlutil:core-android", version.ref = "xml_serialization_version" }
 serialization-xml = { module = "io.github.pdvrieze.xmlutil:serialization", version.ref = "xml_serialization_version" }
 nimbus-jose = { module = "com.nimbusds:nimbus-jose-jwt", version.ref = "nimbus_version" }
+java-websocket = { module = "org.java-websocket:Java-WebSocket", version.ref = "java_websocket_version" }
 
 [plugins]
 buildConfig = { id = "com.github.gmazzo.buildconfig", version= "5.7.1"}

@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
+import eu.kanade.tachiyomi.source.online.HttpSource
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.sync.Mutex
@@ -35,6 +36,7 @@ import mangarr.tachibridge.config.findExtension
 import mangarr.tachibridge.config.sourcePreferencesFor
 import mangarr.tachibridge.loader.ExtensionLoader
 import mangarr.tachibridge.repo.ExtensionRepoService
+import mangarr.tachibridge.webview.ExtensionWebViewLaunch
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.IOException
@@ -354,6 +356,67 @@ class ExtensionManager(
             val ext = config.findExtension(packageName) ?: return@mapNotNull null
             ext.sources.find { it.id == source.id }
         }
+    }
+
+    suspend fun resolveWebViewLaunch(
+        packageName: String,
+        preferredSourceId: Long? = null,
+        preferredUrl: String? = null,
+    ): ExtensionWebViewLaunch {
+        awaitReady()
+        val extension =
+            ConfigManager.config.findExtension(packageName)
+                ?: throw IllegalArgumentException("Extension not found: $packageName")
+        val enabledSourceIds = extension.sources.filter { it.enabled }.map { it.id }.toSet()
+        val httpSources =
+            extension.sources.mapNotNull { sourceInfo ->
+                (sourceMap[sourceInfo.id] as? HttpSource)?.let { sourceInfo to it }
+            }
+        val selected =
+            preferredSourceId
+                ?.takeIf { it in enabledSourceIds }
+                ?.let { id -> httpSources.find { (sourceInfo, _) -> sourceInfo.id == id } }
+                ?: httpSources.firstOrNull { (sourceInfo, _) -> sourceInfo.id in enabledSourceIds }
+                ?: httpSources.firstOrNull()
+                ?: throw IllegalArgumentException("Extension does not expose an HTTP source: $packageName")
+        val (sourceInfo, source) = selected
+        val trustedHosts =
+            httpSources
+                .mapNotNull { (_, httpSource) -> runCatching { URI(httpSource.baseUrl).host?.lowercase() }.getOrNull() }
+                .toSet()
+        val initialUrl = resolveWebViewUrl(source.baseUrl, preferredUrl, trustedHosts)
+        val headers =
+            source.headers
+                .toMultimap()
+                .mapNotNull { (name, values) -> values.firstOrNull()?.let { name to it } }
+                .toMap()
+        val userAgent =
+            headers.entries
+                .firstOrNull { (name, _) -> name.equals("user-agent", ignoreCase = true) }
+                ?.value
+                ?: networkHelper.defaultUserAgentProvider()
+
+        return ExtensionWebViewLaunch(
+            packageName = extension.packageName,
+            extensionName = extension.name,
+            sourceId = sourceInfo.id,
+            sourceName = sourceInfo.name,
+            initialUrl = initialUrl,
+            headers = headers,
+            userAgent = userAgent,
+            trustedHosts = trustedHosts,
+        )
+    }
+
+    suspend fun webViewDomains(packageName: String): Set<String> {
+        awaitReady()
+        val extension =
+            ConfigManager.config.findExtension(packageName)
+                ?: throw IllegalArgumentException("Extension not found: $packageName")
+        return extension.sources
+            .mapNotNull { sourceInfo -> (sourceMap[sourceInfo.id] as? HttpSource)?.baseUrl }
+            .mapNotNull { baseUrl -> runCatching { URI(baseUrl).host?.lowercase() }.getOrNull() }
+            .toSet()
     }
 
     suspend fun searchTitle(
@@ -831,6 +894,20 @@ class ExtensionManager(
             }
         },
         )
+    }
+
+    private fun resolveWebViewUrl(
+        baseUrl: String,
+        preferredUrl: String?,
+        trustedHosts: Set<String>,
+    ): String {
+        val baseUri = URI(baseUrl)
+        val candidate = preferredUrl?.trim()?.takeIf { it.isNotEmpty() } ?: return baseUri.toString()
+        val resolved = runCatching { baseUri.resolve(candidate) }.getOrElse { return baseUri.toString() }
+        if (resolved.scheme !in setOf("http", "https") || resolved.host?.lowercase() !in trustedHosts) {
+            return baseUri.toString()
+        }
+        return resolved.toString()
     }
 
     private suspend fun buildDownloadUrl(

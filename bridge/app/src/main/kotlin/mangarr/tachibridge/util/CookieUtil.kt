@@ -23,3 +23,27 @@ fun Cookie.toCefCookie(): CefCookie {
         Date(cookie.expiresAt),
     )
 }
+
+fun CefCookie.toOkHttpCookie(): Cookie =
+    Cookie
+        .Builder()
+        .name(name)
+        .value(value)
+        .path(path.takeIf { it.startsWith('/') } ?: "/$path")
+        .apply {
+            val normalizedDomain = domain.removePrefix(".")
+            if (domain.startsWith('.')) {
+                domain(normalizedDomain)
+            } else {
+                hostOnlyDomain(normalizedDomain)
+            }
+            if (hasExpires) {
+                expiresAt(expires.time)
+            }
+            if (httponly) {
+                httpOnly()
+            }
+            if (secure) {
+                secure()
+            }
+        }.build()

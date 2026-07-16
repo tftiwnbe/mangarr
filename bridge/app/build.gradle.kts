@@ -19,6 +19,7 @@ dependencies {
     implementation(libs.protobuf.kotlin)
 
     implementation(libs.koin)
+    implementation(libs.java.websocket)
 
     // AndroidCompat
     implementation(projects.androidCompat)
