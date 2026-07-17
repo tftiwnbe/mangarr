@@ -14,6 +14,7 @@ on:
       - "bridge/**"
       - "compose.yaml"
       - "compose.dev.yaml"
+      - "scripts/**"
       - "web/**"
   workflow_dispatch:
 
@@ -25,9 +26,6 @@ permissions:
   contents: read
   packages: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   web-runtime:
     name: web-runtime
@@ -35,16 +33,16 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 10.33.4
           run_install: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: pnpm
@@ -81,7 +79,7 @@ jobs:
           tar -C "$tmpdir" -czf "$RUNNER_TEMP/web-runtime.tgz" app
 
       - name: Upload web runtime artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-runtime
           path: ${{ runner.temp }}/web-runtime.tgz
@@ -93,17 +91,17 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
           cache: gradle
 
       - name: Restore Android compatibility stub cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: bridge/app/lib/android.jar
           key: ${{ runner.os }}-androidcompat-${{ hashFiles('bridge/AndroidCompat/getAndroid.sh', 'bridge/AndroidCompat/build.gradle.kts', 'bridge/app/build.gradle.kts') }}
@@ -128,7 +126,7 @@ jobs:
           tar -C "$tmpdir" -czf "$RUNNER_TEMP/bridge-runtime.tgz" app
 
       - name: Upload bridge runtime artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bridge-runtime
           path: ${{ runner.temp }}/bridge-runtime.tgz
@@ -140,20 +138,20 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push runtime base image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
@@ -177,16 +175,16 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 10.33.4
           run_install: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: pnpm
@@ -199,7 +197,7 @@ jobs:
         run: cd web && pnpm exec playwright install --with-deps chromium
 
       - name: Download runtime artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: "*-runtime"
           path: .artifacts/downloads
@@ -213,10 +211,10 @@ jobs:
           tar -xzf .artifacts/downloads/bridge-runtime/bridge-runtime.tgz -C .artifacts/ci-context/bridge-runtime
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -224,7 +222,7 @@ jobs:
 
       - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
@@ -232,7 +230,7 @@ jobs:
             type=sha,prefix=sha-,format=short
 
       - name: Build edge candidate image locally
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .artifacts/ci-context
           file: .artifacts/ci-context/Dockerfile.ci
@@ -270,6 +268,7 @@ jobs:
           done
           docker run -d --name mangarr-edge --network mangarr-edge-network \
             -e MANGARR_PUBLIC_URL=http://127.0.0.1:3837 \
+            -e MANGARR_KCEF_ENABLED=false \
             -e CONVEX_POSTGRES_URL=postgresql://mangarr:mangarr-postgres@mangarr-edge-postgres:5432 \
             -p 3837:3737 \
             -v "$RUNNER_TEMP/mangarr-config:/app/config" \
@@ -302,7 +301,7 @@ jobs:
           docker network rm mangarr-edge-network >/dev/null 2>&1 || true
 
       - name: Build and push edge image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .artifacts/ci-context
           file: .artifacts/ci-context/Dockerfile.ci

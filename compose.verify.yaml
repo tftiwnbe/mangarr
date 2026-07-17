@@ -10,6 +10,7 @@ services:
         condition: service_healthy
     environment:
       MANGARR_PUBLIC_URL: http://127.0.0.1:${MANGARR_VERIFY_PORT:?set MANGARR_VERIFY_PORT}
+      MANGARR_KCEF_ENABLED: ${MANGARR_VERIFY_KCEF_ENABLED:-true}
       CONVEX_POSTGRES_URL: postgresql://mangarr:mangarr-postgres@postgres:5432
     ports:
       - "${MANGARR_VERIFY_PORT:?set MANGARR_VERIFY_PORT}:3737"

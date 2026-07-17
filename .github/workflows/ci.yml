@@ -13,9 +13,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   web:
     name: web
@@ -23,16 +20,16 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 10.33.4
           run_install: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: pnpm
@@ -62,17 +59,17 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
           cache: gradle
 
       - name: Restore Android compatibility stub cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: bridge/app/lib/android.jar
           key: ${{ runner.os }}-androidcompat-${{ hashFiles('bridge/AndroidCompat/getAndroid.sh', 'bridge/AndroidCompat/build.gradle.kts', 'bridge/app/build.gradle.kts') }}
@@ -90,19 +87,22 @@ jobs:
     name: e2e-smoke
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      MANGARR_VERIFY_PORT: "3737"
+      MANGARR_VERIFY_KCEF_ENABLED: "false"
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 10.33.4
           run_install: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: pnpm
@@ -114,11 +114,21 @@ jobs:
       - name: Install Playwright browser
         run: cd web && pnpm exec playwright install --with-deps chromium
 
-      - name: Start development stack
-        run: docker compose -f compose.dev.yaml up -d --build mangarr
+      - name: Prepare isolated runtime volumes
+        run: |
+          runtime_root="$RUNNER_TEMP/mangarr-e2e"
+          echo "MANGARR_VERIFY_CONFIG_DIR=$runtime_root/config" >> "$GITHUB_ENV"
+          echo "MANGARR_VERIFY_DOWNLOADS_DIR=$runtime_root/downloads" >> "$GITHUB_ENV"
+          echo "MANGARR_VERIFY_POSTGRES_DIR=$runtime_root/postgres" >> "$GITHUB_ENV"
+          mkdir -p "$runtime_root/config" "$runtime_root/downloads" "$runtime_root/postgres"
 
-      - name: Verify development PostgreSQL is ready
-        run: docker compose -f compose.dev.yaml exec -T postgres pg_isready -U mangarr -d mangarr
+      - name: Start production-like stack
+        run: docker compose -p mangarr-e2e -f compose.verify.yaml up -d --build --wait --wait-timeout 300
+
+      - name: Verify runtime services
+        run: |
+          docker compose -p mangarr-e2e -f compose.verify.yaml exec -T postgres pg_isready -U mangarr -d mangarr
+          docker compose -p mangarr-e2e -f compose.verify.yaml exec -T mangarr curl -fsS http://127.0.0.1:3212/health >/dev/null
 
       - name: Wait for web app
         run: |
@@ -128,7 +138,7 @@ jobs:
             fi
             sleep 5
           done
-          docker compose -f compose.dev.yaml logs mangarr >&2 || true
+          docker compose -p mangarr-e2e -f compose.verify.yaml logs >&2 || true
           exit 1
 
       - name: Run runtime smoke tests
@@ -136,8 +146,8 @@ jobs:
 
       - name: Dump stack logs on failure
         if: failure()
-        run: docker compose -f compose.dev.yaml logs mangarr >&2 || true
+        run: docker compose -p mangarr-e2e -f compose.verify.yaml logs >&2 || true
 
-      - name: Stop development stack
+      - name: Stop production-like stack
         if: always()
-        run: docker compose -f compose.dev.yaml down --remove-orphans --volumes
+        run: docker compose -p mangarr-e2e -f compose.verify.yaml down --remove-orphans --volumes
