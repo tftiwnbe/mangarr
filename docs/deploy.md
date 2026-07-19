@@ -70,6 +70,26 @@ Back up:
 - the public Convex URL is derived automatically as `${MANGARR_PUBLIC_URL}/convex`
 - the internal bridge port exposes `/health` for runtime probing
 
+## Web Push Notifications
+
+Background notifications require the public Mangarr URL to use HTTPS. `localhost` is the only
+browser exception for development. The runtime generates and persists one VAPID key pair under
+`config/convex/`, publishes the current public key to the app, and syncs `MANGARR_PUBLIC_URL` into
+Convex so notification clicks use the correct public origin.
+
+After a deploy or URL change, open **Settings → Notifications** on each browser device and enable
+notifications for that device. Once permission is granted, new chapter alerts continue through the
+service worker while the tab or installed PWA is closed.
+
+Platform requirements:
+
+- desktop Chromium, Firefox, and Safari use their normal site-notification permission
+- Android supports Web Push from a browser tab or installed PWA, subject to browser and OS battery
+  restrictions
+- iPhone and iPad require adding Mangarr to the Home Screen before Web Push can be enabled
+- each browser profile or installed PWA is a separate registered device and can be removed without
+  affecting the others
+
 ## Restore
 
 To restore an instance:

@@ -12,19 +12,8 @@ export type NotificationCapability = {
 	badgingSupported: boolean;
 	installed: boolean;
 	iosLike: boolean;
+	secureContext: boolean;
 	permission: NotificationPermission | 'unsupported';
-};
-
-export type NotificationEventItem = {
-	id: string;
-	titleId: string;
-	titleName: string;
-	latestChapterName: string;
-	newChapterCount: number;
-	path: string;
-	icon: string;
-	tag: string;
-	lastDeliveredAt: number | null;
 };
 
 function getStandaloneMediaMatch() {
@@ -41,10 +30,13 @@ export function getNotificationCapability(): NotificationCapability {
 			badgingSupported: false,
 			installed: false,
 			iosLike: false,
+			secureContext: false,
 			permission: 'unsupported'
 		};
 	}
-	const iosLike = /iPad|iPhone|iPod/i.test(navigator.userAgent);
+	const iosLike =
+		/iPad|iPhone|iPod/i.test(navigator.userAgent) ||
+		(navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 	const installed =
 		getStandaloneMediaMatch() ||
 		(window.navigator as Navigator & { standalone?: boolean }).standalone === true;
@@ -64,6 +56,7 @@ export function getNotificationCapability(): NotificationCapability {
 		badgingSupported,
 		installed,
 		iosLike,
+		secureContext: window.isSecureContext,
 		permission: supported ? Notification.permission : 'unsupported'
 	};
 }
@@ -77,7 +70,10 @@ export async function registerMangarrServiceWorker() {
 				await navigator.serviceWorker.ready;
 				return registration;
 			})
-			.catch(() => null);
+			.catch(() => {
+				registrationPromise = null;
+				return null;
+			});
 	}
 	return registrationPromise;
 }
@@ -87,6 +83,21 @@ function toUint8Array(base64: string) {
 	const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
 	const raw = window.atob(padded);
 	return Uint8Array.from(raw, (char) => char.charCodeAt(0));
+}
+
+function notificationDeviceName() {
+	const agent = navigator.userAgent;
+	const platform = navigator.platform;
+	if (/iPhone/i.test(agent)) return 'iPhone';
+	if (/iPad/i.test(agent) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
+		return 'iPad';
+	}
+	if (/Android/i.test(agent)) return 'Android';
+	if (/Edg\//i.test(agent)) return 'Edge on desktop';
+	if (/Chrome\//i.test(agent)) return 'Chrome on desktop';
+	if (/Firefox\//i.test(agent)) return 'Firefox on desktop';
+	if (/Safari\//i.test(agent)) return 'Safari on Mac';
+	return platform || 'Browser';
 }
 
 export function getOrCreateNotificationInstallationKey() {
@@ -105,18 +116,10 @@ export function getOrCreateNotificationInstallationKey() {
 	}
 }
 
-export function getNotificationInstallationKey() {
-	if (!browser) return '';
-	try {
-		return localStorage.getItem(INSTALLATION_KEY)?.trim() ?? '';
-	} catch {
-		return '';
-	}
-}
-
 export async function subscribeToWebPush(args: {
 	client: Pick<ConvexClient, 'mutation'>;
 	applicationServerKey: string;
+	vapidKeyId: string;
 }) {
 	const capability = getNotificationCapability();
 	if (!capability.supported || !capability.pushSupported) {
@@ -138,57 +141,104 @@ export async function subscribeToWebPush(args: {
 		);
 	}
 
-	const subscription =
-		(await registration.pushManager.getSubscription()) ??
-		(await registration.pushManager.subscribe({
-			userVisibleOnly: true,
-			applicationServerKey: toUint8Array(args.applicationServerKey)
-		}));
+	const applicationServerKey = toUint8Array(args.applicationServerKey);
+	let subscription = await registration.pushManager.getSubscription();
+	if (subscription && !subscriptionUsesKey(subscription, applicationServerKey)) {
+		await subscription.unsubscribe().catch(() => undefined);
+		subscription = null;
+	}
+	subscription ??= await registration.pushManager.subscribe({
+		userVisibleOnly: true,
+		applicationServerKey
+	});
 	const json = subscription.toJSON();
 	if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
 		throw new Error('Push subscription is missing endpoint keys');
 	}
 
-	await args.client.mutation(convexApi.notifications.subscribeWebPush, {
+	await args.client.mutation(convexApi.notifications.reconcileDevice, {
 		endpoint: json.endpoint,
 		p256dh: json.keys.p256dh,
 		auth: json.keys.auth,
+		vapidKeyId: args.vapidKeyId,
+		expirationTime: subscription.expirationTime ?? undefined,
 		userAgent: navigator.userAgent,
 		platform: navigator.platform,
-		installationKey: getOrCreateNotificationInstallationKey(),
-		supportsBadging: capability.badgingSupported
+		displayName: notificationDeviceName(),
+		installationId: getOrCreateNotificationInstallationKey(),
+		supportsBadging: capability.badgingSupported,
+		allowReactivate: true
 	});
 	return subscription;
 }
 
 export async function unsubscribeFromWebPush(args: { client: Pick<ConvexClient, 'mutation'> }) {
 	const registration = await registerMangarrServiceWorker();
+	await args.client.mutation(convexApi.notifications.revokeDevice, {
+		installationId: getOrCreateNotificationInstallationKey()
+	});
 	if (!registration) return;
 	const subscription = await registration.pushManager.getSubscription();
-	if (!subscription) return;
-	await args.client.mutation(convexApi.notifications.unsubscribeWebPush, {
-		endpoint: subscription.endpoint
-	});
-	await subscription.unsubscribe().catch(() => undefined);
+	await subscription?.unsubscribe().catch(() => undefined);
 }
 
-export async function showForegroundNotification(item: NotificationEventItem) {
-	const registration = await registerMangarrServiceWorker();
-	if (!registration) {
-		throw new Error('Service worker is unavailable');
+function subscriptionUsesKey(subscription: PushSubscription | null, expected: Uint8Array) {
+	if (!subscription) return false;
+	const current = subscription.options.applicationServerKey;
+	if (!current) return false;
+	const bytes = new Uint8Array(current);
+	if (bytes.length !== expected.length) return false;
+	return bytes.every((value, index) => value === expected[index]);
+}
+
+export async function reconcileWebPush(args: {
+	client: Pick<ConvexClient, 'mutation'>;
+	applicationServerKey: string;
+	vapidKeyId: string;
+}) {
+	const capability = getNotificationCapability();
+	const installationId = getOrCreateNotificationInstallationKey();
+	if (capability.permission === 'denied') {
+		await args.client.mutation(convexApi.notifications.revokeDevice, { installationId });
+		return { reconciled: false as const, denied: true as const };
 	}
-	await registration.showNotification(item.titleName, {
-		body: `${item.newChapterCount} new chapter${item.newChapterCount === 1 ? '' : 's'}`,
-		tag: item.tag,
-		icon: item.icon || '/icon-192.png',
-		badge: '/icon-192.png',
-		data: {
-			kind: 'title-update',
-			titleId: item.titleId,
-			eventId: item.id,
-			path: item.path
-		}
+	if (!capability.supported || !capability.pushSupported || capability.permission !== 'granted') {
+		return { reconciled: false as const };
+	}
+	const registration = await registerMangarrServiceWorker();
+	if (!registration) return { reconciled: false as const };
+	const expectedKey = toUint8Array(args.applicationServerKey);
+	let subscription = await registration.pushManager.getSubscription();
+	if (!subscriptionUsesKey(subscription, expectedKey)) {
+		await subscription?.unsubscribe().catch(() => undefined);
+		subscription = await registration.pushManager.subscribe({
+			userVisibleOnly: true,
+			applicationServerKey: expectedKey
+		});
+	}
+	if (!subscription) return { reconciled: false as const };
+	const json = subscription.toJSON();
+	if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
+		return { reconciled: false as const };
+	}
+	const result = await args.client.mutation(convexApi.notifications.reconcileDevice, {
+		installationId,
+		endpoint: json.endpoint,
+		p256dh: json.keys.p256dh,
+		auth: json.keys.auth,
+		vapidKeyId: args.vapidKeyId,
+		expirationTime: subscription.expirationTime ?? undefined,
+		userAgent: navigator.userAgent,
+		platform: navigator.platform,
+		displayName: notificationDeviceName(),
+		supportsBadging: capability.badgingSupported,
+		allowReactivate: false
 	});
+	if ('disabled' in result && result.disabled) {
+		await subscription.unsubscribe().catch(() => undefined);
+		return { reconciled: false as const, disabled: true as const };
+	}
+	return { reconciled: true as const };
 }
 
 export async function syncApplicationBadge(unacknowledgedCount: number) {

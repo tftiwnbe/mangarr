@@ -8,6 +8,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const COMMAND_RETENTION_MS = 7 * DAY_MS;
 const DOWNLOAD_TASK_RETENTION_MS = 14 * DAY_MS;
 const EXPLORE_CACHE_RETENTION_MS = 3 * DAY_MS;
+const NOTIFICATION_RETENTION_MS = 90 * DAY_MS;
+const REVOKED_NOTIFICATION_DEVICE_RETENTION_MS = 30 * DAY_MS;
 
 export const runRetentionPass = internalMutation({
 	args: {},
@@ -17,6 +19,9 @@ export const runRetentionPass = internalMutation({
 		let deletedCommands = 0;
 		let deletedDownloadTasks = 0;
 		let deletedExploreCacheRows = 0;
+		let deletedNotificationDeliveries = 0;
+		let deletedNotificationEvents = 0;
+		let deletedNotificationDevices = 0;
 
 		const commandCutoff = now - COMMAND_RETENTION_MS;
 		const terminalCommandStatuses = new Set<string>([
@@ -78,10 +83,68 @@ export const runRetentionPass = internalMutation({
 			console.warn('Retention pass skipped explore cache cleanup', error);
 		}
 
+		const notificationCutoff = now - NOTIFICATION_RETENTION_MS;
+		try {
+			const deliveries = await ctx.db
+				.query('notificationDeliveries')
+				.withIndex('by_created_at', (q) => q.lt('createdAt', notificationCutoff))
+				.order('asc')
+				.take(limit);
+			for (const delivery of deliveries) {
+				if (
+					delivery.status === 'queued' ||
+					delivery.status === 'sending' ||
+					delivery.status === 'retry_wait'
+				) {
+					continue;
+				}
+				await ctx.db.delete(delivery._id);
+				deletedNotificationDeliveries += 1;
+			}
+
+			const events = await ctx.db
+				.query('notificationEvents')
+				.withIndex('by_created_at', (q) => q.lt('createdAt', notificationCutoff))
+				.order('asc')
+				.take(limit);
+			for (const event of events) {
+				const remainingDelivery = await ctx.db
+					.query('notificationDeliveries')
+					.withIndex('by_event_id', (q) => q.eq('eventId', event._id))
+					.first();
+				if (remainingDelivery) continue;
+				await ctx.db.delete(event._id);
+				deletedNotificationEvents += 1;
+			}
+
+			const revokedCutoff = now - REVOKED_NOTIFICATION_DEVICE_RETENTION_MS;
+			const revokedDevices = await ctx.db
+				.query('notificationDevices')
+				.withIndex('by_state_updated_at', (q) =>
+					q.eq('state', 'revoked').lt('updatedAt', revokedCutoff)
+				)
+				.order('asc')
+				.take(limit);
+			for (const device of revokedDevices) {
+				const remainingDelivery = await ctx.db
+					.query('notificationDeliveries')
+					.withIndex('by_device_id_created_at', (q) => q.eq('deviceId', device._id))
+					.first();
+				if (remainingDelivery) continue;
+				await ctx.db.delete(device._id);
+				deletedNotificationDevices += 1;
+			}
+		} catch (error) {
+			console.warn('Retention pass skipped notification cleanup', error);
+		}
+
 		return {
 			deletedCommands,
 			deletedDownloadTasks,
-			deletedExploreCacheRows
+			deletedExploreCacheRows,
+			deletedNotificationDeliveries,
+			deletedNotificationEvents,
+			deletedNotificationDevices
 		};
 	}
 });

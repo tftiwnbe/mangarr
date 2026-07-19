@@ -187,7 +187,9 @@ async function prepareRuntime(env) {
 				'--instance-secret', instanceSecret,
 				'--port', String(env.convexPort),
 				'--site-proxy-port', String(env.convexSiteProxyPort),
-				'--convex-origin', env.publicConvexUrl,
+				// Node actions call back into this origin for ctx.runQuery/runMutation.
+				// Keep that path internal; the browser still uses PUBLIC_CONVEX_URL.
+				'--convex-origin', env.convexInternalUrl,
 				'--convex-site', env.convexSiteOrigin,
 				'--beacon-tag', 'mangarr',
 				'--disable-beacon',
@@ -215,6 +217,7 @@ async function synchronizeConvexRuntime(env) {
 
 	emitEvent('info', 'runtime.convex_sync_started', 'Syncing Convex runtime functions');
 	for (const [key, value] of [
+		['MANGARR_PUBLIC_URL', env.publicOrigin],
 		['MANGARR_CONVEX_AUTH_ISSUER', env.authIssuer],
 		['MANGARR_CONVEX_AUTH_APPLICATION_ID', env.authApplicationId],
 		['MANGARR_CONVEX_AUTH_KEY_ID', env.authKeyId],
@@ -645,6 +648,7 @@ function computeConvexSyncFingerprint(env) {
 	for (const line of [
 		`CONVEX_BACKEND_DRIVER=postgres-v5`,
 		`CONVEX_STORAGE_DIR=${env.convexStorageDir}`,
+		`MANGARR_PUBLIC_URL=${env.publicOrigin}`,
 		`MANGARR_CONVEX_AUTH_ISSUER=${env.authIssuer}`,
 		`MANGARR_CONVEX_AUTH_APPLICATION_ID=${env.authApplicationId}`,
 		`MANGARR_CONVEX_AUTH_KEY_ID=${env.authKeyId}`,
@@ -702,10 +706,29 @@ function ensureVapid(path, defaultSubject) {
 		payload.publicKey = payload.publicKey || keys.publicKey;
 		payload.privateKey = payload.privateKey || keys.privateKey;
 	}
-	payload.subject = payload.subject || readVar(process.env, ['MANGARR_WEB_PUSH_SUBJECT'], defaultSubject);
+	const configuredSubject = readVar(process.env, ['MANGARR_WEB_PUSH_SUBJECT'], '').trim();
+	if (configuredSubject && !isValidVapidSubject(configuredSubject)) {
+		throw new Error('MANGARR_WEB_PUSH_SUBJECT must be an https: or mailto: URL');
+	}
+	if (configuredSubject) {
+		payload.subject = configuredSubject;
+	} else if (!isValidVapidSubject(payload.subject)) {
+		payload.subject = isValidVapidSubject(defaultSubject)
+			? defaultSubject
+			: 'mailto:notifications@mangarr.local';
+	}
 	writeFileSync(path, JSON.stringify(payload));
 	chmodSync(path, 0o600);
 	return payload;
+}
+
+function isValidVapidSubject(value) {
+	try {
+		const url = new URL(String(value ?? '').trim());
+		return url.protocol === 'https:' || url.protocol === 'mailto:';
+	} catch {
+		return false;
+	}
 }
 
 function syncKcefRuntimeFiles(kcefLibraryDir) {

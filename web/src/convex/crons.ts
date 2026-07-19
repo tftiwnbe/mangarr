@@ -32,11 +32,11 @@ crons.interval(
 );
 
 crons.interval(
-	'chapter notification push delivery',
-	{ minutes: 1 },
-	internal.notifications_push.processPendingEvents,
+	'notification delivery recovery',
+	{ minutes: 5 },
+	internal.notifications_push.recoverDeliveries,
 	{
-		limit: 20
+		limit: 50
 	}
 );
 

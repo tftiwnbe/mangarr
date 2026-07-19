@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
 	import { useConvexClient, useQuery } from 'convex-svelte';
+	import type { Id } from '$convex/_generated/dataModel';
 
 	import { convexApi } from '$lib/convex/api';
 	import { Alert } from '$lib/elements/alert';
@@ -9,77 +10,94 @@
 	import { Switch } from '$lib/elements/switch';
 	import {
 		getOrCreateNotificationInstallationKey,
-		getNotificationInstallationKey,
 		getNotificationCapability,
+		reconcileWebPush,
 		subscribeToWebPush,
 		unsubscribeFromWebPush
 	} from '$lib/client/pwa-notifications';
 
 	const client = useConvexClient();
-	let installationKey = $state('');
-	const statusQuery = useQuery(convexApi.notifications.listStatus, () => ({
-		installationKey: installationKey || undefined
+	let installationId = $state('');
+	let capabilityRevision = $state(0);
+	const overviewQuery = useQuery(convexApi.notifications.getOverview, () => ({
+		installationId: installationId || undefined
 	}));
 
-	let enabling = $state(false);
-	let disabling = $state(false);
+	let changingDevice = $state(false);
 	let savingPreferences = $state(false);
+	let removingDeviceId = $state<string | null>(null);
 	let error = $state<string | null>(null);
-	let serverPushConfig = $state<{
-		backgroundPushConfigured: boolean;
-		vapidPublicKey: string | null;
-		subject: string | null;
-	} | null>(null);
+	let reconciledKey = $state('');
 
-	const capability = $derived(browser ? getNotificationCapability() : null);
-	const status = $derived(statusQuery.data ?? null);
-	const effectiveBackgroundPushConfigured = $derived(
-		serverPushConfig?.backgroundPushConfigured ?? status?.backgroundPushConfigured ?? false
-	);
-	const effectiveVapidPublicKey = $derived(
-		serverPushConfig?.vapidPublicKey ?? status?.vapidPublicKey ?? null
-	);
-	const backgroundStatusLabel = $derived.by(() => {
-		if (!capability?.supported || !capability.pushSupported)
-			return 'Notifications are not supported here.';
-		if (!effectiveBackgroundPushConfigured)
-			return 'Background push is not configured on the server.';
-		if (capability.iosLike && !capability.installed) {
-			return 'Install Mangarr to the Home Screen, then enable notifications from the installed app.';
-		}
-		if (capability.permission === 'denied')
-			return 'Notification permission is denied for this app.';
-		return null;
+	const capability = $derived.by(() => {
+		void capabilityRevision;
+		return browser ? getNotificationCapability() : null;
 	});
+	const overview = $derived(overviewQuery.data ?? null);
+	const currentDevice = $derived(overview?.currentDevice ?? null);
+	const preferences = $derived(overview?.preferences ?? null);
+	const otherDevices = $derived(
+		(overview?.devices ?? []).filter(
+			(device) => device.installationId !== installationId && device.state !== 'revoked'
+		)
+	);
 
 	onMount(() => {
-		installationKey = getNotificationInstallationKey() || getOrCreateNotificationInstallationKey();
-		void loadServerPushConfig();
+		installationId = getOrCreateNotificationInstallationKey();
 	});
 
-	async function loadServerPushConfig() {
+	$effect(() => {
+		if (!browser || !installationId || !overview?.vapidPublicKey || !overview.vapidKeyId) return;
+		if (capability?.permission !== 'granted' && capability?.permission !== 'denied') return;
+		const key = `${installationId}:${overview.vapidKeyId}:${capability.permission}`;
+		if (reconciledKey === key) return;
+		reconciledKey = key;
+		void reconcileWebPush({
+			client,
+			applicationServerKey: overview.vapidPublicKey,
+			vapidKeyId: overview.vapidKeyId
+		}).catch((cause) => {
+			error = cause instanceof Error ? cause.message : 'Failed to check notification status';
+		});
+	});
+
+	async function setDeviceEnabled(enabled: boolean) {
+		if (changingDevice) return;
+		changingDevice = true;
+		error = null;
 		try {
-			const response = await fetch('/api/notifications/push-config', {
-				headers: { accept: 'application/json' }
-			});
-			if (!response.ok) {
-				return;
+			if (enabled) {
+				if (!overview?.vapidPublicKey || !overview.vapidKeyId) {
+					throw new Error('Notifications are not configured on the server');
+				}
+				await subscribeToWebPush({
+					client,
+					applicationServerKey: overview.vapidPublicKey,
+					vapidKeyId: overview.vapidKeyId
+				});
+				await client.mutation(convexApi.notifications.updatePreferences, {
+					webPushEnabled: true
+				});
+			} else {
+				await unsubscribeFromWebPush({ client });
 			}
-			serverPushConfig = (await response.json()) as typeof serverPushConfig;
-		} catch {
-			// Leave Convex-backed fallback state in place.
+			capabilityRevision += 1;
+			reconciledKey = '';
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : 'Failed to change notification settings';
+		} finally {
+			changingDevice = false;
 		}
 	}
 
-	async function savePreferences(partial: {
-		collectionNotificationsEnabled?: boolean;
-		iosPwaPushEnabled?: boolean;
-		foregroundNotificationsEnabled?: boolean;
-	}) {
+	async function setNewChapterAlerts(enabled: boolean) {
 		savingPreferences = true;
 		error = null;
 		try {
-			await client.mutation(convexApi.notifications.updatePreferences, partial);
+			await client.mutation(convexApi.notifications.updatePreferences, {
+				collectionNotificationsEnabled: enabled,
+				webPushEnabled: enabled
+			});
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Failed to save notification settings';
 		} finally {
@@ -87,128 +105,116 @@
 		}
 	}
 
-	async function handleEnableBackground() {
-		if (!effectiveVapidPublicKey || enabling) return;
-		enabling = true;
+	async function setPrivatePreviews(enabled: boolean) {
+		savingPreferences = true;
 		error = null;
 		try {
-			await subscribeToWebPush({
-				client,
-				applicationServerKey: effectiveVapidPublicKey
+			await client.mutation(convexApi.notifications.updatePreferences, {
+				privacyMode: enabled ? 'private' : 'detailed'
 			});
-			installationKey =
-				getNotificationInstallationKey() || getOrCreateNotificationInstallationKey();
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Failed to enable notifications';
+			error = cause instanceof Error ? cause.message : 'Failed to save notification settings';
 		} finally {
-			enabling = false;
+			savingPreferences = false;
 		}
 	}
 
-	async function handleDisableBackground() {
-		if (disabling) return;
-		disabling = true;
+	async function removeDevice(deviceId: Id<'notificationDevices'>) {
+		if (removingDeviceId) return;
+		removingDeviceId = deviceId;
 		error = null;
 		try {
-			await unsubscribeFromWebPush({ client });
+			await client.mutation(convexApi.notifications.revokeDeviceById, { deviceId });
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Failed to disable notifications';
+			error = cause instanceof Error ? cause.message : 'Failed to remove notification device';
 		} finally {
-			disabling = false;
+			removingDeviceId = null;
 		}
+	}
+
+	function formatTime(value: number) {
+		return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
+			new Date(value)
+		);
 	}
 </script>
 
-<section class="flex flex-col gap-4">
+<section class="flex flex-col gap-5">
 	<div class="flex flex-col gap-1">
 		<h2 class="text-sm font-medium text-[var(--text-soft)]">notifications</h2>
 		<p class="text-xs text-[var(--text-ghost)]">
-			Get alerts when monitored titles receive new chapters in collections you explicitly track.
+			Receive new chapter alerts even when Mangarr is closed.
 		</p>
 	</div>
 
-	<div class="flex items-start justify-between gap-3 py-1">
-		<div class="flex flex-col gap-0.5">
-			<span class="text-sm text-[var(--text-soft)]">collection notifications</span>
-			<span class="text-xs text-[var(--text-ghost)]">
-				Create notification events for monitored titles in manual collections with alerts enabled.
-			</span>
-		</div>
+	<div class="flex items-center justify-between gap-3 py-1">
+		<span class="text-sm text-[var(--text-soft)]">notifications on this device</span>
 		<Switch
-			checked={status?.collectionNotificationsEnabled ?? true}
-			disabled={savingPreferences}
-			onCheckedChange={(value) => {
-				void savePreferences({ collectionNotificationsEnabled: value });
-			}}
+			checked={Boolean(currentDevice)}
+			disabled={changingDevice ||
+				!overview?.backgroundPushConfigured ||
+				!capability?.supported ||
+				!capability?.pushSupported ||
+				(capability?.iosLike && !capability?.installed)}
+			onCheckedChange={(value) => void setDeviceEnabled(value)}
 		/>
 	</div>
 
 	<div class="flex items-start justify-between gap-3 py-1">
 		<div class="flex flex-col gap-0.5">
-			<span class="text-sm text-[var(--text-soft)]">foreground notifications</span>
-			<span class="text-xs text-[var(--text-ghost)]">
-				Show a system notification while the app is already open.
-			</span>
-		</div>
-		<Switch
-			checked={status?.foregroundNotificationsEnabled ?? true}
-			disabled={savingPreferences}
-			onCheckedChange={(value) => {
-				void savePreferences({ foregroundNotificationsEnabled: value });
-			}}
-		/>
-	</div>
-
-	<div class="flex items-start justify-between gap-3 py-1">
-		<div class="flex flex-col gap-0.5">
-			<span class="text-sm text-[var(--text-soft)]">background notifications</span>
-			<span class="text-xs text-[var(--text-ghost)]">
-				Use Web Push for installed PWAs, primarily iPhone Home Screen installs.
-			</span>
-		</div>
-		<Switch
-			checked={status?.iosPwaPushEnabled ?? true}
-			disabled={savingPreferences}
-			onCheckedChange={(value) => {
-				void savePreferences({ iosPwaPushEnabled: value });
-			}}
-		/>
-	</div>
-
-	<div class="flex flex-col gap-2 border border-[var(--line)] p-3">
-		<div class="flex flex-col gap-1">
-			<span class="text-sm text-[var(--text-soft)]">device status</span>
-			{#if backgroundStatusLabel}
-				<p class="text-xs text-[var(--text-ghost)]">{backgroundStatusLabel}</p>
-			{/if}
-		</div>
-
-		<div class="flex flex-wrap gap-2">
-			<Button
-				variant="outline"
-				size="sm"
-				onclick={handleEnableBackground}
-				disabled={!effectiveBackgroundPushConfigured ||
-					!capability?.supported ||
-					!capability?.pushSupported ||
-					(capability?.iosLike && !capability?.installed) ||
-					enabling ||
-					status?.hasActiveSubscriptionOnThisDevice === true}
-				loading={enabling}
+			<span class="text-sm text-[var(--text-soft)]">new chapter alerts</span>
+			<span class="text-xs text-[var(--text-ghost)]"
+				>For monitored titles in notified collections.</span
 			>
-				enable notifications
-			</Button>
-			<Button
-				variant="ghost"
-				size="sm"
-				onclick={handleDisableBackground}
-				disabled={!status?.hasActiveSubscriptionOnThisDevice || disabling}
-				loading={disabling}
-			>
-				disable on this device
-			</Button>
 		</div>
+		<Switch
+			checked={(preferences?.collectionNotificationsEnabled ?? true) &&
+				(preferences?.webPushEnabled ?? true)}
+			disabled={savingPreferences}
+			onCheckedChange={(value) => void setNewChapterAlerts(value)}
+		/>
 	</div>
+
+	<div class="flex items-start justify-between gap-3 py-1">
+		<div class="flex flex-col gap-0.5">
+			<span class="text-sm text-[var(--text-soft)]">hide titles on lock screen</span>
+			<span class="text-xs text-[var(--text-ghost)]"
+				>Use generic text in notification previews.</span
+			>
+		</div>
+		<Switch
+			checked={preferences?.privacyMode === 'private'}
+			disabled={savingPreferences}
+			onCheckedChange={(value) => void setPrivatePreviews(value)}
+		/>
+	</div>
+
+	{#if otherDevices.length > 0}
+		<details class="border-t border-[var(--line)] pt-3 text-xs">
+			<summary class="cursor-pointer text-[var(--text-ghost)]">
+				manage {otherDevices.length} other device{otherDevices.length === 1 ? '' : 's'}
+			</summary>
+			<div class="mt-2 flex flex-col gap-2">
+				{#each otherDevices as device (device.id)}
+					<div class="flex items-center justify-between gap-3">
+						<div class="min-w-0">
+							<p class="truncate text-[var(--text-soft)]">{device.displayName}</p>
+							<p class="text-[var(--text-ghost)]">Last seen {formatTime(device.lastSeenAt)}</p>
+						</div>
+						<Button
+							variant="ghost"
+							size="sm"
+							disabled={Boolean(removingDeviceId)}
+							loading={removingDeviceId === device.id}
+							onclick={() => void removeDevice(device.id)}
+						>
+							remove
+						</Button>
+					</div>
+				{/each}
+			</div>
+		</details>
+	{/if}
 
 	{#if error}
 		<Alert variant="error">{error}</Alert>

@@ -1,5 +1,6 @@
 import type { GenericId } from 'convex/values';
 import { v } from 'convex/values';
+import { makeFunctionReference } from 'convex/server';
 
 import {
 	internalMutation,
@@ -9,13 +10,16 @@ import {
 	type MutationCtx,
 	type QueryCtx
 } from './_generated/server';
+import { chapterGroupKeyForRow } from './chapter_groups';
 import { resolveOwnerTitleRouteSegment } from './library_reader_support';
 import { requireViewerUserId } from './library_shared_access';
 
 const DEFAULT_PREFERENCES: NotificationPreferences = {
 	collectionNotificationsEnabled: true,
 	iosPwaPushEnabled: true,
-	foregroundNotificationsEnabled: true
+	foregroundNotificationsEnabled: true,
+	webPushEnabled: true,
+	privacyMode: 'detailed'
 };
 
 const EVENT_RETRY_STATUSES = ['pending', 'partial', 'failed'] as const;
@@ -30,10 +34,17 @@ const PUSH_STATUS = {
 	IGNORED: 'ignored'
 } as const;
 
+const SEND_DELIVERY = makeFunctionReference<
+	'action',
+	{ deliveryId: GenericId<'notificationDeliveries'> }
+>('notifications_push:sendDelivery');
+
 type NotificationPreferences = {
 	collectionNotificationsEnabled: boolean;
 	iosPwaPushEnabled: boolean;
 	foregroundNotificationsEnabled: boolean;
+	webPushEnabled: boolean;
+	privacyMode: 'detailed' | 'private';
 };
 
 type PushPayload = {
@@ -64,8 +75,17 @@ export function getPushConfiguration() {
 		publicKey,
 		privateKey,
 		subject,
-		configured: Boolean(publicKey && privateKey && subject)
+		configured: Boolean(publicKey && privateKey && isValidVapidSubject(subject))
 	};
+}
+
+function isValidVapidSubject(value: string) {
+	try {
+		const url = new URL(value);
+		return url.protocol === 'https:' || url.protocol === 'mailto:';
+	} catch {
+		return false;
+	}
 }
 
 async function loadNotificationPreferences(
@@ -81,8 +101,38 @@ async function loadNotificationPreferences(
 			row?.collectionNotificationsEnabled ?? DEFAULT_PREFERENCES.collectionNotificationsEnabled,
 		iosPwaPushEnabled: row?.iosPwaPushEnabled ?? DEFAULT_PREFERENCES.iosPwaPushEnabled,
 		foregroundNotificationsEnabled:
-			row?.foregroundNotificationsEnabled ?? DEFAULT_PREFERENCES.foregroundNotificationsEnabled
+			row?.foregroundNotificationsEnabled ?? DEFAULT_PREFERENCES.foregroundNotificationsEnabled,
+		webPushEnabled:
+			row?.webPushEnabled ?? row?.iosPwaPushEnabled ?? DEFAULT_PREFERENCES.webPushEnabled,
+		privacyMode: row?.privacyMode ?? DEFAULT_PREFERENCES.privacyMode
 	};
+}
+
+function stableHash(value: string) {
+	let left = 0x811c9dc5;
+	let right = 0x9e3779b9;
+	for (let index = 0; index < value.length; index += 1) {
+		const code = value.charCodeAt(index);
+		left = Math.imul(left ^ code, 0x01000193) >>> 0;
+		right = Math.imul(right ^ code, 0x85ebca6b) >>> 0;
+	}
+	return `${left.toString(36)}${right.toString(36)}`;
+}
+
+function createReceiptToken() {
+	return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function buildDeviceDisplayName(platform?: string, userAgent?: string) {
+	const normalizedPlatform = platform?.trim();
+	if (normalizedPlatform) return normalizedPlatform.slice(0, 80);
+	const agent = userAgent?.trim() ?? '';
+	if (/android/i.test(agent)) return 'Android device';
+	if (/iphone|ipad|ipod/i.test(agent)) return 'iPhone or iPad';
+	if (/windows/i.test(agent)) return 'Windows browser';
+	if (/macintosh|mac os/i.test(agent)) return 'Mac browser';
+	if (/linux/i.test(agent)) return 'Linux browser';
+	return 'Browser device';
 }
 
 async function loadActiveSubscriptions(
@@ -249,6 +299,7 @@ export async function createNotificationEventForNewChapters(
 		newChapterIds: GenericId<'libraryChapters'>[];
 		latestChapterName: string;
 		now: number;
+		suppressInitial?: boolean;
 	}
 ) {
 	const preferences = await loadNotificationPreferences(ctx, args.ownerUserId);
@@ -279,37 +330,98 @@ export async function createNotificationEventForNewChapters(
 		return { created: false, reason: 'title-not-found' as const };
 	}
 
-	const dedupeKey = buildNotificationEventDedupeKey({
-		ownerUserId: args.ownerUserId,
-		libraryTitleId: args.libraryTitleId,
-		chapterIds: args.newChapterIds
-	});
+	const candidateGroupKeys = new Set<string>();
+	for (const chapterId of args.newChapterIds) {
+		const chapter = await ctx.db.get(chapterId);
+		if (!chapter || chapter.ownerUserId !== args.ownerUserId) continue;
+		candidateGroupKeys.add(chapterGroupKeyForRow(chapter));
+	}
+
+	const newGroupKeys: string[] = [];
+	for (const chapterGroupKey of [...candidateGroupKeys].sort()) {
+		const markerKey = `chapter-notification:${String(args.ownerUserId)}:${String(args.libraryTitleId)}:${chapterGroupKey}`;
+		const marker = await ctx.db
+			.query('notificationChapterMarkers')
+			.withIndex('by_dedupe_key', (q) => q.eq('dedupeKey', markerKey))
+			.unique();
+		if (marker) continue;
+		await ctx.db.insert('notificationChapterMarkers', {
+			ownerUserId: args.ownerUserId,
+			libraryTitleId: args.libraryTitleId,
+			chapterGroupKey,
+			dedupeKey: markerKey,
+			createdAt: args.now
+		});
+		newGroupKeys.push(chapterGroupKey);
+	}
+
+	if (newGroupKeys.length === 0) {
+		return { created: false, reason: 'duplicate' as const };
+	}
+	if (args.suppressInitial) {
+		return { created: false, reason: 'baseline-established' as const };
+	}
+
+	const aggregateKey = `new-chapters:${String(args.ownerUserId)}:${String(args.libraryTitleId)}:${stableHash(newGroupKeys.join('|'))}`;
 	const existing = await ctx.db
-		.query('chapterNotificationEvents')
-		.withIndex('by_dedupe_key', (q) => q.eq('dedupeKey', dedupeKey))
+		.query('notificationEvents')
+		.withIndex('by_aggregate_key', (q) => q.eq('aggregateKey', aggregateKey))
 		.unique();
 	if (existing) {
 		return { created: false, reason: 'duplicate' as const, eventId: existing._id };
 	}
 
-	const eventId = await ctx.db.insert('chapterNotificationEvents', {
+	const navigatePath = await buildTitlePath(ctx, title);
+	const eventTitle = preferences.privacyMode === 'private' ? 'Mangarr' : title.title;
+	const eventBody =
+		preferences.privacyMode === 'private'
+			? `${newGroupKeys.length} new chapter${newGroupKeys.length === 1 ? '' : 's'} available`
+			: `${newGroupKeys.length} new chapter${newGroupKeys.length === 1 ? '' : 's'} · ${args.latestChapterName}`;
+	const eventId = await ctx.db.insert('notificationEvents', {
 		ownerUserId: args.ownerUserId,
+		kind: 'new_chapters',
 		libraryTitleId: args.libraryTitleId,
 		collectionIds: trackedCollectionIds,
-		newChapterIds: args.newChapterIds,
-		newChapterCount: args.newChapterIds.length,
-		titleName: title.title,
-		latestChapterName: args.latestChapterName,
-		coverUrl: title.coverUrl,
-		routeBase: title.routeBase,
-		dedupeKey,
-		status: PUSH_STATUS.PENDING,
-		attemptCount: 0,
+		chapterGroupKeys: newGroupKeys,
+		newChapterCount: newGroupKeys.length,
+		title: eventTitle,
+		body: eventBody,
+		navigatePath,
+		aggregateKey,
 		createdAt: args.now,
 		updatedAt: args.now
 	});
 
-	return { created: true, eventId };
+	let deliveryCount = 0;
+	if (preferences.webPushEnabled) {
+		const devices = await ctx.db
+			.query('notificationDevices')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', args.ownerUserId))
+			.collect();
+		for (const device of devices) {
+			if (device.state !== 'active' || device.revokedAt !== undefined) continue;
+			const deliveryDedupeKey = `web-push:${String(eventId)}:${String(device._id)}`;
+			const receiptToken = createReceiptToken();
+			const deliveryId = await ctx.db.insert('notificationDeliveries', {
+				ownerUserId: args.ownerUserId,
+				eventId,
+				deviceId: device._id,
+				channel: 'web_push',
+				dedupeKey: deliveryDedupeKey,
+				status: 'queued',
+				attemptCount: 0,
+				nextAttemptAt: args.now,
+				receiptToken,
+				receiptTokenHash: stableHash(receiptToken),
+				createdAt: args.now,
+				updatedAt: args.now
+			});
+			await ctx.scheduler.runAfter(0, SEND_DELIVERY, { deliveryId });
+			deliveryCount += 1;
+		}
+	}
+
+	return { created: true, eventId, deliveryCount };
 }
 
 export const getPreferences = query({
@@ -327,7 +439,9 @@ export const updatePreferences = mutation({
 	args: {
 		collectionNotificationsEnabled: v.optional(v.boolean()),
 		iosPwaPushEnabled: v.optional(v.boolean()),
-		foregroundNotificationsEnabled: v.optional(v.boolean())
+		foregroundNotificationsEnabled: v.optional(v.boolean()),
+		webPushEnabled: v.optional(v.boolean()),
+		privacyMode: v.optional(v.union(v.literal('detailed'), v.literal('private')))
 	},
 	handler: async (ctx, args) => {
 		const ownerUserId = await requireViewerUserId(ctx);
@@ -339,7 +453,9 @@ export const updatePreferences = mutation({
 			? {
 					collectionNotificationsEnabled: existing.collectionNotificationsEnabled,
 					iosPwaPushEnabled: existing.iosPwaPushEnabled,
-					foregroundNotificationsEnabled: existing.foregroundNotificationsEnabled
+					foregroundNotificationsEnabled: existing.foregroundNotificationsEnabled,
+					webPushEnabled: existing.webPushEnabled ?? existing.iosPwaPushEnabled,
+					privacyMode: existing.privacyMode ?? ('detailed' as const)
 				}
 			: DEFAULT_PREFERENCES;
 		const next = {
@@ -347,7 +463,9 @@ export const updatePreferences = mutation({
 				args.collectionNotificationsEnabled ?? current.collectionNotificationsEnabled,
 			iosPwaPushEnabled: args.iosPwaPushEnabled ?? current.iosPwaPushEnabled,
 			foregroundNotificationsEnabled:
-				args.foregroundNotificationsEnabled ?? current.foregroundNotificationsEnabled
+				args.foregroundNotificationsEnabled ?? current.foregroundNotificationsEnabled,
+			webPushEnabled: args.webPushEnabled ?? args.iosPwaPushEnabled ?? current.webPushEnabled,
+			privacyMode: args.privacyMode ?? current.privacyMode
 		};
 		const now = Date.now();
 		if (existing) {
@@ -651,5 +769,585 @@ export const markSubscriptionPushFailure = internalMutation({
 			updatedAt: now
 		});
 		return { ok: true };
+	}
+});
+
+function validateSubscriptionEndpoint(endpoint: string) {
+	const trimmed = endpoint.trim();
+	if (trimmed.length === 0 || trimmed.length > 4096) {
+		throw new Error('Push subscription endpoint is invalid');
+	}
+	let url: URL;
+	try {
+		url = new URL(trimmed);
+	} catch {
+		throw new Error('Push subscription endpoint is invalid');
+	}
+	if (url.protocol !== 'https:') {
+		throw new Error('Push subscription endpoint must use HTTPS');
+	}
+	const hostname = url.hostname.toLowerCase();
+	if (
+		hostname === 'localhost' ||
+		hostname === '::1' ||
+		/^127\./.test(hostname) ||
+		/^10\./.test(hostname) ||
+		/^192\.168\./.test(hostname) ||
+		/^169\.254\./.test(hostname) ||
+		/^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
+	) {
+		throw new Error('Push subscription endpoint must be publicly routable');
+	}
+	return trimmed;
+}
+
+async function insertDeliveryForDevice(
+	ctx: MutationCtx,
+	args: {
+		ownerUserId: GenericId<'users'>;
+		eventId: GenericId<'notificationEvents'>;
+		deviceId: GenericId<'notificationDevices'>;
+		now: number;
+		delayMs?: number;
+	}
+) {
+	const dedupeKey = `web-push:${String(args.eventId)}:${String(args.deviceId)}`;
+	const existing = await ctx.db
+		.query('notificationDeliveries')
+		.withIndex('by_dedupe_key', (q) => q.eq('dedupeKey', dedupeKey))
+		.unique();
+	if (existing) return existing._id;
+
+	const receiptToken = createReceiptToken();
+	const delayMs = Math.max(0, Math.min(Math.floor(args.delayMs ?? 0), 60_000));
+	const deliveryId = await ctx.db.insert('notificationDeliveries', {
+		ownerUserId: args.ownerUserId,
+		eventId: args.eventId,
+		deviceId: args.deviceId,
+		channel: 'web_push',
+		dedupeKey,
+		status: 'queued',
+		attemptCount: 0,
+		nextAttemptAt: args.now + delayMs,
+		receiptToken,
+		receiptTokenHash: stableHash(receiptToken),
+		createdAt: args.now,
+		updatedAt: args.now
+	});
+	await ctx.scheduler.runAfter(delayMs, SEND_DELIVERY, { deliveryId });
+	return deliveryId;
+}
+
+export const getOverview = query({
+	args: {
+		installationId: v.optional(v.string())
+	},
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) return null;
+		const ownerUserId = identity.subject as GenericId<'users'>;
+		const preferences = await loadNotificationPreferences(ctx, ownerUserId);
+		const devices = await ctx.db
+			.query('notificationDevices')
+			.withIndex('by_owner_user_id', (q) => q.eq('ownerUserId', ownerUserId))
+			.collect();
+		const activeDevices = devices.filter(
+			(device) => device.state === 'active' && device.revokedAt === undefined
+		);
+		const installationId = args.installationId?.trim();
+		const currentDevice = installationId
+			? activeDevices.find((device) => device.installationId === installationId)
+			: undefined;
+		const latestDelivery = currentDevice
+			? await ctx.db
+					.query('notificationDeliveries')
+					.withIndex('by_device_id_created_at', (q) => q.eq('deviceId', currentDevice._id))
+					.order('desc')
+					.first()
+			: null;
+		const unread = await ctx.db
+			.query('notificationEvents')
+			.withIndex('by_owner_user_id_read_at_created_at', (q) =>
+				q.eq('ownerUserId', ownerUserId).eq('readAt', undefined)
+			)
+			.order('desc')
+			.take(1000);
+		const push = getPushConfiguration();
+		return {
+			preferences,
+			backgroundPushConfigured: push.configured,
+			vapidPublicKey: push.publicKey || null,
+			vapidKeyId: push.publicKey ? stableHash(push.publicKey) : null,
+			unreadCount: unread.length,
+			currentDevice: currentDevice
+				? {
+						id: currentDevice._id,
+						displayName: currentDevice.displayName,
+						state: currentDevice.state,
+						vapidKeyId: currentDevice.vapidKeyId,
+						lastSeenAt: currentDevice.lastSeenAt,
+						lastAcceptedAt: currentDevice.lastAcceptedAt ?? null,
+						lastFailureAt: currentDevice.lastFailureAt ?? null,
+						lastFailureCode: currentDevice.lastFailureCode ?? null,
+						consecutiveFailures: currentDevice.consecutiveFailures
+					}
+				: null,
+			latestDelivery: latestDelivery
+				? {
+						id: latestDelivery._id,
+						status: latestDelivery.status,
+						attemptCount: latestDelivery.attemptCount,
+						providerStatusCode: latestDelivery.providerStatusCode ?? null,
+						failureCode: latestDelivery.failureCode ?? null,
+						failureSummary: latestDelivery.failureSummary ?? null,
+						acceptedAt: latestDelivery.acceptedAt ?? null,
+						receivedAt: latestDelivery.receivedAt ?? null,
+						displayedAt: latestDelivery.displayedAt ?? null,
+						clickedAt: latestDelivery.clickedAt ?? null,
+						createdAt: latestDelivery.createdAt
+					}
+				: null,
+			devices: devices
+				.sort((left, right) => right.lastSeenAt - left.lastSeenAt)
+				.map((device) => ({
+					id: device._id,
+					installationId: device.installationId,
+					displayName: device.displayName,
+					platform: device.platform ?? null,
+					state: device.state,
+					lastSeenAt: device.lastSeenAt,
+					lastAcceptedAt: device.lastAcceptedAt ?? null,
+					lastFailureAt: device.lastFailureAt ?? null,
+					lastFailureCode: device.lastFailureCode ?? null,
+					consecutiveFailures: device.consecutiveFailures,
+					revokedAt: device.revokedAt ?? null
+				}))
+		};
+	}
+});
+
+export const reconcileDevice = mutation({
+	args: {
+		installationId: v.string(),
+		endpoint: v.string(),
+		p256dh: v.string(),
+		auth: v.string(),
+		vapidKeyId: v.string(),
+		expirationTime: v.optional(v.float64()),
+		displayName: v.optional(v.string()),
+		userAgent: v.optional(v.string()),
+		platform: v.optional(v.string()),
+		supportsBadging: v.boolean(),
+		allowReactivate: v.boolean()
+	},
+	handler: async (ctx, args) => {
+		const ownerUserId = await requireViewerUserId(ctx);
+		const installationId = args.installationId.trim();
+		if (installationId.length < 8 || installationId.length > 200) {
+			throw new Error('Notification installation identifier is invalid');
+		}
+		const endpoint = validateSubscriptionEndpoint(args.endpoint);
+		if (!args.p256dh.trim() || !args.auth.trim()) {
+			throw new Error('Push subscription is missing encryption keys');
+		}
+		const push = getPushConfiguration();
+		const currentVapidKeyId = push.publicKey ? stableHash(push.publicKey) : '';
+		if (!currentVapidKeyId || args.vapidKeyId !== currentVapidKeyId) {
+			throw new Error('Push subscription uses an outdated server key');
+		}
+
+		const now = Date.now();
+		const endpointHash = stableHash(endpoint);
+		const endpointRows = await ctx.db
+			.query('notificationDevices')
+			.withIndex('by_endpoint_hash', (q) => q.eq('endpointHash', endpointHash))
+			.collect();
+		for (const row of endpointRows) {
+			if (row.endpoint !== endpoint) continue;
+			if (row.ownerUserId === ownerUserId && row.installationId === installationId) continue;
+			if (row.state === 'revoked') continue;
+			await ctx.db.patch(row._id, { state: 'revoked', revokedAt: now, updatedAt: now });
+		}
+
+		const existing = await ctx.db
+			.query('notificationDevices')
+			.withIndex('by_owner_user_id_installation_id', (q) =>
+				q.eq('ownerUserId', ownerUserId).eq('installationId', installationId)
+			)
+			.unique();
+		if (existing?.state === 'revoked' && !args.allowReactivate) {
+			return { deviceId: existing._id, reconciled: false, disabled: true };
+		}
+		const patch = {
+			displayName:
+				args.displayName?.trim().slice(0, 80) ||
+				buildDeviceDisplayName(args.platform, args.userAgent),
+			platform: args.platform?.trim().slice(0, 120) || undefined,
+			userAgent: args.userAgent?.trim().slice(0, 500) || undefined,
+			endpoint,
+			endpointHash,
+			p256dh: args.p256dh.trim(),
+			auth: args.auth.trim(),
+			vapidKeyId: currentVapidKeyId,
+			expirationTime: args.expirationTime,
+			supportsBadging: args.supportsBadging,
+			state: 'active' as const,
+			lastSeenAt: now,
+			lastReconciledAt: now,
+			lastFailureCode: undefined,
+			consecutiveFailures: 0,
+			revokedAt: undefined,
+			updatedAt: now
+		};
+		if (existing) {
+			await ctx.db.patch(existing._id, patch);
+			return { deviceId: existing._id, reconciled: true };
+		}
+		const deviceId = await ctx.db.insert('notificationDevices', {
+			ownerUserId,
+			installationId,
+			...patch,
+			createdAt: now
+		});
+		return { deviceId, reconciled: true };
+	}
+});
+
+export const revokeDevice = mutation({
+	args: { installationId: v.string() },
+	handler: async (ctx, args) => {
+		const ownerUserId = await requireViewerUserId(ctx);
+		const device = await ctx.db
+			.query('notificationDevices')
+			.withIndex('by_owner_user_id_installation_id', (q) =>
+				q.eq('ownerUserId', ownerUserId).eq('installationId', args.installationId.trim())
+			)
+			.unique();
+		if (!device) return { revoked: false };
+		const now = Date.now();
+		await ctx.db.patch(device._id, { state: 'revoked', revokedAt: now, updatedAt: now });
+		return { revoked: true };
+	}
+});
+
+export const revokeDeviceById = mutation({
+	args: { deviceId: v.id('notificationDevices') },
+	handler: async (ctx, args) => {
+		const ownerUserId = await requireViewerUserId(ctx);
+		const device = await ctx.db.get(args.deviceId);
+		if (!device || device.ownerUserId !== ownerUserId) {
+			throw new Error('Notification device not found');
+		}
+		if (device.state === 'revoked') return { revoked: false };
+		const now = Date.now();
+		await ctx.db.patch(device._id, { state: 'revoked', revokedAt: now, updatedAt: now });
+		return { revoked: true };
+	}
+});
+
+export const sendTest = mutation({
+	args: {
+		installationId: v.string(),
+		delayMs: v.optional(v.float64())
+	},
+	handler: async (ctx, args) => {
+		const ownerUserId = await requireViewerUserId(ctx);
+		const device = await ctx.db
+			.query('notificationDevices')
+			.withIndex('by_owner_user_id_installation_id', (q) =>
+				q.eq('ownerUserId', ownerUserId).eq('installationId', args.installationId.trim())
+			)
+			.unique();
+		if (!device || device.state !== 'active' || device.revokedAt !== undefined) {
+			throw new Error('This device is not subscribed');
+		}
+		const now = Date.now();
+		const eventId = await ctx.db.insert('notificationEvents', {
+			ownerUserId,
+			kind: 'test',
+			collectionIds: [],
+			chapterGroupKeys: [],
+			newChapterCount: 0,
+			title: 'Mangarr notification test',
+			body: args.delayMs ? 'Background delivery is working.' : 'Notifications are working.',
+			navigatePath: '/settings',
+			aggregateKey: `test:${String(ownerUserId)}:${now}:${stableHash(createReceiptToken())}`,
+			createdAt: now,
+			updatedAt: now
+		});
+		const deliveryId = await insertDeliveryForDevice(ctx, {
+			ownerUserId,
+			eventId,
+			deviceId: device._id,
+			now,
+			delayMs: args.delayMs
+		});
+		return { eventId, deliveryId, scheduledAt: now + Math.max(0, args.delayMs ?? 0) };
+	}
+});
+
+export const listInbox = query({
+	args: { limit: v.optional(v.float64()) },
+	handler: async (ctx, args) => {
+		const identity = await ctx.auth.getUserIdentity();
+		if (!identity) return { items: [], unreadCount: 0 };
+		const ownerUserId = identity.subject as GenericId<'users'>;
+		const limit = Math.max(1, Math.min(Math.floor(args.limit ?? 25), 100));
+		const rows = await ctx.db
+			.query('notificationEvents')
+			.withIndex('by_owner_user_id_created_at', (q) => q.eq('ownerUserId', ownerUserId))
+			.order('desc')
+			.take(limit);
+		const unread = await ctx.db
+			.query('notificationEvents')
+			.withIndex('by_owner_user_id_read_at_created_at', (q) =>
+				q.eq('ownerUserId', ownerUserId).eq('readAt', undefined)
+			)
+			.take(1000);
+		return {
+			items: rows.map((row) => ({
+				id: row._id,
+				kind: row.kind,
+				title: row.title,
+				body: row.body,
+				path: row.navigatePath,
+				readAt: row.readAt ?? null,
+				createdAt: row.createdAt
+			})),
+			unreadCount: unread.length
+		};
+	}
+});
+
+export const markEventRead = mutation({
+	args: { eventId: v.id('notificationEvents'), clicked: v.optional(v.boolean()) },
+	handler: async (ctx, args) => {
+		const ownerUserId = await requireViewerUserId(ctx);
+		const event = await ctx.db.get(args.eventId);
+		if (!event || event.ownerUserId !== ownerUserId) throw new Error('Notification not found');
+		const now = Date.now();
+		await ctx.db.patch(event._id, { readAt: event.readAt ?? now, updatedAt: now });
+		if (args.clicked) {
+			const deliveries = await ctx.db
+				.query('notificationDeliveries')
+				.withIndex('by_event_id', (q) => q.eq('eventId', event._id))
+				.collect();
+			for (const delivery of deliveries) {
+				if (delivery.clickedAt !== undefined) continue;
+				await ctx.db.patch(delivery._id, { clickedAt: now, updatedAt: now });
+			}
+		}
+		return { read: true };
+	}
+});
+
+export const markAllEventsRead = mutation({
+	args: {},
+	handler: async (ctx) => {
+		const ownerUserId = await requireViewerUserId(ctx);
+		const rows = await ctx.db
+			.query('notificationEvents')
+			.withIndex('by_owner_user_id_read_at_created_at', (q) =>
+				q.eq('ownerUserId', ownerUserId).eq('readAt', undefined)
+			)
+			.take(1000);
+		const now = Date.now();
+		for (const row of rows) {
+			await ctx.db.patch(row._id, { readAt: now, updatedAt: now });
+		}
+		return { marked: rows.length };
+	}
+});
+
+export const beginDeliveryAttempt = internalMutation({
+	args: { deliveryId: v.id('notificationDeliveries') },
+	handler: async (ctx, args) => {
+		const delivery = await ctx.db.get(args.deliveryId);
+		if (!delivery) return { started: false, reason: 'missing' as const };
+		const now = Date.now();
+		const canStart =
+			(delivery.status === 'queued' || delivery.status === 'retry_wait') &&
+			delivery.nextAttemptAt <= now;
+		const canRecover = delivery.status === 'sending' && (delivery.leaseUntil ?? 0) <= now;
+		if (!canStart && !canRecover) return { started: false, reason: 'not-due' as const };
+		const attemptCount = delivery.attemptCount + 1;
+		await ctx.db.patch(delivery._id, {
+			status: 'sending',
+			attemptCount,
+			leaseUntil: now + 5 * 60 * 1000,
+			updatedAt: now
+		});
+		return { started: true, attemptCount };
+	}
+});
+
+export const getDeliveryContext = internalQuery({
+	args: { deliveryId: v.id('notificationDeliveries') },
+	handler: async (ctx, args) => {
+		const delivery = await ctx.db.get(args.deliveryId);
+		if (!delivery) return null;
+		const [event, device] = await Promise.all([
+			ctx.db.get(delivery.eventId),
+			ctx.db.get(delivery.deviceId)
+		]);
+		if (!event || !device) return null;
+		const [unread, preferences] = await Promise.all([
+			ctx.db
+				.query('notificationEvents')
+				.withIndex('by_owner_user_id_read_at_created_at', (q) =>
+					q.eq('ownerUserId', delivery.ownerUserId).eq('readAt', undefined)
+				)
+				.take(1000),
+			loadNotificationPreferences(ctx, delivery.ownerUserId)
+		]);
+		return { delivery, event, device, preferences, unreadCount: unread.length };
+	}
+});
+
+export const completeDeliveryAttempt = internalMutation({
+	args: {
+		deliveryId: v.id('notificationDeliveries'),
+		attemptCount: v.float64(),
+		outcome: v.union(
+			v.literal('accepted'),
+			v.literal('retry'),
+			v.literal('permanent_failed'),
+			v.literal('suppressed')
+		),
+		providerStatusCode: v.optional(v.float64()),
+		failureCode: v.optional(v.string()),
+		failureSummary: v.optional(v.string()),
+		retryAfterMs: v.optional(v.float64()),
+		revokeDevice: v.optional(v.boolean()),
+		staleDevice: v.optional(v.boolean())
+	},
+	handler: async (ctx, args) => {
+		const delivery = await ctx.db.get(args.deliveryId);
+		if (!delivery || delivery.attemptCount !== args.attemptCount || delivery.status !== 'sending') {
+			return { applied: false };
+		}
+		const device = await ctx.db.get(delivery.deviceId);
+		const now = Date.now();
+		if (args.outcome === 'accepted') {
+			await ctx.db.patch(delivery._id, {
+				status: 'accepted',
+				providerStatusCode: args.providerStatusCode,
+				failureCode: undefined,
+				failureSummary: undefined,
+				acceptedAt: now,
+				leaseUntil: undefined,
+				updatedAt: now
+			});
+			if (device) {
+				await ctx.db.patch(device._id, {
+					lastAcceptedAt: now,
+					lastFailureCode: undefined,
+					consecutiveFailures: 0,
+					updatedAt: now
+				});
+			}
+			return { applied: true, status: 'accepted' as const };
+		}
+		if (args.outcome === 'suppressed') {
+			await ctx.db.patch(delivery._id, {
+				status: 'suppressed',
+				failureCode: args.failureCode,
+				failureSummary: args.failureSummary,
+				leaseUntil: undefined,
+				updatedAt: now
+			});
+			return { applied: true, status: 'suppressed' as const };
+		}
+
+		const permanent = args.outcome === 'permanent_failed' || delivery.attemptCount >= 6;
+		if (permanent) {
+			await ctx.db.patch(delivery._id, {
+				status: 'permanent_failed',
+				providerStatusCode: args.providerStatusCode,
+				failureCode: args.failureCode,
+				failureSummary: args.failureSummary,
+				leaseUntil: undefined,
+				updatedAt: now
+			});
+		} else {
+			const fallbackDelay = Math.min(8 * 60 * 60 * 1000, 60_000 * 5 ** (delivery.attemptCount - 1));
+			const delayMs = Math.max(
+				30_000,
+				Math.min(args.retryAfterMs ?? fallbackDelay, 8 * 60 * 60 * 1000)
+			);
+			await ctx.db.patch(delivery._id, {
+				status: 'retry_wait',
+				providerStatusCode: args.providerStatusCode,
+				failureCode: args.failureCode,
+				failureSummary: args.failureSummary,
+				nextAttemptAt: now + delayMs,
+				leaseUntil: undefined,
+				updatedAt: now
+			});
+			await ctx.scheduler.runAfter(delayMs, SEND_DELIVERY, {
+				deliveryId: delivery._id
+			});
+		}
+		if (device) {
+			await ctx.db.patch(device._id, {
+				state: args.revokeDevice ? 'revoked' : args.staleDevice ? 'stale' : device.state,
+				revokedAt: args.revokeDevice ? now : device.revokedAt,
+				lastFailureAt: now,
+				lastFailureCode: args.failureCode,
+				consecutiveFailures: device.consecutiveFailures + 1,
+				updatedAt: now
+			});
+		}
+		return {
+			applied: true,
+			status: permanent ? ('permanent_failed' as const) : ('retry_wait' as const)
+		};
+	}
+});
+
+export const listRecoverableDeliveries = internalQuery({
+	args: {
+		status: v.union(v.literal('queued'), v.literal('retry_wait'), v.literal('sending')),
+		limit: v.float64()
+	},
+	handler: async (ctx, args) => {
+		const now = Date.now();
+		if (args.status === 'sending') {
+			const rows = await ctx.db
+				.query('notificationDeliveries')
+				.withIndex('by_status_next_attempt_at', (q) => q.eq('status', 'sending'))
+				.take(Math.max(1, Math.min(Math.floor(args.limit), 100)));
+			return rows.filter((row) => (row.leaseUntil ?? 0) <= now);
+		}
+		return ctx.db
+			.query('notificationDeliveries')
+			.withIndex('by_status_next_attempt_at', (q) =>
+				q.eq('status', args.status).lte('nextAttemptAt', now)
+			)
+			.take(Math.max(1, Math.min(Math.floor(args.limit), 100)));
+	}
+});
+
+export const recordDeliveryReceipt = internalMutation({
+	args: {
+		token: v.string(),
+		phase: v.union(v.literal('received'), v.literal('displayed'))
+	},
+	handler: async (ctx, args) => {
+		const tokenHash = stableHash(args.token);
+		const candidates = await ctx.db
+			.query('notificationDeliveries')
+			.withIndex('by_receipt_token_hash', (q) => q.eq('receiptTokenHash', tokenHash))
+			.collect();
+		const delivery = candidates.find((row) => row.receiptToken === args.token);
+		if (!delivery) return { recorded: false };
+		const now = Date.now();
+		await ctx.db.patch(delivery._id, {
+			receivedAt: delivery.receivedAt ?? now,
+			displayedAt:
+				args.phase === 'displayed' ? (delivery.displayedAt ?? now) : delivery.displayedAt,
+			updatedAt: now
+		});
+		return { recorded: true };
 	}
 });

@@ -28,14 +28,17 @@ const IMAGE_PATH_PREFIXES = [
 ];
 
 type NotificationClickData = {
-	kind?: 'title-update';
+	kind?: 'new_chapters' | 'test' | 'title-update';
 	titleId?: string;
 	eventId?: string;
+	deliveryId?: string;
+	receiptToken?: string;
 	path?: string;
 };
 
 type PushPayload = {
 	web_push?: number;
+	app_badge?: string;
 	notification?: {
 		title?: string;
 		body?: string;
@@ -44,9 +47,42 @@ type PushPayload = {
 		icon?: string;
 		badge?: string;
 		app_badge?: string;
+		renotify?: boolean;
 		data?: NotificationClickData;
 	};
 };
+
+async function recordDeliveryReceipt(token: string | undefined, phase: 'received' | 'displayed') {
+	if (!token) return;
+	try {
+		await fetch('/api/notifications/receipt', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ token, phase })
+		});
+	} catch {
+		// Receipts are diagnostic only; notification display must never depend on them.
+	}
+}
+
+async function setWorkerBadge(value: string | undefined) {
+	const count = Number(value ?? NaN);
+	const navigatorWithBadge = sw.navigator as Navigator & {
+		setAppBadge?: (count?: number) => Promise<void>;
+	};
+	if (
+		!Number.isFinite(count) ||
+		count < 0 ||
+		typeof navigatorWithBadge.setAppBadge !== 'function'
+	) {
+		return;
+	}
+	try {
+		await navigatorWithBadge.setAppBadge(count);
+	} catch {
+		// Best effort only.
+	}
+}
 
 function isImagePath(pathname: string): boolean {
 	for (const prefix of IMAGE_PATH_PREFIXES) {
@@ -85,7 +121,9 @@ sw.addEventListener('install', (event) => {
 	event.waitUntil(
 		(async () => {
 			const cache = await caches.open(CACHE);
-			await cache.addAll(ASSETS);
+			// A transient asset failure must not prevent this worker from activating:
+			// notification delivery is more important than the optional shell cache.
+			await cache.addAll(ASSETS).catch(() => undefined);
 			await sw.skipWaiting();
 		})()
 	);
@@ -166,18 +204,26 @@ sw.addEventListener('push', (event) => {
 			}
 			const notification = payload?.notification;
 			const title = notification?.title?.trim() || 'Mangarr';
+			await recordDeliveryReceipt(notification?.data?.receiptToken, 'received');
 			await sw.registration.showNotification(title, {
 				body: notification?.body?.trim() || '',
 				tag: notification?.tag?.trim() || undefined,
 				icon: notification?.icon?.trim() || '/icon-192.png',
 				badge: notification?.badge?.trim() || '/icon-192.png',
+				renotify: notification?.renotify === true,
 				data: {
 					kind: notification?.data?.kind ?? 'title-update',
 					titleId: notification?.data?.titleId,
 					eventId: notification?.data?.eventId,
+					deliveryId: notification?.data?.deliveryId,
+					receiptToken: notification?.data?.receiptToken,
 					path: notification?.data?.path ?? notification?.navigate ?? '/library'
 				} satisfies NotificationClickData
 			});
+			await Promise.all([
+				recordDeliveryReceipt(notification?.data?.receiptToken, 'displayed'),
+				setWorkerBadge(payload?.app_badge ?? notification?.app_badge)
+			]);
 		})()
 	);
 });

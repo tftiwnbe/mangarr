@@ -238,6 +238,17 @@ export const upsertChaptersForTitle = mutation({
 			.query('libraryChapters')
 			.withIndex('by_library_title_id', (q) => q.eq('libraryTitleId', args.titleId))
 			.collect();
+		const notificationProfile = await ctx.db
+			.query('downloadProfiles')
+			.withIndex('by_owner_user_id_library_title_id', (q) =>
+				q.eq('ownerUserId', title.ownerUserId).eq('libraryTitleId', title._id)
+			)
+			.unique();
+		const establishingNotificationBaseline = Boolean(
+			notificationProfile?.enabled &&
+			notificationProfile.notificationBaselineAt === undefined &&
+			notificationProfile.lastChapterSyncAt === undefined
+		);
 		const byUrl = new Map(
 			existing
 				.filter((chapter) => chapter.titleVariantId === variant._id)
@@ -350,9 +361,17 @@ export const upsertChaptersForTitle = mutation({
 			if (profile) {
 				await ctx.db.patch(profile._id, {
 					lastChapterSyncAt: args.now,
+					notificationBaselineAt: profile.notificationBaselineAt ?? args.now,
 					updatedAt: args.now
 				});
 			}
+		}
+		if (!chapterRowsChanged && establishingNotificationBaseline && notificationProfile) {
+			await ctx.db.patch(notificationProfile._id, {
+				notificationBaselineAt: args.now,
+				lastChapterSyncAt: notificationProfile.lastChapterSyncAt ?? args.now,
+				updatedAt: args.now
+			});
 		}
 
 		if (chapterRowsChanged) {
@@ -369,7 +388,8 @@ export const upsertChaptersForTitle = mutation({
 				libraryTitleId: title._id,
 				newChapterIds: insertedChapterIds,
 				latestChapterName: latestInsertedChapterName || args.chapters.at(-1)?.name || title.title,
-				now: args.now
+				now: args.now,
+				suppressInitial: establishingNotificationBaseline
 			});
 		}
 

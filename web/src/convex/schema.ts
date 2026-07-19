@@ -187,9 +187,108 @@ export default defineSchema({
 		collectionNotificationsEnabled: v.boolean(),
 		iosPwaPushEnabled: v.boolean(),
 		foregroundNotificationsEnabled: v.boolean(),
+		webPushEnabled: v.optional(v.boolean()),
+		privacyMode: v.optional(v.union(v.literal('detailed'), v.literal('private'))),
 		createdAt: v.float64(),
 		updatedAt: v.float64()
 	}).index('by_owner_user_id', ['ownerUserId']),
+
+	notificationEvents: defineTable({
+		ownerUserId: v.id('users'),
+		kind: v.union(v.literal('new_chapters'), v.literal('test')),
+		libraryTitleId: v.optional(v.id('libraryTitles')),
+		collectionIds: v.array(v.id('libraryCollections')),
+		chapterGroupKeys: v.array(v.string()),
+		newChapterCount: v.float64(),
+		title: v.string(),
+		body: v.string(),
+		navigatePath: v.string(),
+		aggregateKey: v.string(),
+		readAt: v.optional(v.float64()),
+		archivedAt: v.optional(v.float64()),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_created_at', ['createdAt'])
+		.index('by_owner_user_id_created_at', ['ownerUserId', 'createdAt'])
+		.index('by_owner_user_id_read_at_created_at', ['ownerUserId', 'readAt', 'createdAt'])
+		.index('by_aggregate_key', ['aggregateKey']),
+
+	notificationChapterMarkers: defineTable({
+		ownerUserId: v.id('users'),
+		libraryTitleId: v.id('libraryTitles'),
+		chapterGroupKey: v.string(),
+		dedupeKey: v.string(),
+		createdAt: v.float64()
+	})
+		.index('by_created_at', ['createdAt'])
+		.index('by_dedupe_key', ['dedupeKey'])
+		.index('by_owner_user_id_library_title_id', ['ownerUserId', 'libraryTitleId']),
+
+	notificationDevices: defineTable({
+		ownerUserId: v.id('users'),
+		installationId: v.string(),
+		displayName: v.string(),
+		platform: v.optional(v.string()),
+		userAgent: v.optional(v.string()),
+		endpoint: v.string(),
+		endpointHash: v.string(),
+		p256dh: v.string(),
+		auth: v.string(),
+		vapidKeyId: v.string(),
+		expirationTime: v.optional(v.float64()),
+		supportsBadging: v.boolean(),
+		state: v.union(v.literal('active'), v.literal('stale'), v.literal('revoked')),
+		lastSeenAt: v.float64(),
+		lastReconciledAt: v.float64(),
+		lastAcceptedAt: v.optional(v.float64()),
+		lastFailureAt: v.optional(v.float64()),
+		lastFailureCode: v.optional(v.string()),
+		consecutiveFailures: v.float64(),
+		revokedAt: v.optional(v.float64()),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_owner_user_id', ['ownerUserId'])
+		.index('by_owner_user_id_installation_id', ['ownerUserId', 'installationId'])
+		.index('by_endpoint_hash', ['endpointHash'])
+		.index('by_state_updated_at', ['state', 'updatedAt']),
+
+	notificationDeliveries: defineTable({
+		ownerUserId: v.id('users'),
+		eventId: v.id('notificationEvents'),
+		deviceId: v.id('notificationDevices'),
+		channel: v.literal('web_push'),
+		dedupeKey: v.string(),
+		status: v.union(
+			v.literal('queued'),
+			v.literal('sending'),
+			v.literal('retry_wait'),
+			v.literal('accepted'),
+			v.literal('permanent_failed'),
+			v.literal('suppressed')
+		),
+		attemptCount: v.float64(),
+		nextAttemptAt: v.float64(),
+		leaseUntil: v.optional(v.float64()),
+		providerStatusCode: v.optional(v.float64()),
+		failureCode: v.optional(v.string()),
+		failureSummary: v.optional(v.string()),
+		receiptTokenHash: v.string(),
+		receiptToken: v.string(),
+		acceptedAt: v.optional(v.float64()),
+		receivedAt: v.optional(v.float64()),
+		displayedAt: v.optional(v.float64()),
+		clickedAt: v.optional(v.float64()),
+		createdAt: v.float64(),
+		updatedAt: v.float64()
+	})
+		.index('by_created_at', ['createdAt'])
+		.index('by_dedupe_key', ['dedupeKey'])
+		.index('by_event_id', ['eventId'])
+		.index('by_device_id_created_at', ['deviceId', 'createdAt'])
+		.index('by_status_next_attempt_at', ['status', 'nextAttemptAt'])
+		.index('by_receipt_token_hash', ['receiptTokenHash']),
 
 	webPushSubscriptions: defineTable({
 		ownerUserId: v.id('users'),
@@ -431,6 +530,7 @@ export default defineSchema({
 		lastCheckedAt: v.optional(v.float64()),
 		lastSuccessAt: v.optional(v.float64()),
 		lastError: v.optional(v.string()),
+		notificationBaselineAt: v.optional(v.float64()),
 		createdAt: v.float64(),
 		updatedAt: v.float64()
 	})
