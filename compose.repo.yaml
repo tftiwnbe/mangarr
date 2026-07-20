@@ -1,9 +1,11 @@
 services:
   postgres:
+    container_name: mangarr-staging-postgres
     volumes:
       - ${MANGARR_HOST_POSTGRES_DIR:-./postgres}:/var/lib/postgresql/data
 
   mangarr:
+    container_name: mangarr-staging
     platform: linux/amd64
     build:
       context: .
