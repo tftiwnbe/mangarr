@@ -34,6 +34,7 @@
 
 	const currentPath = $derived(page.url.pathname);
 	const isReaderRoute = $derived(currentPath.startsWith('/reader/'));
+	const isLibraryRoute = $derived(currentPath.startsWith('/library'));
 
 	afterNavigate((nav) => {
 		// Remember last app route for PWA cold-start resume. Captures every nav
@@ -114,7 +115,9 @@
 			class="relative z-10 pt-[env(safe-area-inset-top)] pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pt-0 md:pb-6 md:pl-16"
 		>
 			<div
-				class="mx-auto w-full max-w-5xl pt-5 md:px-6 md:pt-8 md:pb-8"
+				class="mx-auto w-full max-w-5xl pt-5 md:px-6 md:pt-8 md:pb-8 {isLibraryRoute
+					? 'xl:max-w-6xl 2xl:max-w-[100rem]'
+					: ''}"
 				style="padding-left: max(0.875rem, env(safe-area-inset-left)); padding-right: max(0.875rem, env(safe-area-inset-right));"
 			>
 				{@render children()}

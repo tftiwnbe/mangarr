@@ -1281,7 +1281,7 @@
 			<div class="no-scrollbar flex gap-2 overflow-x-auto pb-1">
 				{#each Array(8) as _, i (i)}
 					<div
-						class="aspect-[2/3] w-[calc((100%-1rem)/3)] shrink-0 animate-pulse bg-[var(--void-3)] sm:w-36 md:w-40 lg:w-44 xl:w-48"
+						class="aspect-[2/3] w-[calc((100%-0.5rem)/2)] shrink-0 animate-pulse bg-[var(--void-3)] sm:w-[calc((100%-1rem)/3)] md:w-[calc((100%-1.5rem)/4)] lg:w-[calc((100%-2.5rem)/6)] 2xl:w-[calc((100%-3.5rem)/8)]"
 					></div>
 				{/each}
 			</div>
@@ -1318,7 +1318,7 @@
 								chapterNumber: item.chapter.number,
 								chapterRouteSegment: item.chapter.routeSegment
 							})}
-							class="group relative block aspect-[2/3] w-[calc((100%-1rem)/3)] shrink-0 snap-start overflow-hidden bg-[var(--void-3)] ring-1 ring-[var(--void-1)] transition-all duration-300 hover:shadow-[0_0_28px_-6px_var(--cosmic-glow)] hover:ring-[var(--cosmic-halo)] sm:w-36 md:w-40 lg:w-44 xl:w-48"
+							class="group relative block aspect-[2/3] w-[calc((100%-0.5rem)/2)] shrink-0 snap-start overflow-hidden bg-[var(--void-3)] ring-1 ring-[var(--void-1)] transition-all duration-300 hover:shadow-[0_0_28px_-6px_var(--cosmic-glow)] hover:ring-[var(--cosmic-halo)] sm:w-[calc((100%-1rem)/3)] md:w-[calc((100%-1.5rem)/4)] lg:w-[calc((100%-2.5rem)/6)] 2xl:w-[calc((100%-3.5rem)/8)]"
 							aria-label={item.title}
 						>
 							{#if item.coverSrc}
@@ -1421,7 +1421,9 @@
 	{/if}
 
 	{#if loading}
-		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+		<div
+			class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 2xl:grid-cols-8"
+		>
 			{#each Array(18) as _, i (i)}
 				<div class="flex flex-col overflow-hidden border border-[var(--line)] bg-[var(--void-2)]">
 					<div
@@ -1459,7 +1461,9 @@
 			</div>
 		</EmptyState>
 	{:else}
-		<div class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+		<div
+			class="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 2xl:grid-cols-8"
+		>
 			{#each visibleFilteredTitles as title (title.id)}
 				{@const displayStatus = getDisplayStatus(title)}
 				<a
