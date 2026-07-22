@@ -126,12 +126,12 @@
 	const library = usePaginatedQuery(convexApi.library.listMinePage, () => ({}), {
 		initialNumItems: LIBRARY_DATA_PAGE_SIZE
 	});
-	const CONTINUE_READING_LIMIT = 6;
+	const CONTINUE_READING_FETCH_LIMIT = 24;
 	const continueReading = useQuery(convexApi.library.listContinueReading, () => ({
-		limit: CONTINUE_READING_LIMIT
+		limit: CONTINUE_READING_FETCH_LIMIT
 	}));
 	const continueReadingUpdates = useQuery(convexApi.library.listContinueReadingUpdates, () => ({
-		limit: CONTINUE_READING_LIMIT
+		limit: CONTINUE_READING_FETCH_LIMIT
 	}));
 	const hiddenLibraryTitles = useQuery(convexApi.library.listHiddenMine, () => ({}));
 	const collectionsQuery = useQuery(convexApi.library.listCollections, () => ({
@@ -1278,11 +1278,11 @@
 					{inactiveReadingRailLabel}
 				</button>
 			</div>
-			<div
-				class="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
-			>
-				{#each Array(CONTINUE_READING_LIMIT) as _, i (i)}
-					<div class="aspect-[2/3] animate-pulse bg-[var(--void-3)]"></div>
+			<div class="no-scrollbar flex gap-2 overflow-x-auto pb-1">
+				{#each Array(8) as _, i (i)}
+					<div
+						class="aspect-[2/3] w-[calc((100%-1rem)/3)] shrink-0 animate-pulse bg-[var(--void-3)] sm:w-36 md:w-40 lg:w-44 xl:w-48"
+					></div>
 				{/each}
 			</div>
 		</div>
@@ -1306,9 +1306,7 @@
 				</button>
 			</div>
 			{#if activeReadingRailItems.length > 0}
-				<div
-					class="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
-				>
+				<div class="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1">
 					{#each activeReadingRailItems as item (item.titleId)}
 						{@const tPct = continueProgressPercent(item)}
 						<a
@@ -1320,7 +1318,7 @@
 								chapterNumber: item.chapter.number,
 								chapterRouteSegment: item.chapter.routeSegment
 							})}
-							class="group relative block aspect-[2/3] overflow-hidden bg-[var(--void-3)] ring-1 ring-[var(--void-1)] transition-all duration-300 hover:shadow-[0_0_28px_-6px_var(--cosmic-glow)] hover:ring-[var(--cosmic-halo)]"
+							class="group relative block aspect-[2/3] w-[calc((100%-1rem)/3)] shrink-0 snap-start overflow-hidden bg-[var(--void-3)] ring-1 ring-[var(--void-1)] transition-all duration-300 hover:shadow-[0_0_28px_-6px_var(--cosmic-glow)] hover:ring-[var(--cosmic-halo)] sm:w-36 md:w-40 lg:w-44 xl:w-48"
 							aria-label={item.title}
 						>
 							{#if item.coverSrc}

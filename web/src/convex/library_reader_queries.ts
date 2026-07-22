@@ -1232,7 +1232,8 @@ async function buildContinueReadingEntry(
 	ctx: QueryCtx,
 	userId: GenericId<'users'>,
 	title: Doc<'libraryTitles'>,
-	titleRouteSegments: Map<string, string>
+	titleRouteSegments: Map<string, string>,
+	includeUnstarted = false
 ) {
 	const [chapters, preferredVariant, allProgress] = await Promise.all([
 		ctx.db
@@ -1288,17 +1289,17 @@ async function buildContinueReadingEntry(
 			([, left], [, right]) => right.updatedAt - left.updatedAt
 		)[0] ?? null;
 
-	if (!latestProgress) return null;
-
-	const progressChapter =
-		activeChapters.find((chapter) => chapter.chapterGroupKey === latestProgress[0]) ?? null;
+	const progressChapter = latestProgress
+		? (activeChapters.find((chapter) => chapter.chapterGroupKey === latestProgress[0]) ?? null)
+		: includeUnstarted
+			? (sortLibraryChaptersInReadingOrder(activeChapters)[0] ?? null)
+			: null;
 	if (!progressChapter) return null;
 
-	const latestChapterProgress = latestProgress[1] ?? null;
+	const latestChapterProgress = latestProgress?.[1] ?? null;
 	const chaptersRead = activeChapters.filter((chapter) =>
 		progressByGroupKey.has(chapter.chapterGroupKey)
 	).length;
-
 	if (activeChapters.length > 0 && chaptersRead >= activeChapters.length) {
 		return null;
 	}
@@ -1352,7 +1353,7 @@ export const listContinueReading = query({
 		if (!identity) return { items: [], totalInProgress: 0 };
 
 		const userId = identity.subject as GenericId<'users'>;
-		const limit = Math.min(Math.max(1, Math.floor(args.limit ?? 5)), 12);
+		const limit = Math.min(Math.max(1, Math.floor(args.limit ?? 5)), 24);
 
 		const recentTitles = await ctx.db
 			.query('libraryTitles')
@@ -1381,8 +1382,32 @@ export const listContinueReading = query({
 			)
 			.sort((left, right) => right.lastReadAt - left.lastReadAt)
 			.slice(0, limit);
+		if (items.length >= limit) return { items, totalInProgress };
 
-		return { items, totalInProgress };
+		const queuedTitles = (
+			await ctx.db
+				.query('libraryTitles')
+				.withIndex('by_owner_user_id_updated_at', (q) => q.eq('ownerUserId', userId))
+				.order('desc')
+				.take(limit * 4)
+		).filter((title) => title.listedInLibrary !== false && !title.lastReadAt);
+		const queuedRouteSegments = buildTitleRouteSegments(queuedTitles);
+		const queuedItems = await Promise.all(
+			queuedTitles.map((title) =>
+				buildContinueReadingEntry(ctx, userId, title, queuedRouteSegments, true)
+			)
+		);
+
+		return {
+			items: items
+				.concat(
+					queuedItems.filter(
+						(entry): entry is NonNullable<typeof entry> => entry !== null && entry.chapter !== null
+					)
+				)
+				.slice(0, limit),
+			totalInProgress
+		};
 	}
 });
 
@@ -1395,8 +1420,8 @@ export const listContinueReadingUpdates = query({
 		if (!identity) return { items: [], totalInProgress: 0, totalUpdated: 0 };
 
 		const userId = identity.subject as GenericId<'users'>;
-		const limit = Math.min(Math.max(1, Math.floor(args.limit ?? 5)), 12);
-		const continueLimit = Math.min(Math.max(1, Math.floor(args.limit ?? 5)), 12);
+		const limit = Math.min(Math.max(1, Math.floor(args.limit ?? 5)), 24);
+		const continueLimit = Math.min(Math.max(1, Math.floor(args.limit ?? 5)), 24);
 
 		const recentTitles = await ctx.db
 			.query('libraryTitles')
